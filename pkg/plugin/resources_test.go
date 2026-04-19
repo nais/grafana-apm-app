@@ -46,6 +46,24 @@ func TestCallResource(t *testing.T) {
 			expStatus: http.StatusOK,
 		},
 		{
+			name:      "get services 200",
+			method:    http.MethodGet,
+			path:      "services",
+			expStatus: http.StatusOK,
+		},
+		{
+			name:      "get service-map 200",
+			method:    http.MethodGet,
+			path:      "service-map",
+			expStatus: http.StatusOK,
+		},
+		{
+			name:      "get operations 200",
+			method:    http.MethodGet,
+			path:      "services/demo/frontend/operations",
+			expStatus: http.StatusOK,
+		},
+		{
 			name:      "get non existing handler 404",
 			method:    http.MethodGet,
 			path:      "not_found",
