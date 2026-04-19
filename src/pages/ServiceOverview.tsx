@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { PluginPage, config } from '@grafana/runtime';
+import { PluginPage } from '@grafana/runtime';
 import { useStyles2, Tab, TabsBar, Icon, LinkButton, Select, LoadingPlaceholder, Alert } from '@grafana/ui';
 import { GrafanaTheme2, SelectableValue, FieldType, LoadingState, toDataFrame } from '@grafana/data';
 import { css } from '@emotion/css';
@@ -20,18 +20,7 @@ import { buildTempoExploreUrl, buildLokiExploreUrl, buildMimirExploreUrl } from 
 import { getOperations, getServices, getServiceDependencies, OperationSummary, DependencySummary } from '../api/client';
 import { formatDuration, DEP_TYPE_ICONS } from '../utils/format';
 import { PLUGIN_BASE_URL } from '../constants';
-import pluginJson from '../plugin.json';
-
-/** Read datasource UIDs from plugin config, falling back to defaults */
-function getPluginDatasources() {
-  const meta = config.apps?.[pluginJson.id];
-  const jsonData = (meta as any)?.jsonData ?? {};
-  return {
-    metricsUid: jsonData.metricsDataSource?.uid || 'mimir',
-    tracesUid: jsonData.tracesDataSource?.uid || 'tempo',
-    logsUid: jsonData.logsDataSource?.uid || 'loki',
-  };
-}
+import { usePluginDatasources } from '../utils/datasources';
 
 type TabId = 'overview' | 'dependencies' | 'traces' | 'logs' | 'service-map';
 
@@ -56,7 +45,7 @@ function ServiceOverview() {
   const { namespace = '', service = '' } = useParams<{ namespace: string; service: string }>();
   const navigate = useNavigate();
   const styles = useStyles2(getStyles);
-  const ds = useMemo(() => getPluginDatasources(), []);
+  const ds = usePluginDatasources();
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [percentile, setPercentile] = useState<string>('0.95');
   const [sdkLanguage, setSdkLanguage] = useState<string>('');
