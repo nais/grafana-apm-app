@@ -98,6 +98,7 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/capabilities", a.handleCapabilities)
 	mux.HandleFunc("/services", a.handleServices)
 	mux.HandleFunc("/services/{namespace}/{service}/operations", a.handleOperations)
+	mux.HandleFunc("/services/{namespace}/{service}/endpoints", a.handleEndpoints)
 	mux.HandleFunc("/services/{namespace}/{service}/dependencies", a.handleServiceDependencies)
 	mux.HandleFunc("/services/{namespace}/{service}/connected", a.handleConnectedServices)
 	mux.HandleFunc("/service-map", a.handleServiceMap)

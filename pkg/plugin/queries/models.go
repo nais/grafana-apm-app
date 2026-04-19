@@ -77,3 +77,34 @@ type OperationSummary struct {
 	P99Duration  float64 `json:"p99Duration"`
 	DurationUnit string  `json:"durationUnit"`
 }
+
+// EndpointSummary represents a single API endpoint or operation with protocol metadata.
+type EndpointSummary struct {
+	SpanName     string  `json:"spanName"`
+	Rate         float64 `json:"rate"`
+	ErrorRate    float64 `json:"errorRate"`
+	P50Duration  float64 `json:"p50Duration"`
+	P95Duration  float64 `json:"p95Duration"`
+	P99Duration  float64 `json:"p99Duration"`
+	DurationUnit string  `json:"durationUnit"`
+
+	// HTTP-specific
+	HTTPMethod string `json:"httpMethod,omitempty"`
+	HTTPRoute  string `json:"httpRoute,omitempty"`
+
+	// gRPC-specific
+	RPCService string `json:"rpcService,omitempty"`
+	RPCMethod  string `json:"rpcMethod,omitempty"`
+
+	// Database-specific
+	DBSystem string `json:"dbSystem,omitempty"`
+}
+
+// EndpointGroups is the grouped endpoint response for the Server tab.
+type EndpointGroups struct {
+	HTTP         []EndpointSummary `json:"http"`
+	GRPC         []EndpointSummary `json:"grpc"`
+	Database     []EndpointSummary `json:"database"`
+	Internal     []EndpointSummary `json:"internal"`
+	DurationUnit string            `json:"durationUnit"`
+}

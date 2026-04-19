@@ -247,3 +247,43 @@ export async function getDependencyDetail(
     }
   );
 }
+
+// ---- Endpoints (Server tab) ----
+
+export interface EndpointSummary {
+  spanName: string;
+  rate: number;
+  errorRate: number;
+  p50Duration: number;
+  p95Duration: number;
+  p99Duration: number;
+  durationUnit: string;
+  httpMethod?: string;
+  httpRoute?: string;
+  rpcService?: string;
+  rpcMethod?: string;
+  dbSystem?: string;
+}
+
+export interface EndpointGroups {
+  http: EndpointSummary[];
+  grpc: EndpointSummary[];
+  database: EndpointSummary[];
+  internal: EndpointSummary[];
+  durationUnit: string;
+}
+
+export async function getEndpoints(
+  namespace: string,
+  service: string,
+  from: number,
+  to: number
+): Promise<EndpointGroups> {
+  return fetchResource<EndpointGroups>(
+    `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(service)}/endpoints`,
+    {
+      from: String(Math.floor(from / 1000)),
+      to: String(Math.floor(to / 1000)),
+    }
+  );
+}
