@@ -167,6 +167,7 @@ const getStyles = (theme: GrafanaTheme2) => ({
     display: flex;
     flex-direction: column;
     flex: 1;
+    padding: 0;
   `,
   description: css`
     color: ${theme.colors.text.secondary};

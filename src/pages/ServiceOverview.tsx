@@ -534,6 +534,7 @@ const getStyles = (theme: GrafanaTheme2) => ({
     display: flex;
     flex-direction: column;
     flex: 1;
+    padding: 0;
   `,
   header: css`
     display: flex;

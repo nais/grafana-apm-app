@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useStyles2, Select, Input, Icon } from '@grafana/ui';
 import { SelectableValue, GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
-import { GraphDrawStyle, StackingMode } from '@grafana/schema/dist/types/common/common.gen';
+import { GraphDrawStyle, StackingMode } from '@grafana/schema';
 import {
   SceneTimeRange,
   SceneQueryRunner,
