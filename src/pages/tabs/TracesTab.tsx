@@ -31,10 +31,10 @@ export function TracesTab({ service, namespace, tracesUid }: TracesTabProps) {
   const scene = useMemo(() => {
     const timeRange = new SceneTimeRange({ from: 'now-1h', to: 'now' });
 
+    // Note: resource.service.namespace may differ between signals (e.g., span metrics
+    // report "opentelemetry-demo" while traces/logs report "demo"). Only filter by
+    // service.name for reliability; namespace scoping is handled at the backend API level.
     const conditions: string[] = [`resource.service.name="${service}"`];
-    if (namespace) {
-      conditions.push(`resource.service.namespace="${namespace}"`);
-    }
     if (statusFilter === 'error') {
       conditions.push(`status=error`);
     } else if (statusFilter === 'ok') {
@@ -79,7 +79,7 @@ export function TracesTab({ service, namespace, tracesUid }: TracesTabProps) {
         ],
       }),
     });
-  }, [service, namespace, tracesUid, statusFilter, durationMin, durationMax, debouncedSearch]);
+  }, [service, tracesUid, statusFilter, durationMin, durationMax, debouncedSearch]);
 
   const statusOptions: Array<SelectableValue<string>> = [
     { label: 'All', value: '' },

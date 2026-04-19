@@ -180,7 +180,6 @@ const getStyles = (theme: GrafanaTheme2) => ({
     table-layout: fixed;
     th:nth-child(1) { width: 28%; }
     th:nth-child(2) { width: 10%; }
-    th:nth-child(n+3) { width: auto; text-align: right; }
     th {
       text-align: left;
       padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
@@ -191,6 +190,7 @@ const getStyles = (theme: GrafanaTheme2) => ({
       white-space: nowrap;
       user-select: none;
     }
+    th:nth-child(n+3) { width: auto; text-align: right; }
     td {
       padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
       border-bottom: 1px solid ${theme.colors.border.weak};

@@ -36,9 +36,10 @@ export function LogsTab({ service, namespace, logsUid }: LogsTabProps) {
 
   const scene = useMemo(() => {
     const timeRange = new SceneTimeRange({ from: 'now-1h', to: 'now' });
-    const svcMatcher = namespace
-      ? `service_name="${service}", service_namespace="${namespace}"`
-      : `service_name="${service}"`;
+    // Note: service_namespace may differ between signals (e.g., span metrics
+    // report "opentelemetry-demo" while logs report "demo"). Only filter by
+    // service_name for reliability; namespace scoping is handled at the backend API level.
+    const svcMatcher = `service_name="${service}"`;
     const severityMatcher = severityFilter.length > 0
       ? ` | level=~"${severityFilter.join('|')}"`
       : '';
@@ -99,7 +100,7 @@ export function LogsTab({ service, namespace, logsUid }: LogsTabProps) {
         ],
       }),
     });
-  }, [service, namespace, logsUid, severityFilter, debouncedSearch]);
+  }, [service, logsUid, severityFilter, debouncedSearch]);
 
   return (
     <div className={styles.wrapper}>
