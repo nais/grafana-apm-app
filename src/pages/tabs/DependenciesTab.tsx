@@ -3,6 +3,9 @@ import { useStyles2, Icon, LoadingPlaceholder, Alert } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getServiceDependencies, DependencySummary } from '../../api/client';
+import { useAppNavigate } from '../../utils/navigation';
+import { DepTypeIcon } from '../../components/DepTypeIcon';
+import { formatDuration } from '../../utils/format';
 
 export interface DependenciesTabProps {
   service: string;
@@ -11,34 +14,9 @@ export interface DependenciesTabProps {
   toMs: number;
 }
 
-const DEP_TYPE_ICONS: Record<string, string> = {
-  postgresql: '🐘',
-  mysql: '🐬',
-  redis: '🔴',
-  mongodb: '🍃',
-  elasticsearch: '🔍',
-  kafka: '📨',
-  rabbitmq: '🐰',
-  memcached: '⚡',
-  external: '🌐',
-  service: '🔗',
-};
-
-function formatDuration(value: number, unit: string): string {
-  if (unit === 's') {
-    if (value >= 1) {
-      return `${value.toFixed(2)}s`;
-    }
-    return `${(value * 1000).toFixed(0)}ms`;
-  }
-  if (value >= 1000) {
-    return `${(value / 1000).toFixed(2)}s`;
-  }
-  return `${value.toFixed(0)}ms`;
-}
-
 export function DependenciesTab({ service, namespace, fromMs, toMs }: DependenciesTabProps) {
   const styles = useStyles2(getStyles);
+  const appNavigate = useAppNavigate();
   const [deps, setDeps] = useState<DependencySummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -116,10 +94,14 @@ export function DependenciesTab({ service, namespace, fromMs, toMs }: Dependenci
         </thead>
         <tbody>
           {sorted.map((dep) => (
-            <tr key={dep.name}>
+            <tr
+              key={dep.name}
+              className={styles.clickableRow}
+              onClick={() => appNavigate(`dependencies/${encodeURIComponent(dep.name)}`)}
+            >
               <td className={styles.nameCell}>
-                <span style={{ marginRight: 6 }}>{DEP_TYPE_ICONS[dep.type] ?? '❓'}</span>
-                {dep.name}
+                <DepTypeIcon type={dep.type} />
+                <span style={{ marginLeft: 8 }}>{dep.name}</span>
               </td>
               <td className={styles.kindCell}>{dep.type}</td>
               <td className={styles.numCell}>{dep.rate.toFixed(2)} req/s</td>
@@ -175,20 +157,29 @@ const getStyles = (theme: GrafanaTheme2) => ({
     width: 100%;
     border-collapse: separate;
     border-spacing: 0;
+    table-layout: fixed;
+    th:nth-child(1) { width: 28%; }
+    th:nth-child(2) { width: 10%; }
+    th:nth-child(n+3) { width: auto; text-align: right; }
     th {
       text-align: left;
-      padding: ${theme.spacing(1)} ${theme.spacing(2)};
+      padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
       color: ${theme.colors.text.secondary};
       font-size: ${theme.typography.bodySmall.fontSize};
       font-weight: ${theme.typography.fontWeightMedium};
       border-bottom: 1px solid ${theme.colors.border.medium};
       white-space: nowrap;
+      user-select: none;
     }
     td {
-      padding: ${theme.spacing(1)} ${theme.spacing(2)};
+      padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
       border-bottom: 1px solid ${theme.colors.border.weak};
+      vertical-align: middle;
     }
-    tr:hover {
+  `,
+  clickableRow: css`
+    cursor: pointer;
+    &:hover {
       background: ${theme.colors.background.secondary};
     }
   `,
@@ -205,6 +196,8 @@ const getStyles = (theme: GrafanaTheme2) => ({
     max-width: 300px;
     overflow: hidden;
     text-overflow: ellipsis;
+    display: flex;
+    align-items: center;
   `,
   kindCell: css`
     color: ${theme.colors.text.secondary};

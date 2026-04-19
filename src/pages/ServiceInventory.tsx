@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { PluginPage } from '@grafana/runtime';
 import { Alert, Badge, Icon, Input, LoadingPlaceholder, Pagination, Select, useStyles2 } from '@grafana/ui';
 import { GrafanaTheme2, SelectableValue } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getServices, getCapabilities, ServiceSummary, Capabilities } from '../api/client';
-import { PLUGIN_BASE_URL } from '../constants';
 import { useTimeRange } from '../utils/timeRange';
+import { useAppNavigate } from '../utils/navigation';
 
 const SDK_BADGES: Record<string, { text: string; color: 'blue' | 'green' | 'orange' | 'red' | 'purple' }> = {
   java: { text: 'Java', color: 'orange' },
@@ -32,7 +32,7 @@ const PAGE_SIZE_OPTIONS: Array<SelectableValue<number>> = [
 
 function ServiceInventory() {
   const styles = useStyles2(getStyles);
-  const navigate = useNavigate();
+  const appNavigate = useAppNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { fromMs, toMs } = useTimeRange();
   const [services, setServices] = useState<ServiceSummary[]>([]);
@@ -191,7 +191,7 @@ function ServiceInventory() {
                     key={`${svc.namespace}/${svc.name}`}
                     className={styles.row}
                     onClick={() => {
-                      navigate(`${PLUGIN_BASE_URL}/services/${encodeURIComponent(svc.namespace)}/${encodeURIComponent(svc.name)}`);
+                      appNavigate(`services/${encodeURIComponent(svc.namespace)}/${encodeURIComponent(svc.name)}`);
                     }}
                   >
                     <td>
@@ -319,7 +319,9 @@ function formatDuration(value: number, unit: string): string {
 
 const getStyles = (theme: GrafanaTheme2) => ({
   container: css`
-    padding: ${theme.spacing(1)} ${theme.spacing(2)};
+    display: flex;
+    flex-direction: column;
+    flex: 1;
   `,
   toolbar: css`
     display: flex;

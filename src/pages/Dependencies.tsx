@@ -1,17 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { PluginPage } from '@grafana/runtime';
 import { useStyles2, Icon, LoadingPlaceholder, Alert } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getGlobalDependencies, DependencySummary } from '../api/client';
-import { PLUGIN_BASE_URL } from '../constants';
-import { formatDuration, DEP_TYPE_ICONS } from '../utils/format';
+import { formatDuration } from '../utils/format';
 import { useTimeRange } from '../utils/timeRange';
+import { useAppNavigate } from '../utils/navigation';
+import { DepTypeIcon } from '../components/DepTypeIcon';
 
 function Dependencies() {
   const styles = useStyles2(getStyles);
-  const navigate = useNavigate();
+  const appNavigate = useAppNavigate();
   const { fromMs, toMs } = useTimeRange();
   const [deps, setDeps] = useState<DependencySummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -105,11 +105,11 @@ function Dependencies() {
                 <tr
                   key={dep.name}
                   className={styles.clickableRow}
-                  onClick={() => navigate(`${PLUGIN_BASE_URL}/dependencies/${encodeURIComponent(dep.name)}`)}
+                  onClick={() => appNavigate(`dependencies/${encodeURIComponent(dep.name)}`)}
                 >
                   <td className={styles.nameCell}>
-                    <span className={styles.depIcon}>{DEP_TYPE_ICONS[dep.type] ?? '❓'}</span>
-                    {dep.name}
+                    <DepTypeIcon type={dep.type} />
+                    <span style={{ marginLeft: 8 }}>{dep.name}</span>
                   </td>
                   <td className={styles.typeCell}>{dep.type}</td>
                   <td className={styles.numCell}>{dep.rate.toFixed(2)} req/s</td>
@@ -164,7 +164,9 @@ function ImpactBar({ impact }: { impact: number }) {
 
 const getStyles = (theme: GrafanaTheme2) => ({
   container: css`
-    padding: ${theme.spacing(1)} ${theme.spacing(2)};
+    display: flex;
+    flex-direction: column;
+    flex: 1;
   `,
   description: css`
     color: ${theme.colors.text.secondary};
@@ -174,21 +176,24 @@ const getStyles = (theme: GrafanaTheme2) => ({
     width: 100%;
     border-collapse: separate;
     border-spacing: 0;
+    table-layout: fixed;
+    th:nth-child(1) { width: 28%; }
+    th:nth-child(2) { width: 10%; }
+    th:nth-child(n+3) { width: auto; text-align: right; }
     th {
       text-align: left;
-      padding: ${theme.spacing(1)} ${theme.spacing(2)};
+      padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
       color: ${theme.colors.text.secondary};
       font-size: ${theme.typography.bodySmall.fontSize};
       font-weight: ${theme.typography.fontWeightMedium};
       border-bottom: 1px solid ${theme.colors.border.medium};
       white-space: nowrap;
+      user-select: none;
     }
     td {
-      padding: ${theme.spacing(1)} ${theme.spacing(2)};
+      padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
       border-bottom: 1px solid ${theme.colors.border.weak};
-    }
-    tr:hover {
-      background: ${theme.colors.background.secondary};
+      vertical-align: middle;
     }
   `,
   sortableHeader: css`

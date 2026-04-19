@@ -34,7 +34,7 @@ type DependenciesResponse struct {
 func (a *App) handleServiceDependencies(w http.ResponseWriter, req *http.Request) {
 	ctx := req.Context()
 	service := queries.MustSanitizeLabel(req.PathValue("service"))
-	// namespace := queries.MustSanitizeLabel(req.PathValue("namespace"))
+	namespace := queries.MustSanitizeLabel(req.PathValue("namespace"))
 
 	caps := a.cachedOrDetectCapabilities(ctx)
 	if !caps.ServiceGraph.Detected {
@@ -45,7 +45,7 @@ func (a *App) handleServiceDependencies(w http.ResponseWriter, req *http.Request
 	now := time.Now()
 	to := parseUnixParam(req, "to", now)
 
-	deps := a.queryDependencies(ctx, to, service, "")
+	deps := a.queryDependencies(ctx, to, service, "", namespace)
 	writeJSON(w, DependenciesResponse{Dependencies: deps})
 }
 
@@ -63,7 +63,7 @@ func (a *App) handleGlobalDependencies(w http.ResponseWriter, req *http.Request)
 	now := time.Now()
 	to := parseUnixParam(req, "to", now)
 
-	deps := a.queryDependencies(ctx, to, "", "")
+	deps := a.queryDependencies(ctx, to, "", "", "")
 	writeJSON(w, DependenciesResponse{Dependencies: deps})
 }
 
@@ -99,11 +99,13 @@ type DependencyDetailResponse struct {
 
 // queryDependencies queries servicegraph metrics for dependencies.
 // If filterClient is set, only returns dependencies called by that service.
+// If filterNamespace is set, scopes to that client_service_namespace.
 func (a *App) queryDependencies(
 	ctx context.Context,
 	to time.Time,
 	filterClient string,
 	filterServer string,
+	filterNamespace string,
 ) []DependencySummary {
 	logger := log.DefaultLogger.With("handler", "dependencies")
 	rangeStr := "[5m]"
@@ -115,6 +117,9 @@ func (a *App) queryDependencies(
 	}
 	if filterServer != "" {
 		filters = append(filters, fmt.Sprintf(`server="%s"`, filterServer))
+	}
+	if filterNamespace != "" {
+		filters = append(filters, fmt.Sprintf(`client_service_namespace="%s"`, filterNamespace))
 	}
 	// Only virtual_node connections (external dependencies) unless filtering by server
 	if filterServer == "" {
@@ -233,9 +238,12 @@ func (a *App) queryDependencies(
 		totalImpact += d.p95 * d.rate
 	}
 
-	// Build response
+	// Build response — skip entries with empty or placeholder names
 	result := make([]DependencySummary, 0, len(deps))
 	for name, d := range deps {
+		if name == "" || name == "unknown" || name == "<unknown>" {
+			continue
+		}
 		errPct := 0.0
 		if d.rate > 0 {
 			errPct = (d.errorRate / d.rate) * 100
