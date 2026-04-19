@@ -1,0 +1,86 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+connectors:
+  spanmetrics:
+    namespace: traces.span.metrics
+    histogram:
+      explicit:
+        buckets: [2ms, 4ms, 6ms, 8ms, 10ms, 50ms, 100ms, 200ms, 400ms, 800ms, 1s, 1.4s, 2s, 5s, 10s, 15s]
+    dimensions:
+      - name: service.namespace
+      - name: deployment.environment
+      - name: http.method
+      - name: http.status_code
+      - name: http.route
+      - name: rpc.system
+      - name: rpc.service
+      - name: rpc.method
+    exemplars:
+      enabled: true
+    resource_metrics_key_attributes:
+      - service.name
+      - service.namespace
+      - telemetry.sdk.language
+
+  servicegraph:
+    latency_histogram_buckets: [2ms, 4ms, 6ms, 8ms, 10ms, 50ms, 100ms, 200ms, 400ms, 800ms, 1s, 1.4s, 2s, 5s, 10s, 15s]
+    dimensions:
+      - db.system
+      - messaging.system
+    virtual_node_peer_attributes:
+      - peer.service
+      - db.name
+      - db.system
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 1000
+
+  resource:
+    attributes:
+      - key: service.namespace
+        value: demo
+        action: upsert
+
+exporters:
+  otlphttp/tempo:
+    endpoint: http://tempo:4318
+    tls:
+      insecure: true
+
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+    tls:
+      insecure: true
+
+  prometheusremotewrite/mimir:
+    endpoint: http://mimir:9009/api/v1/push
+    tls:
+      insecure: true
+    resource_to_telemetry_conversion:
+      enabled: true
+
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch, resource]
+      exporters: [otlphttp/tempo, spanmetrics, servicegraph]
+    metrics:
+      receivers: [spanmetrics, servicegraph]
+      processors: [batch]
+      exporters: [prometheusremotewrite/mimir]
+    logs:
+      receivers: [otlp]
+      processors: [batch, resource]
+      exporters: [otlphttp/loki]

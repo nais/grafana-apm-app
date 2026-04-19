@@ -1,0 +1,51 @@
+{
+  "$schema": "https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/developers/plugins/plugin.schema.json",
+  "type": "app",
+  "name": "Application Observability",
+  "id": "nais-applicationobservability-app",
+  "backend": true,
+  "executable": "gpx_application_observability",
+  "info": {
+    "keywords": ["app", "observability", "apm", "otel", "opentelemetry"],
+    "description": "Application Performance Monitoring powered by OpenTelemetry data from Mimir, Loki, and Tempo",
+    "author": {
+      "name": "Nais"
+    },
+    "logos": {
+      "small": "img/logo.svg",
+      "large": "img/logo.svg"
+    },
+    "screenshots": [],
+    "version": "%VERSION%",
+    "updated": "%TODAY%"
+  },
+  "includes": [
+    {
+      "type": "page",
+      "name": "Services",
+      "path": "/a/%PLUGIN_ID%/services",
+      "addToNav": true,
+      "defaultNav": true,
+      "role": "Viewer"
+    },
+    {
+      "type": "page",
+      "name": "Service Map",
+      "path": "/a/%PLUGIN_ID%/service-map",
+      "addToNav": true,
+      "role": "Viewer"
+    },
+    {
+      "type": "page",
+      "icon": "cog",
+      "name": "Configuration",
+      "path": "/plugins/%PLUGIN_ID%",
+      "role": "Admin",
+      "addToNav": true
+    }
+  ],
+  "dependencies": {
+    "grafanaDependency": ">=12.0.0",
+    "plugins": []
+  }
+}

@@ -1,0 +1,17 @@
+apiVersion: 1
+
+apps:
+  - type: 'nais-applicationobservability-app'
+    org_id: 1
+    org_name: 'nais'
+    disabled: false
+    jsonData:
+      metricsDataSource:
+        uid: mimir
+        type: prometheus
+      tracesDataSource:
+        uid: tempo
+        type: tempo
+      logsDataSource:
+        uid: loki
+        type: loki

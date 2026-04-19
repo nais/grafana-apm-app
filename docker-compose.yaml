@@ -1,0 +1,116 @@
+services:
+  grafana:
+    extends:
+      file: .config/docker-compose-base.yaml
+      service: grafana
+    depends_on:
+      mimir:
+        condition: service_started
+      tempo:
+        condition: service_started
+      loki:
+        condition: service_started
+
+  mimir:
+    image: grafana/mimir:2.15.0
+    container_name: mimir
+    command: ["-config.file=/etc/mimir/mimir.yaml"]
+    volumes:
+      - ./config/mimir.yaml:/etc/mimir/mimir.yaml:ro
+      - mimir-data:/data/mimir
+    ports:
+      - "9009:9009"
+
+  tempo:
+    image: grafana/tempo:2.7.2
+    container_name: tempo
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ./config/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - "3200:3200"
+
+  loki:
+    image: grafana/loki:3.4.2
+    container_name: loki
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    volumes:
+      - ./config/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki-data:/loki
+    ports:
+      - "3100:3100"
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.120.0
+    container_name: otel-collector
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    depends_on:
+      - mimir
+      - tempo
+      - loki
+
+  # Lightweight multi-service trace generator
+  tracegen:
+    image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:v0.120.0
+    container_name: tracegen
+    command:
+      - traces
+      - --otlp-endpoint=otel-collector:4317
+      - --otlp-insecure
+      - --rate=5
+      - --duration=24h
+      - --service=frontend
+      - --otlp-attributes=service.namespace="demo"
+      - --otlp-attributes=deployment.environment="production"
+      - --telemetry-attributes=http.route="/api/products"
+      - --telemetry-attributes=http.method="GET"
+      - --telemetry-attributes=http.status_code="200"
+    depends_on:
+      - otel-collector
+
+  tracegen-cart:
+    image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:v0.120.0
+    container_name: tracegen-cart
+    command:
+      - traces
+      - --otlp-endpoint=otel-collector:4317
+      - --otlp-insecure
+      - --rate=3
+      - --duration=24h
+      - --service=cartservice
+      - --otlp-attributes=service.namespace="demo"
+      - --otlp-attributes=deployment.environment="production"
+      - --telemetry-attributes=http.route="/api/cart"
+      - --telemetry-attributes=http.method="POST"
+      - --telemetry-attributes=http.status_code="200"
+    depends_on:
+      - otel-collector
+
+  tracegen-checkout:
+    image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:v0.120.0
+    container_name: tracegen-checkout
+    command:
+      - traces
+      - --otlp-endpoint=otel-collector:4317
+      - --otlp-insecure
+      - --rate=2
+      - --duration=24h
+      - --service=checkoutservice
+      - --otlp-attributes=service.namespace="demo"
+      - --otlp-attributes=deployment.environment="production"
+      - --telemetry-attributes=rpc.system="grpc"
+      - --telemetry-attributes=rpc.service="oteldemo.CheckoutService"
+      - --telemetry-attributes=rpc.method="PlaceOrder"
+    depends_on:
+      - otel-collector
+
+volumes:
+  mimir-data:
+  tempo-data:
+  loki-data:
