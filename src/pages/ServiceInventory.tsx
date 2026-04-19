@@ -1,35 +1,37 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { PluginPage } from '@grafana/runtime';
-import { Alert, Icon, Input, LoadingPlaceholder, Pagination, Select, useStyles2 } from '@grafana/ui';
+import { Alert, Badge, Icon, Input, LoadingPlaceholder, Pagination, Select, useStyles2 } from '@grafana/ui';
 import { GrafanaTheme2, SelectableValue } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getServices, getCapabilities, ServiceSummary, Capabilities } from '../api/client';
 import { PLUGIN_BASE_URL } from '../constants';
 
-const SDK_ICONS: Record<string, { label: string; color: string }> = {
-  java: { label: '☕', color: '#E76F00' },
-  go: { label: '🐹', color: '#00ADD8' },
-  dotnet: { label: '.N', color: '#512BD4' },
-  python: { label: '🐍', color: '#3776AB' },
-  nodejs: { label: 'JS', color: '#68A063' },
-  ruby: { label: '💎', color: '#CC342D' },
-  rust: { label: '🦀', color: '#DEA584' },
-  cpp: { label: 'C+', color: '#00599C' },
-  erlang: { label: 'Er', color: '#A90533' },
-  php: { label: 'PHP', color: '#777BB4' },
+const SDK_BADGES: Record<string, { text: string; color: 'blue' | 'green' | 'orange' | 'red' | 'purple' }> = {
+  java: { text: 'Java', color: 'orange' },
+  go: { text: 'Go', color: 'blue' },
+  dotnet: { text: '.NET', color: 'purple' },
+  python: { text: 'Python', color: 'blue' },
+  nodejs: { text: 'Node.js', color: 'green' },
+  ruby: { text: 'Ruby', color: 'red' },
+  rust: { text: 'Rust', color: 'orange' },
+  cpp: { text: 'C++', color: 'blue' },
+  erlang: { text: 'Erlang', color: 'red' },
+  php: { text: 'PHP', color: 'purple' },
 };
 
 type SortField = 'name' | 'namespace' | 'p95Duration' | 'errorRate' | 'rate';
 type SortDir = 'asc' | 'desc';
 
 const PAGE_SIZE_OPTIONS: Array<SelectableValue<number>> = [
-  { label: '5', value: 5 },
   { label: '10', value: 10 },
   { label: '25', value: 25 },
+  { label: '50', value: 50 },
 ];
 
 function ServiceInventory() {
   const styles = useStyles2(getStyles);
+  const navigate = useNavigate();
   const [services, setServices] = useState<ServiceSummary[]>([]);
   const [caps, setCaps] = useState<Capabilities | null>(null);
   const [loading, setLoading] = useState(true);
@@ -38,7 +40,7 @@ function ServiceInventory() {
   const [sortField, setSortField] = useState<SortField>('name');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(5);
+  const [pageSize, setPageSize] = useState(25);
 
   useEffect(() => {
     const load = async () => {
@@ -152,7 +154,7 @@ function ServiceInventory() {
                     key={`${svc.namespace}/${svc.name}`}
                     className={styles.row}
                     onClick={() => {
-                      window.location.href = `${PLUGIN_BASE_URL}/services/${encodeURIComponent(svc.namespace)}/${encodeURIComponent(svc.name)}`;
+                      navigate(`${PLUGIN_BASE_URL}/services/${encodeURIComponent(svc.namespace)}/${encodeURIComponent(svc.name)}`);
                     }}
                   >
                     <td>
@@ -198,7 +200,7 @@ function ServiceInventory() {
                 <Select
                   options={PAGE_SIZE_OPTIONS}
                   value={pageSize}
-                  onChange={(v) => { setPageSize(v.value ?? 5); setPage(1); }}
+                  onChange={(v) => { setPageSize(v.value ?? 25); setPage(1); }}
                   width={8}
                 />
               </div>
@@ -220,23 +222,14 @@ function ServiceInventory() {
 }
 
 function SDKIcon({ language }: { language?: string }) {
-  const styles = useStyles2(getSDKStyles);
   if (!language) {
-    return <div className={styles.placeholder} />;
+    return null;
   }
-  const info = SDK_ICONS[language.toLowerCase()];
+  const info = SDK_BADGES[language.toLowerCase()];
   if (!info) {
-    return (
-      <div className={styles.icon} style={{ backgroundColor: '#555' }}>
-        {language.substring(0, 2).toUpperCase()}
-      </div>
-    );
+    return <Badge text={language.substring(0, 4)} color="blue" />;
   }
-  return (
-    <div className={styles.icon} style={{ backgroundColor: info.color }}>
-      {info.label}
-    </div>
-  );
+  return <Badge text={info.text} color={info.color} />;
 }
 
 function AreaSparkline({ data, color }: { data?: number[]; color: string }) {
@@ -286,28 +279,6 @@ function formatDuration(value: number, unit: string): string {
   }
   return `${value.toFixed(1)}s`;
 }
-
-const getSDKStyles = (theme: GrafanaTheme2) => ({
-  icon: css`
-    width: 32px;
-    height: 32px;
-    border-radius: 6px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 14px;
-    font-weight: ${theme.typography.fontWeightBold};
-    color: white;
-    flex-shrink: 0;
-  `,
-  placeholder: css`
-    width: 32px;
-    height: 32px;
-    border-radius: 6px;
-    background: ${theme.colors.background.secondary};
-    flex-shrink: 0;
-  `,
-});
 
 const getStyles = (theme: GrafanaTheme2) => ({
   container: css`

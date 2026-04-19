@@ -176,8 +176,6 @@ function DependencyDetail() {
                   {sorted.map((upstream) => (
                     <tr
                       key={upstream.name}
-                      className={styles.clickableRow}
-                      onClick={() => navigate(`${PLUGIN_BASE_URL}/services`)}
                     >
                       <td className={styles.nameCell}>
                         <Icon name="gf-layout-simple" size="sm" />
