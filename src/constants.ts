@@ -10,4 +10,6 @@ export enum ROUTES {
   ServiceLogs = 'services/:namespace/:service/logs',
   ServiceMap = 'service-map',
   ServiceServiceMap = 'services/:namespace/:service/service-map',
+  Dependencies = 'dependencies',
+  DependencyDetail = 'dependencies/:name',
 }

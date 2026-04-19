@@ -37,6 +37,13 @@
     },
     {
       "type": "page",
+      "name": "Dependencies",
+      "path": "/a/%PLUGIN_ID%/dependencies",
+      "addToNav": true,
+      "role": "Viewer"
+    },
+    {
+      "type": "page",
       "icon": "cog",
       "name": "Configuration",
       "path": "/plugins/%PLUGIN_ID%",
