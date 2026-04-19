@@ -1,15 +1,135 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { PluginPage } from '@grafana/runtime';
+import { Alert, LoadingPlaceholder, useStyles2 } from '@grafana/ui';
+import { GrafanaTheme2, FieldType, LoadingState, toDataFrame } from '@grafana/data';
+import { css } from '@emotion/css';
+import {
+  SceneFlexLayout,
+  SceneFlexItem,
+  SceneDataNode,
+  EmbeddedScene,
+  SceneTimePicker,
+  SceneTimeRange,
+  SceneRefreshPicker,
+  VizPanel,
+} from '@grafana/scenes';
+import { getServiceMap, ServiceMapResponse } from '../api/client';
 
 function ServiceMap() {
+  const styles = useStyles2(getStyles);
+  const [mapData, setMapData] = useState<ServiceMapResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        setLoading(true);
+        const now = Date.now();
+        const data = await getServiceMap(now - 3600000, now);
+        setMapData(data);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Failed to load service map');
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
+
+  const scene = useMemo(() => {
+    if (!mapData || mapData.nodes.length === 0) {
+      return null;
+    }
+
+    // Build Node Graph DataFrames
+    const nodesFrame = toDataFrame({
+      name: 'nodes',
+      fields: [
+        { name: 'id', type: FieldType.string, values: mapData.nodes.map((n) => n.id) },
+        { name: 'title', type: FieldType.string, values: mapData.nodes.map((n) => n.title) },
+        { name: 'mainStat', type: FieldType.string, values: mapData.nodes.map((n) => n.mainStat ?? '') },
+        { name: 'secondaryStat', type: FieldType.string, values: mapData.nodes.map((n) => n.secondaryStat ?? '') },
+        { name: 'arc__errors', type: FieldType.number, values: mapData.nodes.map((n) => n.arc__errors), config: { color: { fixedColor: 'red', mode: 'fixed' } } },
+        { name: 'arc__ok', type: FieldType.number, values: mapData.nodes.map((n) => n.arc__ok), config: { color: { fixedColor: 'green', mode: 'fixed' } } },
+      ],
+    });
+
+    const edgesFrame = toDataFrame({
+      name: 'edges',
+      fields: [
+        { name: 'id', type: FieldType.string, values: mapData.edges.map((e) => e.id) },
+        { name: 'source', type: FieldType.string, values: mapData.edges.map((e) => e.source) },
+        { name: 'target', type: FieldType.string, values: mapData.edges.map((e) => e.target) },
+        { name: 'mainStat', type: FieldType.string, values: mapData.edges.map((e) => e.mainStat ?? '') },
+        { name: 'secondaryStat', type: FieldType.string, values: mapData.edges.map((e) => e.secondaryStat ?? '') },
+      ],
+    });
+
+    nodesFrame.meta = { preferredVisualisationType: 'nodeGraph' };
+
+    const dataNode = new SceneDataNode({
+      data: {
+        series: [nodesFrame, edgesFrame],
+        state: LoadingState.Done,
+        timeRange: { from: new Date(), to: new Date(), raw: { from: 'now-1h', to: 'now' } } as any,
+      },
+    });
+
+    return new EmbeddedScene({
+      $timeRange: new SceneTimeRange({ from: 'now-1h', to: 'now' }),
+      controls: [new SceneTimePicker({}), new SceneRefreshPicker({})],
+      body: new SceneFlexLayout({
+        direction: 'column',
+        children: [
+          new SceneFlexItem({
+            minHeight: 500,
+            body: new VizPanel({
+              title: 'Service Map',
+              pluginId: 'nodeGraph',
+              $data: dataNode,
+              options: {},
+              fieldConfig: { defaults: {}, overrides: [] },
+            }),
+          }),
+        ],
+      }),
+    });
+  }, [mapData]);
+
   return (
     <PluginPage>
-      <div>
-        <h2>Service Map</h2>
-        <p>Service map will be implemented in Phase 5.</p>
+      <div className={styles.container}>
+        {error && <Alert severity="error" title="Error">{error}</Alert>}
+        {loading && <LoadingPlaceholder text="Loading service map..." />}
+
+        {!loading && mapData && mapData.nodes.length === 0 && (
+          <Alert severity="warning" title="No service graph data">
+            Service graph metrics not found. Ensure the OTel Collector servicegraph connector is configured.
+          </Alert>
+        )}
+
+        {!loading && scene && <scene.Component model={scene} />}
+
+        {!loading && mapData && mapData.nodes.length > 0 && (
+          <div className={styles.legend}>
+            <p>Click a node to navigate to the service detail page.</p>
+          </div>
+        )}
       </div>
     </PluginPage>
   );
 }
+
+const getStyles = (theme: GrafanaTheme2) => ({
+  container: css`
+    padding: ${theme.spacing(1)} ${theme.spacing(2)};
+  `,
+  legend: css`
+    margin-top: ${theme.spacing(2)};
+    color: ${theme.colors.text.secondary};
+    font-size: ${theme.typography.bodySmall.fontSize};
+  `,
+});
 
 export default ServiceMap;

@@ -105,3 +105,45 @@ export async function getOperations(
     }
   );
 }
+
+export interface ServiceMapNode {
+  id: string;
+  title: string;
+  subtitle?: string;
+  mainStat?: string;
+  secondaryStat?: string;
+  arc__errors: number;
+  arc__ok: number;
+}
+
+export interface ServiceMapEdge {
+  id: string;
+  source: string;
+  target: string;
+  mainStat?: string;
+  secondaryStat?: string;
+}
+
+export interface ServiceMapResponse {
+  nodes: ServiceMapNode[];
+  edges: ServiceMapEdge[];
+}
+
+export async function getServiceMap(
+  from: number,
+  to: number,
+  service?: string,
+  namespace?: string
+): Promise<ServiceMapResponse> {
+  const params: Record<string, string> = {
+    from: String(Math.floor(from / 1000)),
+    to: String(Math.floor(to / 1000)),
+  };
+  if (service) {
+    params.service = service;
+  }
+  if (namespace) {
+    params.namespace = namespace;
+  }
+  return fetchResource<ServiceMapResponse>('/service-map', params);
+}
