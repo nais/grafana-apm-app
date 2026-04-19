@@ -32,6 +32,8 @@ func (a *App) handleServices(w http.ResponseWriter, req *http.Request) {
 	to := parseUnixParam(req, "to", now)
 	step := parseDurationParam(req, "step", 60*time.Second)
 	withSeries := req.URL.Query().Get("withSeries") != "false"
+	filterNamespace := req.URL.Query().Get("namespace")
+	filterEnvironment := req.URL.Query().Get("environment")
 
 	// Get capability info for metric names
 	caps := a.cachedOrDetectCapabilities(ctx)
@@ -41,7 +43,7 @@ func (a *App) handleServices(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	services := a.fetchServiceSummaries(ctx, caps, from, to, step, withSeries)
+	services := a.fetchServiceSummaries(ctx, caps, from, to, step, withSeries, filterNamespace, filterEnvironment)
 	writeJSON(w, services)
 }
 
@@ -51,6 +53,7 @@ func (a *App) fetchServiceSummaries(
 	from, to time.Time,
 	step time.Duration,
 	withSeries bool,
+	filterNamespace, filterEnvironment string,
 ) []queries.ServiceSummary {
 	logger := log.DefaultLogger.With("handler", "services")
 	callsMetric := caps.SpanMetrics.CallsMetric
@@ -67,23 +70,32 @@ func (a *App) fetchServiceSummaries(
 
 	rangeStr := "[5m]"
 
+	// Build optional label filters for namespace/environment
+	extraFilters := ""
+	if filterNamespace != "" {
+		extraFilters += fmt.Sprintf(`, service_namespace="%s"`, filterNamespace)
+	}
+	if filterEnvironment != "" {
+		extraFilters += fmt.Sprintf(`, deployment_environment="%s"`, filterEnvironment)
+	}
+
 	// Queries: rate, error rate, P95 duration (all grouped by service_name, service_namespace)
 	rateQuery := fmt.Sprintf(
-		`sum by (service_name, service_namespace) (rate(%s{span_kind="SPAN_KIND_SERVER"}%s))`,
-		callsMetric, rangeStr,
+		`sum by (service_name, service_namespace) (rate(%s{span_kind="SPAN_KIND_SERVER"%s}%s))`,
+		callsMetric, extraFilters, rangeStr,
 	)
 	errorQuery := fmt.Sprintf(
-		`sum by (service_name, service_namespace) (rate(%s{span_kind="SPAN_KIND_SERVER", status_code="STATUS_CODE_ERROR"}%s))`,
-		callsMetric, rangeStr,
+		`sum by (service_name, service_namespace) (rate(%s{span_kind="SPAN_KIND_SERVER", status_code="STATUS_CODE_ERROR"%s}%s))`,
+		callsMetric, extraFilters, rangeStr,
 	)
 	p95Query := fmt.Sprintf(
-		`histogram_quantile(0.95, sum by (service_name, service_namespace, le) (rate(%s{span_kind="SPAN_KIND_SERVER"}%s)))`,
-		durationBucket, rangeStr,
+		`histogram_quantile(0.95, sum by (service_name, service_namespace, le) (rate(%s{span_kind="SPAN_KIND_SERVER"%s}%s)))`,
+		durationBucket, extraFilters, rangeStr,
 	)
 	// SDK language from telemetry_sdk_language label on span metrics
 	sdkQuery := fmt.Sprintf(
-		`group by (service_name, service_namespace, telemetry_sdk_language) (%s)`,
-		callsMetric,
+		`group by (service_name, service_namespace, telemetry_sdk_language) (%s{span_kind="SPAN_KIND_SERVER"%s})`,
+		callsMetric, extraFilters,
 	)
 
 	type queryResult struct {
