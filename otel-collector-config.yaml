@@ -5,6 +5,10 @@ receivers:
         endpoint: 0.0.0.0:4317
       http:
         endpoint: 0.0.0.0:4318
+        cors:
+          allowed_origins:
+            - "http://*"
+            - "https://*"
 
 connectors:
   spanmetrics:
@@ -43,7 +47,8 @@ processors:
     timeout: 5s
     send_batch_size: 1000
 
-  resource:
+  # Only used by the simple tracegens (docker-compose.yaml)
+  resource/demo-ns:
     attributes:
       - key: service.namespace
         value: demo
@@ -74,7 +79,7 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [batch, resource]
+      processors: [batch]
       exporters: [otlphttp/tempo, spanmetrics, servicegraph]
     metrics:
       receivers: [spanmetrics, servicegraph]
@@ -82,5 +87,5 @@ service:
       exporters: [prometheusremotewrite/mimir]
     logs:
       receivers: [otlp]
-      processors: [batch, resource]
+      processors: [batch]
       exporters: [otlphttp/loki]

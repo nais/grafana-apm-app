@@ -1,0 +1,414 @@
+# OpenTelemetry Demo microservices
+# Run with: docker compose -f docker-compose.yaml -f docker-compose.demo.yaml up -d
+#
+# This adds ~15 realistic microservices (Go, Java, .NET, Python, Node, Rust, C++, Ruby, PHP)
+# from the official OTel Demo, all sending telemetry through our LGTM stack.
+# The demo load generator creates continuous e-commerce traffic.
+
+x-default-logging: &logging
+  driver: "json-file"
+  options:
+    max-size: "5m"
+    max-file: "2"
+
+services:
+  # ---- Infrastructure dependencies ----
+
+  valkey-cart:
+    image: ghcr.io/valkey-io/valkey:9.0.2-alpine3.23
+    container_name: valkey-cart
+    deploy:
+      resources:
+        limits:
+          memory: 20M
+    restart: unless-stopped
+    logging: *logging
+
+  flagd:
+    image: ghcr.io/open-feature/flagd:v0.14.2
+    container_name: flagd
+    command:
+      - start
+      - --uri
+      - file:./etc/flagd/demo.flagd.json
+    deploy:
+      resources:
+        limits:
+          memory: 50M
+    restart: unless-stopped
+    environment:
+      - FLAGD_OTEL_COLLECTOR_URI=otel-collector:4317
+      - FLAGD_METRICS_EXPORTER=otel
+    ports:
+      - "8013"
+    volumes:
+      - ./config/flagd.json:/etc/flagd/demo.flagd.json:ro
+    logging: *logging
+
+  astronomy-db:
+    image: postgres:17.8
+    container_name: astronomy-db
+    command: postgres -c shared_preload_libraries=pg_stat_statements
+    deploy:
+      resources:
+        limits:
+          memory: 300M
+    restart: unless-stopped
+    environment:
+      - POSTGRES_PASSWORD=changeit
+    volumes:
+      - astronomy-db-data:/var/lib/postgresql/data
+      - ./config/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    logging: *logging
+
+  # ---- Demo microservices ----
+
+  ad:
+    image: ghcr.io/open-telemetry/demo:latest-ad
+    container_name: ad
+    deploy:
+      resources:
+        limits:
+          memory: 300M
+    restart: unless-stopped
+    environment:
+      - AD_PORT=9555
+      - FLAGD_HOST=flagd
+      - FLAGD_PORT=8013
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=cumulative
+      - OTEL_RESOURCE_ATTRIBUTES=service.namespace=opentelemetry-demo
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_SERVICE_NAME=ad
+    depends_on:
+      - otel-collector
+    logging: *logging
+
+  cart:
+    image: ghcr.io/open-telemetry/demo:latest-cart
+    container_name: cart
+    deploy:
+      resources:
+        limits:
+          memory: 160M
+    restart: unless-stopped
+    environment:
+      - CART_PORT=7070
+      - FLAGD_HOST=flagd
+      - FLAGD_PORT=8013
+      - VALKEY_ADDR=valkey-cart:6379
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=cumulative
+      - OTEL_RESOURCE_ATTRIBUTES=service.namespace=opentelemetry-demo
+      - OTEL_SERVICE_NAME=cart
+      - ASPNETCORE_URLS=http://*:7070
+    depends_on:
+      - valkey-cart
+      - otel-collector
+    logging: *logging
+
+  checkout:
+    image: ghcr.io/open-telemetry/demo:latest-checkout
+    container_name: checkout
+    deploy:
+      resources:
+        limits:
+          memory: 20M
+    restart: unless-stopped
+    environment:
+      - CHECKOUT_PORT=5050
+      - FLAGD_HOST=flagd
+      - FLAGD_PORT=8013
+      - CART_ADDR=cart:7070
+      - CURRENCY_ADDR=currency:7001
+      - EMAIL_ADDR=http://email:6060
+      - PAYMENT_ADDR=payment:50051
+      - PRODUCT_CATALOG_ADDR=product-catalog:3550
+      - SHIPPING_ADDR=http://shipping:50050
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=cumulative
+      - OTEL_RESOURCE_ATTRIBUTES=service.namespace=opentelemetry-demo
+      - OTEL_SERVICE_NAME=checkout
+    depends_on:
+      - cart
+      - currency
+      - email
+      - payment
+      - product-catalog
+      - shipping
+      - otel-collector
+    logging: *logging
+
+  currency:
+    image: ghcr.io/open-telemetry/demo:latest-currency
+    container_name: currency
+    deploy:
+      resources:
+        limits:
+          memory: 20M
+    restart: unless-stopped
+    environment:
+      - CURRENCY_PORT=7001
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=cumulative
+      - OTEL_RESOURCE_ATTRIBUTES=service.namespace=opentelemetry-demo
+      - VERSION=1.12.0
+      - OTEL_SERVICE_NAME=currency
+    depends_on:
+      - otel-collector
+    logging: *logging
+
+  email:
+    image: ghcr.io/open-telemetry/demo:latest-email
+    container_name: email
+    deploy:
+      resources:
+        limits:
+          memory: 100M
+    restart: unless-stopped
+    environment:
+      - APP_ENV=production
+      - EMAIL_PORT=6060
+      - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://otel-collector:4318/v1/traces
+      - OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otel-collector:4318/v1/metrics
+      - OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://otel-collector:4318/v1/logs
+      - OTEL_RESOURCE_ATTRIBUTES=service.namespace=opentelemetry-demo
+      - OTEL_SERVICE_NAME=email
+    depends_on:
+      - otel-collector
+    logging: *logging
+
+  frontend:
+    image: ghcr.io/open-telemetry/demo:latest-frontend
+    container_name: frontend-demo
+    deploy:
+      resources:
+        limits:
+          memory: 250M
+    restart: unless-stopped
+    environment:
+      - PORT=8080
+      - FRONTEND_PORT=8080
+      - FRONTEND_ADDR=frontend:8080
+      - AD_ADDR=ad:9555
+      - CART_ADDR=cart:7070
+      - CHECKOUT_ADDR=checkout:5050
+      - CURRENCY_ADDR=currency:7001
+      - PRODUCT_CATALOG_ADDR=product-catalog:3550
+      - RECOMMENDATION_ADDR=recommendation:9001
+      - SHIPPING_ADDR=http://shipping:50050
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=cumulative
+      - OTEL_RESOURCE_ATTRIBUTES=service.namespace=opentelemetry-demo
+      - WEB_OTEL_SERVICE_NAME=frontend-web
+      - OTEL_SERVICE_NAME=frontend
+      - PUBLIC_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:8080/otlp-http/v1/traces
+      - OTEL_COLLECTOR_HOST=otel-collector
+      - FLAGD_HOST=flagd
+      - FLAGD_PORT=8013
+    depends_on:
+      - ad
+      - cart
+      - checkout
+      - currency
+      - product-catalog
+      - quote
+      - recommendation
+      - shipping
+      - otel-collector
+      - image-provider
+    logging: *logging
+
+  frontend-proxy:
+    image: ghcr.io/open-telemetry/demo:latest-frontend-proxy
+    container_name: frontend-proxy
+    deploy:
+      resources:
+        limits:
+          memory: 50M
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - ENVOY_PORT=8080
+      - ENVOY_ADDR=0.0.0.0
+      - FRONTEND_HOST=frontend
+      - FRONTEND_PORT=8080
+      - LOCUST_HOST=load-generator
+      - LOCUST_PORT=8089
+      - LOCUST_WEB_HOST=load-generator
+      - LOCUST_WEB_PORT=8089
+      - FLAGD_HOST=flagd
+      - FLAGD_PORT=8013
+      - FLAGD_UI_HOST=flagd
+      - FLAGD_UI_PORT=4000
+      - IMAGE_PROVIDER_HOST=image-provider
+      - IMAGE_PROVIDER_PORT=8081
+      - OTEL_COLLECTOR_HOST=otel-collector
+      - OTEL_COLLECTOR_PORT_GRPC=4317
+      - OTEL_COLLECTOR_PORT_HTTP=4318
+      - ENVOY_ADMIN_PORT=10000
+      - GRAFANA_HOST=grafana
+      - GRAFANA_PORT=3000
+      - JAEGER_HOST=localhost
+      - JAEGER_UI_PORT=16686
+      - TELEMETRY_DOCS_HOST=localhost
+      - TELEMETRY_DOCS_PORT=8000
+    depends_on:
+      - frontend
+      - load-generator
+    logging: *logging
+
+  image-provider:
+    image: ghcr.io/open-telemetry/demo:latest-image-provider
+    container_name: image-provider
+    deploy:
+      resources:
+        limits:
+          memory: 120M
+    restart: unless-stopped
+    environment:
+      - IMAGE_PROVIDER_PORT=8081
+      - OTEL_COLLECTOR_HOST=otel-collector
+      - OTEL_COLLECTOR_PORT_GRPC=4317
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_RESOURCE_ATTRIBUTES=service.namespace=opentelemetry-demo
+      - OTEL_SERVICE_NAME=image-provider
+    depends_on:
+      - otel-collector
+    logging: *logging
+
+  load-generator:
+    image: ghcr.io/open-telemetry/demo:latest-load-generator
+    container_name: load-generator
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    restart: unless-stopped
+    environment:
+      - LOCUST_WEB_PORT=8089
+      - LOCUST_USERS=5
+      - LOCUST_HOST=http://frontend-proxy:8080
+      - LOCUST_AUTOSTART=true
+      - LOCUST_HEADLESS=false
+      - LOCUST_WEB_HOST=load-generator
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=cumulative
+      - OTEL_RESOURCE_ATTRIBUTES=service.namespace=opentelemetry-demo
+      - OTEL_SERVICE_NAME=load-generator
+      - PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
+      - FLAGD_HOST=flagd
+      - FLAGD_PORT=8013
+    depends_on:
+      - frontend
+      - flagd
+    logging: *logging
+
+  payment:
+    image: ghcr.io/open-telemetry/demo:latest-payment
+    container_name: payment
+    deploy:
+      resources:
+        limits:
+          memory: 120M
+    restart: unless-stopped
+    environment:
+      - PAYMENT_PORT=50051
+      - FLAGD_HOST=flagd
+      - FLAGD_PORT=8013
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=cumulative
+      - OTEL_RESOURCE_ATTRIBUTES=service.namespace=opentelemetry-demo
+      - OTEL_SERVICE_NAME=payment
+    depends_on:
+      - otel-collector
+    logging: *logging
+
+  product-catalog:
+    image: ghcr.io/open-telemetry/demo:latest-product-catalog
+    container_name: product-catalog
+    deploy:
+      resources:
+        limits:
+          memory: 20M
+    restart: unless-stopped
+    environment:
+      - PRODUCT_CATALOG_PORT=3550
+      - FLAGD_HOST=flagd
+      - FLAGD_PORT=8013
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=cumulative
+      - OTEL_RESOURCE_ATTRIBUTES=service.namespace=opentelemetry-demo
+      - OTEL_SERVICE_NAME=product-catalog
+      - OTEL_SEMCONV_STABILITY_OPT_IN=database
+      - DB_CONNECTION_STRING=postgres://astronomy_user:astronomy_password@astronomy-db/astronomy_db?sslmode=disable
+      - GOMEMLIMIT=16MiB
+    depends_on:
+      - otel-collector
+      - astronomy-db
+    logging: *logging
+
+  quote:
+    image: ghcr.io/open-telemetry/demo:latest-quote
+    container_name: quote
+    deploy:
+      resources:
+        limits:
+          memory: 40M
+    restart: unless-stopped
+    environment:
+      - QUOTE_PORT=8090
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=cumulative
+      - OTEL_RESOURCE_ATTRIBUTES=service.namespace=opentelemetry-demo
+      - OTEL_PHP_AUTOLOAD_ENABLED=true
+      - OTEL_SERVICE_NAME=quote
+    depends_on:
+      - otel-collector
+    logging: *logging
+
+  recommendation:
+    image: ghcr.io/open-telemetry/demo:latest-recommendation
+    container_name: recommendation
+    deploy:
+      resources:
+        limits:
+          memory: 500M
+    restart: unless-stopped
+    environment:
+      - RECOMMENDATION_PORT=9001
+      - PRODUCT_CATALOG_ADDR=product-catalog:3550
+      - FLAGD_HOST=flagd
+      - FLAGD_PORT=8013
+      - OTEL_PYTHON_LOG_CORRELATION=true
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=cumulative
+      - OTEL_RESOURCE_ATTRIBUTES=service.namespace=opentelemetry-demo
+      - OTEL_SERVICE_NAME=recommendation
+    depends_on:
+      - product-catalog
+      - otel-collector
+    logging: *logging
+
+  shipping:
+    image: ghcr.io/open-telemetry/demo:latest-shipping
+    container_name: shipping
+    deploy:
+      resources:
+        limits:
+          memory: 20M
+    restart: unless-stopped
+    environment:
+      - SHIPPING_PORT=50050
+      - QUOTE_ADDR=http://quote:8090
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=cumulative
+      - OTEL_RESOURCE_ATTRIBUTES=service.namespace=opentelemetry-demo
+      - OTEL_SERVICE_NAME=shipping
+    depends_on:
+      - otel-collector
+    logging: *logging
+
+volumes:
+  astronomy-db-data:
