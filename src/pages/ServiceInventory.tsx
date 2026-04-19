@@ -155,29 +155,37 @@ function ServiceInventory() {
                       window.location.href = `${PLUGIN_BASE_URL}/services/${encodeURIComponent(svc.namespace)}/${encodeURIComponent(svc.name)}`;
                     }}
                   >
-                    <td className={styles.nameCell}>
-                      <SDKIcon language={svc.sdkLanguage} />
-                      <span>{svc.name}</span>
+                    <td>
+                      <div className={styles.nameCell}>
+                        <SDKIcon language={svc.sdkLanguage} />
+                        <span>{svc.name}</span>
+                      </div>
                     </td>
                     <td className={styles.nsCell}>{svc.namespace}</td>
-                    <td className={styles.metricCell}>
-                      <span className={styles.metricValue}>
-                        {formatDuration(svc.p95Duration, svc.durationUnit)}
-                      </span>
-                      <AreaSparkline data={svc.durationSeries?.map((p) => p.v)} color="#E0B400" />
+                    <td>
+                      <div className={styles.metricCell}>
+                        <span className={styles.metricValue}>
+                          {formatDuration(svc.p95Duration, svc.durationUnit)}
+                        </span>
+                        <AreaSparkline data={svc.durationSeries?.map((p) => p.v)} color="#E0B400" />
+                      </div>
                     </td>
-                    <td className={styles.metricCell}>
-                      <span className={svc.errorRate > 0 ? styles.errorValue : styles.metricValue}>
-                        {svc.errorRate.toFixed(1)}%
-                      </span>
-                      {svc.errorRate > 0 && <div className={styles.errorBar} />}
-                      {svc.errorRate === 0 && <div className={styles.errorBarFlat} />}
+                    <td>
+                      <div className={styles.metricCell}>
+                        <span className={svc.errorRate > 0 ? styles.errorValue : styles.metricValue}>
+                          {svc.errorRate.toFixed(1)}%
+                        </span>
+                        {svc.errorRate > 0 && <div className={styles.errorBar} />}
+                        {svc.errorRate === 0 && <div className={styles.errorBarFlat} />}
+                      </div>
                     </td>
-                    <td className={styles.metricCell}>
-                      <span className={styles.metricValue}>
-                        {svc.rate.toFixed(1)} req/s
-                      </span>
-                      <AreaSparkline data={svc.rateSeries?.map((p) => p.v)} color="#73BF69" />
+                    <td>
+                      <div className={styles.metricCell}>
+                        <span className={styles.metricValue}>
+                          {svc.rate.toFixed(1)} req/s
+                        </span>
+                        <AreaSparkline data={svc.rateSeries?.map((p) => p.v)} color="#73BF69" />
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -233,13 +241,13 @@ function SDKIcon({ language }: { language?: string }) {
 
 function AreaSparkline({ data, color }: { data?: number[]; color: string }) {
   if (!data || data.length < 2) {
-    return <div style={{ width: 160, height: 32 }} />;
+    return <div style={{ width: 120, height: 28 }} />;
   }
   const max = Math.max(...data);
   const min = Math.min(...data);
   const range = max - min || 1;
-  const w = 160;
-  const h = 32;
+  const w = 120;
+  const h = 28;
   const pad = 1;
 
   const points = data.map((v, i) => {
@@ -312,9 +320,15 @@ const getStyles = (theme: GrafanaTheme2) => ({
     width: 100%;
     border-collapse: separate;
     border-spacing: 0;
+    table-layout: fixed;
+    th:nth-child(1) { width: 25%; }
+    th:nth-child(2) { width: 12%; }
+    th:nth-child(3) { width: 25%; }
+    th:nth-child(4) { width: 15%; }
+    th:nth-child(5) { width: 23%; }
     th {
       text-align: left;
-      padding: ${theme.spacing(1.5)} ${theme.spacing(2)};
+      padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
       color: ${theme.colors.text.secondary};
       font-size: ${theme.typography.bodySmall.fontSize};
       font-weight: ${theme.typography.fontWeightMedium};
@@ -323,7 +337,7 @@ const getStyles = (theme: GrafanaTheme2) => ({
       user-select: none;
     }
     td {
-      padding: ${theme.spacing(1.5)} ${theme.spacing(2)};
+      padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
       border-bottom: 1px solid ${theme.colors.border.weak};
       vertical-align: middle;
     }
@@ -367,12 +381,12 @@ const getStyles = (theme: GrafanaTheme2) => ({
     font-weight: ${theme.typography.fontWeightMedium};
   `,
   errorBar: css`
-    width: 160px;
+    width: 80px;
     height: 2px;
     background: ${theme.colors.error.main};
   `,
   errorBarFlat: css`
-    width: 160px;
+    width: 80px;
     height: 2px;
     background: ${theme.colors.border.weak};
   `,

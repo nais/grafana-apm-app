@@ -362,7 +362,8 @@ function TracesTab({ service, namespace }: { service: string; namespace: string 
         {
           refId: 'A',
           queryType: 'traceql',
-          query: `{resource.service.name="${service}" && span.kind=server}`,
+          query: `{resource.service.name="${service}"}`,
+          tableType: 'traces',
           limit: 20,
         },
       ],
@@ -399,7 +400,9 @@ function LogsTab({ service, namespace }: { service: string; namespace: string })
       queries: [
         {
           refId: 'A',
-          expr: `{service_name="${service}"} | logfmt`,
+          expr: `{service_name="${service}"}`,
+          queryType: 'range',
+          maxLines: 100,
         },
       ],
     });
