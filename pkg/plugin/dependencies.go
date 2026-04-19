@@ -118,9 +118,9 @@ func (a *App) queryDependencies(
 	if filterServer != "" {
 		filters = append(filters, fmt.Sprintf(`server="%s"`, filterServer))
 	}
-	if filterNamespace != "" {
-		filters = append(filters, fmt.Sprintf(`client_service_namespace="%s"`, filterNamespace))
-	}
+	// Note: service graph metrics don't carry namespace labels
+	// (only client, server, connection_type, client_db_system).
+	// Namespace filtering is not possible at the PromQL level for service graph data.
 	// Only virtual_node connections (external dependencies) unless filtering by server
 	if filterServer == "" {
 		filters = append(filters, `connection_type="virtual_node"`)

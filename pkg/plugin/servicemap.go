@@ -67,11 +67,10 @@ func (a *App) queryServiceMap(
 	logger := log.DefaultLogger.With("handler", "servicemap")
 	rangeStr := "[5m]"
 
-	// Build optional label filter for per-service view
+	// Note: service graph metrics don't carry namespace labels
+	// (only client, server, connection_type, client_db_system).
+	// Per-service filtering is done post-query on filterService.
 	labelFilter := ""
-	if filterNamespace != "" {
-		labelFilter = fmt.Sprintf(`client_service_namespace="%s"`, filterNamespace)
-	}
 
 	// Service graph metrics
 	rateQuery := fmt.Sprintf(
