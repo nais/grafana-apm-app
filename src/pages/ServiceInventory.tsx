@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { PluginPage } from '@grafana/runtime';
 import { Alert, Badge, Icon, Input, LoadingPlaceholder, Pagination, Select, useStyles2 } from '@grafana/ui';
 import { GrafanaTheme2, SelectableValue } from '@grafana/data';
@@ -33,6 +33,7 @@ const PAGE_SIZE_OPTIONS: Array<SelectableValue<number>> = [
 function ServiceInventory() {
   const styles = useStyles2(getStyles);
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { fromMs, toMs } = useTimeRange();
   const [services, setServices] = useState<ServiceSummary[]>([]);
   const [caps, setCaps] = useState<Capabilities | null>(null);
@@ -43,6 +44,30 @@ function ServiceInventory() {
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+
+  const namespaceFilter = searchParams.get('namespace') || '';
+  const setNamespaceFilter = (ns: string) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (ns) {
+        next.set('namespace', ns);
+      } else {
+        next.delete('namespace');
+      }
+      return next;
+    }, { replace: true });
+    setPage(1);
+  };
+
+  // Compute unique namespaces for the filter dropdown
+  const namespaceOptions = useMemo<Array<SelectableValue<string>>>(() => {
+    const nss = new Set(services.map((s) => s.namespace).filter(Boolean));
+    const opts: Array<SelectableValue<string>> = [{ label: 'All namespaces', value: '' }];
+    for (const ns of [...nss].sort()) {
+      opts.push({ label: ns, value: ns });
+    }
+    return opts;
+  }, [services]);
 
   useEffect(() => {
     const load = async () => {
@@ -65,6 +90,9 @@ function ServiceInventory() {
 
   const filtered = useMemo(() => {
     let result = services;
+    if (namespaceFilter) {
+      result = result.filter((s) => s.namespace === namespaceFilter);
+    }
     if (search) {
       const q = search.toLowerCase();
       result = result.filter(
@@ -126,6 +154,14 @@ function ServiceInventory() {
                 width={30}
                 value={search}
                 onChange={(e) => { setSearch(e.currentTarget.value); setPage(1); }}
+              />
+              <Select
+                options={namespaceOptions}
+                value={namespaceFilter}
+                onChange={(v) => setNamespaceFilter(v.value ?? '')}
+                width={25}
+                placeholder="All namespaces"
+                isClearable
               />
             </div>
 
@@ -286,6 +322,9 @@ const getStyles = (theme: GrafanaTheme2) => ({
     padding: ${theme.spacing(1)} ${theme.spacing(2)};
   `,
   toolbar: css`
+    display: flex;
+    gap: ${theme.spacing(1)};
+    align-items: center;
     margin-bottom: ${theme.spacing(2)};
   `,
   table: css`
