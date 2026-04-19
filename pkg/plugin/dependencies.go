@@ -33,8 +33,8 @@ type DependenciesResponse struct {
 // GET /services/{namespace}/{service}/dependencies?from=&to=
 func (a *App) handleServiceDependencies(w http.ResponseWriter, req *http.Request) {
 	ctx := req.Context()
-	service := req.PathValue("service")
-	// namespace := req.PathValue("namespace")
+	service := queries.MustSanitizeLabel(req.PathValue("service"))
+	// namespace := queries.MustSanitizeLabel(req.PathValue("namespace"))
 
 	caps := a.cachedOrDetectCapabilities(ctx)
 	if !caps.ServiceGraph.Detected {
@@ -71,7 +71,7 @@ func (a *App) handleGlobalDependencies(w http.ResponseWriter, req *http.Request)
 // GET /dependencies/{name}?from=&to=
 func (a *App) handleDependencyDetail(w http.ResponseWriter, req *http.Request) {
 	ctx := req.Context()
-	depName := req.PathValue("name")
+	depName := queries.MustSanitizeLabel(req.PathValue("name"))
 
 	caps := a.cachedOrDetectCapabilities(ctx)
 	if !caps.ServiceGraph.Detected {

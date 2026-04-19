@@ -32,8 +32,8 @@ func (a *App) handleServices(w http.ResponseWriter, req *http.Request) {
 	to := parseUnixParam(req, "to", now)
 	step := parseDurationParam(req, "step", 60*time.Second)
 	withSeries := req.URL.Query().Get("withSeries") != "false"
-	filterNamespace := req.URL.Query().Get("namespace")
-	filterEnvironment := req.URL.Query().Get("environment")
+	filterNamespace := queries.MustSanitizeLabel(req.URL.Query().Get("namespace"))
+	filterEnvironment := queries.MustSanitizeLabel(req.URL.Query().Get("environment"))
 
 	// Get capability info for metric names
 	caps := a.cachedOrDetectCapabilities(ctx)
