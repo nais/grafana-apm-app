@@ -69,9 +69,8 @@ func (a *App) queryServiceMap(
 
 	// Build optional label filter for per-service view
 	labelFilter := ""
-	if filterService != "" {
-		// Show edges where this service is either client or server
-		// We'll query both and merge
+	if filterNamespace != "" {
+		labelFilter = fmt.Sprintf(`client_service_namespace="%s"`, filterNamespace)
 	}
 
 	// Service graph metrics
