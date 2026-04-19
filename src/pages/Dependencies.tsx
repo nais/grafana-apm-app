@@ -7,10 +7,12 @@ import { css } from '@emotion/css';
 import { getGlobalDependencies, DependencySummary } from '../api/client';
 import { PLUGIN_BASE_URL } from '../constants';
 import { formatDuration, DEP_TYPE_ICONS } from '../utils/format';
+import { useTimeRange } from '../utils/timeRange';
 
 function Dependencies() {
   const styles = useStyles2(getStyles);
   const navigate = useNavigate();
+  const { fromMs, toMs } = useTimeRange();
   const [deps, setDeps] = useState<DependencySummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -22,8 +24,7 @@ function Dependencies() {
       try {
         setLoading(true);
         setError(null);
-        const now = Date.now();
-        const resp = await getGlobalDependencies(now - 3600000, now);
+        const resp = await getGlobalDependencies(fromMs, toMs);
         setDeps(resp.dependencies);
       } catch (e: any) {
         setError(e.message ?? 'Failed to load dependencies');
@@ -32,7 +33,7 @@ function Dependencies() {
       }
     };
     load();
-  }, []);
+  }, [fromMs, toMs]);
 
   const toggleSort = useCallback((field: keyof DependencySummary) => {
     setSortField((prev) => {

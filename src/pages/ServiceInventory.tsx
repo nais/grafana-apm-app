@@ -6,6 +6,7 @@ import { GrafanaTheme2, SelectableValue } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getServices, getCapabilities, ServiceSummary, Capabilities } from '../api/client';
 import { PLUGIN_BASE_URL } from '../constants';
+import { useTimeRange } from '../utils/timeRange';
 
 const SDK_BADGES: Record<string, { text: string; color: 'blue' | 'green' | 'orange' | 'red' | 'purple' }> = {
   java: { text: 'Java', color: 'orange' },
@@ -32,6 +33,7 @@ const PAGE_SIZE_OPTIONS: Array<SelectableValue<number>> = [
 function ServiceInventory() {
   const styles = useStyles2(getStyles);
   const navigate = useNavigate();
+  const { fromMs, toMs } = useTimeRange();
   const [services, setServices] = useState<ServiceSummary[]>([]);
   const [caps, setCaps] = useState<Capabilities | null>(null);
   const [loading, setLoading] = useState(true);
@@ -46,10 +48,9 @@ function ServiceInventory() {
     const load = async () => {
       try {
         setLoading(true);
-        const now = Date.now();
         const [capsResult, servicesResult] = await Promise.all([
           getCapabilities(),
-          getServices(now - 3600000, now, 60, true),
+          getServices(fromMs, toMs, 60, true),
         ]);
         setCaps(capsResult);
         setServices(servicesResult);
@@ -60,7 +61,7 @@ function ServiceInventory() {
       }
     };
     load();
-  }, []);
+  }, [fromMs, toMs]);
 
   const filtered = useMemo(() => {
     let result = services;

@@ -23,6 +23,7 @@ import { getOperations, getServices, getServiceDependencies, OperationSummary, D
 import { formatDuration, DEP_TYPE_ICONS } from '../utils/format';
 import { PLUGIN_BASE_URL } from '../constants';
 import { usePluginDatasources } from '../utils/datasources';
+import { useTimeRange } from '../utils/timeRange';
 
 type TabId = 'overview' | 'dependencies' | 'traces' | 'logs' | 'service-map';
 
@@ -48,6 +49,7 @@ function ServiceOverview() {
   const navigate = useNavigate();
   const styles = useStyles2(getStyles);
   const ds = usePluginDatasources();
+  const { from, to, fromMs, toMs } = useTimeRange();
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [percentile, setPercentile] = useState<string>('0.95');
   const [sdkLanguage, setSdkLanguage] = useState<string>('');
@@ -61,8 +63,7 @@ function ServiceOverview() {
   useEffect(() => {
     const fetchSDK = async () => {
       try {
-        const now = Date.now();
-        const svcs = await getServices(now - 3600000, now, 60, false);
+        const svcs = await getServices(fromMs, toMs, 60, false);
         const match = svcs.find((s) => s.name === service && s.namespace === namespace);
         if (match?.sdkLanguage) {
           setSdkLanguage(match.sdkLanguage);
@@ -72,15 +73,14 @@ function ServiceOverview() {
       }
     };
     fetchSDK();
-  }, [service, namespace]);
+  }, [service, namespace, fromMs, toMs]);
 
   // Fetch operations
   useEffect(() => {
     const fetchOps = async () => {
       try {
         setOpsLoading(true);
-        const now = Date.now();
-        const ops = await getOperations(namespace, service, now - 3600000, now);
+        const ops = await getOperations(namespace, service, fromMs, toMs);
         setOperations(ops);
       } catch (e) {
         setOpsError(e instanceof Error ? e.message : 'Failed to load operations');
@@ -89,13 +89,13 @@ function ServiceOverview() {
       }
     };
     fetchOps();
-  }, [service, namespace]);
+  }, [service, namespace, fromMs, toMs]);
 
   const percentileLabel = PERCENTILE_OPTIONS.find((o) => o.value === percentile)?.label ?? 'P95';
 
   // Scenes for RED panels — rebuild when percentile changes
   const scene = useMemo(() => {
-    const timeRange = new SceneTimeRange({ from: 'now-30m', to: 'now' });
+    const timeRange = new SceneTimeRange({ from, to });
     const svcFilter = `service_name="${service}", service_namespace="${namespace}"`;
 
     const durationQuery = new SceneQueryRunner({
@@ -180,7 +180,7 @@ function ServiceOverview() {
         ],
       }),
     });
-  }, [service, namespace, percentile, percentileLabel]);
+  }, [service, namespace, percentile, percentileLabel, from, to, ds]);
 
   const sortedOps = useMemo(() => {
     return [...operations].sort((a, b) => {
@@ -317,7 +317,7 @@ function ServiceOverview() {
           )}
 
           {activeTab === 'dependencies' && (
-            <DependenciesTab service={service} namespace={namespace} />
+            <DependenciesTab service={service} namespace={namespace} fromMs={fromMs} toMs={toMs} />
           )}
 
           {activeTab === 'logs' && (
@@ -325,7 +325,7 @@ function ServiceOverview() {
           )}
 
           {activeTab === 'service-map' && (
-            <ServiceMapTab service={service} namespace={namespace} />
+            <ServiceMapTab service={service} namespace={namespace} fromMs={fromMs} toMs={toMs} />
           )}
         </div>
       </div>
@@ -432,7 +432,7 @@ function LogsTab({ service, namespace, logsUid }: { service: string; namespace: 
 }
 
 /** Service Map tab — per-service neighborhood map */
-function ServiceMapTab({ service, namespace }: { service: string; namespace: string }) {
+function ServiceMapTab({ service, namespace, fromMs, toMs }: { service: string; namespace: string; fromMs: number; toMs: number }) {
   const [mapData, setMapData] = useState<import('../api/client').ServiceMapResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -440,9 +440,8 @@ function ServiceMapTab({ service, namespace }: { service: string; namespace: str
     const load = async () => {
       try {
         setLoading(true);
-        const now = Date.now();
         const { getServiceMap } = await import('../api/client');
-        const data = await getServiceMap(now - 3600000, now, service, namespace);
+        const data = await getServiceMap(fromMs, toMs, service, namespace);
         setMapData(data);
       } catch {
         // ignore
@@ -451,7 +450,7 @@ function ServiceMapTab({ service, namespace }: { service: string; namespace: str
       }
     };
     load();
-  }, [service, namespace]);
+  }, [service, namespace, fromMs, toMs]);
 
   const scene = useMemo(() => {
     if (!mapData || mapData.nodes.length === 0) {
@@ -527,7 +526,7 @@ function ServiceMapTab({ service, namespace }: { service: string; namespace: str
 }
 
 /** Dependencies tab — shows downstream dependencies with RED + impact */
-function DependenciesTab({ service, namespace }: { service: string; namespace: string }) {
+function DependenciesTab({ service, namespace, fromMs, toMs }: { service: string; namespace: string; fromMs: number; toMs: number }) {
   const styles = useStyles2(getStyles);
   const [deps, setDeps] = useState<DependencySummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -540,8 +539,7 @@ function DependenciesTab({ service, namespace }: { service: string; namespace: s
       try {
         setLoading(true);
         setError(null);
-        const now = Date.now();
-        const resp = await getServiceDependencies(namespace, service, now - 3600000, now);
+        const resp = await getServiceDependencies(namespace, service, fromMs, toMs);
         setDeps(resp.dependencies);
       } catch (e: any) {
         setError(e.message ?? 'Failed to load dependencies');
@@ -550,7 +548,7 @@ function DependenciesTab({ service, namespace }: { service: string; namespace: s
       }
     };
     load();
-  }, [service, namespace]);
+  }, [service, namespace, fromMs, toMs]);
 
   const toggleSort = useCallback((field: keyof DependencySummary) => {
     setSortField((prev) => {
