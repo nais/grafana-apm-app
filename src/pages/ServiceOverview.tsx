@@ -15,7 +15,9 @@ import {
   PanelBuilders,
   EmbeddedScene,
   VizPanel,
+  behaviors,
 } from '@grafana/scenes';
+import { DashboardCursorSync } from '@grafana/schema';
 import { buildTempoExploreUrl, buildLokiExploreUrl, buildMimirExploreUrl } from '../utils/explore';
 import { getOperations, getServices, getServiceDependencies, OperationSummary, DependencySummary } from '../api/client';
 import { formatDuration, DEP_TYPE_ICONS } from '../utils/format';
@@ -138,6 +140,7 @@ function ServiceOverview() {
 
     return new EmbeddedScene({
       $timeRange: timeRange,
+      $behaviors: [new behaviors.CursorSync({ sync: DashboardCursorSync.Crosshair })],
       controls: [new SceneTimePicker({}), new SceneRefreshPicker({})],
       body: new SceneFlexLayout({
         direction: 'row',
