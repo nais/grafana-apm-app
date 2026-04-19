@@ -75,9 +75,10 @@ func (a *App) handleDependencyDetail(w http.ResponseWriter, req *http.Request) {
 
 	caps := a.cachedOrDetectCapabilities(ctx)
 	if !caps.ServiceGraph.Detected {
-		writeJSON(w, map[string]interface{}{
-			"dependency": DependencySummary{Name: depName},
-			"upstreams":  []DependencySummary{},
+		writeJSON(w, DependencyDetailResponse{
+			Dependency: DependencySummary{Name: depName},
+			Upstreams:  []DependencySummary{},
+			Operations: []queries.OperationSummary{},
 		})
 		return
 	}
@@ -85,14 +86,15 @@ func (a *App) handleDependencyDetail(w http.ResponseWriter, req *http.Request) {
 	now := time.Now()
 	to := parseUnixParam(req, "to", now)
 
-	detail := a.queryDependencyDetail(ctx, to, depName)
+	detail := a.queryDependencyDetail(ctx, caps, to, depName)
 	writeJSON(w, detail)
 }
 
-// DependencyDetailResponse contains dependency info plus upstream callers.
+// DependencyDetailResponse contains dependency info plus upstream callers and operations.
 type DependencyDetailResponse struct {
-	Dependency DependencySummary   `json:"dependency"`
-	Upstreams  []DependencySummary `json:"upstreams"`
+	Dependency DependencySummary          `json:"dependency"`
+	Upstreams  []DependencySummary        `json:"upstreams"`
+	Operations []queries.OperationSummary `json:"operations"`
 }
 
 // queryDependencies queries servicegraph metrics for dependencies.
@@ -264,9 +266,10 @@ func (a *App) queryDependencies(
 	return result
 }
 
-// queryDependencyDetail returns RED metrics + upstream callers for a dependency.
+// queryDependencyDetail returns RED metrics + upstream callers + operations for a dependency.
 func (a *App) queryDependencyDetail(
 	ctx context.Context,
+	caps queries.Capabilities,
 	to time.Time,
 	depName string,
 ) DependencyDetailResponse {
@@ -418,6 +421,9 @@ func (a *App) queryDependencyDetail(
 		errPct = (totalError / totalRate) * 100
 	}
 
+	// Query operations that target this dependency via spanmetrics peer_service dimension
+	operations := a.queryDependencyOperations(ctx, caps, to, depName)
+
 	return DependencyDetailResponse{
 		Dependency: DependencySummary{
 			Name:         depName,
@@ -427,8 +433,131 @@ func (a *App) queryDependencyDetail(
 			P95Duration:  roundTo(totalP95*1000, 2),
 			DurationUnit: "ms",
 		},
-		Upstreams: upstreamList,
+		Upstreams:  upstreamList,
+		Operations: operations,
 	}
+}
+
+// queryDependencyOperations queries spanmetrics for operations calling this dependency.
+// Uses peer_service label from spanmetrics connector dimensions.
+func (a *App) queryDependencyOperations(
+	ctx context.Context,
+	caps queries.Capabilities,
+	to time.Time,
+	depName string,
+) []queries.OperationSummary {
+	logger := log.DefaultLogger.With("handler", "dependency-operations", "dep", depName)
+	callsMetric := caps.SpanMetrics.CallsMetric
+	ns := caps.SpanMetrics.Namespace
+	durationUnit := caps.SpanMetrics.DurationUnit
+
+	durationBucket := ns + "_duration_" + durationUnit + "_bucket"
+	if durationUnit == "ms" {
+		durationBucket = ns + "_duration_milliseconds_bucket"
+	} else if durationUnit == "s" {
+		durationBucket = ns + "_duration_seconds_bucket"
+	}
+
+	rangeStr := "[5m]"
+	labelFilter := fmt.Sprintf(`peer_service="%s", span_kind="SPAN_KIND_CLIENT"`, depName)
+
+	rateQuery := fmt.Sprintf(
+		`sum by (span_name, service_name) (rate(%s{%s}%s))`,
+		callsMetric, labelFilter, rangeStr,
+	)
+	errorQuery := fmt.Sprintf(
+		`sum by (span_name, service_name) (rate(%s{%s, status_code="STATUS_CODE_ERROR"}%s))`,
+		callsMetric, labelFilter, rangeStr,
+	)
+	p95Query := fmt.Sprintf(
+		`histogram_quantile(0.95, sum by (span_name, service_name, le) (rate(%s{%s}%s)))`,
+		durationBucket, labelFilter, rangeStr,
+	)
+
+	type queryResult struct {
+		name    string
+		results []queries.PromResult
+		err     error
+	}
+
+	var wg sync.WaitGroup
+	ch := make(chan queryResult, 3)
+
+	for _, q := range []struct {
+		name  string
+		query string
+	}{
+		{"rate", rateQuery},
+		{"error", errorQuery},
+		{"p95", p95Query},
+	} {
+		wg.Add(1)
+		go func(n, query string) {
+			defer wg.Done()
+			results, err := a.promClient.InstantQuery(ctx, query, to)
+			ch <- queryResult{name: n, results: results, err: err}
+		}(q.name, q.query)
+	}
+
+	go func() {
+		wg.Wait()
+		close(ch)
+	}()
+
+	resultMap := make(map[string][]queries.PromResult)
+	for r := range ch {
+		if r.err != nil {
+			logger.Warn("Dep operations query failed", "query", r.name, "error", r.err)
+			continue
+		}
+		resultMap[r.name] = r.results
+	}
+
+	type opKey struct {
+		spanName    string
+		serviceName string
+	}
+	opsMap := make(map[opKey]*queries.OperationSummary)
+	getOrCreate := func(r queries.PromResult) *queries.OperationSummary {
+		k := opKey{
+			spanName:    r.Metric["span_name"],
+			serviceName: r.Metric["service_name"],
+		}
+		if o, ok := opsMap[k]; ok {
+			return o
+		}
+		o := &queries.OperationSummary{
+			SpanName:     k.spanName,
+			SpanKind:     k.serviceName, // Use service_name as "kind" for dep operations
+			DurationUnit: durationUnit,
+		}
+		opsMap[k] = o
+		return o
+	}
+
+	for _, r := range resultMap["rate"] {
+		o := getOrCreate(r)
+		o.Rate = roundTo(r.Value.Float(), 3)
+	}
+	for _, r := range resultMap["error"] {
+		o := getOrCreate(r)
+		if o.Rate > 0 {
+			o.ErrorRate = roundTo(r.Value.Float()/o.Rate*100, 2)
+		}
+	}
+	for _, r := range resultMap["p95"] {
+		o := getOrCreate(r)
+		v := r.Value.Float()
+		if !math.IsNaN(v) && !math.IsInf(v, 0) {
+			o.P95Duration = roundTo(v, 2)
+		}
+	}
+
+	ops := make([]queries.OperationSummary, 0, len(opsMap))
+	for _, o := range opsMap {
+		ops = append(ops, *o)
+	}
+	return ops
 }
 
 // inferDependencyType maps a dependency name to a type for icon display.

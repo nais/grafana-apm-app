@@ -4,7 +4,7 @@ import { PluginPage } from '@grafana/runtime';
 import { useStyles2, Icon, LoadingPlaceholder, Alert, LinkButton } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
-import { getDependencyDetail, DependencySummary, DependencyDetailResponse } from '../api/client';
+import { getDependencyDetail, DependencySummary, DependencyDetailResponse, OperationSummary } from '../api/client';
 import { PLUGIN_BASE_URL } from '../constants';
 
 const DEP_TYPE_ICONS: Record<string, string> = {
@@ -209,6 +209,42 @@ function DependencyDetail() {
                   ))}
                 </tbody>
               </table>
+            )}
+
+            {/* Operations calling this dependency */}
+            {data.operations && data.operations.length > 0 && (
+              <>
+                <h3 className={styles.sectionTitle}>Operations</h3>
+                <p className={styles.sectionDesc}>
+                  Client-side operations that call this dependency (from spanmetrics <code>peer.service</code> dimension).
+                </p>
+                <table className={styles.table}>
+                  <thead>
+                    <tr>
+                      <th>Operation</th>
+                      <th>Calling Service</th>
+                      <th>Throughput</th>
+                      <th>Error %</th>
+                      <th>Latency (P95)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.operations.map((op: OperationSummary, idx: number) => (
+                      <tr key={`${op.spanName}-${op.spanKind}-${idx}`}>
+                        <td className={styles.nameCell}>{op.spanName}</td>
+                        <td>{op.spanKind}</td>
+                        <td className={styles.numCell}>{op.rate.toFixed(2)} req/s</td>
+                        <td className={op.errorRate > 0 ? styles.errorCell : styles.numCell}>
+                          {op.errorRate.toFixed(1)}%
+                        </td>
+                        <td className={styles.numCell}>
+                          {formatDuration(op.p95Duration, op.durationUnit)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
             )}
           </>
         )}
