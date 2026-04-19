@@ -17,9 +17,9 @@ import {
   VizPanel,
 } from '@grafana/scenes';
 import { buildTempoExploreUrl, buildLokiExploreUrl, buildMimirExploreUrl } from '../utils/explore';
-import { getOperations, getServices, OperationSummary } from '../api/client';
+import { getOperations, getServices, getServiceDependencies, OperationSummary, DependencySummary } from '../api/client';
 
-type TabId = 'overview' | 'traces' | 'logs' | 'service-map';
+type TabId = 'overview' | 'dependencies' | 'traces' | 'logs' | 'service-map';
 
 const PERCENTILE_OPTIONS: Array<SelectableValue<string>> = [
   { label: 'P50', value: '0.50' },
@@ -227,6 +227,7 @@ function ServiceOverview() {
         {/* Tabs */}
         <TabsBar>
           <Tab label="Overview" active={activeTab === 'overview'} onChangeTab={() => setActiveTab('overview')} />
+          <Tab label="Dependencies" active={activeTab === 'dependencies'} onChangeTab={() => setActiveTab('dependencies')} />
           <Tab label="Traces" active={activeTab === 'traces'} onChangeTab={() => setActiveTab('traces')} />
           <Tab label="Logs" active={activeTab === 'logs'} onChangeTab={() => setActiveTab('logs')} />
           <Tab label="Service Map" active={activeTab === 'service-map'} onChangeTab={() => setActiveTab('service-map')} />
@@ -296,6 +297,10 @@ function ServiceOverview() {
 
           {activeTab === 'traces' && (
             <TracesTab service={service} namespace={namespace} />
+          )}
+
+          {activeTab === 'dependencies' && (
+            <DependenciesTab service={service} namespace={namespace} />
           )}
 
           {activeTab === 'logs' && (
@@ -523,6 +528,155 @@ function ServiceMapTab({ service, namespace }: { service: string; namespace: str
   return <scene.Component model={scene} />;
 }
 
+const DEP_TYPE_ICONS: Record<string, string> = {
+  redis: '🔴',
+  postgresql: '🐘',
+  mysql: '🐬',
+  mongodb: '🍃',
+  kafka: '📨',
+  rabbitmq: '🐇',
+  elasticsearch: '🔍',
+  memcached: '⚡',
+  external: '🌐',
+  service: '🔷',
+};
+
+/** Dependencies tab — shows downstream dependencies with RED + impact */
+function DependenciesTab({ service, namespace }: { service: string; namespace: string }) {
+  const styles = useStyles2(getStyles);
+  const [deps, setDeps] = useState<DependencySummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [sortField, setSortField] = useState<keyof DependencySummary>('impact');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const now = Date.now();
+        const resp = await getServiceDependencies(namespace, service, now - 3600000, now);
+        setDeps(resp.dependencies);
+      } catch (e: any) {
+        setError(e.message ?? 'Failed to load dependencies');
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, [service, namespace]);
+
+  const toggleSort = useCallback((field: keyof DependencySummary) => {
+    setSortField((prev) => {
+      if (prev === field) {
+        setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+        return prev;
+      }
+      setSortDir('desc');
+      return field;
+    });
+  }, []);
+
+  const sorted = useMemo(() => {
+    return [...deps].sort((a, b) => {
+      const aVal = a[sortField];
+      const bVal = b[sortField];
+      if (typeof aVal === 'number' && typeof bVal === 'number') {
+        return sortDir === 'asc' ? aVal - bVal : bVal - aVal;
+      }
+      return sortDir === 'asc'
+        ? String(aVal).localeCompare(String(bVal))
+        : String(bVal).localeCompare(String(aVal));
+    });
+  }, [deps, sortField, sortDir]);
+
+  if (loading) {
+    return <LoadingPlaceholder text="Loading dependencies..." />;
+  }
+
+  if (error) {
+    return <Alert severity="error" title="Error loading dependencies">{error}</Alert>;
+  }
+
+  if (deps.length === 0) {
+    return (
+      <Alert severity="info" title="No dependencies detected">
+        No downstream dependencies found for {service}. Dependencies are detected from client spans in the service graph.
+      </Alert>
+    );
+  }
+
+  return (
+    <div>
+      <table className={styles.opsTable}>
+        <thead>
+          <tr>
+            <DepHeader field="name" label="Dependency" sortField={sortField} sortDir={sortDir} onSort={toggleSort} />
+            <DepHeader field="type" label="Type" sortField={sortField} sortDir={sortDir} onSort={toggleSort} />
+            <DepHeader field="rate" label="Throughput" sortField={sortField} sortDir={sortDir} onSort={toggleSort} />
+            <DepHeader field="errorRate" label="Error %" sortField={sortField} sortDir={sortDir} onSort={toggleSort} />
+            <DepHeader field="p95Duration" label="Latency (P95)" sortField={sortField} sortDir={sortDir} onSort={toggleSort} />
+            <DepHeader field="impact" label="Impact" sortField={sortField} sortDir={sortDir} onSort={toggleSort} />
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((dep) => (
+            <tr key={dep.name}>
+              <td className={styles.opNameCell}>
+                <span style={{ marginRight: 6 }}>{DEP_TYPE_ICONS[dep.type] ?? '❓'}</span>
+                {dep.name}
+              </td>
+              <td className={styles.opKindCell}>{dep.type}</td>
+              <td className={styles.opNumCell}>{dep.rate.toFixed(2)} req/s</td>
+              <td className={dep.errorRate > 0 ? styles.opErrorCell : styles.opNumCell}>
+                {dep.errorRate.toFixed(1)}%
+              </td>
+              <td className={styles.opNumCell}>{formatDuration(dep.p95Duration, dep.durationUnit)}</td>
+              <td className={styles.opNumCell}>
+                <ImpactBar impact={dep.impact} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function DepHeader({
+  field,
+  label,
+  sortField,
+  sortDir,
+  onSort,
+}: {
+  field: keyof DependencySummary;
+  label: string;
+  sortField: keyof DependencySummary;
+  sortDir: 'asc' | 'desc';
+  onSort: (f: keyof DependencySummary) => void;
+}) {
+  const styles = useStyles2(getStyles);
+  return (
+    <th className={styles.sortableHeader} onClick={() => onSort(field)}>
+      {label} {sortField === field && <Icon name={sortDir === 'asc' ? 'arrow-up' : 'arrow-down'} size="sm" />}
+    </th>
+  );
+}
+
+/** Horizontal impact bar inspired by Elastic APM */
+function ImpactBar({ impact }: { impact: number }) {
+  const styles = useStyles2(getStyles);
+  const pct = Math.round(impact * 100);
+  return (
+    <div className={styles.impactBarContainer}>
+      <div className={styles.impactBarFill} style={{ width: `${pct}%` }} />
+      <span className={styles.impactBarLabel}>{pct}%</span>
+    </div>
+  );
+}
+
 const getStyles = (theme: GrafanaTheme2) => ({
   container: css`
     padding: ${theme.spacing(1)} ${theme.spacing(2)};
@@ -626,6 +780,25 @@ const getStyles = (theme: GrafanaTheme2) => ({
     font-variant-numeric: tabular-nums;
     color: ${theme.colors.error.text};
     font-weight: ${theme.typography.fontWeightMedium};
+  `,
+  impactBarContainer: css`
+    display: flex;
+    align-items: center;
+    gap: ${theme.spacing(1)};
+    min-width: 120px;
+  `,
+  impactBarFill: css`
+    height: 8px;
+    background: ${theme.colors.primary.main};
+    border-radius: 4px;
+    min-width: 2px;
+    flex-shrink: 0;
+  `,
+  impactBarLabel: css`
+    font-size: ${theme.typography.bodySmall.fontSize};
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    color: ${theme.colors.text.secondary};
   `,
 });
 

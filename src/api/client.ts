@@ -147,3 +147,63 @@ export async function getServiceMap(
   }
   return fetchResource<ServiceMapResponse>('/service-map', params);
 }
+
+// ---- Dependencies ----
+
+export interface DependencySummary {
+  name: string;
+  type: string;
+  rate: number;
+  errorRate: number;
+  p95Duration: number;
+  durationUnit: string;
+  impact: number;
+}
+
+export interface DependenciesResponse {
+  dependencies: DependencySummary[];
+}
+
+export interface DependencyDetailResponse {
+  dependency: DependencySummary;
+  upstreams: DependencySummary[];
+}
+
+export async function getServiceDependencies(
+  namespace: string,
+  service: string,
+  from: number,
+  to: number
+): Promise<DependenciesResponse> {
+  return fetchResource<DependenciesResponse>(
+    `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(service)}/dependencies`,
+    {
+      from: String(Math.floor(from / 1000)),
+      to: String(Math.floor(to / 1000)),
+    }
+  );
+}
+
+export async function getGlobalDependencies(
+  from: number,
+  to: number
+): Promise<DependenciesResponse> {
+  return fetchResource<DependenciesResponse>('/dependencies', {
+    from: String(Math.floor(from / 1000)),
+    to: String(Math.floor(to / 1000)),
+  });
+}
+
+export async function getDependencyDetail(
+  name: string,
+  from: number,
+  to: number
+): Promise<DependencyDetailResponse> {
+  return fetchResource<DependencyDetailResponse>(
+    `/dependencies/${encodeURIComponent(name)}`,
+    {
+      from: String(Math.floor(from / 1000)),
+      to: String(Math.floor(to / 1000)),
+    }
+  );
+}
