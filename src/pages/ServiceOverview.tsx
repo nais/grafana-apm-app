@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { PluginPage } from '@grafana/runtime';
 import { useStyles2, Tab, TabsBar, Icon, LinkButton, Select, LoadingPlaceholder, Alert } from '@grafana/ui';
-import { GrafanaTheme2, SelectableValue, FieldType, LoadingState, toDataFrame } from '@grafana/data';
+import { GrafanaTheme2, SelectableValue } from '@grafana/data';
 import { css } from '@emotion/css';
 import {
   SceneFlexLayout,
@@ -11,21 +11,22 @@ import {
   SceneTimePicker,
   SceneTimeRange,
   SceneRefreshPicker,
-  SceneDataNode,
   PanelBuilders,
   EmbeddedScene,
-  VizPanel,
   behaviors,
 } from '@grafana/scenes';
 import { DashboardCursorSync } from '@grafana/schema';
-import { GraphDrawStyle, StackingMode } from '@grafana/schema/dist/types/common/common.gen';
 import { buildTempoExploreUrl, buildLokiExploreUrl, buildMimirExploreUrl } from '../utils/explore';
-import { getOperations, getServices, getServiceDependencies, OperationSummary, DependencySummary } from '../api/client';
-import { formatDuration, DEP_TYPE_ICONS } from '../utils/format';
+import { getOperations, getServices, OperationSummary } from '../api/client';
+import { formatDuration } from '../utils/format';
 import { PLUGIN_BASE_URL } from '../constants';
 import { usePluginDatasources } from '../utils/datasources';
 import { useTimeRange } from '../utils/timeRange';
 import { useCapabilities, getMetricNames } from '../utils/capabilities';
+import { TracesTab } from './tabs/TracesTab';
+import { LogsTab } from './tabs/LogsTab';
+import { ServiceMapTab } from './tabs/ServiceMapTab';
+import { DependenciesTab } from './tabs/DependenciesTab';
 
 type TabId = 'overview' | 'dependencies' | 'traces' | 'logs' | 'service-map';
 
@@ -528,434 +529,6 @@ function OpsHeader({
   );
 }
 
-/** Traces tab — embedded Tempo trace search via Scenes */
-function TracesTab({ service, namespace, tracesUid }: { service: string; namespace: string; tracesUid: string }) {
-  const [statusFilter, setStatusFilter] = useState<string>('');
-  const [durationMin, setDurationMin] = useState<string>('');
-  const [durationMax, setDurationMax] = useState<string>('');
-  const styles = useStyles2(getStyles);
-
-  const scene = useMemo(() => {
-    const timeRange = new SceneTimeRange({ from: 'now-1h', to: 'now' });
-
-    // Build TraceQL with filters
-    const conditions: string[] = [`resource.service.name="${service}"`];
-    if (namespace) {
-      conditions.push(`resource.service.namespace="${namespace}"`);
-    }
-    if (statusFilter === 'error') {
-      conditions.push(`status=error`);
-    } else if (statusFilter === 'ok') {
-      conditions.push(`status=ok`);
-    }
-    let traceQL = `{${conditions.join(' && ')}}`;
-    if (durationMin) {
-      traceQL += ` | duration >= ${durationMin}ms`;
-    }
-    if (durationMax) {
-      traceQL += ` | duration <= ${durationMax}ms`;
-    }
-
-    const traceQuery = new SceneQueryRunner({
-      datasource: { uid: tracesUid, type: 'tempo' },
-      queries: [
-        {
-          refId: 'A',
-          queryType: 'traceql',
-          query: traceQL,
-          tableType: 'traces',
-          limit: 20,
-        },
-      ],
-    });
-
-    return new EmbeddedScene({
-      $timeRange: timeRange,
-      controls: [new SceneTimePicker({}), new SceneRefreshPicker({})],
-      body: new SceneFlexLayout({
-        direction: 'column',
-        children: [
-          new SceneFlexItem({
-            minHeight: 400,
-            body: PanelBuilders.table()
-              .setTitle(`Traces — ${service}`)
-              .setData(traceQuery)
-              .build(),
-          }),
-        ],
-      }),
-    });
-  }, [service, namespace, tracesUid, statusFilter, durationMin, durationMax]);
-
-  const statusOptions: Array<SelectableValue<string>> = [
-    { label: 'All', value: '' },
-    { label: 'Error', value: 'error' },
-    { label: 'OK', value: 'ok' },
-  ];
-
-  return (
-    <div>
-      <div className={styles.panelControls}>
-        <label className={styles.controlLabel}>Status:</label>
-        <Select
-          options={statusOptions}
-          value={statusFilter}
-          onChange={(v) => setStatusFilter(v.value ?? '')}
-          width={12}
-        />
-        <label className={styles.controlLabel}>Min duration (ms):</label>
-        <input
-          className={styles.durationInput}
-          type="number"
-          placeholder="0"
-          value={durationMin}
-          onChange={(e) => setDurationMin(e.target.value)}
-        />
-        <label className={styles.controlLabel}>Max duration (ms):</label>
-        <input
-          className={styles.durationInput}
-          type="number"
-          placeholder="∞"
-          value={durationMax}
-          onChange={(e) => setDurationMax(e.target.value)}
-        />
-      </div>
-      <scene.Component model={scene} />
-    </div>
-  );
-}
-
-/** Logs tab — embedded Loki log viewer via Scenes */
-function LogsTab({ service, namespace, logsUid }: { service: string; namespace: string; logsUid: string }) {
-  const [severityFilter, setSeverityFilter] = useState<string[]>([]);
-  const styles = useStyles2(getStyles);
-
-  const severityOptions: Array<SelectableValue<string>> = [
-    { label: 'Error', value: 'error' },
-    { label: 'Warn', value: 'warn' },
-    { label: 'Info', value: 'info' },
-    { label: 'Debug', value: 'debug' },
-  ];
-
-  const scene = useMemo(() => {
-    const timeRange = new SceneTimeRange({ from: 'now-1h', to: 'now' });
-    const svcMatcher = namespace
-      ? `service_name="${service}", service_namespace="${namespace}"`
-      : `service_name="${service}"`;
-    const severityMatcher = severityFilter.length > 0
-      ? ` | level=~"${severityFilter.join('|')}"`
-      : '';
-
-    // Log volume histogram (stacked by severity)
-    const volumeQuery = new SceneQueryRunner({
-      datasource: { uid: logsUid, type: 'loki' },
-      queries: [
-        {
-          refId: 'volume',
-          expr: `sum by (level) (count_over_time({${svcMatcher}}${severityMatcher} [$__auto]))`,
-          legendFormat: '{{level}}',
-          queryType: 'range',
-        },
-      ],
-    });
-
-    const logQuery = new SceneQueryRunner({
-      datasource: { uid: logsUid, type: 'loki' },
-      queries: [
-        {
-          refId: 'A',
-          expr: `{${svcMatcher}}${severityMatcher}`,
-          queryType: 'range',
-          maxLines: 100,
-        },
-      ],
-    });
-
-    return new EmbeddedScene({
-      $timeRange: timeRange,
-      controls: [new SceneTimePicker({}), new SceneRefreshPicker({})],
-      body: new SceneFlexLayout({
-        direction: 'column',
-        children: [
-          new SceneFlexItem({
-            minHeight: 120,
-            maxHeight: 180,
-            body: PanelBuilders.timeseries()
-              .setTitle('Log volume')
-              .setData(volumeQuery)
-              .setCustomFieldConfig('stacking', { mode: StackingMode.Normal })
-              .setCustomFieldConfig('fillOpacity', 80)
-              .setCustomFieldConfig('lineWidth', 0)
-              .setCustomFieldConfig('drawStyle', GraphDrawStyle.Bars)
-              .build(),
-          }),
-          new SceneFlexItem({
-            minHeight: 400,
-            body: PanelBuilders.logs()
-              .setTitle(`Logs — ${service}`)
-              .setData(logQuery)
-              .setOption('enableLogDetails', true)
-              .setOption('showTime', true)
-              .build(),
-          }),
-        ],
-      }),
-    });
-  }, [service, namespace, logsUid, severityFilter]);
-
-  return (
-    <div>
-      <div className={styles.panelControls}>
-        <label className={styles.controlLabel}>Severity:</label>
-        <Select
-          isMulti
-          options={severityOptions}
-          value={severityFilter.map((v) => severityOptions.find((o) => o.value === v)!)}
-          onChange={(v) => setSeverityFilter(v ? (v as Array<SelectableValue<string>>).map((o) => o.value ?? '') : [])}
-          width={30}
-          placeholder="All severities"
-        />
-      </div>
-      <scene.Component model={scene} />
-    </div>
-  );
-}
-
-/** Service Map tab — per-service neighborhood map */
-function ServiceMapTab({ service, namespace, fromMs, toMs }: { service: string; namespace: string; fromMs: number; toMs: number }) {
-  const [mapData, setMapData] = useState<import('../api/client').ServiceMapResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const load = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const { getServiceMap } = await import('../api/client');
-        const data = await getServiceMap(fromMs, toMs, service, namespace);
-        setMapData(data);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Failed to load service map');
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
-  }, [service, namespace, fromMs, toMs]);
-
-  const scene = useMemo(() => {
-    if (!mapData || mapData.nodes.length === 0) {
-      return null;
-    }
-
-    const nodesFrame = toDataFrame({
-      name: 'nodes',
-      fields: [
-        { name: 'id', type: FieldType.string, values: mapData.nodes.map((n: any) => n.id) },
-        { name: 'title', type: FieldType.string, values: mapData.nodes.map((n: any) => n.title) },
-        { name: 'mainStat', type: FieldType.string, values: mapData.nodes.map((n: any) => n.mainStat ?? '') },
-        { name: 'secondaryStat', type: FieldType.string, values: mapData.nodes.map((n: any) => n.secondaryStat ?? '') },
-        { name: 'arc__errors', type: FieldType.number, values: mapData.nodes.map((n: any) => n.arc__errors), config: { color: { fixedColor: 'red', mode: 'fixed' } } },
-        { name: 'arc__ok', type: FieldType.number, values: mapData.nodes.map((n: any) => n.arc__ok), config: { color: { fixedColor: 'green', mode: 'fixed' } } },
-      ],
-    });
-
-    const edgesFrame = toDataFrame({
-      name: 'edges',
-      fields: [
-        { name: 'id', type: FieldType.string, values: mapData.edges.map((e: any) => e.id) },
-        { name: 'source', type: FieldType.string, values: mapData.edges.map((e: any) => e.source) },
-        { name: 'target', type: FieldType.string, values: mapData.edges.map((e: any) => e.target) },
-        { name: 'mainStat', type: FieldType.string, values: mapData.edges.map((e: any) => e.mainStat ?? '') },
-        { name: 'secondaryStat', type: FieldType.string, values: mapData.edges.map((e: any) => e.secondaryStat ?? '') },
-      ],
-    });
-
-    nodesFrame.meta = { preferredVisualisationType: 'nodeGraph' };
-
-    const dataNode = new SceneDataNode({
-      data: {
-        series: [nodesFrame, edgesFrame],
-        state: LoadingState.Done,
-        timeRange: { from: new Date(), to: new Date(), raw: { from: 'now-1h', to: 'now' } } as any,
-      },
-    });
-
-    return new EmbeddedScene({
-      $timeRange: new SceneTimeRange({ from: 'now-1h', to: 'now' }),
-      body: new SceneFlexLayout({
-        direction: 'column',
-        children: [
-          new SceneFlexItem({
-            minHeight: 400,
-            body: new VizPanel({
-              title: `Service Map — ${service}`,
-              pluginId: 'nodeGraph',
-              $data: dataNode,
-              options: {},
-              fieldConfig: { defaults: {}, overrides: [] },
-            }),
-          }),
-        ],
-      }),
-    });
-  }, [mapData, service]);
-
-  if (loading) {
-    return <LoadingPlaceholder text="Loading service map..." />;
-  }
-
-  if (error) {
-    return <Alert severity="error" title="Error loading service map">{error}</Alert>;
-  }
-
-  if (!scene) {
-    return (
-      <Alert severity="info" title="No service map data">
-        No service graph data found for {service}.
-      </Alert>
-    );
-  }
-
-  return <scene.Component model={scene} />;
-}
-
-/** Dependencies tab — shows downstream dependencies with RED + impact */
-function DependenciesTab({ service, namespace, fromMs, toMs }: { service: string; namespace: string; fromMs: number; toMs: number }) {
-  const styles = useStyles2(getStyles);
-  const [deps, setDeps] = useState<DependencySummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [sortField, setSortField] = useState<keyof DependencySummary>('impact');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-
-  useEffect(() => {
-    const load = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const resp = await getServiceDependencies(namespace, service, fromMs, toMs);
-        setDeps(resp.dependencies);
-      } catch (e: any) {
-        setError(e.message ?? 'Failed to load dependencies');
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
-  }, [service, namespace, fromMs, toMs]);
-
-  const toggleSort = useCallback((field: keyof DependencySummary) => {
-    setSortField((prev) => {
-      if (prev === field) {
-        setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-        return prev;
-      }
-      setSortDir('desc');
-      return field;
-    });
-  }, []);
-
-  const sorted = useMemo(() => {
-    return [...deps].sort((a, b) => {
-      const aVal = a[sortField];
-      const bVal = b[sortField];
-      if (typeof aVal === 'number' && typeof bVal === 'number') {
-        return sortDir === 'asc' ? aVal - bVal : bVal - aVal;
-      }
-      return sortDir === 'asc'
-        ? String(aVal).localeCompare(String(bVal))
-        : String(bVal).localeCompare(String(aVal));
-    });
-  }, [deps, sortField, sortDir]);
-
-  if (loading) {
-    return <LoadingPlaceholder text="Loading dependencies..." />;
-  }
-
-  if (error) {
-    return <Alert severity="error" title="Error loading dependencies">{error}</Alert>;
-  }
-
-  if (deps.length === 0) {
-    return (
-      <Alert severity="info" title="No dependencies detected">
-        No downstream dependencies found for {service}. Dependencies are detected from client spans in the service graph.
-      </Alert>
-    );
-  }
-
-  return (
-    <div>
-      <table className={styles.opsTable}>
-        <thead>
-          <tr>
-            <DepHeader field="name" label="Dependency" sortField={sortField} sortDir={sortDir} onSort={toggleSort} />
-            <DepHeader field="type" label="Type" sortField={sortField} sortDir={sortDir} onSort={toggleSort} />
-            <DepHeader field="rate" label="Throughput" sortField={sortField} sortDir={sortDir} onSort={toggleSort} />
-            <DepHeader field="errorRate" label="Error %" sortField={sortField} sortDir={sortDir} onSort={toggleSort} />
-            <DepHeader field="p95Duration" label="Latency (P95)" sortField={sortField} sortDir={sortDir} onSort={toggleSort} />
-            <DepHeader field="impact" label="Impact" sortField={sortField} sortDir={sortDir} onSort={toggleSort} />
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((dep) => (
-            <tr key={dep.name}>
-              <td className={styles.opNameCell}>
-                <span style={{ marginRight: 6 }}>{DEP_TYPE_ICONS[dep.type] ?? '❓'}</span>
-                {dep.name}
-              </td>
-              <td className={styles.opKindCell}>{dep.type}</td>
-              <td className={styles.opNumCell}>{dep.rate.toFixed(2)} req/s</td>
-              <td className={dep.errorRate > 0 ? styles.opErrorCell : styles.opNumCell}>
-                {dep.errorRate.toFixed(1)}%
-              </td>
-              <td className={styles.opNumCell}>{formatDuration(dep.p95Duration, dep.durationUnit)}</td>
-              <td className={styles.opNumCell}>
-                <ImpactBar impact={dep.impact} />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function DepHeader({
-  field,
-  label,
-  sortField,
-  sortDir,
-  onSort,
-}: {
-  field: keyof DependencySummary;
-  label: string;
-  sortField: keyof DependencySummary;
-  sortDir: 'asc' | 'desc';
-  onSort: (f: keyof DependencySummary) => void;
-}) {
-  const styles = useStyles2(getStyles);
-  return (
-    <th className={styles.sortableHeader} onClick={() => onSort(field)}>
-      {label} {sortField === field && <Icon name={sortDir === 'asc' ? 'arrow-up' : 'arrow-down'} size="sm" />}
-    </th>
-  );
-}
-
-/** Horizontal impact bar inspired by Elastic APM */
-function ImpactBar({ impact }: { impact: number }) {
-  const styles = useStyles2(getStyles);
-  const pct = Math.round(impact * 100);
-  return (
-    <div className={styles.impactBarContainer}>
-      <div className={styles.impactBarFill} style={{ width: `${pct}%` }} />
-      <span className={styles.impactBarLabel}>{pct}%</span>
-    </div>
-  );
-}
-
 const getStyles = (theme: GrafanaTheme2) => ({
   container: css`
     padding: ${theme.spacing(1)} ${theme.spacing(2)};
@@ -1006,15 +579,6 @@ const getStyles = (theme: GrafanaTheme2) => ({
   `,
   controlLabel: css`
     color: ${theme.colors.text.secondary};
-    font-size: ${theme.typography.bodySmall.fontSize};
-  `,
-  durationInput: css`
-    width: 80px;
-    padding: ${theme.spacing(0.5)} ${theme.spacing(1)};
-    border: 1px solid ${theme.colors.border.medium};
-    border-radius: ${theme.shape.radius.default};
-    background: ${theme.colors.background.primary};
-    color: ${theme.colors.text.primary};
     font-size: ${theme.typography.bodySmall.fontSize};
   `,
   operationsSection: css`
@@ -1091,25 +655,6 @@ const getStyles = (theme: GrafanaTheme2) => ({
     font-variant-numeric: tabular-nums;
     color: ${theme.colors.error.text};
     font-weight: ${theme.typography.fontWeightMedium};
-  `,
-  impactBarContainer: css`
-    display: flex;
-    align-items: center;
-    gap: ${theme.spacing(1)};
-    min-width: 120px;
-  `,
-  impactBarFill: css`
-    height: 8px;
-    background: ${theme.colors.primary.main};
-    border-radius: 4px;
-    min-width: 2px;
-    flex-shrink: 0;
-  `,
-  impactBarLabel: css`
-    font-size: ${theme.typography.bodySmall.fontSize};
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-    color: ${theme.colors.text.secondary};
   `,
 });
 
