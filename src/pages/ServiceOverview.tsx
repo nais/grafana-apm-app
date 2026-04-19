@@ -126,7 +126,10 @@ function ServiceOverview() {
 
     const tempoUrl = buildTempoExploreUrl('tempo', service);
     const lokiUrl = buildLokiExploreUrl('loki', service);
-    const mimirUrl = buildMimirExploreUrl('mimir', service);
+    const mimirUrl = buildMimirExploreUrl(
+      'mimir',
+      `sum(rate(traces_span_metrics_calls_total{service_name="${service}", service_namespace="${namespace}", span_kind="SPAN_KIND_SERVER"}[5m]))`
+    );
 
     return new EmbeddedScene({
       $timeRange: timeRange,

@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { Route, Routes } from 'react-router-dom';
 import { AppRootProps } from '@grafana/data';
+import { LoadingPlaceholder } from '@grafana/ui';
 import { ROUTES } from '../../constants';
 
 const ServiceInventory = React.lazy(() => import('../../pages/ServiceInventory'));
@@ -9,14 +10,14 @@ const ServiceMap = React.lazy(() => import('../../pages/ServiceMap'));
 
 function App(props: AppRootProps) {
   return (
-    <Routes>
-      <Route path={ROUTES.ServiceOverview} element={<ServiceOverview />} />
-      <Route path={`${ROUTES.ServiceOverview}/*`} element={<ServiceOverview />} />
-      <Route path={ROUTES.ServiceMap} element={<ServiceMap />} />
-
-      {/* Default page */}
-      <Route path="*" element={<ServiceInventory />} />
-    </Routes>
+    <Suspense fallback={<LoadingPlaceholder text="Loading..." />}>
+      <Routes>
+        <Route path={ROUTES.ServiceOverview} element={<ServiceOverview />} />
+        <Route path={`${ROUTES.ServiceOverview}/*`} element={<ServiceOverview />} />
+        <Route path={ROUTES.ServiceMap} element={<ServiceMap />} />
+        <Route path="*" element={<ServiceInventory />} />
+      </Routes>
+    </Suspense>
   );
 }
 
