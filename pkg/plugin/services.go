@@ -92,6 +92,11 @@ func (a *App) fetchServiceSummaries(
 		`histogram_quantile(0.95, sum by (service_name, service_namespace, le) (rate(%s{span_kind="SPAN_KIND_SERVER"}%s)))`,
 		durationBucket, rangeStr,
 	)
+	// SDK language from telemetry_sdk_language label on span metrics
+	sdkQuery := fmt.Sprintf(
+		`group by (service_name, service_namespace, telemetry_sdk_language) (%s)`,
+		callsMetric,
+	)
 
 	type queryResult struct {
 		name    string
@@ -101,12 +106,13 @@ func (a *App) fetchServiceSummaries(
 
 	// Run instant queries in parallel
 	var wg sync.WaitGroup
-	ch := make(chan queryResult, 5)
+	ch := make(chan queryResult, 6)
 
 	instantQueries := map[string]string{
 		"rate":  rateQuery,
 		"error": errorQuery,
 		"p95":   p95Query,
+		"sdk":   sdkQuery,
 	}
 
 	for name, q := range instantQueries {
@@ -195,6 +201,14 @@ func (a *App) fetchServiceSummaries(
 		v := r.Value.Float()
 		if !math.IsNaN(v) && !math.IsInf(v, 0) {
 			s.P95Duration = roundTo(v, 2)
+		}
+	}
+
+	// Fill SDK language
+	for _, r := range resultMap["sdk"] {
+		s := getOrCreate(r)
+		if lang, ok := r.Metric["telemetry_sdk_language"]; ok && lang != "" && s.SDKLanguage == "" {
+			s.SDKLanguage = lang
 		}
 	}
 

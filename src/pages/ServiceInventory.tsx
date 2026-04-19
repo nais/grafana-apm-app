@@ -1,10 +1,32 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { PluginPage } from '@grafana/runtime';
-import { Alert, LoadingPlaceholder, LinkButton, useStyles2 } from '@grafana/ui';
-import { GrafanaTheme2 } from '@grafana/data';
+import { Alert, Icon, Input, LoadingPlaceholder, Pagination, Select, useStyles2 } from '@grafana/ui';
+import { GrafanaTheme2, SelectableValue } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getServices, getCapabilities, ServiceSummary, Capabilities } from '../api/client';
 import { PLUGIN_BASE_URL } from '../constants';
+
+const SDK_ICONS: Record<string, { label: string; color: string }> = {
+  java: { label: '☕', color: '#E76F00' },
+  go: { label: '🐹', color: '#00ADD8' },
+  dotnet: { label: '.N', color: '#512BD4' },
+  python: { label: '🐍', color: '#3776AB' },
+  nodejs: { label: 'JS', color: '#68A063' },
+  ruby: { label: '💎', color: '#CC342D' },
+  rust: { label: '🦀', color: '#DEA584' },
+  cpp: { label: 'C+', color: '#00599C' },
+  erlang: { label: 'Er', color: '#A90533' },
+  php: { label: 'PHP', color: '#777BB4' },
+};
+
+type SortField = 'name' | 'namespace' | 'p95Duration' | 'errorRate' | 'rate';
+type SortDir = 'asc' | 'desc';
+
+const PAGE_SIZE_OPTIONS: Array<SelectableValue<number>> = [
+  { label: '5', value: 5 },
+  { label: '10', value: 10 },
+  { label: '25', value: 25 },
+];
 
 function ServiceInventory() {
   const styles = useStyles2(getStyles);
@@ -12,6 +34,11 @@ function ServiceInventory() {
   const [caps, setCaps] = useState<Capabilities | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [sortField, setSortField] = useState<SortField>('name');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(5);
 
   useEffect(() => {
     const load = async () => {
@@ -33,6 +60,48 @@ function ServiceInventory() {
     load();
   }, []);
 
+  const filtered = useMemo(() => {
+    let result = services;
+    if (search) {
+      const q = search.toLowerCase();
+      result = result.filter(
+        (s) => s.name.toLowerCase().includes(q) || s.namespace.toLowerCase().includes(q)
+      );
+    }
+    result.sort((a, b) => {
+      let cmp = 0;
+      switch (sortField) {
+        case 'name': cmp = a.name.localeCompare(b.name); break;
+        case 'namespace': cmp = a.namespace.localeCompare(b.namespace); break;
+        case 'p95Duration': cmp = a.p95Duration - b.p95Duration; break;
+        case 'errorRate': cmp = a.errorRate - b.errorRate; break;
+        case 'rate': cmp = a.rate - b.rate; break;
+      }
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+    return result;
+  }, [services, search, sortField, sortDir]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
+
+  const toggleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDir('asc');
+    }
+    setPage(1);
+  };
+
+  const SortIcon = ({ field }: { field: SortField }) => {
+    if (sortField !== field) {
+      return null;
+    }
+    return <Icon name={sortDir === 'asc' ? 'arrow-up' : 'arrow-down'} size="sm" />;
+  };
+
   return (
     <PluginPage>
       <div className={styles.container}>
@@ -46,51 +115,95 @@ function ServiceInventory() {
         )}
 
         {!loading && services.length > 0 && (
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>Service</th>
-                <th>Namespace</th>
-                <th>Rate (req/s)</th>
-                <th>Error Rate</th>
-                <th>P95 Duration</th>
-                <th>Rate Trend</th>
-              </tr>
-            </thead>
-            <tbody>
-              {services.map((svc) => (
-                <tr key={`${svc.namespace}/${svc.name}`} className={styles.row}>
-                  <td>
-                    <LinkButton
-                      variant="secondary"
-                      fill="text"
-                      href={`${PLUGIN_BASE_URL}/services/${encodeURIComponent(svc.namespace)}/${encodeURIComponent(svc.name)}`}
-                    >
-                      {svc.name}
-                    </LinkButton>
-                  </td>
-                  <td>{svc.namespace}</td>
-                  <td>{svc.rate.toFixed(2)}</td>
-                  <td className={svc.errorRate > 0 ? styles.errorText : ''}>
-                    {svc.errorRate.toFixed(1)}%
-                  </td>
-                  <td>
-                    {svc.p95Duration.toFixed(1)} {svc.durationUnit}
-                  </td>
-                  <td>
-                    {svc.rateSeries && svc.rateSeries.length > 0 && (
-                      <MiniSparkline data={svc.rateSeries.map((p) => p.v)} color="#73BF69" />
-                    )}
-                  </td>
+          <>
+            <div className={styles.toolbar}>
+              <Input
+                prefix={<Icon name="search" />}
+                placeholder="Filter services..."
+                width={30}
+                value={search}
+                onChange={(e) => { setSearch(e.currentTarget.value); setPage(1); }}
+              />
+            </div>
+
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th className={styles.sortable} onClick={() => toggleSort('name')}>
+                    Name <SortIcon field="name" />
+                  </th>
+                  <th className={styles.sortable} onClick={() => toggleSort('namespace')}>
+                    Namespace <SortIcon field="namespace" />
+                  </th>
+                  <th className={styles.sortable} onClick={() => toggleSort('p95Duration')}>
+                    Duration, p95 <SortIcon field="p95Duration" />
+                  </th>
+                  <th className={styles.sortable} onClick={() => toggleSort('errorRate')}>
+                    Errors <SortIcon field="errorRate" />
+                  </th>
+                  <th className={styles.sortable} onClick={() => toggleSort('rate')}>
+                    Rate <SortIcon field="rate" />
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {paginated.map((svc) => (
+                  <tr
+                    key={`${svc.namespace}/${svc.name}`}
+                    className={styles.row}
+                    onClick={() => {
+                      window.location.href = `${PLUGIN_BASE_URL}/services/${encodeURIComponent(svc.namespace)}/${encodeURIComponent(svc.name)}`;
+                    }}
+                  >
+                    <td className={styles.nameCell}>
+                      <SDKIcon language={svc.sdkLanguage} />
+                      <span>{svc.name}</span>
+                    </td>
+                    <td className={styles.nsCell}>{svc.namespace}</td>
+                    <td className={styles.metricCell}>
+                      <span className={styles.metricValue}>
+                        {formatDuration(svc.p95Duration, svc.durationUnit)}
+                      </span>
+                      <AreaSparkline data={svc.durationSeries?.map((p) => p.v)} color="#E0B400" />
+                    </td>
+                    <td className={styles.metricCell}>
+                      <span className={svc.errorRate > 0 ? styles.errorValue : styles.metricValue}>
+                        {svc.errorRate.toFixed(1)}%
+                      </span>
+                      {svc.errorRate > 0 && <div className={styles.errorBar} />}
+                      {svc.errorRate === 0 && <div className={styles.errorBarFlat} />}
+                    </td>
+                    <td className={styles.metricCell}>
+                      <span className={styles.metricValue}>
+                        {svc.rate.toFixed(1)} req/s
+                      </span>
+                      <AreaSparkline data={svc.rateSeries?.map((p) => p.v)} color="#73BF69" />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <div className={styles.footer}>
+              <div className={styles.pageSize}>
+                <span>Row per page:</span>
+                <Select
+                  options={PAGE_SIZE_OPTIONS}
+                  value={pageSize}
+                  onChange={(v) => { setPageSize(v.value ?? 5); setPage(1); }}
+                  width={8}
+                />
+              </div>
+              {totalPages > 1 && (
+                <Pagination currentPage={page} numberOfPages={totalPages} onNavigate={setPage} />
+              )}
+            </div>
+          </>
         )}
 
         {!loading && services.length === 0 && caps?.spanMetrics.detected && (
           <Alert severity="info" title="No services found">
-            Span metrics are detected but no server spans were found. Make sure your services send traces with span_kind=SPAN_KIND_SERVER.
+            Span metrics are detected but no server spans were found.
           </Alert>
         )}
       </div>
@@ -98,57 +211,184 @@ function ServiceInventory() {
   );
 }
 
-function MiniSparkline({ data, color }: { data: number[]; color: string }) {
-  if (data.length < 2) {
-    return null;
+function SDKIcon({ language }: { language?: string }) {
+  const styles = useStyles2(getSDKStyles);
+  if (!language) {
+    return <div className={styles.placeholder} />;
+  }
+  const info = SDK_ICONS[language.toLowerCase()];
+  if (!info) {
+    return (
+      <div className={styles.icon} style={{ backgroundColor: '#555' }}>
+        {language.substring(0, 2).toUpperCase()}
+      </div>
+    );
+  }
+  return (
+    <div className={styles.icon} style={{ backgroundColor: info.color }}>
+      {info.label}
+    </div>
+  );
+}
+
+function AreaSparkline({ data, color }: { data?: number[]; color: string }) {
+  if (!data || data.length < 2) {
+    return <div style={{ width: 160, height: 32 }} />;
   }
   const max = Math.max(...data);
   const min = Math.min(...data);
   const range = max - min || 1;
-  const width = 120;
-  const height = 24;
-  const points = data
-    .map((v, i) => {
-      const x = (i / (data.length - 1)) * width;
-      const y = height - ((v - min) / range) * height;
-      return `${x},${y}`;
-    })
-    .join(' ');
+  const w = 160;
+  const h = 32;
+  const pad = 1;
+
+  const points = data.map((v, i) => {
+    const x = pad + (i / (data.length - 1)) * (w - 2 * pad);
+    const y = pad + (1 - (v - min) / range) * (h - 2 * pad);
+    return `${x},${y}`;
+  });
+
+  const linePoints = points.join(' ');
+  const areaPoints = `${pad},${h} ${linePoints} ${w - pad},${h}`;
 
   return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
-      <polyline fill="none" stroke={color} strokeWidth="1.5" points={points} />
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`}>
+      <polygon fill={color} fillOpacity="0.25" points={areaPoints} />
+      <polyline fill="none" stroke={color} strokeWidth="1.5" points={linePoints} />
     </svg>
   );
 }
 
+function formatDuration(value: number, unit: string): string {
+  if (unit === 'ms') {
+    if (value < 1) {
+      return '< 1ms';
+    }
+    if (value >= 1000) {
+      return `${(value / 1000).toFixed(1)}s`;
+    }
+    return `${Math.round(value)}ms`;
+  }
+  // seconds
+  if (value < 0.001) {
+    return '< 1ms';
+  }
+  if (value < 1) {
+    return `${Math.round(value * 1000)}ms`;
+  }
+  return `${value.toFixed(1)}s`;
+}
+
+const getSDKStyles = (theme: GrafanaTheme2) => ({
+  icon: css`
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: ${theme.typography.fontWeightBold};
+    color: white;
+    flex-shrink: 0;
+  `,
+  placeholder: css`
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    background: ${theme.colors.background.secondary};
+    flex-shrink: 0;
+  `,
+});
+
 const getStyles = (theme: GrafanaTheme2) => ({
   container: css`
-    padding: ${theme.spacing(2)};
+    padding: ${theme.spacing(1)} ${theme.spacing(2)};
+  `,
+  toolbar: css`
+    margin-bottom: ${theme.spacing(2)};
   `,
   table: css`
     width: 100%;
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
     th {
       text-align: left;
-      padding: ${theme.spacing(1)} ${theme.spacing(2)};
-      border-bottom: 1px solid ${theme.colors.border.medium};
+      padding: ${theme.spacing(1.5)} ${theme.spacing(2)};
       color: ${theme.colors.text.secondary};
       font-size: ${theme.typography.bodySmall.fontSize};
+      font-weight: ${theme.typography.fontWeightMedium};
+      border-bottom: 1px solid ${theme.colors.border.medium};
+      white-space: nowrap;
+      user-select: none;
     }
     td {
-      padding: ${theme.spacing(1)} ${theme.spacing(2)};
+      padding: ${theme.spacing(1.5)} ${theme.spacing(2)};
       border-bottom: 1px solid ${theme.colors.border.weak};
+      vertical-align: middle;
+    }
+  `,
+  sortable: css`
+    cursor: pointer;
+    &:hover {
+      color: ${theme.colors.text.primary};
     }
   `,
   row: css`
+    cursor: pointer;
     &:hover {
       background: ${theme.colors.background.secondary};
     }
   `,
-  errorText: css`
+  nameCell: css`
+    display: flex;
+    align-items: center;
+    gap: ${theme.spacing(1.5)};
+    font-weight: ${theme.typography.fontWeightMedium};
+  `,
+  nsCell: css`
+    color: ${theme.colors.text.secondary};
+  `,
+  metricCell: css`
+    display: flex;
+    align-items: center;
+    gap: ${theme.spacing(1)};
+  `,
+  metricValue: css`
+    min-width: 70px;
+    text-align: right;
+    white-space: nowrap;
+  `,
+  errorValue: css`
+    min-width: 70px;
+    text-align: right;
+    white-space: nowrap;
     color: ${theme.colors.error.text};
     font-weight: ${theme.typography.fontWeightMedium};
+  `,
+  errorBar: css`
+    width: 160px;
+    height: 2px;
+    background: ${theme.colors.error.main};
+  `,
+  errorBarFlat: css`
+    width: 160px;
+    height: 2px;
+    background: ${theme.colors.border.weak};
+  `,
+  footer: css`
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: ${theme.spacing(2)};
+    padding: ${theme.spacing(1)} 0;
+  `,
+  pageSize: css`
+    display: flex;
+    align-items: center;
+    gap: ${theme.spacing(1)};
+    color: ${theme.colors.text.secondary};
+    font-size: ${theme.typography.bodySmall.fontSize};
   `,
 });
 
