@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { PluginPage } from '@grafana/runtime';
 import { useStyles2, Tab, TabsBar, Icon, LinkButton, Select, LoadingPlaceholder, Alert } from '@grafana/ui';
-import { GrafanaTheme2, SelectableValue } from '@grafana/data';
+import { GrafanaTheme2, SelectableValue, FieldType, LoadingState, toDataFrame } from '@grafana/data';
 import { css } from '@emotion/css';
 import {
   SceneFlexLayout,
@@ -11,8 +11,10 @@ import {
   SceneTimePicker,
   SceneTimeRange,
   SceneRefreshPicker,
+  SceneDataNode,
   PanelBuilders,
   EmbeddedScene,
+  VizPanel,
 } from '@grafana/scenes';
 import { buildTempoExploreUrl, buildLokiExploreUrl, buildMimirExploreUrl } from '../utils/explore';
 import { getOperations, getServices, OperationSummary } from '../api/client';
@@ -290,21 +292,15 @@ function ServiceOverview() {
           )}
 
           {activeTab === 'traces' && (
-            <Alert severity="info" title="Coming soon">
-              Trace search will be available in a future release. Use the Traces button above to view traces in Explore.
-            </Alert>
+            <TracesTab service={service} namespace={namespace} />
           )}
 
           {activeTab === 'logs' && (
-            <Alert severity="info" title="Coming soon">
-              Log viewing will be available in a future release. Use the Logs button above to view logs in Explore.
-            </Alert>
+            <LogsTab service={service} namespace={namespace} />
           )}
 
           {activeTab === 'service-map' && (
-            <Alert severity="info" title="Coming soon">
-              Per-service service map will be available in a future release.
-            </Alert>
+            <ServiceMapTab service={service} namespace={namespace} />
           )}
         </div>
       </div>
@@ -350,6 +346,175 @@ function formatDuration(value: number, unit: string): string {
     return `${Math.round(value * 1000)}ms`;
   }
   return `${value.toFixed(1)}s`;
+}
+
+/** Traces tab — embedded Tempo trace search via Scenes */
+function TracesTab({ service, namespace }: { service: string; namespace: string }) {
+  const scene = useMemo(() => {
+    const timeRange = new SceneTimeRange({ from: 'now-1h', to: 'now' });
+
+    const traceQuery = new SceneQueryRunner({
+      datasource: { uid: 'tempo', type: 'tempo' },
+      queries: [
+        {
+          refId: 'A',
+          queryType: 'traceql',
+          query: `{resource.service.name="${service}" && span.kind=server}`,
+          limit: 20,
+        },
+      ],
+    });
+
+    return new EmbeddedScene({
+      $timeRange: timeRange,
+      controls: [new SceneTimePicker({}), new SceneRefreshPicker({})],
+      body: new SceneFlexLayout({
+        direction: 'column',
+        children: [
+          new SceneFlexItem({
+            minHeight: 400,
+            body: PanelBuilders.table()
+              .setTitle(`Traces — ${service}`)
+              .setData(traceQuery)
+              .build(),
+          }),
+        ],
+      }),
+    });
+  }, [service, namespace]);
+
+  return <scene.Component model={scene} />;
+}
+
+/** Logs tab — embedded Loki log viewer via Scenes */
+function LogsTab({ service, namespace }: { service: string; namespace: string }) {
+  const scene = useMemo(() => {
+    const timeRange = new SceneTimeRange({ from: 'now-1h', to: 'now' });
+
+    const logQuery = new SceneQueryRunner({
+      datasource: { uid: 'loki', type: 'loki' },
+      queries: [
+        {
+          refId: 'A',
+          expr: `{service_name="${service}"} | logfmt`,
+        },
+      ],
+    });
+
+    return new EmbeddedScene({
+      $timeRange: timeRange,
+      controls: [new SceneTimePicker({}), new SceneRefreshPicker({})],
+      body: new SceneFlexLayout({
+        direction: 'column',
+        children: [
+          new SceneFlexItem({
+            minHeight: 400,
+            body: PanelBuilders.logs()
+              .setTitle(`Logs — ${service}`)
+              .setData(logQuery)
+              .build(),
+          }),
+        ],
+      }),
+    });
+  }, [service, namespace]);
+
+  return <scene.Component model={scene} />;
+}
+
+/** Service Map tab — per-service neighborhood map */
+function ServiceMapTab({ service, namespace }: { service: string; namespace: string }) {
+  const [mapData, setMapData] = useState<import('../api/client').ServiceMapResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        setLoading(true);
+        const now = Date.now();
+        const { getServiceMap } = await import('../api/client');
+        const data = await getServiceMap(now - 3600000, now, service, namespace);
+        setMapData(data);
+      } catch {
+        // ignore
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, [service, namespace]);
+
+  const scene = useMemo(() => {
+    if (!mapData || mapData.nodes.length === 0) {
+      return null;
+    }
+
+    const nodesFrame = toDataFrame({
+      name: 'nodes',
+      fields: [
+        { name: 'id', type: FieldType.string, values: mapData.nodes.map((n: any) => n.id) },
+        { name: 'title', type: FieldType.string, values: mapData.nodes.map((n: any) => n.title) },
+        { name: 'mainStat', type: FieldType.string, values: mapData.nodes.map((n: any) => n.mainStat ?? '') },
+        { name: 'secondaryStat', type: FieldType.string, values: mapData.nodes.map((n: any) => n.secondaryStat ?? '') },
+        { name: 'arc__errors', type: FieldType.number, values: mapData.nodes.map((n: any) => n.arc__errors), config: { color: { fixedColor: 'red', mode: 'fixed' } } },
+        { name: 'arc__ok', type: FieldType.number, values: mapData.nodes.map((n: any) => n.arc__ok), config: { color: { fixedColor: 'green', mode: 'fixed' } } },
+      ],
+    });
+
+    const edgesFrame = toDataFrame({
+      name: 'edges',
+      fields: [
+        { name: 'id', type: FieldType.string, values: mapData.edges.map((e: any) => e.id) },
+        { name: 'source', type: FieldType.string, values: mapData.edges.map((e: any) => e.source) },
+        { name: 'target', type: FieldType.string, values: mapData.edges.map((e: any) => e.target) },
+        { name: 'mainStat', type: FieldType.string, values: mapData.edges.map((e: any) => e.mainStat ?? '') },
+        { name: 'secondaryStat', type: FieldType.string, values: mapData.edges.map((e: any) => e.secondaryStat ?? '') },
+      ],
+    });
+
+    nodesFrame.meta = { preferredVisualisationType: 'nodeGraph' };
+
+    const dataNode = new SceneDataNode({
+      data: {
+        series: [nodesFrame, edgesFrame],
+        state: LoadingState.Done,
+        timeRange: { from: new Date(), to: new Date(), raw: { from: 'now-1h', to: 'now' } } as any,
+      },
+    });
+
+    return new EmbeddedScene({
+      $timeRange: new SceneTimeRange({ from: 'now-1h', to: 'now' }),
+      body: new SceneFlexLayout({
+        direction: 'column',
+        children: [
+          new SceneFlexItem({
+            minHeight: 400,
+            body: new VizPanel({
+              title: `Service Map — ${service}`,
+              pluginId: 'nodeGraph',
+              $data: dataNode,
+              options: {},
+              fieldConfig: { defaults: {}, overrides: [] },
+            }),
+          }),
+        ],
+      }),
+    });
+  }, [mapData, service]);
+
+  if (loading) {
+    return <LoadingPlaceholder text="Loading service map..." />;
+  }
+
+  if (!scene) {
+    return (
+      <Alert severity="info" title="No service map data">
+        No service graph data found for {service}.
+      </Alert>
+    );
+  }
+
+  return <scene.Component model={scene} />;
 }
 
 const getStyles = (theme: GrafanaTheme2) => ({
