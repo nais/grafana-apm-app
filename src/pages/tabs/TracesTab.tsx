@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { useStyles2, Select } from '@grafana/ui';
+import { useStyles2, Select, Input, Icon } from '@grafana/ui';
 import { SelectableValue, GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import {
@@ -12,6 +12,7 @@ import {
   SceneTimePicker,
   SceneRefreshPicker,
 } from '@grafana/scenes';
+import { useDebouncedValue, escapeRegex } from '../../utils/debounce';
 
 export interface TracesTabProps {
   service: string;
@@ -23,6 +24,8 @@ export function TracesTab({ service, namespace, tracesUid }: TracesTabProps) {
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [durationMin, setDurationMin] = useState<string>('');
   const [durationMax, setDurationMax] = useState<string>('');
+  const [spanSearch, setSpanSearch] = useState<string>('');
+  const debouncedSearch = useDebouncedValue(spanSearch, 500);
   const styles = useStyles2(getStyles);
 
   const scene = useMemo(() => {
@@ -36,6 +39,9 @@ export function TracesTab({ service, namespace, tracesUid }: TracesTabProps) {
       conditions.push(`status=error`);
     } else if (statusFilter === 'ok') {
       conditions.push(`status=ok`);
+    }
+    if (debouncedSearch) {
+      conditions.push(`name=~".*${escapeRegex(debouncedSearch)}.*"`);
     }
     let traceQL = `{${conditions.join(' && ')}}`;
     if (durationMin) {
@@ -65,7 +71,6 @@ export function TracesTab({ service, namespace, tracesUid }: TracesTabProps) {
         direction: 'column',
         children: [
           new SceneFlexItem({
-            minHeight: 400,
             body: PanelBuilders.table()
               .setTitle(`Traces — ${service}`)
               .setData(traceQuery)
@@ -74,7 +79,7 @@ export function TracesTab({ service, namespace, tracesUid }: TracesTabProps) {
         ],
       }),
     });
-  }, [service, namespace, tracesUid, statusFilter, durationMin, durationMax]);
+  }, [service, namespace, tracesUid, statusFilter, durationMin, durationMax, debouncedSearch]);
 
   const statusOptions: Array<SelectableValue<string>> = [
     { label: 'All', value: '' },
@@ -83,8 +88,15 @@ export function TracesTab({ service, namespace, tracesUid }: TracesTabProps) {
   ];
 
   return (
-    <div>
+    <div className={styles.wrapper}>
       <div className={styles.controls}>
+        <Input
+          prefix={<Icon name="search" />}
+          placeholder="Search span name..."
+          width={24}
+          value={spanSearch}
+          onChange={(e) => setSpanSearch(e.currentTarget.value)}
+        />
         <label className={styles.label}>Status:</label>
         <Select
           options={statusOptions}
@@ -92,7 +104,7 @@ export function TracesTab({ service, namespace, tracesUid }: TracesTabProps) {
           onChange={(v) => setStatusFilter(v.value ?? '')}
           width={12}
         />
-        <label className={styles.label}>Min duration (ms):</label>
+        <label className={styles.label}>Min (ms):</label>
         <input
           className={styles.durationInput}
           type="number"
@@ -100,7 +112,7 @@ export function TracesTab({ service, namespace, tracesUid }: TracesTabProps) {
           value={durationMin}
           onChange={(e) => setDurationMin(e.target.value)}
         />
-        <label className={styles.label}>Max duration (ms):</label>
+        <label className={styles.label}>Max (ms):</label>
         <input
           className={styles.durationInput}
           type="number"
@@ -109,12 +121,20 @@ export function TracesTab({ service, namespace, tracesUid }: TracesTabProps) {
           onChange={(e) => setDurationMax(e.target.value)}
         />
       </div>
-      <scene.Component model={scene} />
+      <div className={styles.sceneWrapper}>
+        <scene.Component model={scene} />
+      </div>
     </div>
   );
 }
 
 const getStyles = (theme: GrafanaTheme2) => ({
+  wrapper: css`
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  `,
   controls: css`
     display: flex;
     align-items: center;
@@ -122,12 +142,17 @@ const getStyles = (theme: GrafanaTheme2) => ({
     margin-bottom: ${theme.spacing(2)};
     flex-wrap: wrap;
   `,
+  sceneWrapper: css`
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+  `,
   label: css`
     color: ${theme.colors.text.secondary};
     font-size: ${theme.typography.bodySmall.fontSize};
   `,
   durationInput: css`
-    width: 80px;
+    width: 70px;
     padding: ${theme.spacing(0.5)} ${theme.spacing(1)};
     border: 1px solid ${theme.colors.border.medium};
     border-radius: ${theme.shape.radius.default};

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { useStyles2, Select } from '@grafana/ui';
+import { useStyles2, Select, Input, Icon } from '@grafana/ui';
 import { SelectableValue, GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { GraphDrawStyle, StackingMode } from '@grafana/schema/dist/types/common/common.gen';
@@ -13,6 +13,7 @@ import {
   SceneTimePicker,
   SceneRefreshPicker,
 } from '@grafana/scenes';
+import { useDebouncedValue, escapeRegex } from '../../utils/debounce';
 
 export interface LogsTabProps {
   service: string;
@@ -22,6 +23,8 @@ export interface LogsTabProps {
 
 export function LogsTab({ service, namespace, logsUid }: LogsTabProps) {
   const [severityFilter, setSeverityFilter] = useState<string[]>([]);
+  const [logSearch, setLogSearch] = useState<string>('');
+  const debouncedSearch = useDebouncedValue(logSearch, 500);
   const styles = useStyles2(getStyles);
 
   const severityOptions: Array<SelectableValue<string>> = [
@@ -39,13 +42,16 @@ export function LogsTab({ service, namespace, logsUid }: LogsTabProps) {
     const severityMatcher = severityFilter.length > 0
       ? ` | level=~"${severityFilter.join('|')}"`
       : '';
+    const textFilter = debouncedSearch
+      ? ` |~ "${escapeRegex(debouncedSearch)}"`
+      : '';
 
     const volumeQuery = new SceneQueryRunner({
       datasource: { uid: logsUid, type: 'loki' },
       queries: [
         {
           refId: 'volume',
-          expr: `sum by (level) (count_over_time({${svcMatcher}}${severityMatcher} [$__auto]))`,
+          expr: `sum by (level) (count_over_time({${svcMatcher}}${severityMatcher}${textFilter} [$__auto]))`,
           legendFormat: '{{level}}',
           queryType: 'range',
         },
@@ -57,7 +63,7 @@ export function LogsTab({ service, namespace, logsUid }: LogsTabProps) {
       queries: [
         {
           refId: 'A',
-          expr: `{${svcMatcher}}${severityMatcher}`,
+          expr: `{${svcMatcher}}${severityMatcher}${textFilter}`,
           queryType: 'range',
           maxLines: 100,
         },
@@ -83,7 +89,6 @@ export function LogsTab({ service, namespace, logsUid }: LogsTabProps) {
               .build(),
           }),
           new SceneFlexItem({
-            minHeight: 400,
             body: PanelBuilders.logs()
               .setTitle(`Logs — ${service}`)
               .setData(logQuery)
@@ -94,11 +99,18 @@ export function LogsTab({ service, namespace, logsUid }: LogsTabProps) {
         ],
       }),
     });
-  }, [service, namespace, logsUid, severityFilter]);
+  }, [service, namespace, logsUid, severityFilter, debouncedSearch]);
 
   return (
-    <div>
+    <div className={styles.wrapper}>
       <div className={styles.controls}>
+        <Input
+          prefix={<Icon name="search" />}
+          placeholder="Search logs..."
+          width={24}
+          value={logSearch}
+          onChange={(e) => setLogSearch(e.currentTarget.value)}
+        />
         <label className={styles.label}>Severity:</label>
         <Select
           isMulti
@@ -109,18 +121,31 @@ export function LogsTab({ service, namespace, logsUid }: LogsTabProps) {
           placeholder="All severities"
         />
       </div>
-      <scene.Component model={scene} />
+      <div className={styles.sceneWrapper}>
+        <scene.Component model={scene} />
+      </div>
     </div>
   );
 }
 
 const getStyles = (theme: GrafanaTheme2) => ({
+  wrapper: css`
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  `,
   controls: css`
     display: flex;
     align-items: center;
     gap: ${theme.spacing(1.5)};
     margin-bottom: ${theme.spacing(2)};
     flex-wrap: wrap;
+  `,
+  sceneWrapper: css`
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
   `,
   label: css`
     color: ${theme.colors.text.secondary};

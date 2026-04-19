@@ -125,7 +125,9 @@ function ServiceMap() {
 
 const getStyles = (theme: GrafanaTheme2) => ({
   container: css`
-    padding: ${theme.spacing(1)} ${theme.spacing(2)};
+    display: flex;
+    flex-direction: column;
+    flex: 1;
   `,
   legend: css`
     margin-top: ${theme.spacing(2)};

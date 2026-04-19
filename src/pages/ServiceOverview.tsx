@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { PluginPage } from '@grafana/runtime';
 import { useStyles2, Tab, TabsBar, Icon, LinkButton, Select, LoadingPlaceholder, Alert } from '@grafana/ui';
 import { GrafanaTheme2, SelectableValue } from '@grafana/data';
@@ -19,10 +19,10 @@ import { DashboardCursorSync } from '@grafana/schema';
 import { buildTempoExploreUrl, buildLokiExploreUrl, buildMimirExploreUrl } from '../utils/explore';
 import { getOperations, getServices, OperationSummary } from '../api/client';
 import { formatDuration } from '../utils/format';
-import { PLUGIN_BASE_URL } from '../constants';
 import { usePluginDatasources } from '../utils/datasources';
 import { useTimeRange } from '../utils/timeRange';
 import { useCapabilities, getMetricNames } from '../utils/capabilities';
+import { useAppNavigate } from '../utils/navigation';
 import { TracesTab } from './tabs/TracesTab';
 import { LogsTab } from './tabs/LogsTab';
 import { ServiceMapTab } from './tabs/ServiceMapTab';
@@ -49,7 +49,7 @@ const SDK_BADGES: Record<string, { label: string; bg: string }> = {
 
 function ServiceOverview() {
   const { namespace = '', service = '' } = useParams<{ namespace: string; service: string }>();
-  const navigate = useNavigate();
+  const appNavigate = useAppNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const styles = useStyles2(getStyles);
   const ds = usePluginDatasources();
@@ -288,7 +288,7 @@ function ServiceOverview() {
               size="sm"
               icon="arrow-left"
               fill="text"
-              onClick={() => navigate(`${PLUGIN_BASE_URL}/services`)}
+              onClick={() => appNavigate('services')}
             >
               Services
             </LinkButton>
@@ -305,6 +305,17 @@ function ServiceOverview() {
             )}
           </div>
           <div className={styles.headerLinks}>
+            {activeTab === 'overview' && (
+              <>
+                <label className={styles.controlLabel}>Percentile:</label>
+                <Select
+                  options={PERCENTILE_OPTIONS}
+                  value={percentile}
+                  onChange={(v) => setPercentile(v.value ?? '0.95')}
+                  width={10}
+                />
+              </>
+            )}
             {environments.length > 1 && (
               <Select
                 options={[
@@ -359,17 +370,6 @@ function ServiceOverview() {
         <div className={styles.tabContent}>
           {activeTab === 'overview' && (
             <>
-              {/* Percentile selector for duration panel */}
-              <div className={styles.panelControls}>
-                <label className={styles.controlLabel}>Duration percentile:</label>
-                <Select
-                  options={PERCENTILE_OPTIONS}
-                  value={percentile}
-                  onChange={(v) => setPercentile(v.value ?? '0.95')}
-                  width={12}
-                />
-              </div>
-
               {/* RED panels */}
               <scene.Component model={scene} />
 
@@ -531,7 +531,6 @@ function OpsHeader({
 
 const getStyles = (theme: GrafanaTheme2) => ({
   container: css`
-    padding: ${theme.spacing(1)} ${theme.spacing(2)};
     display: flex;
     flex-direction: column;
     flex: 1;
@@ -541,6 +540,8 @@ const getStyles = (theme: GrafanaTheme2) => ({
     justify-content: space-between;
     align-items: center;
     margin-bottom: ${theme.spacing(1)};
+    flex-wrap: wrap;
+    gap: ${theme.spacing(1)};
   `,
   titleRow: css`
     display: flex;
@@ -563,19 +564,16 @@ const getStyles = (theme: GrafanaTheme2) => ({
   `,
   headerLinks: css`
     display: flex;
+    align-items: center;
     gap: ${theme.spacing(1)};
+    flex-wrap: wrap;
   `,
   tabContent: css`
     margin-top: ${theme.spacing(2)};
     flex: 1;
     display: flex;
     flex-direction: column;
-  `,
-  panelControls: css`
-    display: flex;
-    align-items: center;
-    gap: ${theme.spacing(1)};
-    margin-bottom: ${theme.spacing(1)};
+    min-height: 0;
   `,
   controlLabel: css`
     color: ${theme.colors.text.secondary};
@@ -609,9 +607,13 @@ const getStyles = (theme: GrafanaTheme2) => ({
     width: 100%;
     border-collapse: separate;
     border-spacing: 0;
+    table-layout: fixed;
+    th:nth-child(1) { width: 30%; }
+    th:nth-child(2) { width: 10%; }
+    th:nth-child(n+3) { width: 12%; text-align: right; }
     th {
       text-align: left;
-      padding: ${theme.spacing(1)} ${theme.spacing(2)};
+      padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
       color: ${theme.colors.text.secondary};
       font-size: ${theme.typography.bodySmall.fontSize};
       font-weight: ${theme.typography.fontWeightMedium};
@@ -619,8 +621,9 @@ const getStyles = (theme: GrafanaTheme2) => ({
       white-space: nowrap;
     }
     td {
-      padding: ${theme.spacing(1)} ${theme.spacing(2)};
+      padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
       border-bottom: 1px solid ${theme.colors.border.weak};
+      vertical-align: middle;
     }
     tr:hover {
       background: ${theme.colors.background.secondary};

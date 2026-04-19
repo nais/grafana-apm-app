@@ -1,18 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { PluginPage } from '@grafana/runtime';
 import { useStyles2, Icon, LoadingPlaceholder, Alert, LinkButton } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getDependencyDetail, DependencySummary, DependencyDetailResponse, OperationSummary } from '../api/client';
-import { PLUGIN_BASE_URL } from '../constants';
-import { formatDuration, DEP_TYPE_ICONS } from '../utils/format';
+import { formatDuration } from '../utils/format';
 import { useTimeRange } from '../utils/timeRange';
+import { useAppNavigate } from '../utils/navigation';
+import { DepTypeIcon } from '../components/DepTypeIcon';
 
 function DependencyDetail() {
   const { name = '' } = useParams<{ name: string }>();
   const styles = useStyles2(getStyles);
-  const navigate = useNavigate();
+  const appNavigate = useAppNavigate();
   const { fromMs, toMs } = useTimeRange();
   const [data, setData] = useState<DependencyDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -71,9 +72,10 @@ function DependencyDetail() {
             variant="secondary"
             size="sm"
             icon="arrow-left"
-            onClick={() => navigate(`${PLUGIN_BASE_URL}/dependencies`)}
+            fill="text"
+            onClick={() => appNavigate('dependencies')}
           >
-            Back to Dependencies
+            Dependencies
           </LinkButton>
         </div>
 
@@ -90,9 +92,7 @@ function DependencyDetail() {
             {/* Summary card */}
             <div className={styles.summaryCard}>
               <div className={styles.summaryTitle}>
-                <span className={styles.depIcon}>
-                  {DEP_TYPE_ICONS[data.dependency.type] ?? '❓'}
-                </span>
+                <DepTypeIcon type={data.dependency.type} size={28} />
                 <h2 className={styles.depName}>{name}</h2>
                 <span className={styles.typeBadge}>{data.dependency.type}</span>
               </div>
@@ -274,7 +274,9 @@ function ImpactBar({ impact }: { impact: number }) {
 
 const getStyles = (theme: GrafanaTheme2) => ({
   container: css`
-    padding: ${theme.spacing(1)} ${theme.spacing(2)};
+    display: flex;
+    flex-direction: column;
+    flex: 1;
   `,
   header: css`
     margin-bottom: ${theme.spacing(2)};
