@@ -167,6 +167,7 @@ export interface DependenciesResponse {
 export interface DependencyDetailResponse {
   dependency: DependencySummary;
   upstreams: DependencySummary[];
+  operations: OperationSummary[];
 }
 
 export async function getServiceDependencies(

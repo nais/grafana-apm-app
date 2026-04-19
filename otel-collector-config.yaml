@@ -25,6 +25,11 @@ connectors:
       - name: rpc.system
       - name: rpc.service
       - name: rpc.method
+      - name: peer.service
+      - name: db.system
+      - name: db.operation
+      - name: messaging.system
+      - name: messaging.operation
     exemplars:
       enabled: true
     resource_metrics_key_attributes:
