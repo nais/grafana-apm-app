@@ -586,3 +586,177 @@ func inferDependencyType(name, connType string) string {
 	}
 	return "service"
 }
+
+// ConnectedService represents a service connected via service graph.
+type ConnectedService struct {
+	Name         string  `json:"name"`
+	Rate         float64 `json:"rate"`
+	ErrorRate    float64 `json:"errorRate"`
+	P95Duration  float64 `json:"p95Duration"`
+	DurationUnit string  `json:"durationUnit"`
+}
+
+// ConnectedServicesResponse contains inbound and outbound service connections.
+type ConnectedServicesResponse struct {
+	Inbound  []ConnectedService `json:"inbound"`
+	Outbound []ConnectedService `json:"outbound"`
+}
+
+// handleConnectedServices returns inbound and outbound service connections.
+// GET /services/{namespace}/{service}/connected?from=&to=
+func (a *App) handleConnectedServices(w http.ResponseWriter, req *http.Request) {
+	ctx := req.Context()
+	service := queries.MustSanitizeLabel(req.PathValue("service"))
+
+	caps := a.cachedOrDetectCapabilities(ctx)
+	if !caps.ServiceGraph.Detected {
+		writeJSON(w, ConnectedServicesResponse{
+			Inbound:  []ConnectedService{},
+			Outbound: []ConnectedService{},
+		})
+		return
+	}
+
+	now := time.Now()
+	to := parseUnixParam(req, "to", now)
+
+	resp := a.queryConnectedServices(ctx, to, service)
+	writeJSON(w, resp)
+}
+
+func (a *App) queryConnectedServices(ctx context.Context, to time.Time, service string) ConnectedServicesResponse {
+	logger := log.DefaultLogger.With("handler", "connected-services")
+	rangeStr := "[5m]"
+
+	// Outbound: where service is the client (exclude virtual_node)
+	outRateQ := fmt.Sprintf(
+		`sum by (server) (rate(traces_service_graph_request_total{client="%s", connection_type!="virtual_node"}%s))`,
+		service, rangeStr,
+	)
+	outErrQ := fmt.Sprintf(
+		`sum by (server) (rate(traces_service_graph_request_failed_total{client="%s", connection_type!="virtual_node"}%s))`,
+		service, rangeStr,
+	)
+	outP95Q := fmt.Sprintf(
+		`histogram_quantile(0.95, sum by (server, le) (rate(traces_service_graph_request_server_seconds_bucket{client="%s", connection_type!="virtual_node"}%s)))`,
+		service, rangeStr,
+	)
+
+	// Inbound: where service is the server
+	inRateQ := fmt.Sprintf(
+		`sum by (client) (rate(traces_service_graph_request_total{server="%s"}%s))`,
+		service, rangeStr,
+	)
+	inErrQ := fmt.Sprintf(
+		`sum by (client) (rate(traces_service_graph_request_failed_total{server="%s"}%s))`,
+		service, rangeStr,
+	)
+	inP95Q := fmt.Sprintf(
+		`histogram_quantile(0.95, sum by (client, le) (rate(traces_service_graph_request_server_seconds_bucket{server="%s"}%s)))`,
+		service, rangeStr,
+	)
+
+	type queryResult struct {
+		name    string
+		results []queries.PromResult
+		err     error
+	}
+
+	var wg sync.WaitGroup
+	ch := make(chan queryResult, 6)
+
+	for _, q := range []struct {
+		name  string
+		query string
+	}{
+		{"outRate", outRateQ}, {"outErr", outErrQ}, {"outP95", outP95Q},
+		{"inRate", inRateQ}, {"inErr", inErrQ}, {"inP95", inP95Q},
+	} {
+		wg.Add(1)
+		go func(n, query string) {
+			defer wg.Done()
+			results, err := a.promClient.InstantQuery(ctx, query, to)
+			ch <- queryResult{name: n, results: results, err: err}
+		}(q.name, q.query)
+	}
+
+	go func() {
+		wg.Wait()
+		close(ch)
+	}()
+
+	resultMap := make(map[string][]queries.PromResult)
+	for r := range ch {
+		if r.err != nil {
+			logger.Warn("Connected services query failed", "query", r.name, "error", r.err)
+			continue
+		}
+		resultMap[r.name] = r.results
+	}
+
+	buildList := func(rateKey, errKey, p95Key, peerLabel string) []ConnectedService {
+		type svcData struct {
+			rate  float64
+			err   float64
+			p95   float64
+		}
+		m := make(map[string]*svcData)
+		for _, r := range resultMap[rateKey] {
+			name := r.Metric[peerLabel]
+			if name == "" {
+				continue
+			}
+			d, ok := m[name]
+			if !ok {
+				d = &svcData{}
+				m[name] = d
+			}
+			d.rate += r.Value.Float()
+		}
+		for _, r := range resultMap[errKey] {
+			name := r.Metric[peerLabel]
+			if d, ok := m[name]; ok {
+				d.err += r.Value.Float()
+			}
+		}
+		for _, r := range resultMap[p95Key] {
+			name := r.Metric[peerLabel]
+			if d, ok := m[name]; ok {
+				v := r.Value.Float()
+				if !math.IsNaN(v) && !math.IsInf(v, 0) {
+					d.p95 = v
+				}
+			}
+		}
+		result := make([]ConnectedService, 0, len(m))
+		for name, d := range m {
+			errPct := 0.0
+			if d.rate > 0 {
+				errPct = (d.err / d.rate) * 100
+			}
+			result = append(result, ConnectedService{
+				Name:         name,
+				Rate:         roundTo(d.rate, 3),
+				ErrorRate:    roundTo(errPct, 2),
+				P95Duration:  roundTo(d.p95*1000, 2),
+				DurationUnit: "ms",
+			})
+		}
+		sort.Slice(result, func(i, j int) bool {
+			return result[i].Rate > result[j].Rate
+		})
+		return result
+	}
+
+	outbound := buildList("outRate", "outErr", "outP95", "server")
+	inbound := buildList("inRate", "inErr", "inP95", "client")
+
+	if outbound == nil {
+		outbound = []ConnectedService{}
+	}
+	if inbound == nil {
+		inbound = []ConnectedService{}
+	}
+
+	return ConnectedServicesResponse{Inbound: inbound, Outbound: outbound}
+}

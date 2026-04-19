@@ -157,6 +157,36 @@ export async function getServiceMap(
   return fetchResource<ServiceMapResponse>('/service-map', params);
 }
 
+// ---- Connected Services ----
+
+export interface ConnectedService {
+  name: string;
+  rate: number;
+  errorRate: number;
+  p95Duration: number;
+  durationUnit: string;
+}
+
+export interface ConnectedServicesResponse {
+  inbound: ConnectedService[];
+  outbound: ConnectedService[];
+}
+
+export async function getConnectedServices(
+  namespace: string,
+  service: string,
+  from: number,
+  to: number
+): Promise<ConnectedServicesResponse> {
+  return fetchResource<ConnectedServicesResponse>(
+    `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(service)}/connected`,
+    {
+      from: String(Math.floor(from / 1000)),
+      to: String(Math.floor(to / 1000)),
+    }
+  );
+}
+
 // ---- Dependencies ----
 
 export interface DependencySummary {

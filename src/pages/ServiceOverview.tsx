@@ -65,6 +65,7 @@ function ServiceOverview() {
   const [opsError, setOpsError] = useState<string | null>(null);
   const [opsSortField, setOpsSortField] = useState<keyof OperationSummary>('rate');
   const [opsSortDir, setOpsSortDir] = useState<'asc' | 'desc'>('desc');
+  const [connected, setConnected] = useState<import('../api/client').ConnectedServicesResponse | null>(null);
 
   // Fetch SDK language and available environments
   useEffect(() => {
@@ -104,6 +105,20 @@ function ServiceOverview() {
       }
     };
     fetchOps();
+  }, [service, namespace, fromMs, toMs]);
+
+  // Fetch connected services (inbound/outbound)
+  useEffect(() => {
+    const fetchConnected = async () => {
+      try {
+        const { getConnectedServices } = await import('../api/client');
+        const data = await getConnectedServices(namespace, service, fromMs, toMs);
+        setConnected(data);
+      } catch {
+        // connected services are optional
+      }
+    };
+    fetchConnected();
   }, [service, namespace, fromMs, toMs]);
 
   const percentileLabel = PERCENTILE_OPTIONS.find((o) => o.value === percentile)?.label ?? 'P95';
@@ -401,6 +416,73 @@ function ServiceOverview() {
                   </table>
                 )}
               </div>
+
+              {/* Connected services (inbound/outbound) */}
+              {connected && (connected.inbound.length > 0 || connected.outbound.length > 0) && (
+                <div className={styles.operationsSection}>
+                  <h3 className={styles.sectionTitle}>Connected Services</h3>
+                  <div className={styles.connectedGrid}>
+                    {connected.inbound.length > 0 && (
+                      <div>
+                        <h4 className={styles.connectedSubtitle}>
+                          <Icon name="arrow-down" /> Inbound ({connected.inbound.length})
+                        </h4>
+                        <table className={styles.opsTable}>
+                          <thead>
+                            <tr>
+                              <th>Service</th>
+                              <th>Rate</th>
+                              <th>Error %</th>
+                              <th>P95</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {connected.inbound.map((s) => (
+                              <tr key={s.name}>
+                                <td className={styles.opNameCell}>{s.name}</td>
+                                <td className={styles.opNumCell}>{s.rate.toFixed(2)} req/s</td>
+                                <td className={s.errorRate > 0 ? styles.opErrorCell : styles.opNumCell}>
+                                  {s.errorRate.toFixed(1)}%
+                                </td>
+                                <td className={styles.opNumCell}>{formatDuration(s.p95Duration, s.durationUnit)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                    {connected.outbound.length > 0 && (
+                      <div>
+                        <h4 className={styles.connectedSubtitle}>
+                          <Icon name="arrow-up" /> Outbound ({connected.outbound.length})
+                        </h4>
+                        <table className={styles.opsTable}>
+                          <thead>
+                            <tr>
+                              <th>Service</th>
+                              <th>Rate</th>
+                              <th>Error %</th>
+                              <th>P95</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {connected.outbound.map((s) => (
+                              <tr key={s.name}>
+                                <td className={styles.opNameCell}>{s.name}</td>
+                                <td className={styles.opNumCell}>{s.rate.toFixed(2)} req/s</td>
+                                <td className={s.errorRate > 0 ? styles.opErrorCell : styles.opNumCell}>
+                                  {s.errorRate.toFixed(1)}%
+                                </td>
+                                <td className={styles.opNumCell}>{formatDuration(s.p95Duration, s.durationUnit)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </>
           )}
 
@@ -612,6 +694,8 @@ function LogsTab({ service, namespace, logsUid }: { service: string; namespace: 
             body: PanelBuilders.logs()
               .setTitle(`Logs — ${service}`)
               .setData(logQuery)
+              .setOption('enableLogDetails', true)
+              .setOption('showTime', true)
               .build(),
           }),
         ],
@@ -939,6 +1023,23 @@ const getStyles = (theme: GrafanaTheme2) => ({
   sectionTitle: css`
     margin-bottom: ${theme.spacing(1.5)};
     font-size: ${theme.typography.h4.fontSize};
+  `,
+  connectedGrid: css`
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: ${theme.spacing(3)};
+    @media (max-width: 768px) {
+      grid-template-columns: 1fr;
+    }
+  `,
+  connectedSubtitle: css`
+    font-size: ${theme.typography.body.fontSize};
+    font-weight: ${theme.typography.fontWeightMedium};
+    color: ${theme.colors.text.secondary};
+    margin-bottom: ${theme.spacing(1)};
+    display: flex;
+    align-items: center;
+    gap: ${theme.spacing(0.5)};
   `,
   opsTable: css`
     width: 100%;
