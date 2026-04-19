@@ -18,6 +18,7 @@ import {
 } from '@grafana/scenes';
 import { buildTempoExploreUrl, buildLokiExploreUrl, buildMimirExploreUrl } from '../utils/explore';
 import { getOperations, getServices, getServiceDependencies, OperationSummary, DependencySummary } from '../api/client';
+import { formatDuration, DEP_TYPE_ICONS } from '../utils/format';
 
 type TabId = 'overview' | 'dependencies' | 'traces' | 'logs' | 'service-map';
 
@@ -337,25 +338,6 @@ function OpsHeader({
   );
 }
 
-function formatDuration(value: number, unit: string): string {
-  if (unit === 'ms') {
-    if (value < 1) {
-      return '< 1ms';
-    }
-    if (value >= 1000) {
-      return `${(value / 1000).toFixed(1)}s`;
-    }
-    return `${Math.round(value)}ms`;
-  }
-  if (value < 0.001) {
-    return '< 1ms';
-  }
-  if (value < 1) {
-    return `${Math.round(value * 1000)}ms`;
-  }
-  return `${value.toFixed(1)}s`;
-}
-
 /** Traces tab — embedded Tempo trace search via Scenes */
 function TracesTab({ service, namespace }: { service: string; namespace: string }) {
   const scene = useMemo(() => {
@@ -527,19 +509,6 @@ function ServiceMapTab({ service, namespace }: { service: string; namespace: str
 
   return <scene.Component model={scene} />;
 }
-
-const DEP_TYPE_ICONS: Record<string, string> = {
-  redis: '🔴',
-  postgresql: '🐘',
-  mysql: '🐬',
-  mongodb: '🍃',
-  kafka: '📨',
-  rabbitmq: '🐇',
-  elasticsearch: '🔍',
-  memcached: '⚡',
-  external: '🌐',
-  service: '🔷',
-};
 
 /** Dependencies tab — shows downstream dependencies with RED + impact */
 function DependenciesTab({ service, namespace }: { service: string; namespace: string }) {
