@@ -27,8 +27,10 @@ import { TracesTab } from './tabs/TracesTab';
 import { LogsTab } from './tabs/LogsTab';
 import { ServiceMapTab } from './tabs/ServiceMapTab';
 import { DependenciesTab } from './tabs/DependenciesTab';
+import { ServerTab } from './tabs/ServerTab';
+import { FrontendTab } from './tabs/FrontendTab';
 
-type TabId = 'overview' | 'dependencies' | 'traces' | 'logs' | 'service-map';
+type TabId = 'overview' | 'server' | 'frontend' | 'dependencies' | 'traces' | 'logs' | 'service-map';
 
 const PERCENTILE_OPTIONS: Array<SelectableValue<string>> = [
   { label: 'P50', value: '0.50' },
@@ -358,6 +360,8 @@ function ServiceOverview() {
         {/* Tabs — hide when required datasource is unavailable */}
         <TabsBar>
           <Tab label="Overview" active={activeTab === 'overview'} onChangeTab={() => setActiveTab('overview')} />
+          <Tab label="Server" active={activeTab === 'server'} onChangeTab={() => setActiveTab('server')} />
+          <Tab label="Frontend" active={activeTab === 'frontend'} onChangeTab={() => setActiveTab('frontend')} />
           {caps?.serviceGraph?.detected !== false && (
             <Tab label="Dependencies" active={activeTab === 'dependencies'} onChangeTab={() => setActiveTab('dependencies')} />
           )}
@@ -495,6 +499,14 @@ function ServiceOverview() {
 
           {activeTab === 'traces' && (
             <TracesTab service={service} namespace={namespace} tracesUid={ds.tracesUid} />
+          )}
+
+          {activeTab === 'server' && (
+            <ServerTab service={service} namespace={namespace} fromMs={fromMs} toMs={toMs} />
+          )}
+
+          {activeTab === 'frontend' && (
+            <FrontendTab service={service} namespace={namespace} />
           )}
 
           {activeTab === 'dependencies' && (
