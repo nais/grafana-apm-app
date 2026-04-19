@@ -64,3 +64,15 @@ type DataPoint struct {
 	Timestamp int64   `json:"t"`
 	Value     float64 `json:"v"`
 }
+
+// OperationSummary is a single operation entry for the operations table.
+type OperationSummary struct {
+	SpanName     string  `json:"spanName"`
+	SpanKind     string  `json:"spanKind"`
+	Rate         float64 `json:"rate"`
+	ErrorRate    float64 `json:"errorRate"`
+	P50Duration  float64 `json:"p50Duration"`
+	P95Duration  float64 `json:"p95Duration"`
+	P99Duration  float64 `json:"p99Duration"`
+	DurationUnit string  `json:"durationUnit"`
+}

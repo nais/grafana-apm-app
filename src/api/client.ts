@@ -79,3 +79,29 @@ export async function getServices(
     withSeries: String(withSeries),
   });
 }
+
+export interface OperationSummary {
+  spanName: string;
+  spanKind: string;
+  rate: number;
+  errorRate: number;
+  p50Duration: number;
+  p95Duration: number;
+  p99Duration: number;
+  durationUnit: string;
+}
+
+export async function getOperations(
+  namespace: string,
+  service: string,
+  from: number,
+  to: number
+): Promise<OperationSummary[]> {
+  return fetchResource<OperationSummary[]>(
+    `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(service)}/operations`,
+    {
+      from: String(Math.floor(from / 1000)),
+      to: String(Math.floor(to / 1000)),
+    }
+  );
+}

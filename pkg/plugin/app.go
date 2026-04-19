@@ -97,5 +97,6 @@ func (a *App) CheckHealth(ctx context.Context, _ *backend.CheckHealthRequest) (*
 func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/capabilities", a.handleCapabilities)
 	mux.HandleFunc("/services", a.handleServices)
+	mux.HandleFunc("/services/{namespace}/{service}/operations", a.handleOperations)
 	mux.HandleFunc("/ping", a.handlePing)
 }

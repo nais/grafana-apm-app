@@ -34,19 +34,7 @@ func (a *App) handleServices(w http.ResponseWriter, req *http.Request) {
 	withSeries := req.URL.Query().Get("withSeries") != "false"
 
 	// Get capability info for metric names
-	a.capMu.RLock()
-	cached := a.capCache
-	a.capMu.RUnlock()
-
-	var caps queries.Capabilities
-	if cached != nil && time.Since(cached.fetchedAt) < capabilitiesCacheTTL {
-		caps = cached.caps
-	} else {
-		caps = a.detectCapabilities(ctx)
-		a.capMu.Lock()
-		a.capCache = &cachedCapabilities{caps: caps, fetchedAt: time.Now()}
-		a.capMu.Unlock()
-	}
+	caps := a.cachedOrDetectCapabilities(ctx)
 
 	if !caps.SpanMetrics.Detected {
 		writeJSON(w, []queries.ServiceSummary{})
@@ -276,4 +264,21 @@ func parseDurationParam(req *http.Request, name string, defaultVal time.Duration
 		return defaultVal
 	}
 	return time.Duration(secs) * time.Second
+}
+
+// cachedOrDetectCapabilities returns cached capabilities or detects fresh ones.
+func (a *App) cachedOrDetectCapabilities(ctx context.Context) queries.Capabilities {
+	a.capMu.RLock()
+	cached := a.capCache
+	a.capMu.RUnlock()
+
+	if cached != nil && time.Since(cached.fetchedAt) < capabilitiesCacheTTL {
+		return cached.caps
+	}
+
+	caps := a.detectCapabilities(ctx)
+	a.capMu.Lock()
+	a.capCache = &cachedCapabilities{caps: caps, fetchedAt: time.Now()}
+	a.capMu.Unlock()
+	return caps
 }
