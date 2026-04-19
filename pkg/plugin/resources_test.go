@@ -52,15 +52,57 @@ func TestCallResource(t *testing.T) {
 			expStatus: http.StatusOK,
 		},
 		{
+			name:      "get services with namespace filter 200",
+			method:    http.MethodGet,
+			path:      "services?namespace=otel-demo",
+			expStatus: http.StatusOK,
+		},
+		{
+			name:      "get services with environment filter 200",
+			method:    http.MethodGet,
+			path:      "services?environment=production",
+			expStatus: http.StatusOK,
+		},
+		{
 			name:      "get service-map 200",
 			method:    http.MethodGet,
 			path:      "service-map",
 			expStatus: http.StatusOK,
 		},
 		{
+			name:      "get service-map with service filter 200",
+			method:    http.MethodGet,
+			path:      "service-map?service=frontend&namespace=otel-demo",
+			expStatus: http.StatusOK,
+		},
+		{
 			name:      "get operations 200",
 			method:    http.MethodGet,
 			path:      "services/demo/frontend/operations",
+			expStatus: http.StatusOK,
+		},
+		{
+			name:      "get dependencies 200",
+			method:    http.MethodGet,
+			path:      "services/demo/frontend/dependencies",
+			expStatus: http.StatusOK,
+		},
+		{
+			name:      "get connected services 200",
+			method:    http.MethodGet,
+			path:      "services/demo/frontend/connected",
+			expStatus: http.StatusOK,
+		},
+		{
+			name:      "get global dependencies 200",
+			method:    http.MethodGet,
+			path:      "dependencies",
+			expStatus: http.StatusOK,
+		},
+		{
+			name:      "get dependency detail 200",
+			method:    http.MethodGet,
+			path:      "dependencies/redis",
 			expStatus: http.StatusOK,
 		},
 		{
