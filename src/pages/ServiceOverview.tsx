@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
-import { PluginPage } from '@grafana/runtime';
+import { useNavigate, useParams } from 'react-router-dom';
+import { PluginPage, config } from '@grafana/runtime';
 import { useStyles2, Tab, TabsBar, Icon, LinkButton, Select, LoadingPlaceholder, Alert } from '@grafana/ui';
 import { GrafanaTheme2, SelectableValue, FieldType, LoadingState, toDataFrame } from '@grafana/data';
 import { css } from '@emotion/css';
@@ -19,6 +19,19 @@ import {
 import { buildTempoExploreUrl, buildLokiExploreUrl, buildMimirExploreUrl } from '../utils/explore';
 import { getOperations, getServices, getServiceDependencies, OperationSummary, DependencySummary } from '../api/client';
 import { formatDuration, DEP_TYPE_ICONS } from '../utils/format';
+import { PLUGIN_BASE_URL } from '../constants';
+import pluginJson from '../plugin.json';
+
+/** Read datasource UIDs from plugin config, falling back to defaults */
+function getPluginDatasources() {
+  const meta = config.apps?.[pluginJson.id];
+  const jsonData = (meta as any)?.jsonData ?? {};
+  return {
+    metricsUid: jsonData.metricsDataSource?.uid || 'mimir',
+    tracesUid: jsonData.tracesDataSource?.uid || 'tempo',
+    logsUid: jsonData.logsDataSource?.uid || 'loki',
+  };
+}
 
 type TabId = 'overview' | 'dependencies' | 'traces' | 'logs' | 'service-map';
 
@@ -41,7 +54,9 @@ const SDK_BADGES: Record<string, { label: string; bg: string }> = {
 
 function ServiceOverview() {
   const { namespace = '', service = '' } = useParams<{ namespace: string; service: string }>();
+  const navigate = useNavigate();
   const styles = useStyles2(getStyles);
+  const ds = useMemo(() => getPluginDatasources(), []);
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [percentile, setPercentile] = useState<string>('0.95');
   const [sdkLanguage, setSdkLanguage] = useState<string>('');
@@ -93,7 +108,7 @@ function ServiceOverview() {
     const svcFilter = `service_name="${service}", service_namespace="${namespace}"`;
 
     const durationQuery = new SceneQueryRunner({
-      datasource: { uid: 'mimir', type: 'prometheus' },
+      datasource: { uid: ds.metricsUid, type: 'prometheus' },
       queries: [
         {
           refId: 'A',
@@ -104,7 +119,7 @@ function ServiceOverview() {
     });
 
     const errorQuery = new SceneQueryRunner({
-      datasource: { uid: 'mimir', type: 'prometheus' },
+      datasource: { uid: ds.metricsUid, type: 'prometheus' },
       queries: [
         {
           refId: 'A',
@@ -115,7 +130,7 @@ function ServiceOverview() {
     });
 
     const rateQuery = new SceneQueryRunner({
-      datasource: { uid: 'mimir', type: 'prometheus' },
+      datasource: { uid: ds.metricsUid, type: 'prometheus' },
       queries: [
         {
           refId: 'A',
@@ -125,10 +140,10 @@ function ServiceOverview() {
       ],
     });
 
-    const tempoUrl = buildTempoExploreUrl('tempo', service);
-    const lokiUrl = buildLokiExploreUrl('loki', service);
+    const tempoUrl = buildTempoExploreUrl(ds.tracesUid, service);
+    const lokiUrl = buildLokiExploreUrl(ds.logsUid, service);
     const mimirUrl = buildMimirExploreUrl(
-      'mimir',
+      ds.metricsUid,
       `sum(rate(traces_span_metrics_calls_total{service_name="${service}", service_namespace="${namespace}", span_kind="SPAN_KIND_SERVER"}[5m]))`
     );
 
@@ -203,6 +218,15 @@ function ServiceOverview() {
         {/* Header */}
         <div className={styles.header}>
           <div className={styles.titleRow}>
+            <LinkButton
+              variant="secondary"
+              size="sm"
+              icon="arrow-left"
+              fill="text"
+              onClick={() => navigate(`${PLUGIN_BASE_URL}/services`)}
+            >
+              Services
+            </LinkButton>
             <h2 className={styles.title}>
               {namespace}/{service}
             </h2>
@@ -216,10 +240,10 @@ function ServiceOverview() {
             )}
           </div>
           <div className={styles.headerLinks}>
-            <LinkButton variant="secondary" size="sm" icon="compass" href={buildTempoExploreUrl('tempo', service)}>
+            <LinkButton variant="secondary" size="sm" icon="compass" href={buildTempoExploreUrl(ds.tracesUid, service)}>
               Traces
             </LinkButton>
-            <LinkButton variant="secondary" size="sm" icon="document-info" href={buildLokiExploreUrl('loki', service)}>
+            <LinkButton variant="secondary" size="sm" icon="document-info" href={buildLokiExploreUrl(ds.logsUid, service)}>
               Logs
             </LinkButton>
           </div>
@@ -297,7 +321,7 @@ function ServiceOverview() {
           )}
 
           {activeTab === 'traces' && (
-            <TracesTab service={service} namespace={namespace} />
+            <TracesTab service={service} namespace={namespace} tracesUid={ds.tracesUid} />
           )}
 
           {activeTab === 'dependencies' && (
@@ -305,7 +329,7 @@ function ServiceOverview() {
           )}
 
           {activeTab === 'logs' && (
-            <LogsTab service={service} namespace={namespace} />
+            <LogsTab service={service} namespace={namespace} logsUid={ds.logsUid} />
           )}
 
           {activeTab === 'service-map' && (
@@ -339,12 +363,12 @@ function OpsHeader({
 }
 
 /** Traces tab — embedded Tempo trace search via Scenes */
-function TracesTab({ service, namespace }: { service: string; namespace: string }) {
+function TracesTab({ service, namespace, tracesUid }: { service: string; namespace: string; tracesUid: string }) {
   const scene = useMemo(() => {
     const timeRange = new SceneTimeRange({ from: 'now-1h', to: 'now' });
 
     const traceQuery = new SceneQueryRunner({
-      datasource: { uid: 'tempo', type: 'tempo' },
+      datasource: { uid: tracesUid, type: 'tempo' },
       queries: [
         {
           refId: 'A',
@@ -378,12 +402,12 @@ function TracesTab({ service, namespace }: { service: string; namespace: string 
 }
 
 /** Logs tab — embedded Loki log viewer via Scenes */
-function LogsTab({ service, namespace }: { service: string; namespace: string }) {
+function LogsTab({ service, namespace, logsUid }: { service: string; namespace: string; logsUid: string }) {
   const scene = useMemo(() => {
     const timeRange = new SceneTimeRange({ from: 'now-1h', to: 'now' });
 
     const logQuery = new SceneQueryRunner({
-      datasource: { uid: 'loki', type: 'loki' },
+      datasource: { uid: logsUid, type: 'loki' },
       queries: [
         {
           refId: 'A',
@@ -649,6 +673,9 @@ function ImpactBar({ impact }: { impact: number }) {
 const getStyles = (theme: GrafanaTheme2) => ({
   container: css`
     padding: ${theme.spacing(1)} ${theme.spacing(2)};
+    display: flex;
+    flex-direction: column;
+    flex: 1;
   `,
   header: css`
     display: flex;
@@ -681,6 +708,9 @@ const getStyles = (theme: GrafanaTheme2) => ({
   `,
   tabContent: css`
     margin-top: ${theme.spacing(2)};
+    flex: 1;
+    display: flex;
+    flex-direction: column;
   `,
   panelControls: css`
     display: flex;
