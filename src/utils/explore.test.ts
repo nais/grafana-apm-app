@@ -22,6 +22,12 @@ describe('buildTempoExploreUrl', () => {
     const url = buildTempoExploreUrl('tempo', 'frontend', { statusCode: 'error' });
     expect(url).toContain('error');
   });
+
+  it('includes namespace filter', () => {
+    const url = buildTempoExploreUrl('tempo', 'frontend', { namespace: 'otel-demo' });
+    expect(url).toContain('service.namespace');
+    expect(url).toContain('otel-demo');
+  });
 });
 
 describe('buildLokiExploreUrl', () => {
@@ -34,6 +40,12 @@ describe('buildLokiExploreUrl', () => {
   it('includes trace ID filter', () => {
     const url = buildLokiExploreUrl('loki', 'frontend', { traceId: 'abc123' });
     expect(url).toContain('abc123');
+  });
+
+  it('includes namespace filter', () => {
+    const url = buildLokiExploreUrl('loki', 'frontend', { namespace: 'otel-demo' });
+    expect(url).toContain('service_namespace');
+    expect(url).toContain('otel-demo');
   });
 });
 

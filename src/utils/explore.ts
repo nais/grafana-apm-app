@@ -29,9 +29,13 @@ export function buildTempoExploreUrl(
     to?: string;
     statusCode?: string;
     operation?: string;
+    namespace?: string;
   }
 ): string {
   let query = `{resource.service.name="${serviceName}"`;
+  if (options?.namespace) {
+    query += ` && resource.service.namespace="${options.namespace}"`;
+  }
   if (options?.statusCode) {
     query += ` && status=${options.statusCode}`;
   }
@@ -60,9 +64,12 @@ export function buildLokiExploreUrl(
     from?: string;
     to?: string;
     traceId?: string;
+    namespace?: string;
   }
 ): string {
-  let expr = `{service_name="${serviceName}"}`;
+  let expr = options?.namespace
+    ? `{service_name="${serviceName}", service_namespace="${options.namespace}"}`
+    : `{service_name="${serviceName}"}`;
   if (options?.traceId) {
     expr += ` |= "${options.traceId}"`;
   }
