@@ -135,6 +135,7 @@ function ServiceOverview() {
 
     const durationQuery = new SceneQueryRunner({
       datasource: { uid: ds.metricsUid, type: 'prometheus' },
+      minInterval: '5m',
       queries: [
         {
           refId: 'A',
@@ -146,6 +147,7 @@ function ServiceOverview() {
 
     const errorQuery = new SceneQueryRunner({
       datasource: { uid: ds.metricsUid, type: 'prometheus' },
+      minInterval: '5m',
       queries: [
         {
           refId: 'A',
@@ -157,6 +159,7 @@ function ServiceOverview() {
 
     const rateQuery = new SceneQueryRunner({
       datasource: { uid: ds.metricsUid, type: 'prometheus' },
+      minInterval: '5m',
       queries: [
         {
           refId: 'A',
@@ -181,6 +184,7 @@ function ServiceOverview() {
         direction: 'row',
         children: [
           new SceneFlexItem({
+            minHeight: 200,
             body: PanelBuilders.timeseries()
               .setTitle('Duration')
               .setData(durationQuery)
@@ -192,6 +196,7 @@ function ServiceOverview() {
               .build(),
           }),
           new SceneFlexItem({
+            minHeight: 200,
             body: PanelBuilders.timeseries()
               .setTitle('Errors')
               .setData(errorQuery)
@@ -203,6 +208,7 @@ function ServiceOverview() {
               .build(),
           }),
           new SceneFlexItem({
+            minHeight: 200,
             body: PanelBuilders.timeseries()
               .setTitle('Rate')
               .setData(rateQuery)
