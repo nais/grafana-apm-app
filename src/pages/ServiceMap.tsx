@@ -14,9 +14,11 @@ import {
   VizPanel,
 } from '@grafana/scenes';
 import { getServiceMap, ServiceMapResponse } from '../api/client';
+import { useTimeRange } from '../utils/timeRange';
 
 function ServiceMap() {
   const styles = useStyles2(getStyles);
+  const { fromMs, toMs } = useTimeRange();
   const [mapData, setMapData] = useState<ServiceMapResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -25,8 +27,7 @@ function ServiceMap() {
     const load = async () => {
       try {
         setLoading(true);
-        const now = Date.now();
-        const data = await getServiceMap(now - 3600000, now);
+        const data = await getServiceMap(fromMs, toMs);
         setMapData(data);
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to load service map');
@@ -35,7 +36,7 @@ function ServiceMap() {
       }
     };
     load();
-  }, []);
+  }, [fromMs, toMs]);
 
   const scene = useMemo(() => {
     if (!mapData || mapData.nodes.length === 0) {
