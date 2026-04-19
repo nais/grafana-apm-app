@@ -70,14 +70,22 @@ export async function getServices(
   from: number,
   to: number,
   step = 60,
-  withSeries = true
+  withSeries = true,
+  filters?: { namespace?: string; environment?: string }
 ): Promise<ServiceSummary[]> {
-  return fetchResource<ServiceSummary[]>('/services', {
+  const params: Record<string, string> = {
     from: String(Math.floor(from / 1000)),
     to: String(Math.floor(to / 1000)),
     step: String(step),
     withSeries: String(withSeries),
-  });
+  };
+  if (filters?.namespace) {
+    params.namespace = filters.namespace;
+  }
+  if (filters?.environment) {
+    params.environment = filters.environment;
+  }
+  return fetchResource<ServiceSummary[]>('/services', params);
 }
 
 export interface OperationSummary {
