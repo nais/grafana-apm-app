@@ -388,7 +388,7 @@ function TracesTab({ service, namespace, tracesUid }: { service: string; namespa
         ],
       }),
     });
-  }, [service, namespace]);
+  }, [service, namespace, tracesUid]);
 
   return <scene.Component model={scene} />;
 }
@@ -426,7 +426,7 @@ function LogsTab({ service, namespace, logsUid }: { service: string; namespace: 
         ],
       }),
     });
-  }, [service, namespace]);
+  }, [service, namespace, logsUid]);
 
   return <scene.Component model={scene} />;
 }
@@ -435,16 +435,18 @@ function LogsTab({ service, namespace, logsUid }: { service: string; namespace: 
 function ServiceMapTab({ service, namespace, fromMs, toMs }: { service: string; namespace: string; fromMs: number; toMs: number }) {
   const [mapData, setMapData] = useState<import('../api/client').ServiceMapResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
       try {
         setLoading(true);
+        setError(null);
         const { getServiceMap } = await import('../api/client');
         const data = await getServiceMap(fromMs, toMs, service, namespace);
         setMapData(data);
-      } catch {
-        // ignore
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Failed to load service map');
       } finally {
         setLoading(false);
       }
@@ -512,6 +514,10 @@ function ServiceMapTab({ service, namespace, fromMs, toMs }: { service: string; 
 
   if (loading) {
     return <LoadingPlaceholder text="Loading service map..." />;
+  }
+
+  if (error) {
+    return <Alert severity="error" title="Error loading service map">{error}</Alert>;
   }
 
   if (!scene) {

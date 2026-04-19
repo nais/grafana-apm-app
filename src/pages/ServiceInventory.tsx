@@ -73,6 +73,7 @@ function ServiceInventory() {
     const load = async () => {
       try {
         setLoading(true);
+        setError(null);
         const [capsResult, servicesResult] = await Promise.all([
           getCapabilities(),
           getServices(fromMs, toMs, 60, true),
@@ -99,7 +100,7 @@ function ServiceInventory() {
         (s) => s.name.toLowerCase().includes(q) || s.namespace.toLowerCase().includes(q)
       );
     }
-    result.sort((a, b) => {
+    return [...result].sort((a, b) => {
       let cmp = 0;
       switch (sortField) {
         case 'name': cmp = a.name.localeCompare(b.name); break;
@@ -110,8 +111,7 @@ function ServiceInventory() {
       }
       return sortDir === 'asc' ? cmp : -cmp;
     });
-    return result;
-  }, [services, search, sortField, sortDir]);
+  }, [services, search, sortField, sortDir, namespaceFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
@@ -126,7 +126,7 @@ function ServiceInventory() {
     setPage(1);
   };
 
-  const SortIcon = ({ field }: { field: SortField }) => {
+  const sortIcon = (field: SortField) => {
     if (sortField !== field) {
       return null;
     }
@@ -169,19 +169,19 @@ function ServiceInventory() {
               <thead>
                 <tr>
                   <th className={styles.sortable} onClick={() => toggleSort('name')}>
-                    Name <SortIcon field="name" />
+                    Name {sortIcon('name')}
                   </th>
                   <th className={styles.sortable} onClick={() => toggleSort('namespace')}>
-                    Namespace <SortIcon field="namespace" />
+                    Namespace {sortIcon('namespace')}
                   </th>
                   <th className={styles.sortable} onClick={() => toggleSort('p95Duration')}>
-                    Duration, p95 <SortIcon field="p95Duration" />
+                    Duration, p95 {sortIcon('p95Duration')}
                   </th>
                   <th className={styles.sortable} onClick={() => toggleSort('errorRate')}>
-                    Errors <SortIcon field="errorRate" />
+                    Errors {sortIcon('errorRate')}
                   </th>
                   <th className={styles.sortable} onClick={() => toggleSort('rate')}>
-                    Rate <SortIcon field="rate" />
+                    Rate {sortIcon('rate')}
                   </th>
                 </tr>
               </thead>

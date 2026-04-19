@@ -14,8 +14,8 @@ import (
 
 func (a *App) handleOperations(w http.ResponseWriter, req *http.Request) {
 	ctx := req.Context()
-	namespace := req.PathValue("namespace")
-	service := req.PathValue("service")
+	namespace := queries.MustSanitizeLabel(req.PathValue("namespace"))
+	service := queries.MustSanitizeLabel(req.PathValue("service"))
 
 	if service == "" {
 		http.Error(w, `{"error":"missing service"}`, http.StatusBadRequest)

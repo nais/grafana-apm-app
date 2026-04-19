@@ -27,6 +27,7 @@ function ServiceMap() {
     const load = async () => {
       try {
         setLoading(true);
+        setError(null);
         const data = await getServiceMap(fromMs, toMs);
         setMapData(data);
       } catch (e) {

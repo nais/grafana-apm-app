@@ -52,8 +52,8 @@ func (a *App) handleServiceMap(w http.ResponseWriter, req *http.Request) {
 	to := parseUnixParam(req, "to", now)
 
 	// Optional: filter to a specific service's neighborhood
-	filterService := req.URL.Query().Get("service")
-	filterNamespace := req.URL.Query().Get("namespace")
+	filterService := queries.MustSanitizeLabel(req.URL.Query().Get("service"))
+	filterNamespace := queries.MustSanitizeLabel(req.URL.Query().Get("namespace"))
 
 	graph := a.queryServiceMap(ctx, from, to, filterService, filterNamespace)
 	writeJSON(w, graph)
