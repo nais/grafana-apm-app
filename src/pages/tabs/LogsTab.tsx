@@ -90,6 +90,7 @@ export function LogsTab({ service, namespace, logsUid }: LogsTabProps) {
               .build(),
           }),
           new SceneFlexItem({
+            minHeight: 400,
             body: PanelBuilders.logs()
               .setTitle(`Logs — ${service}`)
               .setData(logQuery)

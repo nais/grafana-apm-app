@@ -71,6 +71,7 @@ export function TracesTab({ service, namespace, tracesUid }: TracesTabProps) {
         direction: 'column',
         children: [
           new SceneFlexItem({
+            minHeight: 400,
             body: PanelBuilders.table()
               .setTitle(`Traces — ${service}`)
               .setData(traceQuery)
