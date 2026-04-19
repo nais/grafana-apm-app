@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { PluginPage } from '@grafana/runtime';
 import { useStyles2, Tab, TabsBar, Icon, LinkButton, Select, LoadingPlaceholder, Alert } from '@grafana/ui';
 import { GrafanaTheme2, SelectableValue, FieldType, LoadingState, toDataFrame } from '@grafana/data';
@@ -18,6 +18,7 @@ import {
   behaviors,
 } from '@grafana/scenes';
 import { DashboardCursorSync } from '@grafana/schema';
+import { GraphDrawStyle, StackingMode } from '@grafana/schema/dist/types/common/common.gen';
 import { buildTempoExploreUrl, buildLokiExploreUrl, buildMimirExploreUrl } from '../utils/explore';
 import { getOperations, getServices, getServiceDependencies, OperationSummary, DependencySummary } from '../api/client';
 import { formatDuration, DEP_TYPE_ICONS } from '../utils/format';
@@ -48,6 +49,7 @@ const SDK_BADGES: Record<string, { label: string; bg: string }> = {
 function ServiceOverview() {
   const { namespace = '', service = '' } = useParams<{ namespace: string; service: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const styles = useStyles2(getStyles);
   const ds = usePluginDatasources();
   const { from, to, fromMs, toMs } = useTimeRange();
@@ -56,13 +58,15 @@ function ServiceOverview() {
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [percentile, setPercentile] = useState<string>('0.95');
   const [sdkLanguage, setSdkLanguage] = useState<string>('');
+  const [environments, setEnvironments] = useState<string[]>([]);
+  const envFilter = searchParams.get('environment') ?? '';
   const [operations, setOperations] = useState<OperationSummary[]>([]);
   const [opsLoading, setOpsLoading] = useState(true);
   const [opsError, setOpsError] = useState<string | null>(null);
   const [opsSortField, setOpsSortField] = useState<keyof OperationSummary>('rate');
   const [opsSortDir, setOpsSortDir] = useState<'asc' | 'desc'>('desc');
 
-  // Fetch SDK language from services endpoint
+  // Fetch SDK language and available environments
   useEffect(() => {
     const fetchSDK = async () => {
       try {
@@ -71,8 +75,16 @@ function ServiceOverview() {
         if (match?.sdkLanguage) {
           setSdkLanguage(match.sdkLanguage);
         }
+        // Collect unique environments across all services (for filter dropdown)
+        const envSet = new Set<string>();
+        for (const s of svcs) {
+          if (s.environment) {
+            envSet.add(s.environment);
+          }
+        }
+        setEnvironments([...envSet].sort());
       } catch {
-        // ignore — badge is optional
+        // ignore — badge and environments are optional
       }
     };
     fetchSDK();
@@ -99,7 +111,10 @@ function ServiceOverview() {
   // Scenes for RED panels — rebuild when percentile or capabilities change
   const scene = useMemo(() => {
     const timeRange = new SceneTimeRange({ from, to });
-    const svcFilter = `service_name="${service}", service_namespace="${namespace}"`;
+    let svcFilter = `service_name="${service}", service_namespace="${namespace}"`;
+    if (envFilter) {
+      svcFilter += `, deployment_environment="${envFilter}"`;
+    }
     const durationUnit = metrics.durationUnit === 's' ? 's' : 'ms';
 
     const durationQuery = new SceneQueryRunner({
@@ -184,7 +199,45 @@ function ServiceOverview() {
         ],
       }),
     });
-  }, [service, namespace, percentile, percentileLabel, from, to, ds, metrics]);
+  }, [service, namespace, envFilter, percentile, percentileLabel, from, to, ds, metrics]);
+
+  // Duration distribution histogram
+  const durationDistScene = useMemo(() => {
+    const timeRange = new SceneTimeRange({ from, to });
+    let svcFilter = `service_name="${service}", service_namespace="${namespace}"`;
+    if (envFilter) {
+      svcFilter += `, deployment_environment="${envFilter}"`;
+    }
+
+    const histQuery = new SceneQueryRunner({
+      datasource: { uid: ds.metricsUid, type: 'prometheus' },
+      queries: [
+        {
+          refId: 'A',
+          expr: `sum by (le) (increase(${metrics.durationBucket}{${svcFilter}, span_kind="SPAN_KIND_SERVER"}[$__range]))`,
+          format: 'heatmap',
+          legendFormat: '{{le}}',
+        },
+      ],
+    });
+
+    return new EmbeddedScene({
+      $timeRange: timeRange,
+      body: new SceneFlexLayout({
+        direction: 'row',
+        children: [
+          new SceneFlexItem({
+            minHeight: 200,
+            body: PanelBuilders.histogram()
+              .setTitle('Duration Distribution')
+              .setData(histQuery)
+              .setUnit(metrics.durationUnit === 's' ? 's' : 'ms')
+              .build(),
+          }),
+        ],
+      }),
+    });
+  }, [service, namespace, envFilter, from, to, ds, metrics]);
 
   const sortedOps = useMemo(() => {
     return [...operations].sort((a, b) => {
@@ -236,6 +289,26 @@ function ServiceOverview() {
             )}
           </div>
           <div className={styles.headerLinks}>
+            {environments.length > 1 && (
+              <Select
+                options={[
+                  { label: 'All environments', value: '' },
+                  ...environments.map((e) => ({ label: e, value: e })),
+                ]}
+                value={envFilter}
+                onChange={(v) => {
+                  const next = new URLSearchParams(searchParams);
+                  if (v.value) {
+                    next.set('environment', v.value);
+                  } else {
+                    next.delete('environment');
+                  }
+                  setSearchParams(next, { replace: true });
+                }}
+                width={20}
+                placeholder="Environment"
+              />
+            )}
             {caps?.tempo?.available !== false && (
               <LinkButton variant="secondary" size="sm" icon="compass" href={buildTempoExploreUrl(ds.tracesUid, service, { namespace })}>
                 Traces
@@ -283,6 +356,9 @@ function ServiceOverview() {
 
               {/* RED panels */}
               <scene.Component model={scene} />
+
+              {/* Duration distribution */}
+              <durationDistScene.Component model={durationDistScene} />
 
               {/* Operations table */}
               <div className={styles.operationsSection}>
@@ -372,8 +448,31 @@ function OpsHeader({
 
 /** Traces tab — embedded Tempo trace search via Scenes */
 function TracesTab({ service, namespace, tracesUid }: { service: string; namespace: string; tracesUid: string }) {
+  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [durationMin, setDurationMin] = useState<string>('');
+  const [durationMax, setDurationMax] = useState<string>('');
+  const styles = useStyles2(getStyles);
+
   const scene = useMemo(() => {
     const timeRange = new SceneTimeRange({ from: 'now-1h', to: 'now' });
+
+    // Build TraceQL with filters
+    const conditions: string[] = [`resource.service.name="${service}"`];
+    if (namespace) {
+      conditions.push(`resource.service.namespace="${namespace}"`);
+    }
+    if (statusFilter === 'error') {
+      conditions.push(`status=error`);
+    } else if (statusFilter === 'ok') {
+      conditions.push(`status=ok`);
+    }
+    let traceQL = `{${conditions.join(' && ')}}`;
+    if (durationMin) {
+      traceQL += ` | duration >= ${durationMin}ms`;
+    }
+    if (durationMax) {
+      traceQL += ` | duration <= ${durationMax}ms`;
+    }
 
     const traceQuery = new SceneQueryRunner({
       datasource: { uid: tracesUid, type: 'tempo' },
@@ -381,9 +480,7 @@ function TracesTab({ service, namespace, tracesUid }: { service: string; namespa
         {
           refId: 'A',
           queryType: 'traceql',
-          query: namespace
-            ? `{resource.service.name="${service}" && resource.service.namespace="${namespace}"}`
-            : `{resource.service.name="${service}"}`,
+          query: traceQL,
           tableType: 'traces',
           limit: 20,
         },
@@ -406,24 +503,86 @@ function TracesTab({ service, namespace, tracesUid }: { service: string; namespa
         ],
       }),
     });
-  }, [service, namespace, tracesUid]);
+  }, [service, namespace, tracesUid, statusFilter, durationMin, durationMax]);
 
-  return <scene.Component model={scene} />;
+  const statusOptions: Array<SelectableValue<string>> = [
+    { label: 'All', value: '' },
+    { label: 'Error', value: 'error' },
+    { label: 'OK', value: 'ok' },
+  ];
+
+  return (
+    <div>
+      <div className={styles.panelControls}>
+        <label className={styles.controlLabel}>Status:</label>
+        <Select
+          options={statusOptions}
+          value={statusFilter}
+          onChange={(v) => setStatusFilter(v.value ?? '')}
+          width={12}
+        />
+        <label className={styles.controlLabel}>Min duration (ms):</label>
+        <input
+          className={styles.durationInput}
+          type="number"
+          placeholder="0"
+          value={durationMin}
+          onChange={(e) => setDurationMin(e.target.value)}
+        />
+        <label className={styles.controlLabel}>Max duration (ms):</label>
+        <input
+          className={styles.durationInput}
+          type="number"
+          placeholder="∞"
+          value={durationMax}
+          onChange={(e) => setDurationMax(e.target.value)}
+        />
+      </div>
+      <scene.Component model={scene} />
+    </div>
+  );
 }
 
 /** Logs tab — embedded Loki log viewer via Scenes */
 function LogsTab({ service, namespace, logsUid }: { service: string; namespace: string; logsUid: string }) {
+  const [severityFilter, setSeverityFilter] = useState<string[]>([]);
+  const styles = useStyles2(getStyles);
+
+  const severityOptions: Array<SelectableValue<string>> = [
+    { label: 'Error', value: 'error' },
+    { label: 'Warn', value: 'warn' },
+    { label: 'Info', value: 'info' },
+    { label: 'Debug', value: 'debug' },
+  ];
+
   const scene = useMemo(() => {
     const timeRange = new SceneTimeRange({ from: 'now-1h', to: 'now' });
+    const svcMatcher = namespace
+      ? `service_name="${service}", service_namespace="${namespace}"`
+      : `service_name="${service}"`;
+    const severityMatcher = severityFilter.length > 0
+      ? ` | level=~"${severityFilter.join('|')}"`
+      : '';
+
+    // Log volume histogram (stacked by severity)
+    const volumeQuery = new SceneQueryRunner({
+      datasource: { uid: logsUid, type: 'loki' },
+      queries: [
+        {
+          refId: 'volume',
+          expr: `sum by (level) (count_over_time({${svcMatcher}}${severityMatcher} [$__auto]))`,
+          legendFormat: '{{level}}',
+          queryType: 'range',
+        },
+      ],
+    });
 
     const logQuery = new SceneQueryRunner({
       datasource: { uid: logsUid, type: 'loki' },
       queries: [
         {
           refId: 'A',
-          expr: namespace
-            ? `{service_name="${service}", service_namespace="${namespace}"}`
-            : `{service_name="${service}"}`,
+          expr: `{${svcMatcher}}${severityMatcher}`,
           queryType: 'range',
           maxLines: 100,
         },
@@ -437,6 +596,18 @@ function LogsTab({ service, namespace, logsUid }: { service: string; namespace: 
         direction: 'column',
         children: [
           new SceneFlexItem({
+            minHeight: 120,
+            maxHeight: 180,
+            body: PanelBuilders.timeseries()
+              .setTitle('Log volume')
+              .setData(volumeQuery)
+              .setCustomFieldConfig('stacking', { mode: StackingMode.Normal })
+              .setCustomFieldConfig('fillOpacity', 80)
+              .setCustomFieldConfig('lineWidth', 0)
+              .setCustomFieldConfig('drawStyle', GraphDrawStyle.Bars)
+              .build(),
+          }),
+          new SceneFlexItem({
             minHeight: 400,
             body: PanelBuilders.logs()
               .setTitle(`Logs — ${service}`)
@@ -446,9 +617,24 @@ function LogsTab({ service, namespace, logsUid }: { service: string; namespace: 
         ],
       }),
     });
-  }, [service, namespace, logsUid]);
+  }, [service, namespace, logsUid, severityFilter]);
 
-  return <scene.Component model={scene} />;
+  return (
+    <div>
+      <div className={styles.panelControls}>
+        <label className={styles.controlLabel}>Severity:</label>
+        <Select
+          isMulti
+          options={severityOptions}
+          value={severityFilter.map((v) => severityOptions.find((o) => o.value === v)!)}
+          onChange={(v) => setSeverityFilter(v ? (v as Array<SelectableValue<string>>).map((o) => o.value ?? '') : [])}
+          width={30}
+          placeholder="All severities"
+        />
+      </div>
+      <scene.Component model={scene} />
+    </div>
+  );
 }
 
 /** Service Map tab — per-service neighborhood map */
@@ -736,6 +922,15 @@ const getStyles = (theme: GrafanaTheme2) => ({
   `,
   controlLabel: css`
     color: ${theme.colors.text.secondary};
+    font-size: ${theme.typography.bodySmall.fontSize};
+  `,
+  durationInput: css`
+    width: 80px;
+    padding: ${theme.spacing(0.5)} ${theme.spacing(1)};
+    border: 1px solid ${theme.colors.border.medium};
+    border-radius: ${theme.shape.radius.default};
+    background: ${theme.colors.background.primary};
+    color: ${theme.colors.text.primary};
     font-size: ${theme.typography.bodySmall.fontSize};
   `,
   operationsSection: css`

@@ -50,6 +50,7 @@ type DataSourceStatus struct {
 type ServiceSummary struct {
 	Name            string       `json:"name"`
 	Namespace       string       `json:"namespace"`
+	Environment     string       `json:"environment,omitempty"`
 	SDKLanguage     string       `json:"sdkLanguage,omitempty"`
 	Rate            float64      `json:"rate"`
 	ErrorRate       float64      `json:"errorRate"`

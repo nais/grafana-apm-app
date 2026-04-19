@@ -92,9 +92,9 @@ func (a *App) fetchServiceSummaries(
 		`histogram_quantile(0.95, sum by (service_name, service_namespace, le) (rate(%s{span_kind="SPAN_KIND_SERVER"%s}%s)))`,
 		durationBucket, extraFilters, rangeStr,
 	)
-	// SDK language from telemetry_sdk_language label on span metrics
+	// SDK language and environment from labels on span metrics
 	sdkQuery := fmt.Sprintf(
-		`group by (service_name, service_namespace, telemetry_sdk_language) (%s{span_kind="SPAN_KIND_SERVER"%s})`,
+		`group by (service_name, service_namespace, telemetry_sdk_language, deployment_environment) (%s{span_kind="SPAN_KIND_SERVER"%s})`,
 		callsMetric, extraFilters,
 	)
 
@@ -204,11 +204,14 @@ func (a *App) fetchServiceSummaries(
 		}
 	}
 
-	// Fill SDK language
+	// Fill SDK language and environment
 	for _, r := range resultMap["sdk"] {
 		s := getOrCreate(r)
 		if lang, ok := r.Metric["telemetry_sdk_language"]; ok && lang != "" && s.SDKLanguage == "" {
 			s.SDKLanguage = lang
+		}
+		if env, ok := r.Metric["deployment_environment"]; ok && env != "" && s.Environment == "" {
+			s.Environment = env
 		}
 	}
 

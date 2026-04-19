@@ -42,6 +42,7 @@ export interface DataPoint {
 export interface ServiceSummary {
   name: string;
   namespace: string;
+  environment?: string;
   sdkLanguage?: string;
   rate: number;
   errorRate: number;
