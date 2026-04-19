@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
 import { PluginPage } from '@grafana/runtime';
 import { Alert, Badge, Icon, Input, LoadingPlaceholder, Pagination, Select, useStyles2 } from '@grafana/ui';
 import { GrafanaTheme2, SelectableValue } from '@grafana/data';
@@ -33,7 +32,6 @@ const PAGE_SIZE_OPTIONS: Array<SelectableValue<number>> = [
 function ServiceInventory() {
   const styles = useStyles2(getStyles);
   const appNavigate = useAppNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
   const { fromMs, toMs } = useTimeRange();
   const [services, setServices] = useState<ServiceSummary[]>([]);
   const [caps, setCaps] = useState<Capabilities | null>(null);
@@ -44,18 +42,10 @@ function ServiceInventory() {
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [namespaceFilter, setNamespaceFilterRaw] = useState('');
 
-  const namespaceFilter = searchParams.get('namespace') || '';
   const setNamespaceFilter = (ns: string) => {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      if (ns) {
-        next.set('namespace', ns);
-      } else {
-        next.delete('namespace');
-      }
-      return next;
-    }, { replace: true });
+    setNamespaceFilterRaw(ns);
     setPage(1);
   };
 
@@ -322,6 +312,7 @@ const getStyles = (theme: GrafanaTheme2) => ({
     display: flex;
     flex-direction: column;
     flex: 1;
+    padding: 0;
   `,
   toolbar: css`
     display: flex;
@@ -382,14 +373,18 @@ const getStyles = (theme: GrafanaTheme2) => ({
     gap: ${theme.spacing(1)};
   `,
   metricValue: css`
-    min-width: 70px;
-    text-align: right;
+    min-width: 55px;
+    flex-shrink: 0;
+    text-align: left;
     white-space: nowrap;
+    font-variant-numeric: tabular-nums;
   `,
   errorValue: css`
-    min-width: 70px;
-    text-align: right;
+    min-width: 55px;
+    flex-shrink: 0;
+    text-align: left;
     white-space: nowrap;
+    font-variant-numeric: tabular-nums;
     color: ${theme.colors.error.text};
     font-weight: ${theme.typography.fontWeightMedium};
   `,
