@@ -68,6 +68,7 @@ services:
       - --service=frontend
       - --otlp-attributes=service.namespace="demo"
       - --otlp-attributes=deployment.environment="production"
+      - --otlp-attributes=telemetry.sdk.language="nodejs"
       - --telemetry-attributes=http.route="/api/products"
       - --telemetry-attributes=http.method="GET"
       - --telemetry-attributes=http.status_code="200"
@@ -86,7 +87,8 @@ services:
       - --service=cartservice
       - --otlp-attributes=service.namespace="demo"
       - --otlp-attributes=deployment.environment="production"
-      - --telemetry-attributes=http.route="/api/cart"
+      - --otlp-attributes=telemetry.sdk.language="dotnet"
+      - --telemetry-attributes=http.route="/api/cart/add"
       - --telemetry-attributes=http.method="POST"
       - --telemetry-attributes=http.status_code="200"
     depends_on:
@@ -104,9 +106,67 @@ services:
       - --service=checkoutservice
       - --otlp-attributes=service.namespace="demo"
       - --otlp-attributes=deployment.environment="production"
+      - --otlp-attributes=telemetry.sdk.language="go"
       - --telemetry-attributes=rpc.system="grpc"
       - --telemetry-attributes=rpc.service="oteldemo.CheckoutService"
       - --telemetry-attributes=rpc.method="PlaceOrder"
+    depends_on:
+      - otel-collector
+
+  loggen-frontend:
+    image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:v0.120.0
+    container_name: loggen-frontend
+    command:
+      - logs
+      - --otlp-endpoint=otel-collector:4317
+      - --otlp-insecure
+      - --rate=2
+      - --duration=24h
+      - --otlp-attributes=service.name="frontend"
+      - --otlp-attributes=service.namespace="demo"
+      - --otlp-attributes=deployment.environment="production"
+      - --otlp-attributes=telemetry.sdk.language="nodejs"
+      - --severity-text=Info
+      - --severity-number=9
+      - --body=GET /api/products 200 OK
+    depends_on:
+      - otel-collector
+
+  loggen-cart:
+    image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:v0.120.0
+    container_name: loggen-cart
+    command:
+      - logs
+      - --otlp-endpoint=otel-collector:4317
+      - --otlp-insecure
+      - --rate=1
+      - --duration=24h
+      - --otlp-attributes=service.name="cartservice"
+      - --otlp-attributes=service.namespace="demo"
+      - --otlp-attributes=deployment.environment="production"
+      - --otlp-attributes=telemetry.sdk.language="dotnet"
+      - --severity-text=Info
+      - --severity-number=9
+      - --body=POST /api/cart/add 200 item added to cart
+    depends_on:
+      - otel-collector
+
+  loggen-checkout:
+    image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:v0.120.0
+    container_name: loggen-checkout
+    command:
+      - logs
+      - --otlp-endpoint=otel-collector:4317
+      - --otlp-insecure
+      - --rate=0.5
+      - --duration=24h
+      - --otlp-attributes=service.name="checkoutservice"
+      - --otlp-attributes=service.namespace="demo"
+      - --otlp-attributes=deployment.environment="production"
+      - --otlp-attributes=telemetry.sdk.language="go"
+      - --severity-text=Warn
+      - --severity-number=13
+      - --body=PlaceOrder slow response time=1.2s threshold=1s
     depends_on:
       - otel-collector
 
