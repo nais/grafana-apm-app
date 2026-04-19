@@ -24,6 +24,7 @@ import { formatDuration, DEP_TYPE_ICONS } from '../utils/format';
 import { PLUGIN_BASE_URL } from '../constants';
 import { usePluginDatasources } from '../utils/datasources';
 import { useTimeRange } from '../utils/timeRange';
+import { useCapabilities, getMetricNames } from '../utils/capabilities';
 
 type TabId = 'overview' | 'dependencies' | 'traces' | 'logs' | 'service-map';
 
@@ -50,6 +51,8 @@ function ServiceOverview() {
   const styles = useStyles2(getStyles);
   const ds = usePluginDatasources();
   const { from, to, fromMs, toMs } = useTimeRange();
+  const { caps } = useCapabilities();
+  const metrics = getMetricNames(caps);
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [percentile, setPercentile] = useState<string>('0.95');
   const [sdkLanguage, setSdkLanguage] = useState<string>('');
@@ -93,17 +96,18 @@ function ServiceOverview() {
 
   const percentileLabel = PERCENTILE_OPTIONS.find((o) => o.value === percentile)?.label ?? 'P95';
 
-  // Scenes for RED panels — rebuild when percentile changes
+  // Scenes for RED panels — rebuild when percentile or capabilities change
   const scene = useMemo(() => {
     const timeRange = new SceneTimeRange({ from, to });
     const svcFilter = `service_name="${service}", service_namespace="${namespace}"`;
+    const durationUnit = metrics.durationUnit === 's' ? 's' : 'ms';
 
     const durationQuery = new SceneQueryRunner({
       datasource: { uid: ds.metricsUid, type: 'prometheus' },
       queries: [
         {
           refId: 'A',
-          expr: `histogram_quantile(${percentile}, sum by (le) (rate(traces_span_metrics_duration_milliseconds_bucket{${svcFilter}, span_kind="SPAN_KIND_SERVER"}[$__rate_interval])))`,
+          expr: `histogram_quantile(${percentile}, sum by (le) (rate(${metrics.durationBucket}{${svcFilter}, span_kind="SPAN_KIND_SERVER"}[$__rate_interval])))`,
           legendFormat: percentileLabel,
         },
       ],
@@ -114,7 +118,7 @@ function ServiceOverview() {
       queries: [
         {
           refId: 'A',
-          expr: `sum(rate(traces_span_metrics_calls_total{${svcFilter}, span_kind="SPAN_KIND_SERVER", status_code="STATUS_CODE_ERROR"}[$__rate_interval])) / sum(rate(traces_span_metrics_calls_total{${svcFilter}, span_kind="SPAN_KIND_SERVER"}[$__rate_interval])) * 100`,
+          expr: `sum(rate(${metrics.callsMetric}{${svcFilter}, span_kind="SPAN_KIND_SERVER", status_code="STATUS_CODE_ERROR"}[$__rate_interval])) / sum(rate(${metrics.callsMetric}{${svcFilter}, span_kind="SPAN_KIND_SERVER"}[$__rate_interval])) * 100`,
           legendFormat: 'Error %',
         },
       ],
@@ -125,17 +129,17 @@ function ServiceOverview() {
       queries: [
         {
           refId: 'A',
-          expr: `sum(rate(traces_span_metrics_calls_total{${svcFilter}, span_kind="SPAN_KIND_SERVER"}[$__rate_interval]))`,
+          expr: `sum(rate(${metrics.callsMetric}{${svcFilter}, span_kind="SPAN_KIND_SERVER"}[$__rate_interval]))`,
           legendFormat: 'Rate',
         },
       ],
     });
 
-    const tempoUrl = buildTempoExploreUrl(ds.tracesUid, service);
-    const lokiUrl = buildLokiExploreUrl(ds.logsUid, service);
+    const tempoUrl = buildTempoExploreUrl(ds.tracesUid, service, { namespace });
+    const lokiUrl = buildLokiExploreUrl(ds.logsUid, service, { namespace });
     const mimirUrl = buildMimirExploreUrl(
       ds.metricsUid,
-      `sum(rate(traces_span_metrics_calls_total{service_name="${service}", service_namespace="${namespace}", span_kind="SPAN_KIND_SERVER"}[5m]))`
+      `sum(rate(${metrics.callsMetric}{service_name="${service}", service_namespace="${namespace}", span_kind="SPAN_KIND_SERVER"}[5m]))`
     );
 
     return new EmbeddedScene({
@@ -149,7 +153,7 @@ function ServiceOverview() {
             body: PanelBuilders.timeseries()
               .setTitle('Duration')
               .setData(durationQuery)
-              .setUnit('ms')
+              .setUnit(durationUnit)
               .setLinks([
                 { title: 'Traces', url: tempoUrl, targetBlank: false },
                 { title: 'Logs', url: lokiUrl, targetBlank: false },
@@ -180,7 +184,7 @@ function ServiceOverview() {
         ],
       }),
     });
-  }, [service, namespace, percentile, percentileLabel, from, to, ds]);
+  }, [service, namespace, percentile, percentileLabel, from, to, ds, metrics]);
 
   const sortedOps = useMemo(() => {
     return [...operations].sort((a, b) => {
@@ -232,22 +236,34 @@ function ServiceOverview() {
             )}
           </div>
           <div className={styles.headerLinks}>
-            <LinkButton variant="secondary" size="sm" icon="compass" href={buildTempoExploreUrl(ds.tracesUid, service)}>
-              Traces
-            </LinkButton>
-            <LinkButton variant="secondary" size="sm" icon="document-info" href={buildLokiExploreUrl(ds.logsUid, service)}>
-              Logs
-            </LinkButton>
+            {caps?.tempo?.available !== false && (
+              <LinkButton variant="secondary" size="sm" icon="compass" href={buildTempoExploreUrl(ds.tracesUid, service, { namespace })}>
+                Traces
+              </LinkButton>
+            )}
+            {caps?.loki?.available !== false && (
+              <LinkButton variant="secondary" size="sm" icon="document-info" href={buildLokiExploreUrl(ds.logsUid, service, { namespace })}>
+                Logs
+              </LinkButton>
+            )}
           </div>
         </div>
 
-        {/* Tabs */}
+        {/* Tabs — hide when required datasource is unavailable */}
         <TabsBar>
           <Tab label="Overview" active={activeTab === 'overview'} onChangeTab={() => setActiveTab('overview')} />
-          <Tab label="Dependencies" active={activeTab === 'dependencies'} onChangeTab={() => setActiveTab('dependencies')} />
-          <Tab label="Traces" active={activeTab === 'traces'} onChangeTab={() => setActiveTab('traces')} />
-          <Tab label="Logs" active={activeTab === 'logs'} onChangeTab={() => setActiveTab('logs')} />
-          <Tab label="Service Map" active={activeTab === 'service-map'} onChangeTab={() => setActiveTab('service-map')} />
+          {caps?.serviceGraph?.detected !== false && (
+            <Tab label="Dependencies" active={activeTab === 'dependencies'} onChangeTab={() => setActiveTab('dependencies')} />
+          )}
+          {caps?.tempo?.available !== false && (
+            <Tab label="Traces" active={activeTab === 'traces'} onChangeTab={() => setActiveTab('traces')} />
+          )}
+          {caps?.loki?.available !== false && (
+            <Tab label="Logs" active={activeTab === 'logs'} onChangeTab={() => setActiveTab('logs')} />
+          )}
+          {caps?.serviceGraph?.detected !== false && (
+            <Tab label="Service Map" active={activeTab === 'service-map'} onChangeTab={() => setActiveTab('service-map')} />
+          )}
         </TabsBar>
 
         {/* Tab content */}
@@ -365,7 +381,9 @@ function TracesTab({ service, namespace, tracesUid }: { service: string; namespa
         {
           refId: 'A',
           queryType: 'traceql',
-          query: `{resource.service.name="${service}"}`,
+          query: namespace
+            ? `{resource.service.name="${service}" && resource.service.namespace="${namespace}"}`
+            : `{resource.service.name="${service}"}`,
           tableType: 'traces',
           limit: 20,
         },
@@ -403,7 +421,9 @@ function LogsTab({ service, namespace, logsUid }: { service: string; namespace: 
       queries: [
         {
           refId: 'A',
-          expr: `{service_name="${service}"}`,
+          expr: namespace
+            ? `{service_name="${service}", service_namespace="${namespace}"}`
+            : `{service_name="${service}"}`,
           queryType: 'range',
           maxLines: 100,
         },
