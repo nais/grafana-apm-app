@@ -19,8 +19,8 @@ discuss the approach.
 1. Clone the repo and install dependencies:
 
    ```bash
-   git clone https://github.com/nais/grafana-otel-plugin.git
-   cd grafana-otel-plugin
+   git clone https://github.com/nais/grafana-apm-app.git
+   cd grafana-apm-app
    pnpm install
    ```
 

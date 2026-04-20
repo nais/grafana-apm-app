@@ -109,8 +109,8 @@ auto-detection fails or when running non-standard pipelines.
 ### Quick start
 
 ```bash
-git clone https://github.com/nais/grafana-otel-plugin.git
-cd grafana-otel-plugin
+git clone https://github.com/nais/grafana-apm-app.git
+cd grafana-apm-app
 pnpm install
 ```
 

@@ -9,7 +9,8 @@
     "keywords": ["app", "observability", "apm", "otel", "opentelemetry"],
     "description": "Application Performance Monitoring powered by OpenTelemetry data from Mimir, Loki, and Tempo",
     "author": {
-      "name": "Nais"
+      "name": "Nais",
+      "url": "https://nais.io"
     },
     "logos": {
       "small": "img/logo.svg",
@@ -34,9 +35,9 @@
       }
     ],
     "links": [
-      { "name": "GitHub", "url": "https://github.com/nais/grafana-otel-plugin" },
-      { "name": "Issues", "url": "https://github.com/nais/grafana-otel-plugin/issues" },
-      { "name": "License", "url": "https://github.com/nais/grafana-otel-plugin/blob/main/LICENSE" }
+      { "name": "GitHub", "url": "https://github.com/nais/grafana-apm-app" },
+      { "name": "Issues", "url": "https://github.com/nais/grafana-apm-app/issues" },
+      { "name": "License", "url": "https://github.com/nais/grafana-apm-app/blob/main/LICENSE" }
     ],
     "version": "%VERSION%",
     "updated": "%TODAY%"
