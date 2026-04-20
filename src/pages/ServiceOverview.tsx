@@ -453,10 +453,14 @@ function ServiceOverview() {
           <div style={{ display: activeTab === 'overview' ? undefined : 'none' }}>
             <>
               {/* RED panels */}
-              <scene.Component model={scene} />
+              <div style={{ height: 200 }}>
+                <scene.Component model={scene} />
+              </div>
 
               {/* Duration distribution */}
-              <durationDistScene.Component model={durationDistScene} />
+              <div style={{ height: 200, marginTop: 8 }}>
+                <durationDistScene.Component model={durationDistScene} />
+              </div>
 
               {/* Operations table */}
               <div className={styles.operationsSection}>
