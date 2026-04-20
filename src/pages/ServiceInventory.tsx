@@ -265,12 +265,14 @@ function ServiceInventory() {
                     }}
                   >
                     <td className={styles.typeCell}>
-                      <FrameworkBadge framework={svc.framework} />
-                      {svc.hasFrontend && (
-                        <span className={styles.faroBadge} title="Faro Web SDK">
-                          🌐
-                        </span>
-                      )}
+                      <div className={styles.typeCellInner}>
+                        <FrameworkBadge framework={svc.framework} />
+                        {svc.hasFrontend && (
+                          <span className={styles.faroBadge} title="Faro Web SDK">
+                            🌐
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td>
                       <span className={styles.nameCell}>{svc.name}</span>
@@ -434,10 +436,14 @@ const getStyles = (theme: GrafanaTheme2) => ({
   typeCell: css`
     width: 120px;
     max-width: 120px;
+    min-width: 120px;
     padding-right: ${theme.spacing(0.5)} !important;
     text-align: right;
     white-space: nowrap;
-    display: flex !important;
+    vertical-align: middle;
+  `,
+  typeCellInner: css`
+    display: inline-flex;
     align-items: center;
     justify-content: flex-end;
     gap: ${theme.spacing(0.75)};
