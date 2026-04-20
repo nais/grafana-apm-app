@@ -46,9 +46,9 @@ const PERCENTILE_OPTIONS: Array<SelectableValue<string>> = [
 ];
 
 const FRAMEWORK_BADGES: Record<string, { label: string; bg: string }> = {
-  Ktor: { label: 'KTOR', bg: '#7B68EE' },
-  'Spring Boot': { label: 'SPRING', bg: '#6DB33F' },
-  'Node.js': { label: 'NODE', bg: '#68A063' },
+  Ktor: { label: 'Ktor', bg: '#7B68EE' },
+  'Spring Boot': { label: 'Spring', bg: '#6DB33F' },
+  'Node.js': { label: 'Node.js', bg: '#68A063' },
 };
 
 function ServiceOverview() {

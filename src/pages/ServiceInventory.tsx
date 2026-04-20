@@ -437,21 +437,15 @@ const getStyles = (theme: GrafanaTheme2) => ({
     padding-right: ${theme.spacing(0.5)} !important;
     text-align: right;
     white-space: nowrap;
-    & > span {
-      display: inline-flex;
-      vertical-align: middle;
-      margin-left: ${theme.spacing(0.5)};
-    }
-    & > span:first-of-type {
-      margin-left: 0;
-    }
+    display: flex !important;
+    align-items: center;
+    justify-content: flex-end;
+    gap: ${theme.spacing(0.75)};
   `,
   faroBadge: css`
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    vertical-align: middle;
-    margin-left: ${theme.spacing(0.75)};
     padding: 3px 6px;
     border-radius: 4px;
     font-size: 14px;
