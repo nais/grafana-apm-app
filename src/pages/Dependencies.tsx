@@ -187,7 +187,7 @@ function Dependencies() {
                         className={styles.clickableRow}
                         onClick={() => appNavigate(`dependencies/${encodeURIComponent(dep.name)}`)}
                       >
-                        <td className={styles.nameCell}>
+                        <td className={styles.nameCell} title={dep.name}>
                           <DepTypeIcon type={dep.type} />
                           <span style={{ marginLeft: 8 }}>{dep.name}</span>
                         </td>
@@ -310,6 +310,8 @@ const getStyles = (theme: GrafanaTheme2) => ({
       padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
       border-bottom: 1px solid ${theme.colors.border.weak};
       vertical-align: middle;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
   `,
   sortableHeader: css`
@@ -325,6 +327,8 @@ const getStyles = (theme: GrafanaTheme2) => ({
   nameCell: css`
     font-weight: ${theme.typography.fontWeightMedium};
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     color: ${theme.colors.text.link};
   `,
   depIcon: css`

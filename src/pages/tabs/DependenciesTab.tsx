@@ -99,7 +99,7 @@ export function DependenciesTab({ service, namespace, fromMs, toMs }: Dependenci
               className={styles.clickableRow}
               onClick={() => appNavigate(`dependencies/${encodeURIComponent(dep.name)}`)}
             >
-              <td className={styles.nameCell}>
+              <td className={styles.nameCell} title={dep.name}>
                 <DepTypeIcon type={dep.type} />
                 <span style={{ marginLeft: 8 }}>{dep.name}</span>
               </td>
@@ -155,6 +155,7 @@ const getStyles = (theme: GrafanaTheme2) => ({
     width: 100%;
     border-collapse: separate;
     border-spacing: 0;
+    table-layout: fixed;
     th {
       text-align: left;
       padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
@@ -164,6 +165,8 @@ const getStyles = (theme: GrafanaTheme2) => ({
       border-bottom: 1px solid ${theme.colors.border.medium};
       white-space: nowrap;
       user-select: none;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     th:nth-child(n + 3) {
       text-align: right;
@@ -172,6 +175,8 @@ const getStyles = (theme: GrafanaTheme2) => ({
       padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
       border-bottom: 1px solid ${theme.colors.border.weak};
       vertical-align: middle;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
   `,
   clickableRow: css`

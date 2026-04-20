@@ -349,7 +349,7 @@ function DBPoolCard({ dbPool }: { dbPool: DBPoolRuntime }) {
         <tbody>
           {dbPool.pools.map((pool) => (
             <tr key={pool.name}>
-              <td className={styles.nameCell}>
+              <td className={styles.nameCell} title={pool.name}>
                 <div className={styles.nameCellInner}>
                   <Badge text={pool.type} color="orange" />
                   <span>{pool.name}</span>
@@ -401,7 +401,7 @@ function KafkaCard({ kafka }: { kafka: KafkaRuntime }) {
         <tbody>
           {kafka.topics.map((topic) => (
             <tr key={topic.topic}>
-              <td className={styles.nameCell}>
+              <td className={styles.nameCell} title={topic.topic}>
                 <div className={styles.nameCellInner}>
                   <span className={styles.mono}>{topic.topic}</span>
                 </div>
@@ -637,7 +637,7 @@ function MemoryPoolTable({ pools }: { pools: MemoryPool[] }) {
             const pct = pool.max > 0 ? (pool.used / pool.max) * 100 : 0;
             return (
               <tr key={pool.name}>
-                <td className={styles.nameCell}>
+                <td className={styles.nameCell} title={pool.name}>
                   <div className={styles.nameCellInner}>
                     <span className={styles.mono}>{pool.name}</span>
                   </div>
@@ -862,6 +862,7 @@ const getStyles = (theme: GrafanaTheme2) => ({
     width: 100%;
     border-collapse: separate;
     border-spacing: 0;
+    table-layout: fixed;
     th {
       text-align: left;
       padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
@@ -870,6 +871,8 @@ const getStyles = (theme: GrafanaTheme2) => ({
       font-weight: ${theme.typography.fontWeightMedium};
       border-bottom: 1px solid ${theme.colors.border.medium};
       white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     th:nth-child(n + 2) {
       text-align: right;
@@ -878,6 +881,8 @@ const getStyles = (theme: GrafanaTheme2) => ({
       padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
       border-bottom: 1px solid ${theme.colors.border.weak};
       vertical-align: middle;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     tr:hover {
       background: ${theme.colors.background.secondary};
@@ -885,6 +890,9 @@ const getStyles = (theme: GrafanaTheme2) => ({
   `,
   nameCell: css`
     font-weight: ${theme.typography.fontWeightMedium};
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   `,
   nameCellInner: css`
     display: flex;

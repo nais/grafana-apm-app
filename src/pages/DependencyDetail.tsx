@@ -279,7 +279,7 @@ function DependencyDetail() {
                         }
                       }}
                     >
-                      <td className={styles.linkNameCell}>
+                      <td className={styles.linkNameCell} title={upstream.name}>
                         <Icon name="gf-layout-simple" size="sm" />
                         <span style={{ marginLeft: 8 }}>{upstream.name}</span>
                       </td>
@@ -318,8 +318,10 @@ function DependencyDetail() {
                   <tbody>
                     {data.operations.map((op: DependencyOperation, idx: number) => (
                       <tr key={`${op.spanName}-${op.callingService}-${idx}`}>
-                        <td className={styles.nameCell}>{op.spanName}</td>
-                        <td>{op.callingService}</td>
+                        <td className={styles.nameCell} title={op.spanName}>
+                          {op.spanName}
+                        </td>
+                        <td title={op.callingService}>{op.callingService}</td>
                         <td className={styles.numCell}>{op.rate.toFixed(2)} req/s</td>
                         <td className={op.errorRate > 0 ? styles.errorCell : styles.numCell}>
                           {op.errorRate.toFixed(1)}%
@@ -451,6 +453,7 @@ const getStyles = (theme: GrafanaTheme2) => ({
     width: 100%;
     border-collapse: separate;
     border-spacing: 0;
+    table-layout: fixed;
     th {
       text-align: left;
       padding: ${theme.spacing(1)} ${theme.spacing(2)};
@@ -459,10 +462,14 @@ const getStyles = (theme: GrafanaTheme2) => ({
       font-weight: ${theme.typography.fontWeightMedium};
       border-bottom: 1px solid ${theme.colors.border.medium};
       white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     td {
       padding: ${theme.spacing(1)} ${theme.spacing(2)};
       border-bottom: 1px solid ${theme.colors.border.weak};
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     tr:hover {
       background: ${theme.colors.background.secondary};
@@ -484,14 +491,14 @@ const getStyles = (theme: GrafanaTheme2) => ({
   nameCell: css`
     font-weight: ${theme.typography.fontWeightMedium};
     white-space: nowrap;
-    display: flex;
-    align-items: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
   `,
   linkNameCell: css`
     font-weight: ${theme.typography.fontWeightMedium};
     white-space: nowrap;
-    display: flex;
-    align-items: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
     color: ${theme.colors.text.link};
   `,
   numCell: css`

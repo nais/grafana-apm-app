@@ -357,7 +357,9 @@ function EndpointSection({
                     onClick={clickable ? () => onViewTraces(spanName, ep.errorRate > 0 ? 'error' : '') : undefined}
                     title={clickable ? `View traces for ${spanName}` : undefined}
                   >
-                    <td className={styles.nameCell}>{renderName(ep)}</td>
+                    <td className={styles.nameCell} title={spanName}>
+                      {renderName(ep)}
+                    </td>
                     <td className={styles.numCell}>{ep.rate.toFixed(2)} req/s</td>
                     <td className={ep.errorRate > 0 ? styles.errorCell : styles.numCell}>{ep.errorRate.toFixed(1)}%</td>
                     <td className={styles.numCell}>{formatDuration(ep.p50Duration, durationUnit)}</td>
@@ -572,7 +574,7 @@ function GraphQLSection({
             <tbody>
               {paged.map((op) => (
                 <tr key={op.name + (op.type ?? '')}>
-                  <td className={styles.nameCell}>
+                  <td className={styles.nameCell} title={op.name}>
                     <span className={styles.gqlOpName}>{op.name}</span>
                   </td>
                   {hasType && (
@@ -659,6 +661,7 @@ const getStyles = (theme: GrafanaTheme2) => ({
     width: 100%;
     border-collapse: separate;
     border-spacing: 0;
+    table-layout: fixed;
     th {
       text-align: left;
       padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
@@ -667,11 +670,15 @@ const getStyles = (theme: GrafanaTheme2) => ({
       font-weight: ${theme.typography.fontWeightMedium};
       border-bottom: 1px solid ${theme.colors.border.medium};
       white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     td {
       padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
       border-bottom: 1px solid ${theme.colors.border.weak};
       vertical-align: middle;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     tr:hover {
       background: ${theme.colors.background.secondary};
@@ -696,7 +703,6 @@ const getStyles = (theme: GrafanaTheme2) => ({
   `,
   nameCell: css`
     font-weight: ${theme.typography.fontWeightMedium};
-    max-width: 400px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
