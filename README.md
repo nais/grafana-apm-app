@@ -8,7 +8,7 @@ dependency maps, and one-click navigation between metrics, traces, and logs.
 No proprietary agents. No cloud lock-in. Just a plugin on top of the stack you
 already operate.
 
-![Service Inventory](src/img/screenshot-service-inventory.png)
+![Service Inventory](https://raw.githubusercontent.com/nais/grafana-apm-app/main/src/img/screenshot-service-inventory.png)
 
 ## Features
 
@@ -20,9 +20,9 @@ already operate.
 - **Trace & Log Exploration** — search and browse traces and logs scoped to a service
 - **Zero Config** — auto-detects span metric names, duration units, and available capabilities from your data
 
-![Service Overview](src/img/screenshot-service-overview.png)
-![Server Endpoints](src/img/screenshot-service-server.png)
-![Frontend Observability](src/img/screenshot-service-frontend.png)
+![Service Overview](https://raw.githubusercontent.com/nais/grafana-apm-app/main/src/img/screenshot-service-overview.png)
+![Server Endpoints](https://raw.githubusercontent.com/nais/grafana-apm-app/main/src/img/screenshot-service-server.png)
+![Frontend Observability](https://raw.githubusercontent.com/nais/grafana-apm-app/main/src/img/screenshot-service-frontend.png)
 
 ## Prerequisites
 
@@ -39,7 +39,7 @@ Collector (or Grafana Alloy). You need two connectors configured:
 1. **spanmetrics** — converts traces into per-service request/error/duration metrics
 2. **servicegraph** — converts traces into inter-service dependency metrics *(optional — needed for service map)*
 
-See [`otel-collector-config.yaml`](otel-collector-config.yaml) for a working example.
+See [`otel-collector-config.yaml`](https://github.com/nais/grafana-apm-app/blob/main/otel-collector-config.yaml) for a working example.
 
 ### Recommended resource attributes
 
@@ -159,7 +159,7 @@ docker compose -f docker-compose.demo.yaml up
 
 ### Requirements
 
-- Node.js 22 (see [`.nvmrc`](.nvmrc))
+- Node.js 22 (see [`.nvmrc`](https://github.com/nais/grafana-apm-app/blob/main/.nvmrc))
 - Go 1.25+
 - Docker
 
@@ -189,8 +189,8 @@ src/
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+See [CONTRIBUTING.md](https://github.com/nais/grafana-apm-app/blob/main/CONTRIBUTING.md).
 
 ## License
 
-[Apache-2.0](LICENSE)
+[Apache-2.0](https://github.com/nais/grafana-apm-app/blob/main/LICENSE)
