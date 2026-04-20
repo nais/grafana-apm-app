@@ -66,17 +66,39 @@ Then enable the plugin under **Administration > Plugins** in Grafana.
 ## Configuration
 
 1. Go to the plugin's **Configuration** page
-2. Select your Mimir, Tempo, and Loki data source instances
-3. Click **Detect** to auto-detect span metric names and capabilities
+2. Enter data source UIDs for Mimir, Tempo, and Loki
+3. Click **Auto-detect capabilities** to verify connectivity and detect metric names
 4. Save
+
+### Data sources
 
 | Setting | Purpose | Default |
 |---------|---------|---------|
-| Metrics data source | Mimir/Prometheus with span metrics | *(required)* |
-| Traces data source | Tempo instance | *(required)* |
-| Logs data source | Loki instance | *(optional)* |
-| Metric prefix | Span metrics namespace if non-default | Auto-detected |
-| Duration unit | `ms` or `s` | Auto-detected |
+| Metrics (Prometheus/Mimir) UID | Mimir or Prometheus instance with span metrics | *(required)* |
+| Traces (Tempo) UID | Default Tempo instance | *(required)* |
+| Logs (Loki) UID | Default Loki instance | *(optional)* |
+
+### Per-environment datasource overrides
+
+If you run separate Tempo/Loki instances per environment (e.g., `dev-gcp`,
+`prod-gcp`), you can configure per-environment overrides. When a user selects
+an environment filter, trace and log links will route to the matching
+datasource instead of the default.
+
+Each override maps an environment name (matching `deployment.environment`) to
+a Tempo UID and/or Loki UID.
+
+### Detection and overrides
+
+| Setting | Purpose | Default |
+|---------|---------|---------|
+| Metric namespace | Span metrics prefix (e.g., `traces_span_metrics`) | Auto-detected |
+| Duration unit | `ms` or `s` — depends on your OTel Collector config | Auto-detected |
+
+The **Auto-detect** button probes your metrics backend for known span metric
+naming patterns and reports what it found: namespace, duration unit, and
+number of discovered services. Manual overrides are only needed when
+auto-detection fails or when running non-standard pipelines.
 
 ## Development
 
