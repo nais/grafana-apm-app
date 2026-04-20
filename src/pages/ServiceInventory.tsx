@@ -124,6 +124,8 @@ function ServiceInventory() {
       const q = search.toLowerCase();
       result = result.filter((s) => s.name.toLowerCase().includes(q) || s.namespace.toLowerCase().includes(q));
     }
+    // NaN-safe numeric comparison — NaN/undefined/Infinity sort to bottom
+    const safeNum = (v: number) => (Number.isFinite(v) ? v : -Infinity);
     return [...result].sort((a, b) => {
       let cmp = 0;
       switch (sortField) {
@@ -137,13 +139,13 @@ function ServiceInventory() {
           cmp = (a.environment ?? '').localeCompare(b.environment ?? '');
           break;
         case 'p95Duration':
-          cmp = a.p95Duration - b.p95Duration;
+          cmp = safeNum(a.p95Duration) - safeNum(b.p95Duration);
           break;
         case 'errorRate':
-          cmp = a.errorRate - b.errorRate;
+          cmp = safeNum(a.errorRate) - safeNum(b.errorRate);
           break;
         case 'rate':
-          cmp = a.rate - b.rate;
+          cmp = safeNum(a.rate) - safeNum(b.rate);
           break;
       }
       // Stable tiebreaker: deterministic order when primary values are equal
