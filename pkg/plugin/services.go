@@ -47,7 +47,7 @@ func (a *App) handleServices(w http.ResponseWriter, req *http.Request) {
 	writeJSON(w, services)
 }
 
-func (a *App) fetchServiceSummaries(
+func (a *App) fetchServiceSummaries( //nolint:gocyclo // complex due to parallel metric aggregation
 	ctx context.Context,
 	caps queries.Capabilities,
 	from, to time.Time,

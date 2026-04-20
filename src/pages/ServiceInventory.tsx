@@ -11,9 +11,9 @@ import { formatDuration } from '../utils/format';
 import { useFetch } from '../utils/useFetch';
 
 const FRAMEWORK_BADGES: Record<string, { text: string; color: 'blue' | 'green' | 'orange' | 'red' | 'purple' }> = {
-  'Ktor':        { text: 'Ktor', color: 'purple' },
+  Ktor: { text: 'Ktor', color: 'purple' },
   'Spring Boot': { text: 'Spring', color: 'green' },
-  'Node.js':     { text: 'Node.js', color: 'orange' },
+  'Node.js': { text: 'Node.js', color: 'orange' },
 };
 
 type SortField = 'name' | 'namespace' | 'environment' | 'p95Duration' | 'errorRate' | 'rate';
@@ -31,16 +31,14 @@ function ServiceInventory() {
   const { fromMs, toMs } = useTimeRange();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const { data: fetchResult, loading, error } = useFetch<{ services: ServiceSummary[]; caps: Capabilities }>(
-    async () => {
-      const [capsResult, servicesResult] = await Promise.all([
-        getCapabilities(),
-        getServices(fromMs, toMs, 60, true),
-      ]);
-      return { caps: capsResult, services: servicesResult };
-    },
-    [fromMs, toMs]
-  );
+  const {
+    data: fetchResult,
+    loading,
+    error,
+  } = useFetch<{ services: ServiceSummary[]; caps: Capabilities }>(async () => {
+    const [capsResult, servicesResult] = await Promise.all([getCapabilities(), getServices(fromMs, toMs, 60, true)]);
+    return { caps: capsResult, services: servicesResult };
+  }, [fromMs, toMs]);
   const services = useMemo(() => fetchResult?.services ?? [], [fetchResult]);
   const caps = fetchResult?.caps ?? null;
 
@@ -54,19 +52,25 @@ function ServiceInventory() {
   const pageSize = parseInt(searchParams.get('pageSize') ?? '25', 10) || 25;
 
   // Helper to update one or more query params without losing others
-  const updateParams = useCallback((updates: Record<string, string | null>) => {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      for (const [key, val] of Object.entries(updates)) {
-        if (val) {
-          next.set(key, val);
-        } else {
-          next.delete(key);
-        }
-      }
-      return next;
-    }, { replace: true });
-  }, [setSearchParams]);
+  const updateParams = useCallback(
+    (updates: Record<string, string | null>) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          for (const [key, val] of Object.entries(updates)) {
+            if (val) {
+              next.set(key, val);
+            } else {
+              next.delete(key);
+            }
+          }
+          return next;
+        },
+        { replace: true }
+      );
+    },
+    [setSearchParams]
+  );
 
   const setNamespaceFilter = (ns: string) => updateParams({ namespace: ns || null, page: null });
   const setEnvFilter = (env: string) => updateParams({ environment: env || null, page: null });
@@ -104,19 +108,29 @@ function ServiceInventory() {
     }
     if (search) {
       const q = search.toLowerCase();
-      result = result.filter(
-        (s) => s.name.toLowerCase().includes(q) || s.namespace.toLowerCase().includes(q)
-      );
+      result = result.filter((s) => s.name.toLowerCase().includes(q) || s.namespace.toLowerCase().includes(q));
     }
     return [...result].sort((a, b) => {
       let cmp = 0;
       switch (sortField) {
-        case 'name': cmp = a.name.localeCompare(b.name); break;
-        case 'namespace': cmp = a.namespace.localeCompare(b.namespace); break;
-        case 'environment': cmp = (a.environment ?? '').localeCompare(b.environment ?? ''); break;
-        case 'p95Duration': cmp = a.p95Duration - b.p95Duration; break;
-        case 'errorRate': cmp = a.errorRate - b.errorRate; break;
-        case 'rate': cmp = a.rate - b.rate; break;
+        case 'name':
+          cmp = a.name.localeCompare(b.name);
+          break;
+        case 'namespace':
+          cmp = a.namespace.localeCompare(b.namespace);
+          break;
+        case 'environment':
+          cmp = (a.environment ?? '').localeCompare(b.environment ?? '');
+          break;
+        case 'p95Duration':
+          cmp = a.p95Duration - b.p95Duration;
+          break;
+        case 'errorRate':
+          cmp = a.errorRate - b.errorRate;
+          break;
+        case 'rate':
+          cmp = a.rate - b.rate;
+          break;
       }
       return sortDir === 'asc' ? cmp : -cmp;
     });
@@ -146,7 +160,11 @@ function ServiceInventory() {
   return (
     <PluginPage>
       <div className={styles.container}>
-        {error && <Alert severity="error" title="Error">{error}</Alert>}
+        {error && (
+          <Alert severity="error" title="Error">
+            {error}
+          </Alert>
+        )}
         {loading && <LoadingPlaceholder text="Loading services..." />}
 
         {!loading && caps && !caps.spanMetrics.detected && (
@@ -163,7 +181,9 @@ function ServiceInventory() {
                 placeholder="Filter services..."
                 width={30}
                 value={search}
-                onChange={(e) => { setSearch(e.currentTarget.value); }}
+                onChange={(e) => {
+                  setSearch(e.currentTarget.value);
+                }}
               />
               <Select
                 options={namespaceOptions}
@@ -227,14 +247,10 @@ function ServiceInventory() {
                       </div>
                     </td>
                     <td className={styles.nsCell}>{svc.namespace}</td>
-                    {showEnvColumn && (
-                      <td className={styles.nsCell}>{svc.environment}</td>
-                    )}
+                    {showEnvColumn && <td className={styles.nsCell}>{svc.environment}</td>}
                     <td>
                       <div className={styles.metricCell}>
-                        <span className={styles.metricValue}>
-                          {formatDuration(svc.p95Duration, svc.durationUnit)}
-                        </span>
+                        <span className={styles.metricValue}>{formatDuration(svc.p95Duration, svc.durationUnit)}</span>
                         <AreaSparkline data={svc.durationSeries?.map((p) => p.v)} color="#E0B400" />
                       </div>
                     </td>
@@ -249,9 +265,7 @@ function ServiceInventory() {
                     </td>
                     <td>
                       <div className={styles.metricCell}>
-                        <span className={styles.metricValue}>
-                          {svc.rate.toFixed(1)} req/s
-                        </span>
+                        <span className={styles.metricValue}>{svc.rate.toFixed(1)} req/s</span>
                         <AreaSparkline data={svc.rateSeries?.map((p) => p.v)} color="#73BF69" />
                       </div>
                     </td>
@@ -266,13 +280,13 @@ function ServiceInventory() {
                 <Select
                   options={PAGE_SIZE_OPTIONS}
                   value={pageSize}
-                  onChange={(v) => { setPageSize(v.value ?? 25); }}
+                  onChange={(v) => {
+                    setPageSize(v.value ?? 25);
+                  }}
                   width={8}
                 />
               </div>
-              {totalPages > 1 && (
-                <Pagination currentPage={page} numberOfPages={totalPages} onNavigate={setPage} />
-              )}
+              {totalPages > 1 && <Pagination currentPage={page} numberOfPages={totalPages} onNavigate={setPage} />}
             </div>
           </>
         )}

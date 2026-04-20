@@ -31,7 +31,11 @@ export function RuntimeTab({ service, namespace, fromMs, toMs }: RuntimeTabProps
   }
 
   if (error) {
-    return <Alert severity="error" title="Error">{error}</Alert>;
+    return (
+      <Alert severity="error" title="Error">
+        {error}
+      </Alert>
+    );
   }
 
   const hasAny = data?.jvm || data?.nodejs || data?.dbPool || data?.kafka;
@@ -39,8 +43,8 @@ export function RuntimeTab({ service, namespace, fromMs, toMs }: RuntimeTabProps
   if (!hasAny) {
     return (
       <Alert severity="info" title="No runtime metrics detected">
-        This service does not emit JVM, Node.js, database pool, or Kafka client metrics.
-        Runtime metrics are emitted by the application&apos;s Micrometer, prom-client, or OTel SDK instrumentation.
+        This service does not emit JVM, Node.js, database pool, or Kafka client metrics. Runtime metrics are emitted by
+        the application&apos;s Micrometer, prom-client, or OTel SDK instrumentation.
       </Alert>
     );
   }
@@ -74,9 +78,7 @@ function JVMCard({ jvm }: { jvm: JVMRuntime }) {
         {jvm.versions?.map((v) => (
           <Badge key={v.version} text={v.version} color="purple" />
         ))}
-        {jvm.uptime > 0 && (
-          <span className={styles.uptimeBadge}>up {formatUptime(jvm.uptime)}</span>
-        )}
+        {jvm.uptime > 0 && <span className={styles.uptimeBadge}>up {formatUptime(jvm.uptime)}</span>}
       </div>
 
       <div className={styles.metricsGrid}>
@@ -160,9 +162,7 @@ function JVMCard({ jvm }: { jvm: JVMRuntime }) {
               <span className={styles.metricValue}>{Math.round(jvm.threadsPeak)}</span>
             </div>
           )}
-          {jvm.threadStates && Object.keys(jvm.threadStates).length > 0 && (
-            <ThreadStateBar states={jvm.threadStates} />
-          )}
+          {jvm.threadStates && Object.keys(jvm.threadStates).length > 0 && <ThreadStateBar states={jvm.threadStates} />}
           <div className={styles.metricRow}>
             <span className={styles.metricLabel}>Classes Loaded</span>
             <span className={styles.metricValue}>{Math.round(jvm.classesLoaded).toLocaleString()}</span>
@@ -203,9 +203,7 @@ function NodeJSCard({ nodejs }: { nodejs: NodeJSRuntime }) {
             <>
               <div className={styles.metricRow}>
                 <span className={styles.metricLabel}>Utilization</span>
-                <span className={elUtilPct > 80 ? styles.warnValue : styles.metricValue}>
-                  {elUtilPct.toFixed(1)}%
-                </span>
+                <span className={elUtilPct > 80 ? styles.warnValue : styles.metricValue}>{elUtilPct.toFixed(1)}%</span>
               </div>
               <UtilizationBar value={elUtilPct} />
             </>
@@ -285,7 +283,8 @@ function NodeJSCard({ nodejs }: { nodejs: NodeJSRuntime }) {
               <div className={styles.metricRow}>
                 <span className={styles.metricLabel}>Open FDs</span>
                 <span className={styles.metricValue}>
-                  {Math.round(nodejs.openFds)}{nodejs.maxFds > 0 && ` / ${Math.round(nodejs.maxFds)}`}
+                  {Math.round(nodejs.openFds)}
+                  {nodejs.maxFds > 0 && ` / ${Math.round(nodejs.maxFds)}`}
                 </span>
               </div>
               {nodejs.maxFds > 0 && <UtilizationBar value={fdPct} />}
@@ -334,9 +333,7 @@ function DBPoolCard({ dbPool }: { dbPool: DBPoolRuntime }) {
               <td className={styles.numCell}>{pool.active.toFixed(1)}</td>
               <td className={styles.numCell}>{pool.idle.toFixed(1)}</td>
               <td className={styles.numCell}>{pool.max}</td>
-              <td className={pool.pending > 0 ? styles.warnCell : styles.numCell}>
-                {pool.pending.toFixed(1)}
-              </td>
+              <td className={pool.pending > 0 ? styles.warnCell : styles.numCell}>{pool.pending.toFixed(1)}</td>
               <td className={styles.numCell}>
                 <UtilizationBar value={pool.utilization} inline />
               </td>
@@ -434,10 +431,7 @@ function ThreadStateBar({ states }: { states: Record<string, number> }) {
       <div className={styles.threadStateLegend}>
         {entries.map(([state, count]) => (
           <span key={state} className={styles.threadStateItem}>
-            <span
-              className={styles.threadStateDot}
-              style={{ backgroundColor: THREAD_STATE_COLORS[state] ?? '#999' }}
-            />
+            <span className={styles.threadStateDot} style={{ backgroundColor: THREAD_STATE_COLORS[state] ?? '#999' }} />
             {state} {count}
           </span>
         ))}
@@ -589,7 +583,9 @@ const getStyles = (theme: GrafanaTheme2) => ({
       border-bottom: 1px solid ${theme.colors.border.medium};
       white-space: nowrap;
     }
-    th:nth-child(n+2) { text-align: right; }
+    th:nth-child(n + 2) {
+      text-align: right;
+    }
     td {
       padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
       border-bottom: 1px solid ${theme.colors.border.weak};

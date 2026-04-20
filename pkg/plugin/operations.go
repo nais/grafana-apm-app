@@ -28,7 +28,7 @@ func (a *App) handleOperations(w http.ResponseWriter, req *http.Request) {
 	caps := a.cachedOrDetectCapabilities(ctx)
 	if !caps.SpanMetrics.Detected {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte("[]"))
+		_, _ = w.Write([]byte("[]"))
 		return
 	}
 
@@ -43,7 +43,7 @@ func (a *App) queryOperations(
 	ctx context.Context,
 	caps queries.Capabilities,
 	namespace, service string,
-	from, to time.Time,
+	_, to time.Time,
 ) []queries.OperationSummary {
 	logger := log.DefaultLogger.With("handler", "operations")
 	callsMetric := caps.SpanMetrics.CallsMetric

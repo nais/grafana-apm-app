@@ -20,10 +20,11 @@ import { useFetch } from '../utils/useFetch';
 function ServiceMap() {
   const styles = useStyles2(getStyles);
   const { fromMs, toMs } = useTimeRange();
-  const { data: mapData, loading, error } = useFetch<ServiceMapResponse>(
-    () => getServiceMap(fromMs, toMs),
-    [fromMs, toMs]
-  );
+  const {
+    data: mapData,
+    loading,
+    error,
+  } = useFetch<ServiceMapResponse>(() => getServiceMap(fromMs, toMs), [fromMs, toMs]);
 
   const scene = useMemo(() => {
     if (!mapData || mapData.nodes.length === 0) {
@@ -38,8 +39,18 @@ function ServiceMap() {
         { name: 'title', type: FieldType.string, values: mapData.nodes.map((n) => n.title) },
         { name: 'mainStat', type: FieldType.string, values: mapData.nodes.map((n) => n.mainStat ?? '') },
         { name: 'secondaryStat', type: FieldType.string, values: mapData.nodes.map((n) => n.secondaryStat ?? '') },
-        { name: 'arc__errors', type: FieldType.number, values: mapData.nodes.map((n) => n.arc__errors), config: { color: { fixedColor: 'red', mode: 'fixed' } } },
-        { name: 'arc__ok', type: FieldType.number, values: mapData.nodes.map((n) => n.arc__ok), config: { color: { fixedColor: 'green', mode: 'fixed' } } },
+        {
+          name: 'arc__errors',
+          type: FieldType.number,
+          values: mapData.nodes.map((n) => n.arc__errors),
+          config: { color: { fixedColor: 'red', mode: 'fixed' } },
+        },
+        {
+          name: 'arc__ok',
+          type: FieldType.number,
+          values: mapData.nodes.map((n) => n.arc__ok),
+          config: { color: { fixedColor: 'green', mode: 'fixed' } },
+        },
       ],
     });
 
@@ -88,7 +99,11 @@ function ServiceMap() {
   return (
     <PluginPage layout={PageLayoutType.Canvas}>
       <div className={styles.container}>
-        {error && <Alert severity="error" title="Error">{error}</Alert>}
+        {error && (
+          <Alert severity="error" title="Error">
+            {error}
+          </Alert>
+        )}
         {loading && <LoadingPlaceholder text="Loading service map..." />}
 
         {!loading && mapData && mapData.nodes.length === 0 && (

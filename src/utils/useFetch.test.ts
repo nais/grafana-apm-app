@@ -29,13 +29,15 @@ describe('useFetch', () => {
   it('discards stale results when deps change', async () => {
     let resolvers: Array<(v: string) => void> = [];
     const fetcher = jest.fn().mockImplementation(
-      () => new Promise<string>((resolve) => { resolvers.push(resolve); })
+      () =>
+        new Promise<string>((resolve) => {
+          resolvers.push(resolve);
+        })
     );
 
-    const { result, rerender } = renderHook(
-      ({ dep }) => useFetch(() => fetcher(dep), [dep]),
-      { initialProps: { dep: 'a' } }
-    );
+    const { result, rerender } = renderHook(({ dep }) => useFetch(() => fetcher(dep), [dep]), {
+      initialProps: { dep: 'a' },
+    });
 
     // First fetch is in flight
     expect(fetcher).toHaveBeenCalledTimes(1);
@@ -68,9 +70,7 @@ describe('useFetch', () => {
 
   it('uses initialData when provided', async () => {
     const fetcher = jest.fn().mockResolvedValue('fresh');
-    const { result } = renderHook(() =>
-      useFetch(fetcher, [], { initialData: 'cached' })
-    );
+    const { result } = renderHook(() => useFetch(fetcher, [], { initialData: 'cached' }));
 
     // Initially shows cached data
     expect(result.current.data).toBe('cached');

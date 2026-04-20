@@ -89,11 +89,7 @@ export function buildLokiExploreUrl(
 /**
  * Build an Explore URL for Mimir/Prometheus metrics.
  */
-export function buildMimirExploreUrl(
-  mimirUid: string,
-  expr: string,
-  options?: { from?: string; to?: string }
-): string {
+export function buildMimirExploreUrl(mimirUid: string, expr: string, options?: { from?: string; to?: string }): string {
   return buildExploreUrl({
     datasourceUid: mimirUid,
     queries: [{ refId: 'A', expr }],

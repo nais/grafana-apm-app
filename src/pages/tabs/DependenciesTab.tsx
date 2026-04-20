@@ -18,7 +18,11 @@ export interface DependenciesTabProps {
 export function DependenciesTab({ service, namespace, fromMs, toMs }: DependenciesTabProps) {
   const styles = useStyles2(getStyles);
   const appNavigate = useAppNavigate();
-  const { data: depsResp, loading, error } = useFetch<DependenciesResponse>(
+  const {
+    data: depsResp,
+    loading,
+    error,
+  } = useFetch<DependenciesResponse>(
     () => getServiceDependencies(namespace, service, fromMs, toMs),
     [service, namespace, fromMs, toMs]
   );
@@ -44,9 +48,7 @@ export function DependenciesTab({ service, namespace, fromMs, toMs }: Dependenci
       if (typeof aVal === 'number' && typeof bVal === 'number') {
         return sortDir === 'asc' ? aVal - bVal : bVal - aVal;
       }
-      return sortDir === 'asc'
-        ? String(aVal).localeCompare(String(bVal))
-        : String(bVal).localeCompare(String(aVal));
+      return sortDir === 'asc' ? String(aVal).localeCompare(String(bVal)) : String(bVal).localeCompare(String(aVal));
     });
   }, [deps, sortField, sortDir]);
 
@@ -55,13 +57,18 @@ export function DependenciesTab({ service, namespace, fromMs, toMs }: Dependenci
   }
 
   if (error) {
-    return <Alert severity="error" title="Error loading dependencies">{error}</Alert>;
+    return (
+      <Alert severity="error" title="Error loading dependencies">
+        {error}
+      </Alert>
+    );
   }
 
   if (deps.length === 0) {
     return (
       <Alert severity="info" title="No dependencies detected">
-        No downstream dependencies found for {service}. Dependencies are detected from client spans in the service graph.
+        No downstream dependencies found for {service}. Dependencies are detected from client spans in the service
+        graph.
       </Alert>
     );
   }
@@ -75,7 +82,13 @@ export function DependenciesTab({ service, namespace, fromMs, toMs }: Dependenci
             <SortHeader field="type" label="Type" sortField={sortField} sortDir={sortDir} onSort={toggleSort} />
             <SortHeader field="rate" label="Throughput" sortField={sortField} sortDir={sortDir} onSort={toggleSort} />
             <SortHeader field="errorRate" label="Error %" sortField={sortField} sortDir={sortDir} onSort={toggleSort} />
-            <SortHeader field="p95Duration" label="Latency (P95)" sortField={sortField} sortDir={sortDir} onSort={toggleSort} />
+            <SortHeader
+              field="p95Duration"
+              label="Latency (P95)"
+              sortField={sortField}
+              sortDir={sortDir}
+              onSort={toggleSort}
+            />
             <SortHeader field="impact" label="Impact" sortField={sortField} sortDir={sortDir} onSort={toggleSort} />
           </tr>
         </thead>
@@ -92,9 +105,7 @@ export function DependenciesTab({ service, namespace, fromMs, toMs }: Dependenci
               </td>
               <td className={styles.kindCell}>{formatDepType(dep.type)}</td>
               <td className={styles.numCell}>{dep.rate.toFixed(2)} req/s</td>
-              <td className={dep.errorRate > 0 ? styles.errorCell : styles.numCell}>
-                {dep.errorRate.toFixed(1)}%
-              </td>
+              <td className={dep.errorRate > 0 ? styles.errorCell : styles.numCell}>{dep.errorRate.toFixed(1)}%</td>
               <td className={styles.numCell}>{formatDuration(dep.p95Duration, dep.durationUnit)}</td>
               <td className={styles.numCell}>
                 <ImpactBar impact={dep.impact} />
@@ -154,7 +165,9 @@ const getStyles = (theme: GrafanaTheme2) => ({
       white-space: nowrap;
       user-select: none;
     }
-    th:nth-child(n+3) { text-align: right; }
+    th:nth-child(n + 3) {
+      text-align: right;
+    }
     td {
       padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
       border-bottom: 1px solid ${theme.colors.border.weak};

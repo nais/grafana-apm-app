@@ -68,7 +68,7 @@ func (a *App) queryEndpoints(
 	ctx context.Context,
 	caps queries.Capabilities,
 	namespace, service string,
-	from, to time.Time,
+	_, to time.Time,
 ) queries.EndpointGroups {
 	logger := log.DefaultLogger.With("handler", "endpoints")
 	callsMetric := caps.SpanMetrics.CallsMetric

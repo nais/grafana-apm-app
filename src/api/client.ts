@@ -57,13 +57,9 @@ export interface ServiceSummary {
 }
 
 async function fetchResource<T>(path: string, params?: Record<string, string>): Promise<T> {
-  const url = params
-    ? `${BASE_URL}${path}?${new URLSearchParams(params).toString()}`
-    : `${BASE_URL}${path}`;
+  const url = params ? `${BASE_URL}${path}?${new URLSearchParams(params).toString()}` : `${BASE_URL}${path}`;
 
-  const response = await lastValueFrom(
-    getBackendSrv().fetch<T>({ url, method: 'GET' })
-  );
+  const response = await lastValueFrom(getBackendSrv().fetch<T>({ url, method: 'GET' }));
   return response.data;
 }
 
@@ -238,28 +234,18 @@ export async function getServiceDependencies(
   );
 }
 
-export async function getGlobalDependencies(
-  from: number,
-  to: number
-): Promise<DependenciesResponse> {
+export async function getGlobalDependencies(from: number, to: number): Promise<DependenciesResponse> {
   return fetchResource<DependenciesResponse>('/dependencies', {
     from: String(Math.floor(from / 1000)),
     to: String(Math.floor(to / 1000)),
   });
 }
 
-export async function getDependencyDetail(
-  name: string,
-  from: number,
-  to: number
-): Promise<DependencyDetailResponse> {
-  return fetchResource<DependencyDetailResponse>(
-    `/dependencies/${encodeURIComponent(name)}`,
-    {
-      from: String(Math.floor(from / 1000)),
-      to: String(Math.floor(to / 1000)),
-    }
-  );
+export async function getDependencyDetail(name: string, from: number, to: number): Promise<DependencyDetailResponse> {
+  return fetchResource<DependencyDetailResponse>(`/dependencies/${encodeURIComponent(name)}`, {
+    from: String(Math.floor(from / 1000)),
+    to: String(Math.floor(to / 1000)),
+  });
 }
 
 // ---- Endpoints (Server tab) ----

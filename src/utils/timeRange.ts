@@ -43,12 +43,15 @@ export function useTimeRange(): TimeRangeState {
 
   const setTimeRange = useCallback(
     (newFrom: string, newTo: string) => {
-      setSearchParams((prev) => {
-        const next = new URLSearchParams(prev);
-        next.set('from', newFrom);
-        next.set('to', newTo);
-        return next;
-      }, { replace: true });
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set('from', newFrom);
+          next.set('to', newTo);
+          return next;
+        },
+        { replace: true }
+      );
     },
     [setSearchParams]
   );

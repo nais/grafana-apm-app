@@ -42,12 +42,8 @@ export function LogsTab({ service, namespace, logsUid }: LogsTabProps) {
     // report "opentelemetry-demo" while logs report "demo"). Only filter by
     // service_name for reliability; namespace scoping is handled at the backend API level.
     const svcMatcher = `${otel.labels.serviceName}="${sanitizeLabelValue(service)}"`;
-    const severityMatcher = severityFilter.length > 0
-      ? ` | level=~"${severityFilter.join('|')}"`
-      : '';
-    const textFilter = debouncedSearch
-      ? ` |~ "${escapeRegex(debouncedSearch)}"`
-      : '';
+    const severityMatcher = severityFilter.length > 0 ? ` | level=~"${severityFilter.join('|')}"` : '';
+    const textFilter = debouncedSearch ? ` |~ "${escapeRegex(debouncedSearch)}"` : '';
 
     const volumeQuery = new SceneQueryRunner({
       datasource: { uid: logsUid, type: 'loki' },

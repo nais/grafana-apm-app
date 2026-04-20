@@ -1,0 +1,22 @@
+pre-commit:
+  parallel: true
+  commands:
+    gitleaks:
+      run: gitleaks git --pre-commit --staged --verbose
+    go-lint:
+      glob: "*.go"
+      run: golangci-lint run --new-from-rev=HEAD ./...
+    ts-lint:
+      glob: "*.{ts,tsx}"
+      run: pnpm run lint
+    ts-typecheck:
+      glob: "*.{ts,tsx}"
+      run: pnpm run typecheck
+
+pre-push:
+  parallel: true
+  commands:
+    go-test:
+      run: go test -short -race ./pkg/...
+    js-test:
+      run: pnpm run test:ci

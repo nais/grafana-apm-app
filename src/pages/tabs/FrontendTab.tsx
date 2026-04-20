@@ -53,70 +53,99 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
 
   return (
     <div className={styles.container}>
-      {source === 'loki' && (
-        <LokiWebVitalsPanels service={service} environment={environment} />
-      )}
-      {source === 'mimir' && (
-        <MimirWebVitalsPanels service={service} namespace={namespace} />
-      )}
+      {source === 'loki' && <LokiWebVitalsPanels service={service} environment={environment} />}
+      {source === 'mimir' && <MimirWebVitalsPanels service={service} namespace={namespace} />}
     </div>
   );
 }
 
 // ---- helpers ----
 
-function statPanel(title: string, description: string, query: SceneQueryRunner, unit: string, thresholds: Array<{ value: number; color: string }>, decimals?: number) {
-  const builder = PanelBuilders.stat()
-    .setTitle(title)
-    .setDescription(description)
-    .setData(query)
-    .setUnit(unit);
+function statPanel(
+  title: string,
+  description: string,
+  query: SceneQueryRunner,
+  unit: string,
+  thresholds: Array<{ value: number; color: string }>,
+  decimals?: number
+) {
+  const builder = PanelBuilders.stat().setTitle(title).setDescription(description).setData(query).setUnit(unit);
   if (decimals !== undefined) {
     builder.setDecimals(decimals);
   }
   return builder
-    .setOverrides((b) => b.matchFieldsWithName(title)
-      .overrideThresholds({
+    .setOverrides((b) =>
+      b.matchFieldsWithName(title).overrideThresholds({
         mode: ThresholdsMode.Absolute,
         steps: thresholds.map((t) => ({ value: t.value, color: t.color })),
-      }))
+      })
+    )
     .build();
 }
 
-function makePromQuery(ds: { uid: string }, expr: string, legendFormat: string, opts?: { minInterval?: string; format?: string; instant?: boolean }) {
+function makePromQuery(
+  ds: { uid: string },
+  expr: string,
+  legendFormat: string,
+  opts?: { minInterval?: string; format?: string; instant?: boolean }
+) {
   return new SceneQueryRunner({
     datasource: { uid: ds.uid, type: 'prometheus' },
     ...(opts?.minInterval ? { minInterval: opts.minInterval } : {}),
-    queries: [{
-      refId: 'A',
-      expr,
-      legendFormat,
-      ...(opts?.format ? { format: opts.format } : {}),
-      ...(opts?.instant ? { instant: true } : {}),
-    }],
+    queries: [
+      {
+        refId: 'A',
+        expr,
+        legendFormat,
+        ...(opts?.format ? { format: opts.format } : {}),
+        ...(opts?.instant ? { instant: true } : {}),
+      },
+    ],
   });
 }
 
 function makeLokiQuery(ds: { uid: string }, expr: string, legendFormat: string, opts?: { instant?: boolean }) {
   return new SceneQueryRunner({
     datasource: { uid: ds.uid, type: 'loki' },
-    queries: [{
-      refId: 'A',
-      expr,
-      legendFormat,
-      ...(opts?.instant ? { instant: true } : {}),
-    }],
+    queries: [
+      {
+        refId: 'A',
+        expr,
+        legendFormat,
+        ...(opts?.instant ? { instant: true } : {}),
+      },
+    ],
   });
 }
 
 // ---- Vital thresholds (shared between Mimir and Loki panels) ----
 
 const VITAL_THRESHOLDS = {
-  lcp: [{ value: 0, color: 'green' }, { value: 2500, color: 'orange' }, { value: 4000, color: 'red' }],
-  fcp: [{ value: 0, color: 'green' }, { value: 1800, color: 'orange' }, { value: 3000, color: 'red' }],
-  cls: [{ value: 0, color: 'green' }, { value: 0.1, color: 'orange' }, { value: 0.25, color: 'red' }],
-  inp: [{ value: 0, color: 'green' }, { value: 200, color: 'orange' }, { value: 500, color: 'red' }],
-  ttfb: [{ value: 0, color: 'green' }, { value: 800, color: 'orange' }, { value: 1800, color: 'red' }],
+  lcp: [
+    { value: 0, color: 'green' },
+    { value: 2500, color: 'orange' },
+    { value: 4000, color: 'red' },
+  ],
+  fcp: [
+    { value: 0, color: 'green' },
+    { value: 1800, color: 'orange' },
+    { value: 3000, color: 'red' },
+  ],
+  cls: [
+    { value: 0, color: 'green' },
+    { value: 0.1, color: 'orange' },
+    { value: 0.25, color: 'red' },
+  ],
+  inp: [
+    { value: 0, color: 'green' },
+    { value: 200, color: 'orange' },
+    { value: 500, color: 'red' },
+  ],
+  ttfb: [
+    { value: 0, color: 'green' },
+    { value: 800, color: 'orange' },
+    { value: 1800, color: 'red' },
+  ],
 };
 
 // ---- LogQL helper for Faro vital queries ----
@@ -180,16 +209,33 @@ function LokiWebVitalsPanels({ service, environment }: { service: string; enviro
     const fcpQ = makeLokiQuery(lDs, lokiVitalExpr(service, otel.faroLoki.fcp, '[$__range]'), 'FCP', { instant: true });
     const clsQ = makeLokiQuery(lDs, lokiVitalExpr(service, otel.faroLoki.cls, '[$__range]'), 'CLS', { instant: true });
     const inpQ = makeLokiQuery(lDs, lokiVitalExpr(service, otel.faroLoki.inp, '[$__range]'), 'INP', { instant: true });
-    const ttfbQ = makeLokiQuery(lDs, lokiVitalExpr(service, otel.faroLoki.ttfb, '[$__range]'), 'TTFB', { instant: true });
+    const ttfbQ = makeLokiQuery(lDs, lokiVitalExpr(service, otel.faroLoki.ttfb, '[$__range]'), 'TTFB', {
+      instant: true,
+    });
 
     const vitalsRow = new SceneFlexLayout({
       direction: 'row',
       children: [
-        new SceneFlexItem({ minHeight: 130, body: statPanel('LCP', 'Largest Contentful Paint — target < 2500ms', lcpQ, 'ms', VITAL_THRESHOLDS.lcp) }),
-        new SceneFlexItem({ minHeight: 130, body: statPanel('FCP', 'First Contentful Paint — target < 1800ms', fcpQ, 'ms', VITAL_THRESHOLDS.fcp) }),
-        new SceneFlexItem({ minHeight: 130, body: statPanel('CLS', 'Cumulative Layout Shift — target < 0.1', clsQ, 'none', VITAL_THRESHOLDS.cls, 3) }),
-        new SceneFlexItem({ minHeight: 130, body: statPanel('INP', 'Interaction to Next Paint — target < 200ms', inpQ, 'ms', VITAL_THRESHOLDS.inp) }),
-        new SceneFlexItem({ minHeight: 130, body: statPanel('TTFB', 'Time to First Byte — target < 800ms', ttfbQ, 'ms', VITAL_THRESHOLDS.ttfb) }),
+        new SceneFlexItem({
+          minHeight: 130,
+          body: statPanel('LCP', 'Largest Contentful Paint — target < 2500ms', lcpQ, 'ms', VITAL_THRESHOLDS.lcp),
+        }),
+        new SceneFlexItem({
+          minHeight: 130,
+          body: statPanel('FCP', 'First Contentful Paint — target < 1800ms', fcpQ, 'ms', VITAL_THRESHOLDS.fcp),
+        }),
+        new SceneFlexItem({
+          minHeight: 130,
+          body: statPanel('CLS', 'Cumulative Layout Shift — target < 0.1', clsQ, 'none', VITAL_THRESHOLDS.cls, 3),
+        }),
+        new SceneFlexItem({
+          minHeight: 130,
+          body: statPanel('INP', 'Interaction to Next Paint — target < 200ms', inpQ, 'ms', VITAL_THRESHOLDS.inp),
+        }),
+        new SceneFlexItem({
+          minHeight: 130,
+          body: statPanel('TTFB', 'Time to First Byte — target < 800ms', ttfbQ, 'ms', VITAL_THRESHOLDS.ttfb),
+        }),
       ],
     });
 
@@ -273,9 +319,27 @@ function LokiWebVitalsPanels({ service, environment }: { service: string; enviro
     const browserQ = new SceneQueryRunner({
       datasource: { uid: ds.logsUid, type: 'loki' },
       queries: [
-        { refId: 'lcp', expr: lokiVitalByGroupExpr(service, otel.faroLoki.lcp, otel.faroLoki.browserName, '[$__range]'), legendFormat: '__auto', format: 'table', instant: true },
-        { refId: 'fcp', expr: lokiVitalByGroupExpr(service, otel.faroLoki.fcp, otel.faroLoki.browserName, '[$__range]'), legendFormat: '__auto', format: 'table', instant: true },
-        { refId: 'ttfb', expr: lokiVitalByGroupExpr(service, otel.faroLoki.ttfb, otel.faroLoki.browserName, '[$__range]'), legendFormat: '__auto', format: 'table', instant: true },
+        {
+          refId: 'lcp',
+          expr: lokiVitalByGroupExpr(service, otel.faroLoki.lcp, otel.faroLoki.browserName, '[$__range]'),
+          legendFormat: '__auto',
+          format: 'table',
+          instant: true,
+        },
+        {
+          refId: 'fcp',
+          expr: lokiVitalByGroupExpr(service, otel.faroLoki.fcp, otel.faroLoki.browserName, '[$__range]'),
+          legendFormat: '__auto',
+          format: 'table',
+          instant: true,
+        },
+        {
+          refId: 'ttfb',
+          expr: lokiVitalByGroupExpr(service, otel.faroLoki.ttfb, otel.faroLoki.browserName, '[$__range]'),
+          legendFormat: '__auto',
+          format: 'table',
+          instant: true,
+        },
       ],
     });
     const browserData = new SceneDataTransformer({
@@ -291,15 +355,18 @@ function LokiWebVitalsPanels({ service, environment }: { service: string; enviro
         .setData(browserData)
         .setOverrides((b) => {
           b.matchFieldsWithName(otel.faroLoki.browserName).overrideDisplayName('Browser');
-          b.matchFieldsWithName('Value #lcp').overrideDisplayName('Avg LCP (ms)')
+          b.matchFieldsWithName('Value #lcp')
+            .overrideDisplayName('Avg LCP (ms)')
             .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.lcp })
             .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
             .overrideDecimals(0);
-          b.matchFieldsWithName('Value #fcp').overrideDisplayName('Avg FCP (ms)')
+          b.matchFieldsWithName('Value #fcp')
+            .overrideDisplayName('Avg FCP (ms)')
             .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.fcp })
             .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
             .overrideDecimals(0);
-          b.matchFieldsWithName('Value #ttfb').overrideDisplayName('Avg TTFB (ms)')
+          b.matchFieldsWithName('Value #ttfb')
+            .overrideDisplayName('Avg TTFB (ms)')
             .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.ttfb })
             .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
             .overrideDecimals(0);
@@ -338,12 +405,9 @@ function LokiWebVitalsPanels({ service, environment }: { service: string; enviro
     });
 
     // --- Row 6: Top Exceptions table ---
-    const topExceptionsQ = makeLokiQuery(
-      lDs,
-      lokiTopExceptionsExpr(service, '[$__range]'),
-      '{{value}}',
-      { instant: true }
-    );
+    const topExceptionsQ = makeLokiQuery(lDs, lokiTopExceptionsExpr(service, '[$__range]'), '{{value}}', {
+      instant: true,
+    });
     const topExceptionsPanel = new SceneFlexItem({
       minHeight: 300,
       body: PanelBuilders.table()
@@ -379,12 +443,9 @@ function LokiWebVitalsPanels({ service, environment }: { service: string; enviro
     });
 
     // --- Row 8: Top Events table ---
-    const topEventsQ = makeLokiQuery(
-      lDs,
-      lokiTopEventsExpr(service, '[$__range]'),
-      '{{event_name}}',
-      { instant: true }
-    );
+    const topEventsQ = makeLokiQuery(lDs, lokiTopEventsExpr(service, '[$__range]'), '{{event_name}}', {
+      instant: true,
+    });
     const topEventsPanel = new SceneFlexItem({
       minHeight: 250,
       body: PanelBuilders.table()
@@ -410,14 +471,7 @@ function LokiWebVitalsPanels({ service, environment }: { service: string; enviro
       controls: [new SceneTimePicker({}), new SceneRefreshPicker({})],
       body: new SceneFlexLayout({
         direction: 'column',
-        children: [
-          vitalsRow,
-          trendsRow,
-          trafficRow,
-          bottomRow,
-          sessionsAndExceptionsRow,
-          eventsRow,
-        ],
+        children: [vitalsRow, trendsRow, trafficRow, bottomRow, sessionsAndExceptionsRow, eventsRow],
       }),
     });
   }, [from, to, ds, service]);
@@ -449,11 +503,26 @@ function MimirWebVitalsPanels({ service, namespace }: { service: string; namespa
     const vitalsRow = new SceneFlexLayout({
       direction: 'row',
       children: [
-        new SceneFlexItem({ minHeight: 130, body: statPanel('LCP', 'Largest Contentful Paint — target < 2500ms', lcpQ, 'ms', VITAL_THRESHOLDS.lcp) }),
-        new SceneFlexItem({ minHeight: 130, body: statPanel('FCP', 'First Contentful Paint — target < 1800ms', fcpQ, 'ms', VITAL_THRESHOLDS.fcp) }),
-        new SceneFlexItem({ minHeight: 130, body: statPanel('CLS', 'Cumulative Layout Shift — target < 0.1', clsQ, 'none', VITAL_THRESHOLDS.cls, 3) }),
-        new SceneFlexItem({ minHeight: 130, body: statPanel('INP', 'Interaction to Next Paint — target < 200ms', inpQ, 'ms', VITAL_THRESHOLDS.inp) }),
-        new SceneFlexItem({ minHeight: 130, body: statPanel('TTFB', 'Time to First Byte — target < 800ms', ttfbQ, 'ms', VITAL_THRESHOLDS.ttfb) }),
+        new SceneFlexItem({
+          minHeight: 130,
+          body: statPanel('LCP', 'Largest Contentful Paint — target < 2500ms', lcpQ, 'ms', VITAL_THRESHOLDS.lcp),
+        }),
+        new SceneFlexItem({
+          minHeight: 130,
+          body: statPanel('FCP', 'First Contentful Paint — target < 1800ms', fcpQ, 'ms', VITAL_THRESHOLDS.fcp),
+        }),
+        new SceneFlexItem({
+          minHeight: 130,
+          body: statPanel('CLS', 'Cumulative Layout Shift — target < 0.1', clsQ, 'none', VITAL_THRESHOLDS.cls, 3),
+        }),
+        new SceneFlexItem({
+          minHeight: 130,
+          body: statPanel('INP', 'Interaction to Next Paint — target < 200ms', inpQ, 'ms', VITAL_THRESHOLDS.inp),
+        }),
+        new SceneFlexItem({
+          minHeight: 130,
+          body: statPanel('TTFB', 'Time to First Byte — target < 800ms', ttfbQ, 'ms', VITAL_THRESHOLDS.ttfb),
+        }),
       ],
     });
 
@@ -548,12 +617,48 @@ function MimirWebVitalsPanels({ service, namespace }: { service: string; namespa
     const perPageQ = new SceneQueryRunner({
       datasource: { uid: ds.metricsUid, type: 'prometheus' },
       queries: [
-        { refId: 'lcp', expr: `avg by (${otel.browser.pageRoute}) (${otel.browser.lcp}{${svcFilter}})`, legendFormat: '__auto', format: 'table', instant: true },
-        { refId: 'fcp', expr: `avg by (${otel.browser.pageRoute}) (${otel.browser.fcp}{${svcFilter}})`, legendFormat: '__auto', format: 'table', instant: true },
-        { refId: 'cls', expr: `avg by (${otel.browser.pageRoute}) (${otel.browser.cls}{${svcFilter}})`, legendFormat: '__auto', format: 'table', instant: true },
-        { refId: 'inp', expr: `avg by (${otel.browser.pageRoute}) (${otel.browser.inp}{${svcFilter}})`, legendFormat: '__auto', format: 'table', instant: true },
-        { refId: 'ttfb', expr: `avg by (${otel.browser.pageRoute}) (${otel.browser.ttfb}{${svcFilter}})`, legendFormat: '__auto', format: 'table', instant: true },
-        { refId: 'loads', expr: `sum by (${otel.browser.pageRoute}) (increase(${otel.browser.pageLoads}{${svcFilter}}[$__range]))`, legendFormat: '__auto', format: 'table', instant: true },
+        {
+          refId: 'lcp',
+          expr: `avg by (${otel.browser.pageRoute}) (${otel.browser.lcp}{${svcFilter}})`,
+          legendFormat: '__auto',
+          format: 'table',
+          instant: true,
+        },
+        {
+          refId: 'fcp',
+          expr: `avg by (${otel.browser.pageRoute}) (${otel.browser.fcp}{${svcFilter}})`,
+          legendFormat: '__auto',
+          format: 'table',
+          instant: true,
+        },
+        {
+          refId: 'cls',
+          expr: `avg by (${otel.browser.pageRoute}) (${otel.browser.cls}{${svcFilter}})`,
+          legendFormat: '__auto',
+          format: 'table',
+          instant: true,
+        },
+        {
+          refId: 'inp',
+          expr: `avg by (${otel.browser.pageRoute}) (${otel.browser.inp}{${svcFilter}})`,
+          legendFormat: '__auto',
+          format: 'table',
+          instant: true,
+        },
+        {
+          refId: 'ttfb',
+          expr: `avg by (${otel.browser.pageRoute}) (${otel.browser.ttfb}{${svcFilter}})`,
+          legendFormat: '__auto',
+          format: 'table',
+          instant: true,
+        },
+        {
+          refId: 'loads',
+          expr: `sum by (${otel.browser.pageRoute}) (increase(${otel.browser.pageLoads}{${svcFilter}}[$__range]))`,
+          legendFormat: '__auto',
+          format: 'table',
+          instant: true,
+        },
       ],
     });
     const perPageData = new SceneDataTransformer({
@@ -568,23 +673,28 @@ function MimirWebVitalsPanels({ service, namespace }: { service: string; namespa
         .setDescription('Average Web Vitals per page route')
         .setData(perPageData)
         .setOverrides((b) => {
-          b.matchFieldsWithName('Value #lcp').overrideDisplayName('LCP (ms)')
+          b.matchFieldsWithName('Value #lcp')
+            .overrideDisplayName('LCP (ms)')
             .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.lcp })
             .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
             .overrideDecimals(0);
-          b.matchFieldsWithName('Value #fcp').overrideDisplayName('FCP (ms)')
+          b.matchFieldsWithName('Value #fcp')
+            .overrideDisplayName('FCP (ms)')
             .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.fcp })
             .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
             .overrideDecimals(0);
-          b.matchFieldsWithName('Value #cls').overrideDisplayName('CLS')
+          b.matchFieldsWithName('Value #cls')
+            .overrideDisplayName('CLS')
             .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.cls })
             .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
             .overrideDecimals(3);
-          b.matchFieldsWithName('Value #inp').overrideDisplayName('INP (ms)')
+          b.matchFieldsWithName('Value #inp')
+            .overrideDisplayName('INP (ms)')
             .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.inp })
             .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
             .overrideDecimals(0);
-          b.matchFieldsWithName('Value #ttfb').overrideDisplayName('TTFB (ms)')
+          b.matchFieldsWithName('Value #ttfb')
+            .overrideDisplayName('TTFB (ms)')
             .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.ttfb })
             .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
             .overrideDecimals(0);
@@ -599,9 +709,27 @@ function MimirWebVitalsPanels({ service, namespace }: { service: string; namespa
     const browserQ = new SceneQueryRunner({
       datasource: { uid: ds.metricsUid, type: 'prometheus' },
       queries: [
-        { refId: 'lcp', expr: `avg by (${otel.browser.browserName}) (${otel.browser.lcp}{${svcFilter}})`, legendFormat: '__auto', format: 'table', instant: true },
-        { refId: 'loads', expr: `sum by (${otel.browser.browserName}) (increase(${otel.browser.pageLoads}{${svcFilter}}[$__range]))`, legendFormat: '__auto', format: 'table', instant: true },
-        { refId: 'errors', expr: `sum by (${otel.browser.browserName}) (increase(${otel.browser.errors}{${svcFilter}, ${otel.browser.browserName}!=""}[$__range]))`, legendFormat: '__auto', format: 'table', instant: true },
+        {
+          refId: 'lcp',
+          expr: `avg by (${otel.browser.browserName}) (${otel.browser.lcp}{${svcFilter}})`,
+          legendFormat: '__auto',
+          format: 'table',
+          instant: true,
+        },
+        {
+          refId: 'loads',
+          expr: `sum by (${otel.browser.browserName}) (increase(${otel.browser.pageLoads}{${svcFilter}}[$__range]))`,
+          legendFormat: '__auto',
+          format: 'table',
+          instant: true,
+        },
+        {
+          refId: 'errors',
+          expr: `sum by (${otel.browser.browserName}) (increase(${otel.browser.errors}{${svcFilter}, ${otel.browser.browserName}!=""}[$__range]))`,
+          legendFormat: '__auto',
+          format: 'table',
+          instant: true,
+        },
       ],
     });
     const browserData = new SceneDataTransformer({
@@ -617,7 +745,8 @@ function MimirWebVitalsPanels({ service, namespace }: { service: string; namespa
         .setData(browserData)
         .setOverrides((b) => {
           b.matchFieldsWithName('browser_name').overrideDisplayName('Browser');
-          b.matchFieldsWithName('Value #lcp').overrideDisplayName('Avg LCP (ms)')
+          b.matchFieldsWithName('Value #lcp')
+            .overrideDisplayName('Avg LCP (ms)')
             .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.lcp })
             .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
             .overrideDecimals(0);
@@ -648,10 +777,7 @@ function MimirWebVitalsPanels({ service, namespace }: { service: string; namespa
 
     const bottomRow = new SceneFlexLayout({
       direction: 'row',
-      children: [
-        histogramItem,
-        browserTable,
-      ],
+      children: [histogramItem, browserTable],
     });
 
     return new EmbeddedScene({
@@ -660,13 +786,7 @@ function MimirWebVitalsPanels({ service, namespace }: { service: string; namespa
       controls: [new SceneTimePicker({}), new SceneRefreshPicker({})],
       body: new SceneFlexLayout({
         direction: 'column',
-        children: [
-          vitalsRow,
-          trendsRow,
-          trafficRow,
-          perPageTable,
-          bottomRow,
-        ],
+        children: [vitalsRow, trendsRow, trafficRow, perPageTable, bottomRow],
       }),
     });
   }, [from, to, ds, svcFilter]);
@@ -683,7 +803,11 @@ function SetupPlaceholder({ namespace, service }: { namespace: string; service: 
     <div className={styles.container}>
       <Alert severity="info" title="Frontend Observability">
         <p>
-          No browser telemetry data found for <strong>{namespace}/{service}</strong>.
+          No browser telemetry data found for{' '}
+          <strong>
+            {namespace}/{service}
+          </strong>
+          .
         </p>
         <p>
           Instrument your web application with{' '}
@@ -691,7 +815,11 @@ function SetupPlaceholder({ namespace, service }: { namespace: string; service: 
             Grafana Faro Web SDK
           </a>{' '}
           or the{' '}
-          <a href="https://opentelemetry.io/docs/languages/js/getting-started/browser/" target="_blank" rel="noopener noreferrer">
+          <a
+            href="https://opentelemetry.io/docs/languages/js/getting-started/browser/"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
             OpenTelemetry Browser SDK
           </a>{' '}
           to collect Web Vitals, JS errors, and page load data.
@@ -703,10 +831,26 @@ function SetupPlaceholder({ namespace, service }: { namespace: string; service: 
           <Icon name="info-circle" /> What you&apos;ll see with frontend instrumentation
         </h4>
         <div className={styles.featureGrid}>
-          <FeatureCard icon="dashboard" title="Core Web Vitals" description="LCP, FCP, CLS, INP, TTFB — real user experience metrics" />
-          <FeatureCard icon="bug" title="JavaScript Errors" description="Error rates, stack traces, and error grouping" />
-          <FeatureCard icon="clock-nine" title="Page Load Performance" description="Navigation timing and time-to-interactive" />
-          <FeatureCard icon="gf-traces" title="Frontend Traces" description="Distributed traces from browser → backend" />
+          <FeatureCard
+            icon="dashboard"
+            title="Core Web Vitals"
+            description="LCP, FCP, CLS, INP, TTFB — real user experience metrics"
+          />
+          <FeatureCard
+            icon="bug"
+            title="JavaScript Errors"
+            description="Error rates, stack traces, and error grouping"
+          />
+          <FeatureCard
+            icon="clock-nine"
+            title="Page Load Performance"
+            description="Navigation timing and time-to-interactive"
+          />
+          <FeatureCard
+            icon="gf-traces"
+            title="Frontend Traces"
+            description="Distributed traces from browser → backend"
+          />
         </div>
       </div>
 

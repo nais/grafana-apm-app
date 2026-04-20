@@ -44,9 +44,7 @@ function DependencyDetail() {
       if (typeof aVal === 'number' && typeof bVal === 'number') {
         return sortDir === 'asc' ? aVal - bVal : bVal - aVal;
       }
-      return sortDir === 'asc'
-        ? String(aVal).localeCompare(String(bVal))
-        : String(bVal).localeCompare(String(aVal));
+      return sortDir === 'asc' ? String(aVal).localeCompare(String(bVal)) : String(bVal).localeCompare(String(aVal));
     });
   }, [data, sortField, sortDir]);
 
@@ -89,13 +87,7 @@ function DependencyDetail() {
                 </div>
                 <div className={styles.statItem}>
                   <span className={styles.statLabel}>Error Rate</span>
-                  <span
-                    className={
-                      data.dependency.errorRate > 0
-                        ? styles.statValueError
-                        : styles.statValue
-                    }
-                  >
+                  <span className={data.dependency.errorRate > 0 ? styles.statValueError : styles.statValue}>
                     {data.dependency.errorRate.toFixed(1)}%
                   </span>
                 </div>
@@ -110,9 +102,7 @@ function DependencyDetail() {
 
             {/* Upstream services */}
             <h3 className={styles.sectionTitle}>Upstream Services</h3>
-            <p className={styles.sectionDesc}>
-              Services that call this dependency, ranked by impact.
-            </p>
+            <p className={styles.sectionDesc}>Services that call this dependency, ranked by impact.</p>
 
             {sorted.length === 0 ? (
               <Alert severity="info" title="No upstream data">
@@ -174,9 +164,7 @@ function DependencyDetail() {
                       <td className={upstream.errorRate > 0 ? styles.errorCell : styles.numCell}>
                         {upstream.errorRate.toFixed(1)}%
                       </td>
-                      <td className={styles.numCell}>
-                        {formatDuration(upstream.p95Duration, upstream.durationUnit)}
-                      </td>
+                      <td className={styles.numCell}>{formatDuration(upstream.p95Duration, upstream.durationUnit)}</td>
                       <td className={styles.numCell}>
                         <ImpactBar impact={upstream.impact} />
                       </td>
@@ -191,7 +179,8 @@ function DependencyDetail() {
               <>
                 <h3 className={styles.sectionTitle}>Operations</h3>
                 <p className={styles.sectionDesc}>
-                  Client-side operations that call this dependency (from spanmetrics <code>peer.service</code> dimension).
+                  Client-side operations that call this dependency (from spanmetrics <code>peer.service</code>{' '}
+                  dimension).
                 </p>
                 <table className={styles.table}>
                   <thead>
@@ -212,9 +201,7 @@ function DependencyDetail() {
                         <td className={op.errorRate > 0 ? styles.errorCell : styles.numCell}>
                           {op.errorRate.toFixed(1)}%
                         </td>
-                        <td className={styles.numCell}>
-                          {formatDuration(op.p95Duration, op.durationUnit)}
-                        </td>
+                        <td className={styles.numCell}>{formatDuration(op.p95Duration, op.durationUnit)}</td>
                       </tr>
                     ))}
                   </tbody>

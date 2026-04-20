@@ -1,3 +1,4 @@
+// Package plugin implements the Grafana app plugin backend.
 package plugin
 
 import (
@@ -81,6 +82,7 @@ func NewApp(_ context.Context, settings backend.AppInstanceSettings) (instancemg
 	return &app, nil
 }
 
+// Dispose is called when the plugin instance is shut down.
 func (a *App) Dispose() {}
 
 // proxyURL builds a Grafana datasource proxy URL for the given UID.
@@ -142,7 +144,7 @@ func withAuthContext(ctx context.Context, c *queries.PrometheusClient) context.C
 }
 
 // withHTTPHeaders stores raw HTTP headers in the context for health check forwarding.
-func withHTTPHeaders(ctx context.Context, h http.Header) context.Context {
+func withHTTPHeaders(ctx context.Context, h http.Header) context.Context { //nolint:unused // reserved for datasource health check forwarding
 	return context.WithValue(ctx, httpHeadersCtxKey{}, h)
 }
 

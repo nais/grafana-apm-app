@@ -29,6 +29,7 @@ func (a *App) handleFrontendMetrics(w http.ResponseWriter, req *http.Request) {
 	writeJSON(w, result)
 }
 
+// FrontendMetricsResponse contains browser/Faro metrics for a service.
 type FrontendMetricsResponse struct {
 	Available bool               `json:"available"`
 	Source    string             `json:"source,omitempty"` // "mimir" or "loki"

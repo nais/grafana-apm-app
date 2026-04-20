@@ -91,8 +91,7 @@ func (v PromValue) Timestamp() int64 {
 
 // Float returns the float64 value from the value pair.
 func (v PromValue) Float() float64 {
-	switch s := v[1].(type) {
-	case string:
+	if s, ok := v[1].(string); ok {
 		f, _ := strconv.ParseFloat(s, 64)
 		return f
 	}
@@ -153,7 +152,7 @@ func (c *PrometheusClient) LabelValues(ctx context.Context, labelName string) ([
 	if err != nil {
 		return nil, fmt.Errorf("fetching label values: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	if err != nil {
@@ -194,7 +193,7 @@ func (c *PrometheusClient) doQuery(ctx context.Context, path string, params url.
 	if err != nil {
 		return nil, fmt.Errorf("executing query: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20)) // 10 MB max
 	if err != nil {

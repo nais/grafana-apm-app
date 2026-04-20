@@ -89,9 +89,7 @@ export function getPluginDatasources(env?: string): PluginDatasources {
 
   const tracesUid = resolveUid(tracesDs, env, 'tempo');
   const logsUid = resolveUid(logsDs, env, 'loki');
-  const isEnvSpecific = !!env && (
-    (!!tracesDs.byEnvironment?.[env]?.uid) || (!!logsDs.byEnvironment?.[env]?.uid)
-  );
+  const isEnvSpecific = !!env && (!!tracesDs.byEnvironment?.[env]?.uid || !!logsDs.byEnvironment?.[env]?.uid);
 
   return {
     metricsUid: jsonData.metricsDataSource?.uid || 'mimir',

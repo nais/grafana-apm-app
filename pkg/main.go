@@ -1,3 +1,4 @@
+// Package main is the entry point for the Grafana plugin backend.
 package main
 
 import (

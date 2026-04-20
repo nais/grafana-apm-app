@@ -35,7 +35,16 @@ import { FrontendTab } from './tabs/FrontendTab';
 import { RuntimeTab } from './tabs/RuntimeTab';
 
 type TabId = 'overview' | 'server' | 'frontend' | 'runtime' | 'dependencies' | 'traces' | 'logs' | 'service-map';
-const VALID_TABS: TabId[] = ['overview', 'server', 'frontend', 'runtime', 'dependencies', 'traces', 'logs', 'service-map'];
+const VALID_TABS: TabId[] = [
+  'overview',
+  'server',
+  'frontend',
+  'runtime',
+  'dependencies',
+  'traces',
+  'logs',
+  'service-map',
+];
 
 const PERCENTILE_OPTIONS: Array<SelectableValue<string>> = [
   { label: 'P50', value: '0.50' },
@@ -45,9 +54,9 @@ const PERCENTILE_OPTIONS: Array<SelectableValue<string>> = [
 ];
 
 const FRAMEWORK_BADGES: Record<string, { label: string; bg: string }> = {
-  'Ktor':        { label: 'KTOR', bg: '#7B68EE' },
+  Ktor: { label: 'KTOR', bg: '#7B68EE' },
   'Spring Boot': { label: 'SPRING', bg: '#6DB33F' },
-  'Node.js':     { label: 'NODE', bg: '#68A063' },
+  'Node.js': { label: 'NODE', bg: '#68A063' },
 };
 
 function ServiceOverview() {
@@ -62,17 +71,20 @@ function ServiceOverview() {
   const metrics = getMetricNames(caps);
   const tabParam = searchParams.get('tab') ?? '';
   const activeTab: TabId = VALID_TABS.includes(tabParam as TabId) ? (tabParam as TabId) : 'overview';
-  const setActiveTab = useCallback((tab: TabId) => {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      if (tab === 'overview') {
-        next.delete('tab');
-      } else {
-        next.set('tab', tab);
-      }
-      return next;
-    });
-  }, [setSearchParams]);
+  const setActiveTab = useCallback(
+    (tab: TabId) => {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        if (tab === 'overview') {
+          next.delete('tab');
+        } else {
+          next.set('tab', tab);
+        }
+        return next;
+      });
+    },
+    [setSearchParams]
+  );
   const [percentile, setPercentile] = useState<string>('0.95');
   const [framework, setFramework] = useState<string>('');
   const [environments, setEnvironments] = useState<string[]>([]);
@@ -226,9 +238,7 @@ function ServiceOverview() {
               .setTitle('Rate')
               .setData(rateQuery)
               .setUnit('reqps')
-              .setLinks([
-                { title: 'Explore', url: mimirUrl, targetBlank: false },
-              ])
+              .setLinks([{ title: 'Explore', url: mimirUrl, targetBlank: false }])
               .build(),
           }),
         ],
@@ -324,10 +334,7 @@ function ServiceOverview() {
               {namespace}/{service}
             </h2>
             {framework && FRAMEWORK_BADGES[framework] && (
-              <span
-                className={styles.sdkBadge}
-                style={{ backgroundColor: FRAMEWORK_BADGES[framework].bg }}
-              >
+              <span className={styles.sdkBadge} style={{ backgroundColor: FRAMEWORK_BADGES[framework].bg }}>
                 {FRAMEWORK_BADGES[framework].label}
               </span>
             )}
@@ -365,12 +372,22 @@ function ServiceOverview() {
               />
             )}
             {caps?.tempo?.available !== false && (
-              <LinkButton variant="secondary" size="sm" icon="compass" href={buildTempoExploreUrl(ds.tracesUid, service, { namespace })}>
+              <LinkButton
+                variant="secondary"
+                size="sm"
+                icon="compass"
+                href={buildTempoExploreUrl(ds.tracesUid, service, { namespace })}
+              >
                 Traces
               </LinkButton>
             )}
             {caps?.loki?.available !== false && (
-              <LinkButton variant="secondary" size="sm" icon="document-info" href={buildLokiExploreUrl(ds.logsUid, service, { namespace })}>
+              <LinkButton
+                variant="secondary"
+                size="sm"
+                icon="document-info"
+                href={buildLokiExploreUrl(ds.logsUid, service, { namespace })}
+              >
                 Logs
               </LinkButton>
             )}
@@ -384,7 +401,11 @@ function ServiceOverview() {
           <Tab label="Frontend" active={activeTab === 'frontend'} onChangeTab={() => setActiveTab('frontend')} />
           <Tab label="Runtime" active={activeTab === 'runtime'} onChangeTab={() => setActiveTab('runtime')} />
           {caps?.serviceGraph?.detected !== false && (
-            <Tab label="Dependencies" active={activeTab === 'dependencies'} onChangeTab={() => setActiveTab('dependencies')} />
+            <Tab
+              label="Dependencies"
+              active={activeTab === 'dependencies'}
+              onChangeTab={() => setActiveTab('dependencies')}
+            />
           )}
           {caps?.tempo?.available !== false && (
             <Tab label="Traces" active={activeTab === 'traces'} onChangeTab={() => setActiveTab('traces')} />
@@ -393,7 +414,11 @@ function ServiceOverview() {
             <Tab label="Logs" active={activeTab === 'logs'} onChangeTab={() => setActiveTab('logs')} />
           )}
           {caps?.serviceGraph?.detected !== false && (
-            <Tab label="Service Map" active={activeTab === 'service-map'} onChangeTab={() => setActiveTab('service-map')} />
+            <Tab
+              label="Service Map"
+              active={activeTab === 'service-map'}
+              onChangeTab={() => setActiveTab('service-map')}
+            />
           )}
         </TabsBar>
 
@@ -410,7 +435,11 @@ function ServiceOverview() {
               {/* Operations table */}
               <div className={styles.operationsSection}>
                 <h3 className={styles.sectionTitle}>Operations</h3>
-                {opsError && <Alert severity="error" title="Error">{opsError}</Alert>}
+                {opsError && (
+                  <Alert severity="error" title="Error">
+                    {opsError}
+                  </Alert>
+                )}
                 {opsLoading && <LoadingPlaceholder text="Loading operations..." />}
                 {!opsLoading && operations.length === 0 && (
                   <Alert severity="info" title="No operations found">
@@ -447,10 +476,7 @@ function ServiceOverview() {
                         ))}
                       </tbody>
                     </table>
-                    <button
-                      className={styles.viewAllLink}
-                      onClick={() => setActiveTab('server')}
-                    >
+                    <button className={styles.viewAllLink} onClick={() => setActiveTab('server')}>
                       {hiddenCount > 0
                         ? `View all ${operations.length} operations on Server tab →`
                         : 'View details on Server tab →'}
@@ -484,10 +510,16 @@ function ServiceOverview() {
                               <tr
                                 key={s.name + (s.connectionType ?? '')}
                                 className={s.connectionType ? undefined : styles.clickableRow}
-                                onClick={s.connectionType ? undefined : () => appNavigate(`dependencies/${encodeURIComponent(s.name)}`)}
+                                onClick={
+                                  s.connectionType
+                                    ? undefined
+                                    : () => appNavigate(`dependencies/${encodeURIComponent(s.name)}`)
+                                }
                               >
                                 <td className={s.connectionType ? undefined : styles.linkCell}>{s.name}</td>
-                                <td><ConnectionTypeBadge type={s.connectionType} /></td>
+                                <td>
+                                  <ConnectionTypeBadge type={s.connectionType} />
+                                </td>
                                 <td className={styles.opNumCell}>{s.rate.toFixed(2)} req/s</td>
                                 <td className={s.errorRate > 0 ? styles.opErrorCell : styles.opNumCell}>
                                   {s.errorRate.toFixed(1)}%
@@ -519,10 +551,16 @@ function ServiceOverview() {
                               <tr
                                 key={s.name + (s.connectionType ?? '')}
                                 className={s.connectionType ? undefined : styles.clickableRow}
-                                onClick={s.connectionType ? undefined : () => appNavigate(`dependencies/${encodeURIComponent(s.name)}`)}
+                                onClick={
+                                  s.connectionType
+                                    ? undefined
+                                    : () => appNavigate(`dependencies/${encodeURIComponent(s.name)}`)
+                                }
                               >
                                 <td className={s.connectionType ? undefined : styles.linkCell}>{s.name}</td>
-                                <td><ConnectionTypeBadge type={s.connectionType} /></td>
+                                <td>
+                                  <ConnectionTypeBadge type={s.connectionType} />
+                                </td>
                                 <td className={styles.opNumCell}>{s.rate.toFixed(2)} req/s</td>
                                 <td className={s.errorRate > 0 ? styles.opErrorCell : styles.opNumCell}>
                                   {s.errorRate.toFixed(1)}%
@@ -540,17 +578,11 @@ function ServiceOverview() {
             </>
           )}
 
-          {activeTab === 'traces' && (
-            <TracesTab service={service} namespace={namespace} tracesUid={ds.tracesUid} />
-          )}
+          {activeTab === 'traces' && <TracesTab service={service} namespace={namespace} tracesUid={ds.tracesUid} />}
 
-          {activeTab === 'server' && (
-            <ServerTab service={service} namespace={namespace} fromMs={fromMs} toMs={toMs} />
-          )}
+          {activeTab === 'server' && <ServerTab service={service} namespace={namespace} fromMs={fromMs} toMs={toMs} />}
 
-          {activeTab === 'frontend' && (
-            <FrontendTab service={service} namespace={namespace} environment={envFilter} />
-          )}
+          {activeTab === 'frontend' && <FrontendTab service={service} namespace={namespace} environment={envFilter} />}
 
           {activeTab === 'runtime' && (
             <RuntimeTab service={service} namespace={namespace} fromMs={fromMs} toMs={toMs} />
@@ -560,9 +592,7 @@ function ServiceOverview() {
             <DependenciesTab service={service} namespace={namespace} fromMs={fromMs} toMs={toMs} />
           )}
 
-          {activeTab === 'logs' && (
-            <LogsTab service={service} namespace={namespace} logsUid={ds.logsUid} />
-          )}
+          {activeTab === 'logs' && <LogsTab service={service} namespace={namespace} logsUid={ds.logsUid} />}
 
           {activeTab === 'service-map' && (
             <ServiceMapTab service={service} namespace={namespace} fromMs={fromMs} toMs={toMs} />
@@ -573,10 +603,13 @@ function ServiceOverview() {
   );
 }
 
-const CONNECTION_TYPE_LABELS: Record<string, { text: string; color: 'blue' | 'green' | 'orange' | 'red' | 'purple'; icon?: string }> = {
-  database:         { text: 'Database', color: 'purple', icon: 'database' },
+const CONNECTION_TYPE_LABELS: Record<
+  string,
+  { text: string; color: 'blue' | 'green' | 'orange' | 'red' | 'purple'; icon?: string }
+> = {
+  database: { text: 'Database', color: 'purple', icon: 'database' },
   messaging_system: { text: 'Messaging', color: 'orange', icon: 'envelope' },
-  virtual_node:     { text: 'External', color: 'blue', icon: 'cloud' },
+  virtual_node: { text: 'External', color: 'blue', icon: 'cloud' },
 };
 
 function ConnectionTypeBadge({ type }: { type?: string }) {
@@ -698,8 +731,12 @@ const getStyles = (theme: GrafanaTheme2) => ({
     border-collapse: separate;
     border-spacing: 0;
     table-layout: fixed;
-    th:nth-child(1) { width: 30%; }
-    th:nth-child(2) { width: 10%; }
+    th:nth-child(1) {
+      width: 30%;
+    }
+    th:nth-child(2) {
+      width: 10%;
+    }
     th {
       text-align: left;
       padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
@@ -709,7 +746,10 @@ const getStyles = (theme: GrafanaTheme2) => ({
       border-bottom: 1px solid ${theme.colors.border.medium};
       white-space: nowrap;
     }
-    th:nth-child(n+3) { width: 12%; text-align: right; }
+    th:nth-child(n + 3) {
+      width: 12%;
+      text-align: right;
+    }
     td {
       padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
       border-bottom: 1px solid ${theme.colors.border.weak};

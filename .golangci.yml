@@ -1,0 +1,33 @@
+version: "2"
+
+linters:
+  enable:
+    - bodyclose
+    - gocritic
+    - gocyclo
+    - misspell
+    - revive
+    - unconvert
+    - unparam
+  exclusions:
+    paths:
+      - node_modules
+
+linters-settings:
+  gocyclo:
+    min-complexity: 35
+  revive:
+    rules:
+      - name: blank-imports
+      - name: context-as-argument
+      - name: dot-imports
+      - name: error-return
+      - name: error-strings
+      - name: exported
+      - name: increment-decrement
+      - name: var-naming
+      - name: unreachable-code
+
+issues:
+  max-issues-per-linter: 50
+  max-same-issues: 10

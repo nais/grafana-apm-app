@@ -2,7 +2,14 @@ import React, { useMemo, useState, useCallback } from 'react';
 import { useStyles2, LoadingPlaceholder, Alert, Icon, Badge, Input, IconButton } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
-import { getEndpoints, getGraphQLMetrics, EndpointGroups, EndpointSummary, GraphQLMetricsResponse, GraphQLOperation } from '../../api/client';
+import {
+  getEndpoints,
+  getGraphQLMetrics,
+  EndpointGroups,
+  EndpointSummary,
+  GraphQLMetricsResponse,
+  GraphQLOperation,
+} from '../../api/client';
 import { formatDuration } from '../../utils/format';
 import { useFetch } from '../../utils/useFetch';
 
@@ -22,23 +29,24 @@ interface ServerData {
 
 export function ServerTab({ service, namespace, fromMs, toMs }: ServerTabProps) {
   const styles = useStyles2(getStyles);
-  const { data, loading, error } = useFetch<ServerData>(
-    async () => {
-      const [endpoints, graphql] = await Promise.all([
-        getEndpoints(namespace, service, fromMs, toMs),
-        getGraphQLMetrics(namespace, service, fromMs, toMs).catch(() => null),
-      ]);
-      return { endpoints, graphql };
-    },
-    [service, namespace, fromMs, toMs]
-  );
+  const { data, loading, error } = useFetch<ServerData>(async () => {
+    const [endpoints, graphql] = await Promise.all([
+      getEndpoints(namespace, service, fromMs, toMs),
+      getGraphQLMetrics(namespace, service, fromMs, toMs).catch(() => null),
+    ]);
+    return { endpoints, graphql };
+  }, [service, namespace, fromMs, toMs]);
 
   if (loading) {
     return <LoadingPlaceholder text="Loading endpoints..." />;
   }
 
   if (error) {
-    return <Alert severity="error" title="Error">{error}</Alert>;
+    return (
+      <Alert severity="error" title="Error">
+        {error}
+      </Alert>
+    );
   }
 
   if (!data) {
@@ -58,8 +66,8 @@ export function ServerTab({ service, namespace, fromMs, toMs }: ServerTabProps) 
   if (!hasAny) {
     return (
       <Alert severity="info" title="No endpoint data">
-        No endpoint metadata found for this service. Ensure OpenTelemetry instrumentation
-        is producing span metrics with HTTP, gRPC, or database attributes.
+        No endpoint metadata found for this service. Ensure OpenTelemetry instrumentation is producing span metrics with
+        HTTP, gRPC, or database attributes.
       </Alert>
     );
   }
@@ -76,11 +84,7 @@ export function ServerTab({ service, namespace, fromMs, toMs }: ServerTabProps) 
             />
           )}
           {graphql.fetchers && graphql.fetchers.length > 0 && (
-            <GraphQLSection
-              title="GraphQL Resolvers"
-              subtitle="Datafetchers"
-              operations={graphql.fetchers}
-            />
+            <GraphQLSection title="GraphQL Resolvers" subtitle="Datafetchers" operations={graphql.fetchers} />
           )}
         </>
       )}
@@ -265,20 +269,73 @@ function EndpointSection({
                 <span className={styles.pageInfo}>
                   {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, sorted.length)} of {sorted.length}
                 </span>
-                <IconButton name="angle-left" aria-label="Previous page" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0} size="sm" />
-                <IconButton name="angle-right" aria-label="Next page" onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1} size="sm" />
+                <IconButton
+                  name="angle-left"
+                  aria-label="Previous page"
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  disabled={page === 0}
+                  size="sm"
+                />
+                <IconButton
+                  name="angle-right"
+                  aria-label="Next page"
+                  onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                  disabled={page >= totalPages - 1}
+                  size="sm"
+                />
               </div>
             </div>
           )}
           <table className={styles.table}>
             <thead>
               <tr>
-                <SortableHeader field="spanName" label="Endpoint" current={sortField} dir={sortDir} onSort={toggleSort} />
-                <SortableHeader field="rate" label="Rate" current={sortField} dir={sortDir} onSort={toggleSort} align="right" />
-                <SortableHeader field="errorRate" label="Error %" current={sortField} dir={sortDir} onSort={toggleSort} align="right" />
-                <SortableHeader field="p50Duration" label="P50" current={sortField} dir={sortDir} onSort={toggleSort} align="right" />
-                <SortableHeader field="p95Duration" label="P95" current={sortField} dir={sortDir} onSort={toggleSort} align="right" />
-                <SortableHeader field="p99Duration" label="P99" current={sortField} dir={sortDir} onSort={toggleSort} align="right" />
+                <SortableHeader
+                  field="spanName"
+                  label="Endpoint"
+                  current={sortField}
+                  dir={sortDir}
+                  onSort={toggleSort}
+                />
+                <SortableHeader
+                  field="rate"
+                  label="Rate"
+                  current={sortField}
+                  dir={sortDir}
+                  onSort={toggleSort}
+                  align="right"
+                />
+                <SortableHeader
+                  field="errorRate"
+                  label="Error %"
+                  current={sortField}
+                  dir={sortDir}
+                  onSort={toggleSort}
+                  align="right"
+                />
+                <SortableHeader
+                  field="p50Duration"
+                  label="P50"
+                  current={sortField}
+                  dir={sortDir}
+                  onSort={toggleSort}
+                  align="right"
+                />
+                <SortableHeader
+                  field="p95Duration"
+                  label="P95"
+                  current={sortField}
+                  dir={sortDir}
+                  onSort={toggleSort}
+                  align="right"
+                />
+                <SortableHeader
+                  field="p99Duration"
+                  label="P99"
+                  current={sortField}
+                  dir={sortDir}
+                  onSort={toggleSort}
+                  align="right"
+                />
               </tr>
             </thead>
             <tbody>
@@ -286,9 +343,7 @@ function EndpointSection({
                 <tr key={ep.spanName}>
                   <td className={styles.nameCell}>{renderName(ep)}</td>
                   <td className={styles.numCell}>{ep.rate.toFixed(2)} req/s</td>
-                  <td className={ep.errorRate > 0 ? styles.errorCell : styles.numCell}>
-                    {ep.errorRate.toFixed(1)}%
-                  </td>
+                  <td className={ep.errorRate > 0 ? styles.errorCell : styles.numCell}>{ep.errorRate.toFixed(1)}%</td>
                   <td className={styles.numCell}>{formatDuration(ep.p50Duration, durationUnit)}</td>
                   <td className={styles.numCell}>{formatDuration(ep.p95Duration, durationUnit)}</td>
                   <td className={styles.numCell}>{formatDuration(ep.p99Duration, durationUnit)}</td>
@@ -301,8 +356,20 @@ function EndpointSection({
               <span className={styles.pageInfo}>
                 Page {page + 1} of {totalPages}
               </span>
-              <IconButton name="angle-left" aria-label="Previous page" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0} size="sm" />
-              <IconButton name="angle-right" aria-label="Next page" onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1} size="sm" />
+              <IconButton
+                name="angle-left"
+                aria-label="Previous page"
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+                disabled={page === 0}
+                size="sm"
+              />
+              <IconButton
+                name="angle-right"
+                aria-label="Next page"
+                onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                disabled={page >= totalPages - 1}
+                size="sm"
+              />
             </div>
           )}
         </>
@@ -373,11 +440,25 @@ function GraphQLSection({
       let av: number | string;
       let bv: number | string;
       switch (sortField) {
-        case 'name': av = a.name; bv = b.name; break;
-        case 'rate': av = a.rate; bv = b.rate; break;
-        case 'errorRate': av = a.errorRate ?? -1; bv = b.errorRate ?? -1; break;
-        case 'avgLatency': av = a.avgLatency; bv = b.avgLatency; break;
-        default: av = a.rate; bv = b.rate;
+        case 'name':
+          av = a.name;
+          bv = b.name;
+          break;
+        case 'rate':
+          av = a.rate;
+          bv = b.rate;
+          break;
+        case 'errorRate':
+          av = a.errorRate ?? -1;
+          bv = b.errorRate ?? -1;
+          break;
+        case 'avgLatency':
+          av = a.avgLatency;
+          bv = b.avgLatency;
+          break;
+        default:
+          av = a.rate;
+          bv = b.rate;
       }
       if (typeof av === 'string' && typeof bv === 'string') {
         return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
@@ -436,8 +517,20 @@ function GraphQLSection({
                 <span className={styles.pageInfo}>
                   {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, sorted.length)} of {sorted.length}
                 </span>
-                <IconButton name="angle-left" aria-label="Previous page" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0} size="sm" />
-                <IconButton name="angle-right" aria-label="Next page" onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1} size="sm" />
+                <IconButton
+                  name="angle-left"
+                  aria-label="Previous page"
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  disabled={page === 0}
+                  size="sm"
+                />
+                <IconButton
+                  name="angle-right"
+                  aria-label="Next page"
+                  onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                  disabled={page >= totalPages - 1}
+                  size="sm"
+                />
               </div>
             </div>
           )}
@@ -468,10 +561,7 @@ function GraphQLSection({
                   {hasType && (
                     <td>
                       {op.type && (
-                        <Badge
-                          text={op.type.toUpperCase()}
-                          color={op.type === 'mutation' ? 'orange' : 'blue'}
-                        />
+                        <Badge text={op.type.toUpperCase()} color={op.type === 'mutation' ? 'orange' : 'blue'} />
                       )}
                     </td>
                   )}
@@ -479,9 +569,7 @@ function GraphQLSection({
                   <td className={op.errorRate != null && op.errorRate > 0 ? styles.errorCell : styles.numCell}>
                     {op.errorRate != null ? `${op.errorRate.toFixed(1)}%` : '—'}
                   </td>
-                  <td className={styles.numCell}>
-                    {formatDuration(op.avgLatency, op.latencyUnit)}
-                  </td>
+                  <td className={styles.numCell}>{formatDuration(op.avgLatency, op.latencyUnit)}</td>
                 </tr>
               ))}
             </tbody>
@@ -491,8 +579,20 @@ function GraphQLSection({
               <span className={styles.pageInfo}>
                 Page {page + 1} of {totalPages}
               </span>
-              <IconButton name="angle-left" aria-label="Previous page" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0} size="sm" />
-              <IconButton name="angle-right" aria-label="Next page" onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1} size="sm" />
+              <IconButton
+                name="angle-left"
+                aria-label="Previous page"
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+                disabled={page === 0}
+                size="sm"
+              />
+              <IconButton
+                name="angle-right"
+                aria-label="Next page"
+                onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                disabled={page >= totalPages - 1}
+                size="sm"
+              />
             </div>
           )}
         </>

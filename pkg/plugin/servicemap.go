@@ -19,8 +19,8 @@ type ServiceMapNode struct {
 	SubTitle  string  `json:"subtitle,omitempty"`
 	MainStat  string  `json:"mainStat,omitempty"`
 	SecondaryStat string `json:"secondaryStat,omitempty"`
-	Arc__errors float64 `json:"arc__errors"`
-	Arc__ok     float64 `json:"arc__ok"`
+	ArcErrors float64 `json:"arc__errors"` //nolint:revive // JSON field required by Grafana node graph
+	ArcOK     float64 `json:"arc__ok"`     //nolint:revive // JSON field required by Grafana node graph
 }
 
 // ServiceMapEdge represents an edge between two services.
@@ -65,8 +65,8 @@ func (a *App) handleServiceMap(w http.ResponseWriter, req *http.Request) {
 
 func (a *App) queryServiceMap(
 	ctx context.Context,
-	from, to time.Time,
-	filterService, filterNamespace string,
+	_, to time.Time,
+	filterService, _ string,
 ) ServiceMapResponse {
 	logger := log.DefaultLogger.With("handler", "servicemap")
 	rangeStr := "[5m]"
@@ -241,8 +241,8 @@ func (a *App) queryServiceMap(
 			Title:         name,
 			MainStat:      fmt.Sprintf("%.1f req/s", agg.totalRate),
 			SecondaryStat: fmt.Sprintf("%.1f%% errors", errPct*100),
-			Arc__errors:   errPct,
-			Arc__ok:       1 - errPct,
+			ArcErrors:   errPct,
+			ArcOK:       1 - errPct,
 		})
 	}
 

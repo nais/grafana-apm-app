@@ -42,14 +42,15 @@ export function useFetch<T>(
 
   useEffect(() => {
     if (skipRef.current) {
-      setState((s) => s.loading ? { ...s, loading: false } : s);
+      setState((s) => (s.loading ? { ...s, loading: false } : s));
       return;
     }
 
     let cancelled = false;
     setState((s) => ({ ...s, loading: true, error: null }));
 
-    fetcherRef.current()
+    fetcherRef
+      .current()
       .then((result) => {
         if (!cancelled) {
           setState({ data: result, loading: false, error: null });

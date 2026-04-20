@@ -29,7 +29,6 @@ type graphqlProbe struct {
 	typeLabel    string // label for operation type (query/mutation), empty if N/A
 	errorFilter  string // label filter for errors, empty if not available
 	latencyUnit  string // "s" or "ms" — what unit the raw metric values are in
-	excludeNames map[string]bool // metric names to exclude when doing regex discovery (pdl)
 }
 
 // Ordered list of probes. First match wins.
@@ -129,7 +128,7 @@ func (a *App) handleGraphQLMetrics(w http.ResponseWriter, req *http.Request) {
 	writeJSON(w, result)
 }
 
-func (a *App) queryGraphQLMetrics(ctx context.Context, namespace, service string, from, to time.Time) GraphQLMetricsResponse {
+func (a *App) queryGraphQLMetrics(ctx context.Context, namespace, service string, _, to time.Time) GraphQLMetricsResponse {
 	logger := log.DefaultLogger.With("handler", "graphql")
 	client := a.prom(ctx)
 	if client == nil {

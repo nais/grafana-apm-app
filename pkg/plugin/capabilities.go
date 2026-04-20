@@ -287,7 +287,7 @@ func (a *App) checkHTTPHealth(ctx context.Context, baseURL, path string, headers
 	if err != nil {
 		return queries.DataSourceStatus{Available: false, Error: err.Error()}
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return queries.DataSourceStatus{Available: true}
@@ -304,8 +304,8 @@ func writeJSON(w http.ResponseWriter, v interface{}) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(data)
-	w.Write([]byte("\n"))
+	_, _ = w.Write(data)
+	_, _ = w.Write([]byte("\n"))
 }
 
 // requireGET returns true if the request is GET, otherwise writes 405 and returns false.

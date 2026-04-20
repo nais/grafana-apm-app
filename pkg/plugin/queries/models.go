@@ -1,3 +1,4 @@
+// Package queries contains Prometheus query helpers and response models.
 package queries
 
 // DataSourceRef identifies a Grafana datasource.
@@ -174,9 +175,12 @@ type RuntimeResponse struct {
 type DetectionStatus string
 
 const (
-	StatusDetected   DetectionStatus = "detected"
-	StatusAbsent     DetectionStatus = "absent"
-	StatusError      DetectionStatus = "error"
+	// StatusDetected means the metric category was found and has data.
+	StatusDetected DetectionStatus = "detected"
+	// StatusAbsent means the metric category was not found.
+	StatusAbsent DetectionStatus = "absent"
+	// StatusError means there was an error checking the metric category.
+	StatusError DetectionStatus = "error"
 )
 
 // JVMRuntime holds JVM runtime metrics for a service.

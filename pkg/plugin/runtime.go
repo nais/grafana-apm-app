@@ -128,7 +128,7 @@ func (a *App) queryRuntimeMetrics(ctx context.Context, namespace, service string
 // JVM metrics
 // ---------------------------------------------------------------------------
 
-func (a *App) queryJVMRuntime(
+func (a *App) queryJVMRuntime( //nolint:gocyclo // many independent metric queries are inherently branchy
 	ctx context.Context, client *queries.PrometheusClient,
 	svcFilter string, at time.Time, logger log.Logger,
 ) *queries.JVMRuntime {

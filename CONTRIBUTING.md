@@ -11,6 +11,8 @@ discuss the approach.
 - Node.js 22 (use `nvm install` — the repo includes an `.nvmrc`)
 - Go 1.25+
 - Docker
+- [golangci-lint](https://golangci-lint.run/docs/install/) v2+
+- [Lefthook](https://github.com/evilmartians/lefthook) (optional, for git hooks)
 
 ### Getting started
 
@@ -22,19 +24,25 @@ discuss the approach.
    pnpm install
    ```
 
-2. Start the development stack (Grafana + Mimir + Tempo + Loki + OTel Collector):
+2. (Optional) Install pre-commit and pre-push hooks:
+
+   ```bash
+   lefthook install --force
+   ```
+
+3. Start the development stack (Grafana + Mimir + Tempo + Loki + OTel Collector):
 
    ```bash
    docker compose up
    ```
 
-3. In a separate terminal, run the frontend in watch mode:
+4. In a separate terminal, run the frontend in watch mode:
 
    ```bash
    pnpm run dev
    ```
 
-4. Open Grafana at `http://localhost:3000` (default login: `admin` / `admin`)
+5. Open Grafana at `http://localhost:3000` (default login: `admin` / `admin`)
 
 ### Backend
 
@@ -45,6 +53,19 @@ mage -v build:linux
 ```
 
 Restart the Docker Compose stack to pick up backend changes.
+
+## Makefile
+
+A unified `Makefile` wraps common tasks:
+
+| Command       | What it does                              |
+|---------------|-------------------------------------------|
+| `make check`  | Lint + typecheck + test (both Go and TS)  |
+| `make lint`   | golangci-lint + ESLint + tsc --noEmit     |
+| `make test`   | Go tests (with race detector) + Jest      |
+| `make build`  | Frontend webpack build + Mage buildAll    |
+| `make dev`    | Start Docker stack + frontend watch       |
+| `make clean`  | Remove dist/ and coverage/                |
 
 ## Code structure
 
@@ -61,17 +82,44 @@ Restart the Docker Compose stack to pick up backend changes.
 ## Testing
 
 ```bash
+# Frontend
 pnpm run test        # Unit tests (watch mode)
 pnpm run test:ci     # Unit tests (CI)
 pnpm run typecheck   # TypeScript type checking
 pnpm run lint        # ESLint
 pnpm run e2e         # Playwright E2E tests
+
+# Backend
+go test -race ./pkg/...                # Go tests with race detector
+golangci-lint run ./...                # Go linting
+
+# All at once
+make check
 ```
+
+## Quality gates
+
+### Pre-commit (via Lefthook)
+- **gitleaks** — scans staged changes for secrets
+- **golangci-lint** — lints changed Go files
+- **ESLint** — lints TypeScript/React
+- **tsc --noEmit** — type checking
+
+### Pre-push (via Lefthook)
+- **go test -race** — Go tests with race detector
+- **Jest** — frontend unit tests
+
+### CI
+- All of the above, plus:
+- **Prettier** — code formatting check
+- **Go coverage** — enforced minimum threshold (currently 10%)
+- **Playwright** — E2E tests against multiple Grafana versions
+- **Plugin validator** — Grafana plugin metadata validation
 
 ## Pull requests
 
 - Create a feature branch from `main`
-- Make sure checks pass: `pnpm run test:ci && pnpm run typecheck && pnpm run lint`
+- Run `make check` before pushing
 - Write tests for new functionality
 - Keep PRs focused — one feature or fix per PR
 
@@ -84,4 +132,5 @@ pnpm run e2e         # Playwright E2E tests
 
 - TypeScript for the frontend, Go for the backend
 - ESLint and Prettier are configured — run `pnpm run lint:fix` before committing
+- Go linting via `.golangci.yml` — run `golangci-lint run ./...`
 - Follow existing patterns in the codebase

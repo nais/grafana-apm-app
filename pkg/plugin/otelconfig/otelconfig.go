@@ -12,6 +12,7 @@ import "fmt"
 // Labels — Prometheus label names produced by OTel span-metrics pipelines.
 // ---------------------------------------------------------------------------
 
+// Labels defines Prometheus label names produced by OTel span-metrics pipelines.
 type Labels struct {
 	ServiceName      string
 	ServiceNamespace string
@@ -51,6 +52,7 @@ type Labels struct {
 // Enum values — span_kind and status_code values written by OTel SDKs.
 // ---------------------------------------------------------------------------
 
+// SpanKinds maps semantic span kinds to their OTel string values.
 type SpanKinds struct {
 	Server   string
 	Client   string
@@ -59,6 +61,7 @@ type SpanKinds struct {
 	Internal string
 }
 
+// StatusCodes maps semantic status codes to their OTel string values.
 type StatusCodes struct {
 	Error string
 	OK    string
@@ -69,6 +72,7 @@ type StatusCodes struct {
 // TraceQL — attribute paths used when building Tempo TraceQL queries.
 // ---------------------------------------------------------------------------
 
+// TraceQL defines attribute paths for Tempo TraceQL queries.
 type TraceQL struct {
 	ServiceName      string
 	ServiceNamespace string
@@ -78,6 +82,7 @@ type TraceQL struct {
 // Browser / Faro metrics
 // ---------------------------------------------------------------------------
 
+// BrowserMetrics defines Prometheus metric names for browser/Faro Web Vitals.
 type BrowserMetrics struct {
 	LCP              string
 	FCP              string
@@ -97,6 +102,7 @@ type BrowserMetrics struct {
 // rather than as Prometheus metrics.
 // ---------------------------------------------------------------------------
 
+// FaroLoki defines field names for Faro telemetry stored in Loki.
 type FaroLoki struct {
 	// Stream labels
 	ServiceName string
@@ -130,6 +136,7 @@ type FaroLoki struct {
 // ServiceGraph — metric suffixes appended to the detected prefix.
 // ---------------------------------------------------------------------------
 
+// ServiceGraph defines metric suffixes appended to the detected prefix.
 type ServiceGraph struct {
 	RequestTotal        string
 	RequestFailedTotal  string

@@ -14,10 +14,11 @@ function Dependencies() {
   const styles = useStyles2(getStyles);
   const appNavigate = useAppNavigate();
   const { fromMs, toMs } = useTimeRange();
-  const { data: depsResp, loading, error } = useFetch<DependenciesResponse>(
-    () => getGlobalDependencies(fromMs, toMs),
-    [fromMs, toMs]
-  );
+  const {
+    data: depsResp,
+    loading,
+    error,
+  } = useFetch<DependenciesResponse>(() => getGlobalDependencies(fromMs, toMs), [fromMs, toMs]);
   const deps = useMemo(() => depsResp?.dependencies ?? [], [depsResp]);
   const [sortField, setSortField] = useState<keyof DependencySummary>('impact');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
@@ -40,9 +41,7 @@ function Dependencies() {
       if (typeof aVal === 'number' && typeof bVal === 'number') {
         return sortDir === 'asc' ? aVal - bVal : bVal - aVal;
       }
-      return sortDir === 'asc'
-        ? String(aVal).localeCompare(String(bVal))
-        : String(bVal).localeCompare(String(aVal));
+      return sortDir === 'asc' ? String(aVal).localeCompare(String(bVal)) : String(bVal).localeCompare(String(aVal));
     });
   }, [deps, sortField, sortDir]);
 
@@ -50,8 +49,8 @@ function Dependencies() {
     <PluginPage layout={PageLayoutType.Canvas}>
       <div className={styles.container}>
         <p className={styles.description}>
-          External dependencies detected from service graph edges. Shows databases, caches, message brokers, and
-          other services called by your applications.
+          External dependencies detected from service graph edges. Shows databases, caches, message brokers, and other
+          services called by your applications.
         </p>
 
         {loading && <LoadingPlaceholder text="Loading dependencies..." />}
@@ -73,10 +72,28 @@ function Dependencies() {
           <table className={styles.table}>
             <thead>
               <tr>
-                <SortHeader field="name" label="Dependency" sortField={sortField} sortDir={sortDir} onSort={toggleSort} />
+                <SortHeader
+                  field="name"
+                  label="Dependency"
+                  sortField={sortField}
+                  sortDir={sortDir}
+                  onSort={toggleSort}
+                />
                 <SortHeader field="type" label="Type" sortField={sortField} sortDir={sortDir} onSort={toggleSort} />
-                <SortHeader field="rate" label="Throughput" sortField={sortField} sortDir={sortDir} onSort={toggleSort} />
-                <SortHeader field="errorRate" label="Error %" sortField={sortField} sortDir={sortDir} onSort={toggleSort} />
+                <SortHeader
+                  field="rate"
+                  label="Throughput"
+                  sortField={sortField}
+                  sortDir={sortDir}
+                  onSort={toggleSort}
+                />
+                <SortHeader
+                  field="errorRate"
+                  label="Error %"
+                  sortField={sortField}
+                  sortDir={sortDir}
+                  onSort={toggleSort}
+                />
                 <SortHeader
                   field="p95Duration"
                   label="Latency (P95)"
@@ -100,9 +117,7 @@ function Dependencies() {
                   </td>
                   <td className={styles.typeCell}>{formatDepType(dep.type)}</td>
                   <td className={styles.numCell}>{dep.rate.toFixed(2)} req/s</td>
-                  <td className={dep.errorRate > 0 ? styles.errorCell : styles.numCell}>
-                    {dep.errorRate.toFixed(1)}%
-                  </td>
+                  <td className={dep.errorRate > 0 ? styles.errorCell : styles.numCell}>{dep.errorRate.toFixed(1)}%</td>
                   <td className={styles.numCell}>{formatDuration(dep.p95Duration, dep.durationUnit)}</td>
                   <td className={styles.numCell}>
                     <ImpactBar impact={dep.impact} />
@@ -165,8 +180,12 @@ const getStyles = (theme: GrafanaTheme2) => ({
     border-collapse: separate;
     border-spacing: 0;
     table-layout: fixed;
-    th:nth-child(1) { width: 28%; }
-    th:nth-child(2) { width: 10%; }
+    th:nth-child(1) {
+      width: 28%;
+    }
+    th:nth-child(2) {
+      width: 10%;
+    }
     th {
       text-align: left;
       padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
@@ -177,7 +196,10 @@ const getStyles = (theme: GrafanaTheme2) => ({
       white-space: nowrap;
       user-select: none;
     }
-    th:nth-child(n+3) { width: auto; text-align: right; }
+    th:nth-child(n + 3) {
+      width: auto;
+      text-align: right;
+    }
     td {
       padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
       border-bottom: 1px solid ${theme.colors.border.weak};

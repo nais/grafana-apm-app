@@ -22,7 +22,11 @@ export interface ServiceMapTabProps {
 
 export function ServiceMapTab({ service, namespace, fromMs, toMs }: ServiceMapTabProps) {
   const styles = useStyles2(getStyles);
-  const { data: mapData, loading, error } = useFetch<ServiceMapResponse>(
+  const {
+    data: mapData,
+    loading,
+    error,
+  } = useFetch<ServiceMapResponse>(
     () => getServiceMap(fromMs, toMs, service, namespace),
     [service, namespace, fromMs, toMs]
   );
@@ -39,8 +43,18 @@ export function ServiceMapTab({ service, namespace, fromMs, toMs }: ServiceMapTa
         { name: 'title', type: FieldType.string, values: mapData.nodes.map((n) => n.title) },
         { name: 'mainStat', type: FieldType.string, values: mapData.nodes.map((n) => n.mainStat ?? '') },
         { name: 'secondaryStat', type: FieldType.string, values: mapData.nodes.map((n) => n.secondaryStat ?? '') },
-        { name: 'arc__errors', type: FieldType.number, values: mapData.nodes.map((n) => n.arc__errors), config: { color: { fixedColor: 'red', mode: 'fixed' } } },
-        { name: 'arc__ok', type: FieldType.number, values: mapData.nodes.map((n) => n.arc__ok), config: { color: { fixedColor: 'green', mode: 'fixed' } } },
+        {
+          name: 'arc__errors',
+          type: FieldType.number,
+          values: mapData.nodes.map((n) => n.arc__errors),
+          config: { color: { fixedColor: 'red', mode: 'fixed' } },
+        },
+        {
+          name: 'arc__ok',
+          type: FieldType.number,
+          values: mapData.nodes.map((n) => n.arc__ok),
+          config: { color: { fixedColor: 'green', mode: 'fixed' } },
+        },
       ],
     });
 
@@ -90,7 +104,11 @@ export function ServiceMapTab({ service, namespace, fromMs, toMs }: ServiceMapTa
   }
 
   if (error) {
-    return <Alert severity="error" title="Error loading service map">{error}</Alert>;
+    return (
+      <Alert severity="error" title="Error loading service map">
+        {error}
+      </Alert>
+    );
   }
 
   if (!scene) {
@@ -101,7 +119,11 @@ export function ServiceMapTab({ service, namespace, fromMs, toMs }: ServiceMapTa
     );
   }
 
-  return <div className={styles.wrapper}><scene.Component model={scene} /></div>;
+  return (
+    <div className={styles.wrapper}>
+      <scene.Component model={scene} />
+    </div>
+  );
 }
 
 const getStyles = (theme: GrafanaTheme2) => ({

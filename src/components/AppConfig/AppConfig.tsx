@@ -7,7 +7,10 @@ import { Alert, Button, Field, FieldSet, IconButton, Input, useStyles2 } from '@
 import { testIds } from '../testIds';
 import { Capabilities, getCapabilities } from '../../api/client';
 
-interface DsRef { uid?: string; type?: string }
+interface DsRef {
+  uid?: string;
+  type?: string;
+}
 
 interface EnvAwareDs {
   uid?: string;
@@ -38,10 +41,7 @@ type State = {
   envOverrides: EnvOverride[];
 };
 
-function parseEnvOverrides(
-  tracesDs: EnvAwareDs | undefined,
-  logsDs: EnvAwareDs | undefined
-): EnvOverride[] {
+function parseEnvOverrides(tracesDs: EnvAwareDs | undefined, logsDs: EnvAwareDs | undefined): EnvOverride[] {
   const envs = new Set<string>([
     ...Object.keys(tracesDs?.byEnvironment ?? {}),
     ...Object.keys(logsDs?.byEnvironment ?? {}),
@@ -135,11 +135,13 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
       jsonData: {
         metricsDataSource: { uid: state.metricsUid, type: 'prometheus' },
         tracesDataSource: {
-          uid: state.tracesUid, type: 'tempo',
+          uid: state.tracesUid,
+          type: 'tempo',
           ...(Object.keys(tracesByEnv).length > 0 ? { byEnvironment: tracesByEnv } : {}),
         },
         logsDataSource: {
-          uid: state.logsUid, type: 'loki',
+          uid: state.logsUid,
+          type: 'loki',
           ...(Object.keys(logsByEnv).length > 0 ? { byEnvironment: logsByEnv } : {}),
         },
         metricNamespace: state.metricNamespace || undefined,
@@ -166,41 +168,22 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
           />
         </Field>
         <Field label="Traces (Tempo) UID" description="Default Tempo datasource">
-          <Input
-            width={40}
-            value={state.tracesUid}
-            placeholder="e.g., tempo"
-            onChange={onChange('tracesUid')}
-          />
+          <Input width={40} value={state.tracesUid} placeholder="e.g., tempo" onChange={onChange('tracesUid')} />
         </Field>
         <Field label="Logs (Loki) UID" description="Default Loki datasource">
-          <Input
-            width={40}
-            value={state.logsUid}
-            placeholder="e.g., loki"
-            onChange={onChange('logsUid')}
-          />
+          <Input width={40} value={state.logsUid} placeholder="e.g., loki" onChange={onChange('logsUid')} />
         </Field>
       </FieldSet>
 
-      <FieldSet
-        label="Per-Environment Datasources"
-        className={s.marginTop}
-      >
+      <FieldSet label="Per-Environment Datasources" className={s.marginTop}>
         <p className={s.description}>
-          Override Tempo and Loki datasources for specific environments.
-          When a user selects an environment filter, traces and logs will
-          route to the matching datasource.
+          Override Tempo and Loki datasources for specific environments. When a user selects an environment filter,
+          traces and logs will route to the matching datasource.
         </p>
         {state.envOverrides.map((ov, idx) => (
           <div key={idx} className={s.envRow}>
             <Field label="Environment">
-              <Input
-                width={20}
-                value={ov.env}
-                placeholder="e.g., dev-gcp"
-                onChange={onEnvChange(idx, 'env')}
-              />
+              <Input width={20} value={ov.env} placeholder="e.g., dev-gcp" onChange={onEnvChange(idx, 'env')} />
             </Field>
             <Field label="Tempo UID">
               <Input
@@ -270,12 +253,7 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
           />
         </Field>
         <Field label="Duration Unit (override)">
-          <Input
-            width={20}
-            value={state.durationUnit}
-            placeholder="ms or s"
-            onChange={onChange('durationUnit')}
-          />
+          <Input width={20} value={state.durationUnit} placeholder="ms or s" onChange={onChange('durationUnit')} />
         </Field>
       </FieldSet>
 

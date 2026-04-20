@@ -42,6 +42,8 @@ jobs:
         run: pnpm run typecheck
       - name: Lint
         run: pnpm run lint
+      - name: Check formatting
+        run: pnpm exec prettier --check "src/**/*.{ts,tsx}"
       - name: Unit tests
         run: pnpm run test:ci
       - name: Build frontend
@@ -77,10 +79,15 @@ jobs:
 
       - name: Test backend
         if: steps.check-for-backend.outputs.has-backend == 'true'
-        uses: magefile/mage-action@6f50bbb8ea47d56e62dee92392788acbc8192d0b # v3.1.0
-        with:
-          version: latest
-          args: test
+        run: |
+          go test -race -coverprofile=coverage.out -count=1 ./pkg/...
+          total=$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $NF}' | tr -d '%')
+          echo "Go coverage: ${total}%"
+          threshold=10
+          if [ "$(echo "$total < $threshold" | bc)" -eq 1 ]; then
+            echo "::error::Go coverage ${total}% is below threshold ${threshold}%"
+            exit 1
+          fi
 
       - name: Check for E2E
         id: check-for-e2e

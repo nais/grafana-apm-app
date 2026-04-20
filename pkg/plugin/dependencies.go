@@ -140,7 +140,7 @@ func (a *App) queryDependencies(
 	to time.Time,
 	filterClient string,
 	filterServer string,
-	filterNamespace string,
+	_ string,
 ) []DependencySummary {
 	logger := log.DefaultLogger.With("handler", "dependencies")
 	rangeStr := "[5m]"

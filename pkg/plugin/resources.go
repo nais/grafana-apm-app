@@ -4,7 +4,7 @@ import (
 	"net/http"
 )
 
-func (a *App) handlePing(w http.ResponseWriter, req *http.Request) {
+func (a *App) handlePing(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"message": "ok"}`))
+	_, _ = w.Write([]byte(`{"message": "ok"}`))
 }
