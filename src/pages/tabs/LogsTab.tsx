@@ -62,7 +62,7 @@ export function LogsTab({ service, namespace, logsUid }: LogsTabProps) {
       queries: [
         {
           refId: 'A',
-          expr: `{${svcMatcher}}${severityMatcher}${textFilter} | json | line_format "{{.message}}"`,
+          expr: `{${svcMatcher}}${severityMatcher}${textFilter} | json | line_format \`{{ if .message }}{{ .message }}{{ else if .msg }}{{ .msg }}{{ else }}{{ __line__ }}{{ end }}\` | drop __error__, __error_details__`,
           queryType: 'range',
           maxLines: 100,
         },
