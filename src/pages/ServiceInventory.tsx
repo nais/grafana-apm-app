@@ -36,10 +36,30 @@ function ServiceInventory() {
     loading,
     error,
   } = useFetch<{ services: ServiceSummary[]; caps: Capabilities }>(async () => {
-    const [capsResult, servicesResult] = await Promise.all([getCapabilities(), getServices(fromMs, toMs, 60, true)]);
+    // Load without sparklines first for fast initial render
+    const [capsResult, servicesResult] = await Promise.all([getCapabilities(), getServices(fromMs, toMs, 60, false)]);
     return { caps: capsResult, services: servicesResult };
   }, [fromMs, toMs]);
-  const services = useMemo(() => fetchResult?.services ?? [], [fetchResult]);
+
+  // Lazy-load sparklines after initial data is on screen
+  const { data: sparklineResult } = useFetch<ServiceSummary[]>(
+    () => getServices(fromMs, toMs, 60, true),
+    [fromMs, toMs],
+    { skip: !fetchResult }
+  );
+
+  // Merge sparkline data into services when available
+  const services = useMemo(() => {
+    const base = fetchResult?.services ?? [];
+    if (!sparklineResult) {
+      return base;
+    }
+    const sparkMap = new Map(sparklineResult.map((s) => [`${s.namespace}/${s.name}`, s]));
+    return base.map((s) => {
+      const spark = sparkMap.get(`${s.namespace}/${s.name}`);
+      return spark ? { ...s, rateSeries: spark.rateSeries, durationSeries: spark.durationSeries } : s;
+    });
+  }, [fetchResult, sparklineResult]);
   const caps = fetchResult?.caps ?? null;
 
   // Read all UI state from query params (persisted across navigation)

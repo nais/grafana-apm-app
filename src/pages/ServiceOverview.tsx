@@ -93,6 +93,19 @@ function ServiceOverview() {
   const [opsError, setOpsError] = useState<string | null>(null);
   const [connected, setConnected] = useState<import('../api/client').ConnectedServicesResponse | null>(null);
 
+  // Track which tabs have been visited so we keep them mounted
+  const [visitedTabs, setVisitedTabs] = useState<Set<TabId>>(new Set(['overview']));
+  useEffect(() => {
+    setVisitedTabs((prev) => {
+      if (prev.has(activeTab)) {
+        return prev;
+      }
+      const next = new Set(prev);
+      next.add(activeTab);
+      return next;
+    });
+  }, [activeTab]);
+
   // Fetch SDK language and available environments
   useEffect(() => {
     const fetchSDK = async () => {
@@ -422,9 +435,9 @@ function ServiceOverview() {
           )}
         </TabsBar>
 
-        {/* Tab content */}
+        {/* Tab content — keep visited tabs mounted to avoid re-fetching */}
         <div className={styles.tabContent}>
-          {activeTab === 'overview' && (
+          <div style={{ display: activeTab === 'overview' ? undefined : 'none' }}>
             <>
               {/* RED panels */}
               <scene.Component model={scene} />
@@ -576,26 +589,48 @@ function ServiceOverview() {
                 </div>
               )}
             </>
+          </div>
+
+          {visitedTabs.has('traces') && (
+            <div style={{ display: activeTab === 'traces' ? undefined : 'none' }}>
+              <TracesTab service={service} namespace={namespace} tracesUid={ds.tracesUid} />
+            </div>
           )}
 
-          {activeTab === 'traces' && <TracesTab service={service} namespace={namespace} tracesUid={ds.tracesUid} />}
-
-          {activeTab === 'server' && <ServerTab service={service} namespace={namespace} fromMs={fromMs} toMs={toMs} />}
-
-          {activeTab === 'frontend' && <FrontendTab service={service} namespace={namespace} environment={envFilter} />}
-
-          {activeTab === 'runtime' && (
-            <RuntimeTab service={service} namespace={namespace} fromMs={fromMs} toMs={toMs} />
+          {visitedTabs.has('server') && (
+            <div style={{ display: activeTab === 'server' ? undefined : 'none' }}>
+              <ServerTab service={service} namespace={namespace} fromMs={fromMs} toMs={toMs} />
+            </div>
           )}
 
-          {activeTab === 'dependencies' && (
-            <DependenciesTab service={service} namespace={namespace} fromMs={fromMs} toMs={toMs} />
+          {visitedTabs.has('frontend') && (
+            <div style={{ display: activeTab === 'frontend' ? undefined : 'none' }}>
+              <FrontendTab service={service} namespace={namespace} environment={envFilter} />
+            </div>
           )}
 
-          {activeTab === 'logs' && <LogsTab service={service} namespace={namespace} logsUid={ds.logsUid} />}
+          {visitedTabs.has('runtime') && (
+            <div style={{ display: activeTab === 'runtime' ? undefined : 'none' }}>
+              <RuntimeTab service={service} namespace={namespace} fromMs={fromMs} toMs={toMs} />
+            </div>
+          )}
 
-          {activeTab === 'service-map' && (
-            <ServiceMapTab service={service} namespace={namespace} fromMs={fromMs} toMs={toMs} />
+          {visitedTabs.has('dependencies') && (
+            <div style={{ display: activeTab === 'dependencies' ? undefined : 'none' }}>
+              <DependenciesTab service={service} namespace={namespace} fromMs={fromMs} toMs={toMs} />
+            </div>
+          )}
+
+          {visitedTabs.has('logs') && (
+            <div style={{ display: activeTab === 'logs' ? undefined : 'none' }}>
+              <LogsTab service={service} namespace={namespace} logsUid={ds.logsUid} />
+            </div>
+          )}
+
+          {visitedTabs.has('service-map') && (
+            <div style={{ display: activeTab === 'service-map' ? undefined : 'none' }}>
+              <ServiceMapTab service={service} namespace={namespace} fromMs={fromMs} toMs={toMs} />
+            </div>
           )}
         </div>
       </div>

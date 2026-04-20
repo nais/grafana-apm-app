@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/instancemgmt"
@@ -35,6 +36,8 @@ type App struct {
 
 	capMu    sync.RWMutex
 	capCache *cachedCapabilities
+
+	respCache *responseCache // short-lived response cache for expensive queries
 }
 
 // NewApp creates a new App instance, parsing datasource configuration from jsonData.
@@ -43,6 +46,7 @@ func NewApp(_ context.Context, settings backend.AppInstanceSettings) (instancemg
 
 	var app App
 	app.otelCfg = otelconfig.Default()
+	app.respCache = newResponseCache(30*time.Second, 200)
 
 	// Parse plugin settings from jsonData
 	if len(settings.JSONData) > 0 {

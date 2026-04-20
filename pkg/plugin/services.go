@@ -35,6 +35,21 @@ func (a *App) handleServices(w http.ResponseWriter, req *http.Request) {
 	filterNamespace := queries.MustSanitizeLabel(req.URL.Query().Get("namespace"))
 	filterEnvironment := queries.MustSanitizeLabel(req.URL.Query().Get("environment"))
 
+	// Check response cache (keyed on time range rounded to 30s + filters)
+	roundedFrom := fmt.Sprintf("%d", from.Unix()/30*30)
+	roundedTo := fmt.Sprintf("%d", to.Unix()/30*30)
+	seriesStr := "false"
+	if withSeries {
+		seriesStr = "true"
+	}
+	ck := cacheKey("services", roundedFrom, roundedTo, seriesStr, filterNamespace, filterEnvironment)
+	if cached, ok := a.respCache.get(ck); ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Cache", "HIT")
+		_, _ = w.Write(cached)
+		return
+	}
+
 	// Get capability info for metric names
 	caps := a.cachedOrDetectCapabilities(ctx)
 
@@ -44,6 +59,10 @@ func (a *App) handleServices(w http.ResponseWriter, req *http.Request) {
 	}
 
 	services := a.fetchServiceSummaries(ctx, caps, from, to, step, withSeries, filterNamespace, filterEnvironment, req.Header)
+
+	// Cache the response
+	a.respCache.setJSON(ck, services)
+
 	writeJSON(w, services)
 }
 

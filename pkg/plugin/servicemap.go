@@ -61,7 +61,20 @@ func (a *App) handleServiceMap(w http.ResponseWriter, req *http.Request) {
 	filterService := queries.MustSanitizeLabel(req.URL.Query().Get("service"))
 	filterNamespace := queries.MustSanitizeLabel(req.URL.Query().Get("namespace"))
 
+	// Check response cache
+	roundedFrom := fmt.Sprintf("%d", from.Unix()/30*30)
+	roundedTo := fmt.Sprintf("%d", to.Unix()/30*30)
+	ck := cacheKey("servicemap", roundedFrom, roundedTo, filterService, filterNamespace)
+	if cached, ok := a.respCache.get(ck); ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Cache", "HIT")
+		_, _ = w.Write(cached)
+		return
+	}
+
 	graph := a.queryServiceMap(ctx, from, to, filterService, filterNamespace)
+
+	a.respCache.setJSON(ck, graph)
 	writeJSON(w, graph)
 }
 
