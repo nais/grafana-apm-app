@@ -45,6 +45,15 @@ var spanMetricsCandidates = []struct {
 	},
 }
 
+// Candidate service graph metric prefixes. We probe these in order, first match wins.
+var serviceGraphCandidates = []struct {
+	probe  string // metric to check existence
+	prefix string // prefix for all service_graph metrics
+}{
+	{probe: "traces_service_graph_request_total", prefix: "traces_service_graph"},
+	{probe: "service_graph_request_total", prefix: "service_graph"},
+}
+
 type cachedCapabilities struct {
 	caps      queries.Capabilities
 	fetchedAt time.Time
@@ -128,9 +137,18 @@ func (a *App) detectCapabilities(ctx context.Context) queries.Capabilities {
 	}
 
 	// Detect service graph
-	sgExists, err := a.prom(ctx).SeriesExists(ctx, "traces_service_graph_request_total")
-	if err == nil && sgExists {
-		caps.ServiceGraph.Detected = true
+	for _, sg := range serviceGraphCandidates {
+		sgExists, err := a.prom(ctx).SeriesExists(ctx, sg.probe)
+		if err != nil {
+			logger.Debug("Service graph probe failed", "metric", sg.probe, "error", err)
+			continue
+		}
+		if sgExists {
+			caps.ServiceGraph.Detected = true
+			caps.ServiceGraph.Prefix = sg.prefix
+			logger.Info("Detected service graph", "prefix", sg.prefix)
+			break
+		}
 	}
 
 	// Detect available services

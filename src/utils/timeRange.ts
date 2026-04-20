@@ -30,8 +30,8 @@ export function useTimeRange(): TimeRangeState {
   const [fallbackNow] = useState(() => Date.now());
 
   const { fromMs, toMs } = useMemo(() => {
-    const parsedFrom = dateMath.parse(from);
-    const parsedTo = dateMath.parse(to, true);
+    const parsedFrom = dateMath.toDateTime(from, {});
+    const parsedTo = dateMath.toDateTime(to, { roundUp: true });
     if (parsedFrom && parsedTo) {
       return {
         fromMs: parsedFrom.valueOf(),

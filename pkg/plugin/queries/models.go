@@ -37,7 +37,8 @@ type SpanMetricsCapability struct {
 
 // ServiceGraphCapability describes detected service graph metrics.
 type ServiceGraphCapability struct {
-	Detected bool `json:"detected"`
+	Detected bool   `json:"detected"`
+	Prefix   string `json:"prefix,omitempty"` // e.g. "traces_service_graph" or "service_graph"
 }
 
 // DataSourceStatus describes whether a datasource is reachable.

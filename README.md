@@ -8,7 +8,7 @@ maps, and cross-signal navigation between metrics, traces, and logs.
 Built for self-hosted Grafana stacks running the LGTM stack with OpenTelemetry
 instrumentation. No proprietary agents, no Grafana Cloud lock-in.
 
-![Service Inventory](design/screenshot-application-observability-0.16.1-service-inventory-list.png)
+![Service Inventory](src/img/screenshot-service-inventory.png)
 
 ## Features
 

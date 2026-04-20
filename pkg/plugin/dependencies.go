@@ -130,6 +130,7 @@ func (a *App) queryDependencies(
 ) []DependencySummary {
 	logger := log.DefaultLogger.With("handler", "dependencies")
 	rangeStr := "[5m]"
+	sgp := a.serviceGraphPrefix()
 
 	// Build label filter
 	filters := []string{}
@@ -156,16 +157,16 @@ func (a *App) queryDependencies(
 	}
 
 	rateQuery := fmt.Sprintf(
-		`sum by (client, server, connection_type) (rate(traces_service_graph_request_total{%s}%s))`,
-		labelFilter, rangeStr,
+		`sum by (client, server, connection_type) (rate(%s_request_total{%s}%s))`,
+		sgp, labelFilter, rangeStr,
 	)
 	errorQuery := fmt.Sprintf(
-		`sum by (client, server, connection_type) (rate(traces_service_graph_request_failed_total{%s}%s))`,
-		labelFilter, rangeStr,
+		`sum by (client, server, connection_type) (rate(%s_request_failed_total{%s}%s))`,
+		sgp, labelFilter, rangeStr,
 	)
 	p95Query := fmt.Sprintf(
-		`histogram_quantile(0.95, sum by (server, le) (rate(traces_service_graph_request_server_seconds_bucket{%s}%s)))`,
-		labelFilter, rangeStr,
+		`histogram_quantile(0.95, sum by (server, le) (rate(%s_request_server_seconds_bucket{%s}%s)))`,
+		sgp, labelFilter, rangeStr,
 	)
 
 	type queryResult struct {
@@ -304,20 +305,21 @@ func (a *App) queryDependencyDetail(
 ) DependencyDetailResponse {
 	logger := log.DefaultLogger.With("handler", "dependency-detail", "dep", depName)
 	rangeStr := "[5m]"
+	sgp := a.serviceGraphPrefix()
 	labelFilter := fmt.Sprintf(`server="%s"`, depName)
 
 	// Query upstream services (by client)
 	rateQuery := fmt.Sprintf(
-		`sum by (client, server) (rate(traces_service_graph_request_total{%s}%s))`,
-		labelFilter, rangeStr,
+		`sum by (client, server) (rate(%s_request_total{%s}%s))`,
+		sgp, labelFilter, rangeStr,
 	)
 	errorQuery := fmt.Sprintf(
-		`sum by (client, server) (rate(traces_service_graph_request_failed_total{%s}%s))`,
-		labelFilter, rangeStr,
+		`sum by (client, server) (rate(%s_request_failed_total{%s}%s))`,
+		sgp, labelFilter, rangeStr,
 	)
 	p95Query := fmt.Sprintf(
-		`histogram_quantile(0.95, sum by (client, le) (rate(traces_service_graph_request_server_seconds_bucket{%s}%s)))`,
-		labelFilter, rangeStr,
+		`histogram_quantile(0.95, sum by (client, le) (rate(%s_request_server_seconds_bucket{%s}%s)))`,
+		sgp, labelFilter, rangeStr,
 	)
 
 	type queryResult struct {
@@ -664,33 +666,34 @@ func (a *App) handleConnectedServices(w http.ResponseWriter, req *http.Request) 
 func (a *App) queryConnectedServices(ctx context.Context, to time.Time, service string) ConnectedServicesResponse {
 	logger := log.DefaultLogger.With("handler", "connected-services")
 	rangeStr := "[5m]"
+	sgp := a.serviceGraphPrefix()
 
 	// Outbound: where service is the client (exclude virtual_node)
 	outRateQ := fmt.Sprintf(
-		`sum by (server) (rate(traces_service_graph_request_total{client="%s", connection_type!="virtual_node"}%s))`,
-		service, rangeStr,
+		`sum by (server) (rate(%s_request_total{client="%s", connection_type!="virtual_node"}%s))`,
+		sgp, service, rangeStr,
 	)
 	outErrQ := fmt.Sprintf(
-		`sum by (server) (rate(traces_service_graph_request_failed_total{client="%s", connection_type!="virtual_node"}%s))`,
-		service, rangeStr,
+		`sum by (server) (rate(%s_request_failed_total{client="%s", connection_type!="virtual_node"}%s))`,
+		sgp, service, rangeStr,
 	)
 	outP95Q := fmt.Sprintf(
-		`histogram_quantile(0.95, sum by (server, le) (rate(traces_service_graph_request_server_seconds_bucket{client="%s", connection_type!="virtual_node"}%s)))`,
-		service, rangeStr,
+		`histogram_quantile(0.95, sum by (server, le) (rate(%s_request_server_seconds_bucket{client="%s", connection_type!="virtual_node"}%s)))`,
+		sgp, service, rangeStr,
 	)
 
 	// Inbound: where service is the server
 	inRateQ := fmt.Sprintf(
-		`sum by (client) (rate(traces_service_graph_request_total{server="%s"}%s))`,
-		service, rangeStr,
+		`sum by (client) (rate(%s_request_total{server="%s"}%s))`,
+		sgp, service, rangeStr,
 	)
 	inErrQ := fmt.Sprintf(
-		`sum by (client) (rate(traces_service_graph_request_failed_total{server="%s"}%s))`,
-		service, rangeStr,
+		`sum by (client) (rate(%s_request_failed_total{server="%s"}%s))`,
+		sgp, service, rangeStr,
 	)
 	inP95Q := fmt.Sprintf(
-		`histogram_quantile(0.95, sum by (client, le) (rate(traces_service_graph_request_server_seconds_bucket{server="%s"}%s)))`,
-		service, rangeStr,
+		`histogram_quantile(0.95, sum by (client, le) (rate(%s_request_server_seconds_bucket{server="%s"}%s)))`,
+		sgp, service, rangeStr,
 	)
 
 	type queryResult struct {
