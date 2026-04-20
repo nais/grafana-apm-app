@@ -449,10 +449,12 @@ const getStyles = (theme: GrafanaTheme2) => ({
     justify-content: center;
     vertical-align: middle;
     margin-left: ${theme.spacing(0.75)};
-    padding: 2px 6px;
+    padding: 3px 6px;
     border-radius: 4px;
-    font-size: 12px;
+    font-size: 14px;
     line-height: 1;
+    height: 22px;
+    box-sizing: border-box;
     background: ${theme.colors.info.transparent};
     border: 1px solid ${theme.colors.info.border};
     color: ${theme.colors.info.text};
