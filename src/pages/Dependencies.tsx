@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { PluginPage } from '@grafana/runtime';
-import { useStyles2, Icon, LoadingPlaceholder, Alert } from '@grafana/ui';
+import { useStyles2, Icon, LoadingPlaceholder, Alert, Input, RadioButtonGroup } from '@grafana/ui';
 import { GrafanaTheme2, PageLayoutType } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getGlobalDependencies, DependencySummary, DependenciesResponse } from '../api/client';
@@ -22,6 +22,23 @@ function Dependencies() {
   const deps = useMemo(() => depsResp?.dependencies ?? [], [depsResp]);
   const [sortField, setSortField] = useState<keyof DependencySummary>('impact');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [errorsOnly, setErrorsOnly] = useState(false);
+
+  // Derive unique types from data for the filter chips
+  const typeOptions = useMemo(() => {
+    const types = new Map<string, number>();
+    for (const d of deps) {
+      types.set(d.type, (types.get(d.type) ?? 0) + 1);
+    }
+    const opts: Array<{ label: string; value: string }> = [{ label: `All (${deps.length})`, value: 'all' }];
+    const sorted = [...types.entries()].sort((a, b) => b[1] - a[1]);
+    for (const [t, count] of sorted) {
+      opts.push({ label: `${formatDepType(t)} (${count})`, value: t });
+    }
+    return opts;
+  }, [deps]);
 
   const toggleSort = useCallback((field: keyof DependencySummary) => {
     setSortField((prev) => {
@@ -35,15 +52,29 @@ function Dependencies() {
   }, []);
 
   const sorted = useMemo(() => {
-    return [...deps].sort((a, b) => {
-      const aVal = a[sortField];
-      const bVal = b[sortField];
-      if (typeof aVal === 'number' && typeof bVal === 'number') {
-        return sortDir === 'asc' ? aVal - bVal : bVal - aVal;
-      }
-      return sortDir === 'asc' ? String(aVal).localeCompare(String(bVal)) : String(bVal).localeCompare(String(aVal));
-    });
-  }, [deps, sortField, sortDir]);
+    const searchLower = search.toLowerCase();
+    return [...deps]
+      .filter((d) => {
+        if (searchLower && !d.name.toLowerCase().includes(searchLower)) {
+          return false;
+        }
+        if (typeFilter !== 'all' && d.type !== typeFilter) {
+          return false;
+        }
+        if (errorsOnly && d.errorRate <= 0) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const aVal = a[sortField];
+        const bVal = b[sortField];
+        if (typeof aVal === 'number' && typeof bVal === 'number') {
+          return sortDir === 'asc' ? aVal - bVal : bVal - aVal;
+        }
+        return sortDir === 'asc' ? String(aVal).localeCompare(String(bVal)) : String(bVal).localeCompare(String(aVal));
+      });
+  }, [deps, sortField, sortDir, search, typeFilter, errorsOnly]);
 
   return (
     <PluginPage layout={PageLayoutType.Canvas}>
@@ -52,6 +83,28 @@ function Dependencies() {
           External dependencies detected from service graph edges. Shows databases, caches, message brokers, and other
           services called by your applications.
         </p>
+
+        {!loading && !error && deps.length > 0 && (
+          <div className={styles.filters}>
+            <Input
+              prefix={<Icon name="search" />}
+              placeholder="Search dependencies..."
+              width={28}
+              value={search}
+              onChange={(e) => setSearch(e.currentTarget.value)}
+            />
+            <RadioButtonGroup
+              options={typeOptions}
+              value={typeFilter}
+              onChange={(v) => setTypeFilter(v ?? 'all')}
+              size="sm"
+            />
+            <label className={styles.checkboxLabel}>
+              <input type="checkbox" checked={errorsOnly} onChange={(e) => setErrorsOnly(e.target.checked)} />
+              With errors only
+            </label>
+          </div>
+        )}
 
         {loading && <LoadingPlaceholder text="Loading dependencies..." />}
 
@@ -69,63 +122,90 @@ function Dependencies() {
         )}
 
         {!loading && !error && deps.length > 0 && (
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <SortHeader
-                  field="name"
-                  label="Dependency"
-                  sortField={sortField}
-                  sortDir={sortDir}
-                  onSort={toggleSort}
-                />
-                <SortHeader field="type" label="Type" sortField={sortField} sortDir={sortDir} onSort={toggleSort} />
-                <SortHeader
-                  field="rate"
-                  label="Throughput"
-                  sortField={sortField}
-                  sortDir={sortDir}
-                  onSort={toggleSort}
-                />
-                <SortHeader
-                  field="errorRate"
-                  label="Error %"
-                  sortField={sortField}
-                  sortDir={sortDir}
-                  onSort={toggleSort}
-                />
-                <SortHeader
-                  field="p95Duration"
-                  label="Latency (P95)"
-                  sortField={sortField}
-                  sortDir={sortDir}
-                  onSort={toggleSort}
-                />
-                <SortHeader field="impact" label="Impact" sortField={sortField} sortDir={sortDir} onSort={toggleSort} />
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map((dep) => (
-                <tr
-                  key={dep.name}
-                  className={styles.clickableRow}
-                  onClick={() => appNavigate(`dependencies/${encodeURIComponent(dep.name)}`)}
-                >
-                  <td className={styles.nameCell}>
-                    <DepTypeIcon type={dep.type} />
-                    <span style={{ marginLeft: 8 }}>{dep.name}</span>
-                  </td>
-                  <td className={styles.typeCell}>{formatDepType(dep.type)}</td>
-                  <td className={styles.numCell}>{dep.rate.toFixed(2)} req/s</td>
-                  <td className={dep.errorRate > 0 ? styles.errorCell : styles.numCell}>{dep.errorRate.toFixed(1)}%</td>
-                  <td className={styles.numCell}>{formatDuration(dep.p95Duration, dep.durationUnit)}</td>
-                  <td className={styles.numCell}>
-                    <ImpactBar impact={dep.impact} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <>
+            {sorted.length === 0 ? (
+              <Alert severity="info" title="No matches">
+                No dependencies match the current filters.
+              </Alert>
+            ) : (
+              <>
+                <div className={styles.resultCount}>
+                  Showing {sorted.length} of {deps.length} dependencies
+                </div>
+                <table className={styles.table}>
+                  <thead>
+                    <tr>
+                      <SortHeader
+                        field="name"
+                        label="Dependency"
+                        sortField={sortField}
+                        sortDir={sortDir}
+                        onSort={toggleSort}
+                      />
+                      <SortHeader
+                        field="type"
+                        label="Type"
+                        sortField={sortField}
+                        sortDir={sortDir}
+                        onSort={toggleSort}
+                      />
+                      <SortHeader
+                        field="rate"
+                        label="Throughput"
+                        sortField={sortField}
+                        sortDir={sortDir}
+                        onSort={toggleSort}
+                      />
+                      <SortHeader
+                        field="errorRate"
+                        label="Error %"
+                        sortField={sortField}
+                        sortDir={sortDir}
+                        onSort={toggleSort}
+                      />
+                      <SortHeader
+                        field="p95Duration"
+                        label="Latency (P95)"
+                        sortField={sortField}
+                        sortDir={sortDir}
+                        onSort={toggleSort}
+                      />
+                      <SortHeader
+                        field="impact"
+                        label="Impact"
+                        sortField={sortField}
+                        sortDir={sortDir}
+                        onSort={toggleSort}
+                      />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sorted.map((dep) => (
+                      <tr
+                        key={dep.name}
+                        className={styles.clickableRow}
+                        onClick={() => appNavigate(`dependencies/${encodeURIComponent(dep.name)}`)}
+                      >
+                        <td className={styles.nameCell}>
+                          <DepTypeIcon type={dep.type} />
+                          <span style={{ marginLeft: 8 }}>{dep.name}</span>
+                        </td>
+                        <td className={styles.typeCell}>{formatDepType(dep.type)}</td>
+                        <td className={styles.numCell}>{dep.rate.toFixed(2)} req/s</td>
+                        <td className={dep.errorRate > 0 ? styles.errorCell : styles.numCell}>
+                          {dep.errorRate.toFixed(1)}%
+                        </td>
+                        <td className={styles.numCell}>{formatDuration(dep.p95Duration, dep.durationUnit)}</td>
+                        <td className={styles.numCell}>
+                          <ImpactBar impact={dep.impact} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            )}
+          </>
         )}
       </div>
     </PluginPage>
@@ -174,6 +254,31 @@ const getStyles = (theme: GrafanaTheme2) => ({
   description: css`
     color: ${theme.colors.text.secondary};
     margin-bottom: ${theme.spacing(2)};
+  `,
+  filters: css`
+    display: flex;
+    align-items: center;
+    gap: ${theme.spacing(1.5)};
+    margin-bottom: ${theme.spacing(2)};
+    flex-wrap: wrap;
+  `,
+  checkboxLabel: css`
+    display: flex;
+    align-items: center;
+    gap: ${theme.spacing(0.75)};
+    font-size: ${theme.typography.bodySmall.fontSize};
+    color: ${theme.colors.text.secondary};
+    cursor: pointer;
+    white-space: nowrap;
+    user-select: none;
+    input {
+      cursor: pointer;
+    }
+  `,
+  resultCount: css`
+    font-size: ${theme.typography.bodySmall.fontSize};
+    color: ${theme.colors.text.secondary};
+    margin-bottom: ${theme.spacing(1)};
   `,
   table: css`
     width: 100%;

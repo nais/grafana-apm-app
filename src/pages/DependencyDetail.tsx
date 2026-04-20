@@ -123,19 +123,11 @@ function DependencyDetail() {
         children: [
           new SceneFlexItem({
             height: 200,
-            body: PanelBuilders.timeseries()
-              .setTitle('Request Rate')
-              .setData(rateQuery)
-              .setUnit('reqps')
-              .build(),
+            body: PanelBuilders.timeseries().setTitle('Request Rate').setData(rateQuery).setUnit('reqps').build(),
           }),
           new SceneFlexItem({
             height: 200,
-            body: PanelBuilders.timeseries()
-              .setTitle('Error Rate')
-              .setData(errorQuery)
-              .setUnit('percent')
-              .build(),
+            body: PanelBuilders.timeseries().setTitle('Error Rate').setData(errorQuery).setUnit('percent').build(),
           }),
           new SceneFlexItem({
             height: 200,

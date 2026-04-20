@@ -13,6 +13,7 @@ import {
   SceneRefreshPicker,
 } from '@grafana/scenes';
 import { useDebouncedValue, escapeRegex } from '../../utils/debounce';
+import { escapeQueryString } from '../../utils/sanitize';
 
 interface TracesTabProps {
   service: string;
@@ -36,14 +37,14 @@ export function TracesTab({ service, namespace, tracesUid, initialSpan, initialS
     // Note: resource.service.namespace may differ between signals (e.g., span metrics
     // report "opentelemetry-demo" while traces/logs report "demo"). Only filter by
     // service.name for reliability; namespace scoping is handled at the backend API level.
-    const conditions: string[] = [`resource.service.name="${service}"`];
+    const conditions: string[] = [`resource.service.name="${escapeQueryString(service)}"`];
     if (statusFilter === 'error') {
       conditions.push(`status=error`);
     } else if (statusFilter === 'ok') {
       conditions.push(`status=ok`);
     }
     if (debouncedSearch) {
-      conditions.push(`name=~".*${escapeRegex(debouncedSearch)}.*"`);
+      conditions.push(`name=~".*${escapeQueryString(escapeRegex(debouncedSearch))}.*"`);
     }
     let traceQL = `{${conditions.join(' && ')}}`;
     if (durationMin) {

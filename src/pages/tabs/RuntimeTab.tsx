@@ -350,8 +350,10 @@ function DBPoolCard({ dbPool }: { dbPool: DBPoolRuntime }) {
           {dbPool.pools.map((pool) => (
             <tr key={pool.name}>
               <td className={styles.nameCell}>
-                <Badge text={pool.type} color="orange" />
-                <span>{pool.name}</span>
+                <div className={styles.nameCellInner}>
+                  <Badge text={pool.type} color="orange" />
+                  <span>{pool.name}</span>
+                </div>
               </td>
               <td className={styles.numCell}>{pool.active.toFixed(1)}</td>
               <td className={styles.numCell}>{pool.idle.toFixed(1)}</td>
@@ -400,7 +402,9 @@ function KafkaCard({ kafka }: { kafka: KafkaRuntime }) {
           {kafka.topics.map((topic) => (
             <tr key={topic.topic}>
               <td className={styles.nameCell}>
-                <span className={styles.mono}>{topic.topic}</span>
+                <div className={styles.nameCellInner}>
+                  <span className={styles.mono}>{topic.topic}</span>
+                </div>
               </td>
               <td className={topic.maxLag > 1000 ? styles.warnCell : styles.numCell}>
                 {topic.maxLag.toLocaleString()}
@@ -634,7 +638,9 @@ function MemoryPoolTable({ pools }: { pools: MemoryPool[] }) {
             return (
               <tr key={pool.name}>
                 <td className={styles.nameCell}>
-                  <span className={styles.mono}>{pool.name}</span>
+                  <div className={styles.nameCellInner}>
+                    <span className={styles.mono}>{pool.name}</span>
+                  </div>
                 </td>
                 <td className={styles.numCell}>
                   <Badge text={pool.area} color={pool.area === 'heap' ? 'blue' : 'orange'} />
@@ -878,10 +884,12 @@ const getStyles = (theme: GrafanaTheme2) => ({
     }
   `,
   nameCell: css`
+    font-weight: ${theme.typography.fontWeightMedium};
+  `,
+  nameCellInner: css`
     display: flex;
     align-items: center;
     gap: ${theme.spacing(1)};
-    font-weight: ${theme.typography.fontWeightMedium};
   `,
   numCell: css`
     text-align: right;

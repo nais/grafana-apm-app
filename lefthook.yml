@@ -1,3 +1,8 @@
+output:
+  - summary
+  - failure
+  - execution_out
+
 pre-commit:
   parallel: true
   commands:
@@ -8,10 +13,13 @@ pre-commit:
       run: golangci-lint run --new-from-rev=HEAD ./...
     ts-lint:
       glob: "*.{ts,tsx}"
-      run: pnpm run lint
+      run: pnpm run lint --quiet
     ts-typecheck:
       glob: "*.{ts,tsx}"
       run: pnpm run typecheck
+    prettier:
+      glob: "*.{ts,tsx}"
+      run: pnpm exec prettier --check "src/**/*.{ts,tsx}" "tests/**/*.ts"
     go-test:
       glob: "*.go"
       run: go test -short -race ./pkg/...

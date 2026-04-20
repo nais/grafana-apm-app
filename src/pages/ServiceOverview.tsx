@@ -379,12 +379,7 @@ function ServiceOverview() {
         {/* Header */}
         <div className={styles.header}>
           <div className={styles.titleRow}>
-            <LinkButton
-              variant="secondary"
-              size="sm"
-              icon="arrow-left"
-              onClick={() => appNavigate('services')}
-            >
+            <LinkButton variant="secondary" size="sm" icon="arrow-left" onClick={() => appNavigate('services')}>
               Services
             </LinkButton>
             <h2 className={styles.title}>
