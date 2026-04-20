@@ -56,13 +56,13 @@ See [`otel-collector-config.yaml`](otel-collector-config.yaml) for a working exa
 Install the plugin in your Grafana instance:
 
 ```sh
-grafana-cli plugins install nais-applicationobservability-app
+grafana-cli plugins install nais-apm-app
 ```
 
 Or set it as an environment variable for Docker deployments:
 
 ```sh
-GF_INSTALL_PLUGINS=nais-applicationobservability-app
+GF_INSTALL_PLUGINS=nais-apm-app
 ```
 
 Then enable the plugin under **Administration > Plugins** in Grafana.
@@ -126,7 +126,7 @@ In a separate terminal, run the frontend in watch mode:
 npm run dev
 ```
 
-Open `http://localhost:3000/a/nais-applicationobservability-app/services`.
+Open `http://localhost:3000/a/nais-apm-app/services`.
 
 To build the backend:
 

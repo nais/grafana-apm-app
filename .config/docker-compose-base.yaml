@@ -1,7 +1,7 @@
 services:
   grafana:
     user: root
-    container_name: 'nais-applicationobservability-app'
+    container_name: 'nais-apm-app'
 
     build:
       context: .
@@ -19,13 +19,13 @@ services:
     cap_add:
       - SYS_PTRACE
     volumes:
-      - ../dist:/var/lib/grafana/plugins/nais-applicationobservability-app
+      - ../dist:/var/lib/grafana/plugins/nais-apm-app
       - ../provisioning:/etc/grafana/provisioning
-      - ..:/root/nais-applicationobservability-app
+      - ..:/root/nais-apm-app
 
     environment:
       NODE_ENV: development
-      GF_LOG_FILTERS: plugin.nais-applicationobservability-app:debug
+      GF_LOG_FILTERS: plugin.nais-apm-app:debug
       GF_LOG_LEVEL: debug
       GF_DATAPROXY_LOGGING: 1
-      GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: nais-applicationobservability-app
+      GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: nais-apm-app

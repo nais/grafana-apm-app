@@ -215,7 +215,7 @@ jobs:
       - name: Docker logs
         if: ${{ always() && steps.run-tests.outcome == 'failure' }}
         run: |
-          docker logs nais-applicationobservability-app >& grafana-server.log
+          docker logs nais-apm-app >& grafana-server.log
 
       - name: Stop grafana docker
         run: docker compose down

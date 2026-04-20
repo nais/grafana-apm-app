@@ -23,9 +23,9 @@ describe('Components/App', () => {
     jest.resetAllMocks();
 
     props = {
-      basename: 'a/nais-applicationobservability-app',
+      basename: 'a/nais-apm-app',
       meta: {
-        id: 'nais-applicationobservability-app',
+        id: 'nais-apm-app',
         name: 'Nais APM',
         type: PluginType.app,
         enabled: true,

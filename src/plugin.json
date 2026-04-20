@@ -2,9 +2,9 @@
   "$schema": "https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/developers/plugins/plugin.schema.json",
   "type": "app",
   "name": "Nais APM",
-  "id": "nais-applicationobservability-app",
+  "id": "nais-apm-app",
   "backend": true,
-  "executable": "gpx_application_observability",
+  "executable": "gpx_apm",
   "info": {
     "keywords": ["app", "observability", "apm", "otel", "opentelemetry"],
     "description": "Application Performance Monitoring powered by OpenTelemetry data from Mimir, Loki, and Tempo",
