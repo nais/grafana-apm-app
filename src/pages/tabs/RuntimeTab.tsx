@@ -1,5 +1,5 @@
 import React from 'react';
-import { useStyles2, LoadingPlaceholder, Alert, Icon, Badge } from '@grafana/ui';
+import { useStyles2, useTheme2, LoadingPlaceholder, Alert, Icon, Badge } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import {
@@ -440,9 +440,22 @@ function ThreadStateBar({ states }: { states: Record<string, number> }) {
   );
 }
 
+function formatPct(v: number): string {
+  if (v === 0) {
+    return '0%';
+  }
+  return v < 1 ? `${v.toFixed(1)}%` : `${v.toFixed(0)}%`;
+}
+
 function UtilizationBar({ value, inline }: { value: number; inline?: boolean }) {
   const styles = useStyles2(getStyles);
-  const color = value > 90 ? 'error' : value > 70 ? 'warning' : 'success';
+  const theme = useTheme2();
+  const fillColor =
+    value > 90
+      ? theme.colors.error.main
+      : value > 70
+        ? theme.colors.warning.main
+        : theme.colors.success.main;
 
   if (inline) {
     return (
@@ -450,10 +463,10 @@ function UtilizationBar({ value, inline }: { value: number; inline?: boolean }) 
         <div className={styles.utilBarBg}>
           <div
             className={styles.utilBarFill}
-            style={{ width: `${Math.min(value, 100)}%`, backgroundColor: `var(--grafana-${color})` }}
+            style={{ width: `${Math.min(value, 100)}%`, backgroundColor: fillColor }}
           />
         </div>
-        <span>{value.toFixed(0)}%</span>
+        <span>{formatPct(value)}</span>
       </div>
     );
   }
@@ -463,10 +476,10 @@ function UtilizationBar({ value, inline }: { value: number; inline?: boolean }) 
       <div className={styles.utilBarBg}>
         <div
           className={styles.utilBarFill}
-          style={{ width: `${Math.min(value, 100)}%`, backgroundColor: `var(--grafana-${color})` }}
+          style={{ width: `${Math.min(value, 100)}%`, backgroundColor: fillColor }}
         />
       </div>
-      <span className={styles.utilLabel}>{value.toFixed(0)}%</span>
+      <span className={styles.utilLabel}>{formatPct(value)}</span>
     </div>
   );
 }
