@@ -87,7 +87,7 @@ service:
       processors: [batch]
       exporters: [otlphttp/tempo, spanmetrics, servicegraph]
     metrics:
-      receivers: [spanmetrics, servicegraph]
+      receivers: [otlp, spanmetrics, servicegraph]
       processors: [batch]
       exporters: [prometheusremotewrite/mimir]
     logs:

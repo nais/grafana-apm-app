@@ -287,3 +287,20 @@ export async function getEndpoints(
     }
   );
 }
+
+// ---- Frontend / Faro metrics ----
+
+export interface FrontendMetricsResponse {
+  available: boolean;
+  vitals?: Record<string, number>;
+  errorRate: number;
+}
+
+export async function getFrontendMetrics(
+  namespace: string,
+  service: string
+): Promise<FrontendMetricsResponse> {
+  return fetchResource<FrontendMetricsResponse>(
+    `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(service)}/frontend`
+  );
+}

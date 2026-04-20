@@ -170,6 +170,19 @@ services:
     depends_on:
       - otel-collector
 
+  faro-simulator:
+    image: python:3.12-slim
+    container_name: faro-simulator
+    working_dir: /app
+    command: ["python3", "faro-simulator.py"]
+    volumes:
+      - ./scripts/faro-simulator.py:/app/faro-simulator.py:ro
+    environment:
+      OTLP_ENDPOINT: http://otel-collector:4318/v1/metrics
+      INTERVAL_SEC: "15"
+    depends_on:
+      - otel-collector
+
 volumes:
   mimir-data:
   tempo-data:
