@@ -242,7 +242,7 @@ function ServiceOverview() {
         direction: 'row',
         children: [
           new SceneFlexItem({
-            minHeight: 200,
+            height: 200,
             body: PanelBuilders.timeseries()
               .setTitle('Duration')
               .setData(durationQuery)
@@ -254,7 +254,7 @@ function ServiceOverview() {
               .build(),
           }),
           new SceneFlexItem({
-            minHeight: 200,
+            height: 200,
             body: PanelBuilders.timeseries()
               .setTitle('Errors')
               .setData(errorQuery)
@@ -266,7 +266,7 @@ function ServiceOverview() {
               .build(),
           }),
           new SceneFlexItem({
-            minHeight: 200,
+            height: 200,
             body: PanelBuilders.timeseries()
               .setTitle('Rate')
               .setData(rateQuery)
@@ -307,7 +307,7 @@ function ServiceOverview() {
         direction: 'row',
         children: [
           new SceneFlexItem({
-            minHeight: 200,
+            height: 200,
             body: PanelBuilders.heatmap()
               .setTitle('Duration Distribution')
               .setData(heatmapQuery)
