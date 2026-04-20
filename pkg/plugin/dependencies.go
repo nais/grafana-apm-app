@@ -32,9 +32,17 @@ type DependenciesResponse struct {
 // handleServiceDependencies returns downstream dependencies for a specific service.
 // GET /services/{namespace}/{service}/dependencies?from=&to=
 func (a *App) handleServiceDependencies(w http.ResponseWriter, req *http.Request) {
+	if !requireGET(w, req) {
+		return
+	}
 	ctx := req.Context()
+	ctx = withAuthContext(ctx, a.promClientForRequest(req))
 	service := queries.MustSanitizeLabel(req.PathValue("service"))
 	namespace := queries.MustSanitizeLabel(req.PathValue("namespace"))
+
+	if !requireServiceParam(w, service) {
+		return
+	}
 
 	caps := a.cachedOrDetectCapabilities(ctx)
 	if !caps.ServiceGraph.Detected {
@@ -52,7 +60,11 @@ func (a *App) handleServiceDependencies(w http.ResponseWriter, req *http.Request
 // handleGlobalDependencies returns all external dependencies across all services.
 // GET /dependencies?from=&to=
 func (a *App) handleGlobalDependencies(w http.ResponseWriter, req *http.Request) {
+	if !requireGET(w, req) {
+		return
+	}
 	ctx := req.Context()
+	ctx = withAuthContext(ctx, a.promClientForRequest(req))
 
 	caps := a.cachedOrDetectCapabilities(ctx)
 	if !caps.ServiceGraph.Detected {
@@ -70,8 +82,17 @@ func (a *App) handleGlobalDependencies(w http.ResponseWriter, req *http.Request)
 // handleDependencyDetail returns RED metrics and upstream services for a specific dependency.
 // GET /dependencies/{name}?from=&to=
 func (a *App) handleDependencyDetail(w http.ResponseWriter, req *http.Request) {
+	if !requireGET(w, req) {
+		return
+	}
 	ctx := req.Context()
+	ctx = withAuthContext(ctx, a.promClientForRequest(req))
 	depName := queries.MustSanitizeLabel(req.PathValue("name"))
+
+	if depName == "" {
+		http.Error(w, `{"error":"missing or invalid dependency name"}`, http.StatusBadRequest)
+		return
+	}
 
 	caps := a.cachedOrDetectCapabilities(ctx)
 	if !caps.ServiceGraph.Detected {
@@ -167,7 +188,7 @@ func (a *App) queryDependencies(
 		wg.Add(1)
 		go func(n, query string) {
 			defer wg.Done()
-			results, err := a.promClient.InstantQuery(ctx, query, to)
+			results, err := a.prom(ctx).InstantQuery(ctx, query, to)
 			ch <- queryResult{name: n, results: results, err: err}
 		}(q.name, q.query)
 	}
@@ -319,7 +340,7 @@ func (a *App) queryDependencyDetail(
 		wg.Add(1)
 		go func(n, query string) {
 			defer wg.Done()
-			results, err := a.promClient.InstantQuery(ctx, query, to)
+			results, err := a.prom(ctx).InstantQuery(ctx, query, to)
 			ch <- queryResult{name: n, results: results, err: err}
 		}(q.name, q.query)
 	}
@@ -502,7 +523,7 @@ func (a *App) queryDependencyOperations(
 		wg.Add(1)
 		go func(n, query string) {
 			defer wg.Done()
-			results, err := a.promClient.InstantQuery(ctx, query, to)
+			results, err := a.prom(ctx).InstantQuery(ctx, query, to)
 			ch <- queryResult{name: n, results: results, err: err}
 		}(q.name, q.query)
 	}
@@ -613,8 +634,16 @@ type ConnectedServicesResponse struct {
 // handleConnectedServices returns inbound and outbound service connections.
 // GET /services/{namespace}/{service}/connected?from=&to=
 func (a *App) handleConnectedServices(w http.ResponseWriter, req *http.Request) {
+	if !requireGET(w, req) {
+		return
+	}
 	ctx := req.Context()
+	ctx = withAuthContext(ctx, a.promClientForRequest(req))
 	service := queries.MustSanitizeLabel(req.PathValue("service"))
+
+	if !requireServiceParam(w, service) {
+		return
+	}
 
 	caps := a.cachedOrDetectCapabilities(ctx)
 	if !caps.ServiceGraph.Detected {
@@ -683,7 +712,7 @@ func (a *App) queryConnectedServices(ctx context.Context, to time.Time, service 
 		wg.Add(1)
 		go func(n, query string) {
 			defer wg.Done()
-			results, err := a.promClient.InstantQuery(ctx, query, to)
+			results, err := a.prom(ctx).InstantQuery(ctx, query, to)
 			ch <- queryResult{name: n, results: results, err: err}
 		}(q.name, q.query)
 	}

@@ -10,13 +10,11 @@ let fetchPromise: Promise<Capabilities> | null = null;
  * share the same result without redundant requests.
  */
 export function useCapabilities(): { caps: Capabilities | null; loading: boolean } {
-  const [caps, setCaps] = useState<Capabilities | null>(cachedCapabilities);
-  const [loading, setLoading] = useState(cachedCapabilities === null);
+  const [caps, setCaps] = useState<Capabilities | null>(() => cachedCapabilities);
+  const [loading, setLoading] = useState(() => cachedCapabilities === null);
 
   useEffect(() => {
     if (cachedCapabilities) {
-      setCaps(cachedCapabilities);
-      setLoading(false);
       return;
     }
 

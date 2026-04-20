@@ -28,8 +28,8 @@ function DependencyDetail() {
         setError(null);
         const resp = await getDependencyDetail(name, fromMs, toMs);
         setData(resp);
-      } catch (e: any) {
-        setError(e.message ?? 'Failed to load dependency details');
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : 'Failed to load dependency details');
       } finally {
         setLoading(false);
       }

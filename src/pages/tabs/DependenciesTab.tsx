@@ -30,8 +30,8 @@ export function DependenciesTab({ service, namespace, fromMs, toMs }: Dependenci
         setError(null);
         const resp = await getServiceDependencies(namespace, service, fromMs, toMs);
         setDeps(resp.dependencies);
-      } catch (e: any) {
-        setError(e.message ?? 'Failed to load dependencies');
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : 'Failed to load dependencies');
       } finally {
         setLoading(false);
       }

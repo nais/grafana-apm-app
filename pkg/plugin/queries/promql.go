@@ -19,9 +19,10 @@ type PrometheusClient struct {
 	baseURL    string
 	httpClient *http.Client
 	logger     log.Logger
+	authHeaders http.Header // forwarded from incoming request
 }
 
-// NewPrometheusClient creates a client that talks directly to a Prometheus-compatible endpoint.
+// NewPrometheusClient creates a client that talks to a Prometheus-compatible endpoint.
 func NewPrometheusClient(baseURL string) *PrometheusClient {
 	return &PrometheusClient{
 		baseURL: strings.TrimRight(baseURL, "/"),
@@ -30,6 +31,14 @@ func NewPrometheusClient(baseURL string) *PrometheusClient {
 		},
 		logger: log.DefaultLogger.With("component", "promClient"),
 	}
+}
+
+// WithAuthHeaders returns a shallow copy of the client with auth headers set.
+// Use this to forward the user's authentication from the incoming request.
+func (c *PrometheusClient) WithAuthHeaders(h http.Header) *PrometheusClient {
+	clone := *c
+	clone.authHeaders = h
+	return &clone
 }
 
 // PromResponse models the Prometheus HTTP API JSON envelope.
@@ -119,13 +128,22 @@ func (c *PrometheusClient) doQuery(ctx context.Context, path string, params url.
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
 
+	// Forward auth headers from the incoming user request
+	for _, key := range []string{"Cookie", "Authorization", "X-Grafana-Org-Id"} {
+		if vals := c.authHeaders.Values(key); len(vals) > 0 {
+			for _, v := range vals {
+				req.Header.Add(key, v)
+			}
+		}
+	}
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("executing query: %w", err)
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20)) // 10 MB max
 	if err != nil {
 		return nil, fmt.Errorf("reading response: %w", err)
 	}

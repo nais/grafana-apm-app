@@ -18,6 +18,7 @@ import { DashboardCursorSync } from '@grafana/schema';
 import { getFrontendMetrics } from '../../api/client';
 import { usePluginDatasources } from '../../utils/datasources';
 import { useTimeRange } from '../../utils/timeRange';
+import { sanitizeLabelValue } from '../../utils/sanitize';
 
 interface FrontendTabProps {
   service: string;
@@ -88,7 +89,7 @@ function WebVitalsPanels({ service, namespace }: { service: string; namespace: s
   const ds = usePluginDatasources();
   const { from, to } = useTimeRange();
 
-  const svcFilter = `service_name="${service}", service_namespace="${namespace}"`;
+  const svcFilter = `service_name="${sanitizeLabelValue(service)}", service_namespace="${sanitizeLabelValue(namespace)}"`;
 
   const scene = useMemo(() => {
     const timeRange = new SceneTimeRange({ from, to });
@@ -325,7 +326,7 @@ function WebVitalsPanels({ service, namespace }: { service: string; namespace: s
         ],
       }),
     });
-  }, [service, namespace, from, to, ds, svcFilter]);
+  }, [from, to, ds, svcFilter]);
 
   return <scene.Component model={scene} />;
 }

@@ -77,7 +77,10 @@ func (a *App) handleCapabilities(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	caps := a.detectCapabilities(req.Context())
+	ctx := req.Context()
+	ctx = withAuthContext(ctx, a.promClientForRequest(req))
+
+	caps := a.detectCapabilities(ctx)
 
 	a.capMu.Lock()
 	a.capCache = &cachedCapabilities{caps: caps, fetchedAt: time.Now()}
@@ -97,7 +100,7 @@ func (a *App) detectCapabilities(ctx context.Context) queries.Capabilities {
 
 	// Detect span metrics namespace by probing known candidates
 	for _, c := range spanMetricsCandidates {
-		exists, err := a.promClient.SeriesExists(ctx, c.calls)
+		exists, err := a.prom(ctx).SeriesExists(ctx, c.calls)
 		if err != nil {
 			logger.Debug("Probe failed", "metric", c.calls, "error", err)
 			continue
@@ -108,12 +111,12 @@ func (a *App) detectCapabilities(ctx context.Context) queries.Capabilities {
 			caps.SpanMetrics.CallsMetric = c.calls
 
 			// Detect duration unit: try milliseconds first
-			msExists, _ := a.promClient.SeriesExists(ctx, c.durMs)
+			msExists, _ := a.prom(ctx).SeriesExists(ctx, c.durMs)
 			if msExists {
 				caps.SpanMetrics.DurationMetric = c.durMs
 				caps.SpanMetrics.DurationUnit = "ms"
 			} else {
-				secExists, _ := a.promClient.SeriesExists(ctx, c.durSec)
+				secExists, _ := a.prom(ctx).SeriesExists(ctx, c.durSec)
 				if secExists {
 					caps.SpanMetrics.DurationMetric = c.durSec
 					caps.SpanMetrics.DurationUnit = "s"
@@ -125,7 +128,7 @@ func (a *App) detectCapabilities(ctx context.Context) queries.Capabilities {
 	}
 
 	// Detect service graph
-	sgExists, err := a.promClient.SeriesExists(ctx, "traces_service_graph_request_total")
+	sgExists, err := a.prom(ctx).SeriesExists(ctx, "traces_service_graph_request_total")
 	if err == nil && sgExists {
 		caps.ServiceGraph.Detected = true
 	}
@@ -146,7 +149,7 @@ func (a *App) detectCapabilities(ctx context.Context) queries.Capabilities {
 
 func (a *App) detectServices(ctx context.Context, callsMetric string) []string {
 	query := fmt.Sprintf(`group by (service_name) (%s)`, callsMetric)
-	results, err := a.promClient.InstantQuery(ctx, query, time.Now())
+	results, err := a.prom(ctx).InstantQuery(ctx, query, time.Now())
 	if err != nil {
 		log.DefaultLogger.Warn("Failed to detect services", "error", err)
 		return nil
@@ -174,7 +177,8 @@ func (a *App) checkHTTPHealth(ctx context.Context, baseURL, path string) queries
 		return queries.DataSourceStatus{Available: false, Error: err.Error()}
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		return queries.DataSourceStatus{Available: false, Error: err.Error()}
 	}
@@ -189,8 +193,30 @@ func (a *App) checkHTTPHealth(ctx context.Context, baseURL, path string) queries
 // capMu and capCache are initialized in App struct
 
 func writeJSON(w http.ResponseWriter, v interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(v); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	data, err := json.Marshal(v)
+	if err != nil {
+		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+		return
 	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(data)
+	w.Write([]byte("\n"))
+}
+
+// requireGET returns true if the request is GET, otherwise writes 405 and returns false.
+func requireGET(w http.ResponseWriter, req *http.Request) bool {
+	if req.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return false
+	}
+	return true
+}
+
+// requireServiceParam validates service path param and writes 400 if empty.
+func requireServiceParam(w http.ResponseWriter, service string) bool {
+	if service == "" {
+		http.Error(w, `{"error":"missing or invalid service"}`, http.StatusBadRequest)
+		return false
+	}
+	return true
 }

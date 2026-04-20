@@ -58,7 +58,7 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
   };
 
   const onChange = (field: keyof State) => (e: React.ChangeEvent<HTMLInputElement>) => {
-    setState({ ...state, [field]: e.target.value.trim() });
+    setState((prev) => ({ ...prev, [field]: e.target.value.trim() }));
   };
 
   const onSubmit = () => {

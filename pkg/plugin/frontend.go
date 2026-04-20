@@ -11,7 +11,11 @@ import (
 
 // handleFrontendMetrics returns browser/Faro metric availability and latest values for a service.
 func (a *App) handleFrontendMetrics(w http.ResponseWriter, req *http.Request) {
+	if !requireGET(w, req) {
+		return
+	}
 	ctx := req.Context()
+	ctx = withAuthContext(ctx, a.promClientForRequest(req))
 	namespace := queries.MustSanitizeLabel(req.PathValue("namespace"))
 	service := queries.MustSanitizeLabel(req.PathValue("service"))
 
@@ -43,7 +47,7 @@ func (a *App) queryFrontendMetrics(ctx context.Context, namespace, service strin
 
 	// Quick existence check
 	checkQ := fmt.Sprintf(`count(browser_web_vitals_lcp_milliseconds{%s})`, filter)
-	results, err := a.promClient.InstantQuery(ctx, checkQ, at)
+	results, err := a.prom(ctx).InstantQuery(ctx, checkQ, at)
 	if err != nil || len(results) == 0 || results[0].Value.Float() == 0 {
 		return FrontendMetricsResponse{Available: false}
 	}
@@ -64,7 +68,7 @@ func (a *App) queryFrontendMetrics(ctx context.Context, namespace, service strin
 
 	for key, metric := range vitalMetrics {
 		q := fmt.Sprintf(`avg(%s{%s})`, metric, filter)
-		r, err := a.promClient.InstantQuery(ctx, q, at)
+		r, err := a.prom(ctx).InstantQuery(ctx, q, at)
 		if err == nil && len(r) > 0 {
 			resp.Vitals[key] = roundTo(r[0].Value.Float(), 2)
 		}
@@ -72,7 +76,7 @@ func (a *App) queryFrontendMetrics(ctx context.Context, namespace, service strin
 
 	// Error rate
 	errQ := fmt.Sprintf(`sum(rate(browser_errors_total{%s}[5m]))`, filter)
-	r, err := a.promClient.InstantQuery(ctx, errQ, at)
+	r, err := a.prom(ctx).InstantQuery(ctx, errQ, at)
 	if err == nil && len(r) > 0 {
 		resp.ErrorRate = roundTo(r[0].Value.Float(), 4)
 	}

@@ -26,8 +26,8 @@ function Dependencies() {
         setError(null);
         const resp = await getGlobalDependencies(fromMs, toMs);
         setDeps(resp.dependencies);
-      } catch (e: any) {
-        setError(e.message ?? 'Failed to load dependencies');
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : 'Failed to load dependencies');
       } finally {
         setLoading(false);
       }

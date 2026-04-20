@@ -13,7 +13,11 @@ import (
 )
 
 func (a *App) handleEndpoints(w http.ResponseWriter, req *http.Request) {
+	if !requireGET(w, req) {
+		return
+	}
 	ctx := req.Context()
+	ctx = withAuthContext(ctx, a.promClientForRequest(req))
 	namespace := queries.MustSanitizeLabel(req.PathValue("namespace"))
 	service := queries.MustSanitizeLabel(req.PathValue("service"))
 
@@ -200,7 +204,7 @@ func (a *App) queryEndpointCategory(
 		wg.Add(1)
 		go func(n, query string) {
 			defer wg.Done()
-			results, err := a.promClient.InstantQuery(ctx, query, at)
+			results, err := a.prom(ctx).InstantQuery(ctx, query, at)
 			qch <- qr{name: n, results: results, err: err}
 		}(q.name, q.query)
 	}

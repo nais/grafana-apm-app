@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { dateMath } from '@grafana/data';
 
@@ -26,6 +26,9 @@ export function useTimeRange(): TimeRangeState {
   const from = searchParams.get('from') || DEFAULT_FROM;
   const to = searchParams.get('to') || DEFAULT_TO;
 
+  // Stable fallback for when parsing fails (lazy init runs once, avoids impure Date.now in render)
+  const [fallbackNow] = useState(() => Date.now());
+
   const { fromMs, toMs } = useMemo(() => {
     const parsedFrom = dateMath.parse(from);
     const parsedTo = dateMath.parse(to, true);
@@ -35,9 +38,8 @@ export function useTimeRange(): TimeRangeState {
         toMs: parsedTo.valueOf(),
       };
     }
-    const now = Date.now();
-    return { fromMs: now - 3600000, toMs: now };
-  }, [from, to]);
+    return { fromMs: fallbackNow - 3600000, toMs: fallbackNow };
+  }, [from, to, fallbackNow]);
 
   const setTimeRange = useCallback(
     (newFrom: string, newTo: string) => {

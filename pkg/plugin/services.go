@@ -25,6 +25,7 @@ func (a *App) handleServices(w http.ResponseWriter, req *http.Request) {
 	}
 
 	ctx := req.Context()
+	ctx = withAuthContext(ctx, a.promClientForRequest(req))
 
 	// Parse time range from query params (defaults: last 1h)
 	now := time.Now()
@@ -119,7 +120,7 @@ func (a *App) fetchServiceSummaries(
 		wg.Add(1)
 		go func(n, query string) {
 			defer wg.Done()
-			results, err := a.promClient.InstantQuery(ctx, query, to)
+			results, err := a.prom(ctx).InstantQuery(ctx, query, to)
 			ch <- queryResult{name: n, results: results, err: err}
 		}(name, q)
 	}
@@ -136,7 +137,7 @@ func (a *App) fetchServiceSummaries(
 			wg.Add(1)
 			go func(n, query string) {
 				defer wg.Done()
-				results, err := a.promClient.RangeQuery(ctx, query, from, to, step)
+				results, err := a.prom(ctx).RangeQuery(ctx, query, from, to, step)
 				ch <- queryResult{name: n, results: results, err: err}
 			}(sq.name, sq.query)
 		}
