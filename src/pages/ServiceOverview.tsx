@@ -325,11 +325,9 @@ function ServiceOverview() {
 
   const hiddenCount = operations.length - overviewOps.length;
 
-  const canvasTabs: TabId[] = ['traces', 'logs', 'service-map'];
-  const pageLayout = canvasTabs.includes(activeTab) ? PageLayoutType.Canvas : undefined;
-
+  // Service detail pages always use Canvas layout (no plugin-level header)
   return (
-    <PluginPage layout={pageLayout}>
+    <PluginPage layout={PageLayoutType.Canvas}>
       <div className={styles.container}>
         {/* Header */}
         <div className={styles.header}>
@@ -591,21 +589,22 @@ function ServiceOverview() {
             </>
           </div>
 
-          {/* Scenes-based tabs: must conditional-render (Scenes measures container on mount) */}
-          {activeTab === 'traces' && (
-            <TracesTab service={service} namespace={namespace} tracesUid={ds.tracesUid} />
+          {visitedTabs.has('traces') && (
+            <div style={{ display: activeTab === 'traces' ? undefined : 'none' }}>
+              <TracesTab service={service} namespace={namespace} tracesUid={ds.tracesUid} />
+            </div>
           )}
 
-          {/* Non-Scenes tabs: keep mounted once visited for instant tab switching */}
           {visitedTabs.has('server') && (
             <div style={{ display: activeTab === 'server' ? undefined : 'none' }}>
               <ServerTab service={service} namespace={namespace} fromMs={fromMs} toMs={toMs} />
             </div>
           )}
 
-          {/* Scenes-based: conditional render */}
-          {activeTab === 'frontend' && (
-            <FrontendTab service={service} namespace={namespace} environment={envFilter} />
+          {visitedTabs.has('frontend') && (
+            <div style={{ display: activeTab === 'frontend' ? undefined : 'none' }}>
+              <FrontendTab service={service} namespace={namespace} environment={envFilter} />
+            </div>
           )}
 
           {visitedTabs.has('runtime') && (
@@ -620,9 +619,10 @@ function ServiceOverview() {
             </div>
           )}
 
-          {/* Scenes-based: conditional render */}
-          {activeTab === 'logs' && (
-            <LogsTab service={service} namespace={namespace} logsUid={ds.logsUid} />
+          {visitedTabs.has('logs') && (
+            <div style={{ display: activeTab === 'logs' ? undefined : 'none' }}>
+              <LogsTab service={service} namespace={namespace} logsUid={ds.logsUid} />
+            </div>
           )}
 
           {visitedTabs.has('service-map') && (
