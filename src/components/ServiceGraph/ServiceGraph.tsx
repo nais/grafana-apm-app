@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   ReactFlow,
   Background,
@@ -18,6 +18,7 @@ import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { ServiceNode, type ServiceNodeData } from './nodes/ServiceNode';
 import { GroupNode } from './nodes/GroupNode';
+import { CollapseNode, type CollapseNodeData } from './nodes/CollapseNode';
 import { useELKLayout } from './useELKLayout';
 
 export interface ServiceGraphNode {
@@ -50,6 +51,7 @@ export interface ServiceGraphProps {
 const nodeTypes: NodeTypes = {
   service: ServiceNode,
   group: GroupNode,
+  collapse: CollapseNode,
 };
 
 const defaultEdgeOptions: DefaultEdgeOptions = {
@@ -62,6 +64,23 @@ const defaultEdgeOptions: DefaultEdgeOptions = {
   },
 };
 
+const DORMANT_CALLERS_ID = '__dormant_callers__';
+const DORMANT_TARGETS_ID = '__dormant_targets__';
+
+/** Parse "3.5 req/s" → 3.5, returns 0 for unparsable */
+function parseReqRate(stat?: string): number {
+  if (!stat) {
+    return 0;
+  }
+  const m = stat.match(/^([\d.]+)\s*req/);
+  return m ? parseFloat(m[1]) : 0;
+}
+
+/** A node is dormant if it has ~0 req/s and no errors */
+function isDormant(n: ServiceGraphNode): boolean {
+  return parseReqRate(n.mainStat) < 0.05 && n.errorRate < 0.001;
+}
+
 function ServiceGraphInner({
   nodes: inputNodes,
   edges: inputEdges,
@@ -72,34 +91,148 @@ function ServiceGraphInner({
 }: ServiceGraphProps) {
   const styles = useStyles2(getStyles);
   const { fitView } = useReactFlow();
+  const [expandedCallers, setExpandedCallers] = useState(false);
+  const [expandedTargets, setExpandedTargets] = useState(false);
+
+  // Classify nodes relative to focus: callers → focus → targets
+  const { visibleNodes, visibleEdges } = useMemo(() => {
+    if (!focusNode || inputNodes.length <= 8) {
+      // Small graphs: show everything, no collapsing
+      return { visibleNodes: inputNodes, visibleEdges: inputEdges };
+    }
+
+    // Find caller and target node IDs relative to focusNode
+    const callerIds = new Set<string>();
+    const targetIds = new Set<string>();
+    for (const e of inputEdges) {
+      if (e.target === focusNode) {
+        callerIds.add(e.source);
+      }
+      if (e.source === focusNode) {
+        targetIds.add(e.target);
+      }
+    }
+
+    // Partition dormant callers and targets
+    const dormantCallerNodes: ServiceGraphNode[] = [];
+    const dormantTargetNodes: ServiceGraphNode[] = [];
+    const nodeMap = new Map(inputNodes.map((n) => [n.id, n]));
+
+    for (const id of callerIds) {
+      const n = nodeMap.get(id);
+      if (n && isDormant(n)) {
+        dormantCallerNodes.push(n);
+      }
+    }
+    for (const id of targetIds) {
+      const n = nodeMap.get(id);
+      if (n && isDormant(n)) {
+        dormantTargetNodes.push(n);
+      }
+    }
+
+    // Only collapse if there are 3+ dormant nodes on a side
+    const collapsCallers = !expandedCallers && dormantCallerNodes.length >= 3;
+    const collapsTargets = !expandedTargets && dormantTargetNodes.length >= 3;
+
+    const hiddenCallerIds = collapsCallers ? new Set(dormantCallerNodes.map((n) => n.id)) : new Set<string>();
+    const hiddenTargetIds = collapsTargets ? new Set(dormantTargetNodes.map((n) => n.id)) : new Set<string>();
+    const allHidden = new Set([...hiddenCallerIds, ...hiddenTargetIds]);
+
+    // Build visible nodes
+    const vNodes: ServiceGraphNode[] = inputNodes.filter((n) => !allHidden.has(n.id));
+
+    // Add collapse placeholder nodes
+    if (collapsCallers) {
+      vNodes.push({
+        id: DORMANT_CALLERS_ID,
+        title: `+${dormantCallerNodes.length} dormant`,
+        errorRate: 0,
+        nodeType: 'service',
+      });
+    }
+    if (collapsTargets) {
+      vNodes.push({
+        id: DORMANT_TARGETS_ID,
+        title: `+${dormantTargetNodes.length} dormant`,
+        errorRate: 0,
+        nodeType: 'service',
+      });
+    }
+
+    // Build visible edges — replace hidden node edges with collapse node edges
+    const vEdges: ServiceGraphEdge[] = [];
+    const addedCollapseEdges = { callers: false, targets: false };
+
+    for (const e of inputEdges) {
+      if (hiddenCallerIds.has(e.source)) {
+        if (!addedCollapseEdges.callers) {
+          vEdges.push({
+            id: `${DORMANT_CALLERS_ID}->${focusNode}`,
+            source: DORMANT_CALLERS_ID,
+            target: focusNode,
+          });
+          addedCollapseEdges.callers = true;
+        }
+      } else if (hiddenTargetIds.has(e.target)) {
+        if (!addedCollapseEdges.targets) {
+          vEdges.push({
+            id: `${focusNode}->${DORMANT_TARGETS_ID}`,
+            source: focusNode,
+            target: DORMANT_TARGETS_ID,
+          });
+          addedCollapseEdges.targets = true;
+        }
+      } else {
+        vEdges.push(e);
+      }
+    }
+
+    return { visibleNodes: vNodes, visibleEdges: vEdges };
+  }, [inputNodes, inputEdges, focusNode, expandedCallers, expandedTargets]);
 
   // Convert input data to React Flow format
   const rfNodes = useMemo<Node[]>(
     () =>
-      inputNodes.map((n) => ({
-        id: n.id,
-        type: 'service',
-        position: { x: 0, y: 0 },
-        data: {
-          label: n.title,
-          mainStat: n.mainStat,
-          secondaryStat: n.secondaryStat,
-          errorRate: n.errorRate,
-          nodeType: n.nodeType ?? 'service',
-          isFocused: n.id === focusNode,
-        } satisfies ServiceNodeData,
-      })),
-    [inputNodes, focusNode]
+      visibleNodes.map((n) => {
+        const isCollapseNode = n.id === DORMANT_CALLERS_ID || n.id === DORMANT_TARGETS_ID;
+        if (isCollapseNode) {
+          return {
+            id: n.id,
+            type: 'collapse',
+            position: { x: 0, y: 0 },
+            data: {
+              label: n.title,
+              count: 0,
+              side: n.id === DORMANT_CALLERS_ID ? 'caller' : 'target',
+            } satisfies CollapseNodeData,
+          };
+        }
+        return {
+          id: n.id,
+          type: 'service',
+          position: { x: 0, y: 0 },
+          data: {
+            label: n.title,
+            mainStat: n.mainStat,
+            secondaryStat: n.secondaryStat,
+            errorRate: n.errorRate,
+            nodeType: n.nodeType ?? 'service',
+            isFocused: n.id === focusNode,
+          } satisfies ServiceNodeData,
+        };
+      }),
+    [visibleNodes, focusNode]
   );
 
   const rfEdges = useMemo<Edge[]>(
     () =>
-      inputEdges.map((e) => ({
+      visibleEdges.map((e) => ({
         id: e.id,
         source: e.source,
         target: e.target,
       })),
-    [inputEdges]
+    [visibleEdges]
   );
 
   // Build groups from namespace if grouping is enabled
@@ -108,7 +241,7 @@ function ServiceGraphInner({
       return undefined;
     }
     const nsMap = new Map<string, string[]>();
-    for (const n of inputNodes) {
+    for (const n of visibleNodes) {
       if (n.namespace) {
         const members = nsMap.get(n.namespace) ?? [];
         members.push(n.id);
@@ -122,7 +255,7 @@ function ServiceGraphInner({
       }
     }
     return filtered.size > 0 ? filtered : undefined;
-  }, [inputNodes, enableGrouping]);
+  }, [visibleNodes, enableGrouping]);
 
   const {
     nodes: layoutedNodes,
@@ -137,6 +270,15 @@ function ServiceGraphInner({
 
   const handleNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
+      // Expand collapse nodes
+      if (node.id === DORMANT_CALLERS_ID) {
+        setExpandedCallers(true);
+        return;
+      }
+      if (node.id === DORMANT_TARGETS_ID) {
+        setExpandedTargets(true);
+        return;
+      }
       if (node.type !== 'group' && onNodeClick) {
         onNodeClick(node.id);
       }
