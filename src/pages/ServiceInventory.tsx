@@ -41,7 +41,7 @@ function ServiceInventory() {
     },
     [fromMs, toMs]
   );
-  const services = fetchResult?.services ?? [];
+  const services = useMemo(() => fetchResult?.services ?? [], [fetchResult]);
   const caps = fetchResult?.caps ?? null;
 
   // Read all UI state from query params (persisted across navigation)

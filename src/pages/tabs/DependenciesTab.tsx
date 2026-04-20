@@ -22,7 +22,7 @@ export function DependenciesTab({ service, namespace, fromMs, toMs }: Dependenci
     () => getServiceDependencies(namespace, service, fromMs, toMs),
     [service, namespace, fromMs, toMs]
   );
-  const deps = depsResp?.dependencies ?? [];
+  const deps = useMemo(() => depsResp?.dependencies ?? [], [depsResp]);
   const [sortField, setSortField] = useState<keyof DependencySummary>('impact');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 

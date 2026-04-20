@@ -112,6 +112,8 @@ export function usePluginDatasources(env?: string): PluginDatasources {
       _listeners = _listeners.filter((l) => l !== listener);
     };
   }, []);
+  // rev triggers re-computation when async config updates arrive
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   return useMemo(() => getPluginDatasources(env), [env, rev]);
 }
 

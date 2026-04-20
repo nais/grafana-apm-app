@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export interface FetchState<T> {
   data: T | null;
@@ -22,47 +22,52 @@ export function useFetch<T>(
   const skip = options?.skip ?? false;
   const initialData = options?.initialData ?? null;
 
-  const [data, setData] = useState<T | null>(initialData);
-  const [loading, setLoading] = useState(!skip);
-  const [error, setError] = useState<string | null>(null);
+  const [state, setState] = useState<FetchState<T>>({
+    data: initialData,
+    loading: !skip,
+    error: null,
+  });
 
-  // Track the latest fetch generation to discard stale results
-  const generationRef = useRef(0);
+  // Keep fetcher in a ref so it's always current without being a dependency
+  const fetcherRef = useRef(fetcher);
+  const skipRef = useRef(skip);
 
-  const doFetch = useCallback(() => {
-    if (skip) {
-      setLoading(false);
+  useEffect(() => {
+    fetcherRef.current = fetcher;
+    skipRef.current = skip;
+  });
+
+  // Refetch trigger — increment to force a new fetch
+  const [fetchTrigger, setFetchTrigger] = useState(0);
+
+  useEffect(() => {
+    if (skipRef.current) {
+      setState((s) => s.loading ? { ...s, loading: false } : s);
       return;
     }
 
-    const generation = ++generationRef.current;
-    setLoading(true);
-    setError(null);
+    let cancelled = false;
+    setState((s) => ({ ...s, loading: true, error: null }));
 
-    fetcher()
+    fetcherRef.current()
       .then((result) => {
-        // Only apply if this is still the latest fetch
-        if (generation === generationRef.current) {
-          setData(result);
-          setLoading(false);
+        if (!cancelled) {
+          setState({ data: result, loading: false, error: null });
         }
       })
       .catch((e) => {
-        if (generation === generationRef.current) {
-          setError(e instanceof Error ? e.message : String(e));
-          setLoading(false);
+        if (!cancelled) {
+          setState({ data: null, loading: false, error: e instanceof Error ? e.message : String(e) });
         }
       });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
 
-  useEffect(() => {
-    doFetch();
-    // Increment generation on cleanup so in-flight fetches become stale
     return () => {
-      generationRef.current++;
+      cancelled = true;
     };
-  }, [doFetch]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [...deps, fetchTrigger]);
 
-  return { data, loading, error, refetch: doFetch };
+  const refetch = () => setFetchTrigger((t) => t + 1);
+
+  return { ...state, refetch };
 }

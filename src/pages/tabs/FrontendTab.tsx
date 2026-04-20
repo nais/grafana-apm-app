@@ -420,7 +420,7 @@ function LokiWebVitalsPanels({ service, environment }: { service: string; enviro
         ],
       }),
     });
-  }, [from, to, ds, service, environment]);
+  }, [from, to, ds, service]);
 
   return <scene.Component model={scene} />;
 }

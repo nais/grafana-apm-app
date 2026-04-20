@@ -18,7 +18,7 @@ function Dependencies() {
     () => getGlobalDependencies(fromMs, toMs),
     [fromMs, toMs]
   );
-  const deps = depsResp?.dependencies ?? [];
+  const deps = useMemo(() => depsResp?.dependencies ?? [], [depsResp]);
   const [sortField, setSortField] = useState<keyof DependencySummary>('impact');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
