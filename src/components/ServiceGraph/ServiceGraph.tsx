@@ -3,7 +3,6 @@ import {
   ReactFlow,
   Background,
   Controls,
-  MiniMap,
   type Node,
   type Edge,
   type NodeTypes,
@@ -14,7 +13,7 @@ import {
   ReactFlowProvider,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { useStyles2, useTheme2 } from '@grafana/ui';
+import { useStyles2 } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { ServiceNode, type ServiceNodeData } from './nodes/ServiceNode';
@@ -72,7 +71,6 @@ function ServiceGraphInner({
   onNodeClick,
 }: ServiceGraphProps) {
   const styles = useStyles2(getStyles);
-  const theme = useTheme2();
   const { fitView } = useReactFlow();
 
   // Convert input data to React Flow format
@@ -176,28 +174,6 @@ function ServiceGraphInner({
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
         <Controls showInteractive={false} />
-        <MiniMap
-          nodeColor={(n) => {
-            const data = n.data as ServiceNodeData | undefined;
-            if (!data) {
-              return '#555';
-            }
-            if ((data.errorRate ?? 0) > 0.05) {
-              return '#f85149';
-            }
-            if ((data.errorRate ?? 0) > 0.01) {
-              return '#d29922';
-            }
-            if (data.isFocused) {
-              return theme.colors.primary.main;
-            }
-            return theme.colors.text.disabled;
-          }}
-          nodeStrokeWidth={0}
-          nodeBorderRadius={2}
-          maskColor="rgba(0,0,0,0.7)"
-          style={{ background: theme.colors.background.secondary }}
-        />
       </ReactFlow>
     </div>
   );
@@ -227,11 +203,6 @@ const getStyles = (theme: GrafanaTheme2) => ({
     .react-flow__edge:hover .react-flow__edge-path {
       stroke: ${theme.colors.primary.text};
       stroke-width: 2;
-    }
-    .react-flow__minimap {
-      background: ${theme.colors.background.primary};
-      border: 1px solid ${theme.colors.border.weak};
-      border-radius: ${theme.shape.radius.default};
     }
     .react-flow__controls {
       border: 1px solid ${theme.colors.border.weak};
