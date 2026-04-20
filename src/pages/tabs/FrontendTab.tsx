@@ -9,6 +9,7 @@ import {
   SceneTimeRange,
   SceneTimePicker,
   SceneRefreshPicker,
+  SceneDataTransformer,
   PanelBuilders,
   EmbeddedScene,
   behaviors,
@@ -48,6 +49,39 @@ export function FrontendTab({ service, namespace }: FrontendTabProps) {
   );
 }
 
+// ---- helpers ----
+
+function statPanel(title: string, description: string, query: SceneQueryRunner, unit: string, thresholds: Array<{ value: number; color: string }>, decimals?: number) {
+  const builder = PanelBuilders.stat()
+    .setTitle(title)
+    .setDescription(description)
+    .setData(query)
+    .setUnit(unit);
+  if (decimals !== undefined) {
+    builder.setDecimals(decimals);
+  }
+  return builder
+    .setOverrides((b) => b.matchFieldsWithName(title)
+      .overrideThresholds({
+        mode: ThresholdsMode.Absolute,
+        steps: thresholds.map((t) => ({ value: t.value, color: t.color })),
+      }))
+    .build();
+}
+
+function makeQuery(ds: { uid: string }, expr: string, legendFormat: string, opts?: { minInterval?: string; format?: string }) {
+  return new SceneQueryRunner({
+    datasource: { uid: ds.uid, type: 'prometheus' },
+    ...(opts?.minInterval ? { minInterval: opts.minInterval } : {}),
+    queries: [{
+      refId: 'A',
+      expr,
+      legendFormat,
+      ...(opts?.format ? { format: opts.format } : {}),
+    }],
+  });
+}
+
 // ---- Web Vitals panels (Scenes) ----
 
 function WebVitalsPanels({ service, namespace }: { service: string; namespace: string }) {
@@ -58,42 +92,222 @@ function WebVitalsPanels({ service, namespace }: { service: string; namespace: s
 
   const scene = useMemo(() => {
     const timeRange = new SceneTimeRange({ from, to });
+    const mDs = { uid: ds.metricsUid };
 
-    const lcpQuery = new SceneQueryRunner({
-      datasource: { uid: ds.metricsUid, type: 'prometheus' },
-      queries: [{ refId: 'A', expr: `avg(browser_web_vitals_lcp_milliseconds{${svcFilter}})`, legendFormat: 'LCP' }],
-    });
-    const fcpQuery = new SceneQueryRunner({
-      datasource: { uid: ds.metricsUid, type: 'prometheus' },
-      queries: [{ refId: 'A', expr: `avg(browser_web_vitals_fcp_milliseconds{${svcFilter}})`, legendFormat: 'FCP' }],
-    });
-    const clsQuery = new SceneQueryRunner({
-      datasource: { uid: ds.metricsUid, type: 'prometheus' },
-      queries: [{ refId: 'A', expr: `avg(browser_web_vitals_cls{${svcFilter}})`, legendFormat: 'CLS' }],
-    });
-    const inpQuery = new SceneQueryRunner({
-      datasource: { uid: ds.metricsUid, type: 'prometheus' },
-      queries: [{ refId: 'A', expr: `avg(browser_web_vitals_inp_milliseconds{${svcFilter}})`, legendFormat: 'INP' }],
-    });
-    const ttfbQuery = new SceneQueryRunner({
-      datasource: { uid: ds.metricsUid, type: 'prometheus' },
-      queries: [{ refId: 'A', expr: `avg(browser_web_vitals_ttfb_milliseconds{${svcFilter}})`, legendFormat: 'TTFB' }],
+    // --- Row 1: Core Web Vitals stat panels ---
+    const lcpQ = makeQuery(mDs, `avg(browser_web_vitals_lcp_milliseconds{${svcFilter}})`, 'LCP');
+    const fcpQ = makeQuery(mDs, `avg(browser_web_vitals_fcp_milliseconds{${svcFilter}})`, 'FCP');
+    const clsQ = makeQuery(mDs, `avg(browser_web_vitals_cls{${svcFilter}})`, 'CLS');
+    const inpQ = makeQuery(mDs, `avg(browser_web_vitals_inp_milliseconds{${svcFilter}})`, 'INP');
+    const ttfbQ = makeQuery(mDs, `avg(browser_web_vitals_ttfb_milliseconds{${svcFilter}})`, 'TTFB');
+
+    const vitalsRow = new SceneFlexLayout({
+      direction: 'row',
+      children: [
+        new SceneFlexItem({ minHeight: 130, body: statPanel('LCP', 'Largest Contentful Paint — target < 2500ms', lcpQ, 'ms', [{ value: 0, color: 'green' }, { value: 2500, color: 'orange' }, { value: 4000, color: 'red' }]) }),
+        new SceneFlexItem({ minHeight: 130, body: statPanel('FCP', 'First Contentful Paint — target < 1800ms', fcpQ, 'ms', [{ value: 0, color: 'green' }, { value: 1800, color: 'orange' }, { value: 3000, color: 'red' }]) }),
+        new SceneFlexItem({ minHeight: 130, body: statPanel('CLS', 'Cumulative Layout Shift — target < 0.1', clsQ, 'none', [{ value: 0, color: 'green' }, { value: 0.1, color: 'orange' }, { value: 0.25, color: 'red' }], 3) }),
+        new SceneFlexItem({ minHeight: 130, body: statPanel('INP', 'Interaction to Next Paint — target < 200ms', inpQ, 'ms', [{ value: 0, color: 'green' }, { value: 200, color: 'orange' }, { value: 500, color: 'red' }]) }),
+        new SceneFlexItem({ minHeight: 130, body: statPanel('TTFB', 'Time to First Byte — target < 800ms', ttfbQ, 'ms', [{ value: 0, color: 'green' }, { value: 800, color: 'orange' }, { value: 1800, color: 'red' }]) }),
+      ],
     });
 
-    const errQuery = new SceneQueryRunner({
+    // --- Row 2: Web Vitals P75 time series ---
+    const pageLoadVitalsQ = new SceneQueryRunner({
       datasource: { uid: ds.metricsUid, type: 'prometheus' },
-      minInterval: '5m',
-      queries: [{ refId: 'A', expr: `sum(rate(browser_errors_total{${svcFilter}}[$__rate_interval]))`, legendFormat: 'JS Errors/s' }],
+      queries: [
+        { refId: 'A', expr: `avg(browser_web_vitals_ttfb_milliseconds{${svcFilter}})`, legendFormat: 'TTFB' },
+        { refId: 'B', expr: `avg(browser_web_vitals_fcp_milliseconds{${svcFilter}})`, legendFormat: 'FCP' },
+        { refId: 'C', expr: `avg(browser_web_vitals_lcp_milliseconds{${svcFilter}})`, legendFormat: 'LCP' },
+      ],
+    });
+    const inpTrendQ = makeQuery(mDs, `avg(browser_web_vitals_inp_milliseconds{${svcFilter}})`, 'INP');
+    const clsTrendQ = makeQuery(mDs, `avg(browser_web_vitals_cls{${svcFilter}})`, 'CLS');
+
+    const trendsRow = new SceneFlexLayout({
+      direction: 'row',
+      children: [
+        new SceneFlexItem({
+          minHeight: 200,
+          body: PanelBuilders.timeseries()
+            .setTitle('Page Load Vitals')
+            .setDescription('TTFB → FCP → LCP loading sequence over time')
+            .setData(pageLoadVitalsQ)
+            .setUnit('ms')
+            .build(),
+        }),
+        new SceneFlexItem({
+          minHeight: 200,
+          body: PanelBuilders.timeseries()
+            .setTitle('Interactivity (INP)')
+            .setDescription('Interaction to Next Paint trend')
+            .setData(inpTrendQ)
+            .setUnit('ms')
+            .build(),
+        }),
+        new SceneFlexItem({
+          minHeight: 200,
+          body: PanelBuilders.timeseries()
+            .setTitle('Layout Stability (CLS)')
+            .setDescription('Cumulative Layout Shift trend')
+            .setData(clsTrendQ)
+            .setUnit('none')
+            .setDecimals(3)
+            .build(),
+        }),
+      ],
     });
 
-    const pageLoadQuery = new SceneQueryRunner({
+    // --- Row 3: Page Loads Over Time + JS Errors ---
+    const pageLoadsQ = makeQuery(
+      mDs,
+      `sum by (page_route) (increase(browser_page_loads_total{${svcFilter}}[$__rate_interval]))`,
+      '{{page_route}}',
+      { minInterval: '1m' }
+    );
+    const errQ = makeQuery(
+      mDs,
+      `sum(rate(browser_errors_total{${svcFilter}}[$__rate_interval]))`,
+      'JS Errors/s',
+      { minInterval: '1m' }
+    );
+
+    const trafficRow = new SceneFlexLayout({
+      direction: 'row',
+      children: [
+        new SceneFlexItem({
+          minHeight: 200,
+          body: PanelBuilders.timeseries()
+            .setTitle('Page Loads Over Time')
+            .setDescription('Page loads by route')
+            .setData(pageLoadsQ)
+            .setUnit('short')
+            .setCustomFieldConfig('fillOpacity', 30)
+            .setCustomFieldConfig('stacking', { mode: 'normal' as any })
+            .build(),
+        }),
+        new SceneFlexItem({
+          minHeight: 200,
+          body: PanelBuilders.timeseries()
+            .setTitle('JavaScript Errors')
+            .setDescription('JS error rate over time')
+            .setData(errQ)
+            .setUnit('short')
+            .setCustomFieldConfig('fillOpacity', 15)
+            .build(),
+        }),
+      ],
+    });
+
+    // --- Row 4: Per-Page Performance Table ---
+    const perPageQ = new SceneQueryRunner({
       datasource: { uid: ds.metricsUid, type: 'prometheus' },
-      queries: [{
-        refId: 'A',
-        expr: `sum by (le) (increase(browser_page_load_duration_milliseconds_bucket{${svcFilter}}[$__range]))`,
-        format: 'heatmap',
-        legendFormat: '{{le}}',
-      }],
+      queries: [
+        { refId: 'lcp', expr: `avg by (page_route) (browser_web_vitals_lcp_milliseconds{${svcFilter}})`, legendFormat: '__auto', format: 'table', instant: true },
+        { refId: 'fcp', expr: `avg by (page_route) (browser_web_vitals_fcp_milliseconds{${svcFilter}})`, legendFormat: '__auto', format: 'table', instant: true },
+        { refId: 'cls', expr: `avg by (page_route) (browser_web_vitals_cls{${svcFilter}})`, legendFormat: '__auto', format: 'table', instant: true },
+        { refId: 'inp', expr: `avg by (page_route) (browser_web_vitals_inp_milliseconds{${svcFilter}})`, legendFormat: '__auto', format: 'table', instant: true },
+        { refId: 'ttfb', expr: `avg by (page_route) (browser_web_vitals_ttfb_milliseconds{${svcFilter}})`, legendFormat: '__auto', format: 'table', instant: true },
+        { refId: 'loads', expr: `sum by (page_route) (increase(browser_page_loads_total{${svcFilter}}[$__range]))`, legendFormat: '__auto', format: 'table', instant: true },
+      ],
+    });
+    const perPageData = new SceneDataTransformer({
+      $data: perPageQ,
+      transformations: [{ id: 'merge', options: {} }],
+    });
+
+    const perPageTable = new SceneFlexItem({
+      minHeight: 250,
+      body: PanelBuilders.table()
+        .setTitle('Per-Page Performance')
+        .setDescription('Average Web Vitals per page route')
+        .setData(perPageData)
+        .setOverrides((b) => {
+          b.matchFieldsWithName('Value #lcp').overrideDisplayName('LCP (ms)')
+            .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: [{ value: 0, color: 'green' }, { value: 2500, color: 'orange' }, { value: 4000, color: 'red' }] })
+            .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
+            .overrideDecimals(0);
+          b.matchFieldsWithName('Value #fcp').overrideDisplayName('FCP (ms)')
+            .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: [{ value: 0, color: 'green' }, { value: 1800, color: 'orange' }, { value: 3000, color: 'red' }] })
+            .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
+            .overrideDecimals(0);
+          b.matchFieldsWithName('Value #cls').overrideDisplayName('CLS')
+            .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: [{ value: 0, color: 'green' }, { value: 0.1, color: 'orange' }, { value: 0.25, color: 'red' }] })
+            .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
+            .overrideDecimals(3);
+          b.matchFieldsWithName('Value #inp').overrideDisplayName('INP (ms)')
+            .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: [{ value: 0, color: 'green' }, { value: 200, color: 'orange' }, { value: 500, color: 'red' }] })
+            .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
+            .overrideDecimals(0);
+          b.matchFieldsWithName('Value #ttfb').overrideDisplayName('TTFB (ms)')
+            .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: [{ value: 0, color: 'green' }, { value: 800, color: 'orange' }, { value: 1800, color: 'red' }] })
+            .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
+            .overrideDecimals(0);
+          b.matchFieldsWithName('Value #loads').overrideDisplayName('Page Loads').overrideDecimals(0);
+          b.matchFieldsWithName('page_route').overrideDisplayName('Page Route');
+          // Hide Time columns
+          b.matchFieldsWithName('Time').overrideCustomFieldConfig('hidden' as any, true);
+        })
+        .build(),
+    });
+
+    // --- Row 5: Browser Breakdown ---
+    const browserQ = new SceneQueryRunner({
+      datasource: { uid: ds.metricsUid, type: 'prometheus' },
+      queries: [
+        { refId: 'lcp', expr: `avg by (browser_name) (browser_web_vitals_lcp_milliseconds{${svcFilter}})`, legendFormat: '__auto', format: 'table', instant: true },
+        { refId: 'loads', expr: `sum by (browser_name) (increase(browser_page_loads_total{${svcFilter}}[$__range]))`, legendFormat: '__auto', format: 'table', instant: true },
+        { refId: 'errors', expr: `sum by (browser_name) (increase(browser_errors_total{${svcFilter}, browser_name!=""}[$__range]))`, legendFormat: '__auto', format: 'table', instant: true },
+      ],
+    });
+    const browserData = new SceneDataTransformer({
+      $data: browserQ,
+      transformations: [{ id: 'merge', options: {} }],
+    });
+
+    const browserTable = new SceneFlexItem({
+      minHeight: 200,
+      body: PanelBuilders.table()
+        .setTitle('Browser Breakdown')
+        .setDescription('Performance and error metrics by browser')
+        .setData(browserData)
+        .setOverrides((b) => {
+          b.matchFieldsWithName('browser_name').overrideDisplayName('Browser');
+          b.matchFieldsWithName('Value #lcp').overrideDisplayName('Avg LCP (ms)')
+            .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: [{ value: 0, color: 'green' }, { value: 2500, color: 'orange' }, { value: 4000, color: 'red' }] })
+            .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
+            .overrideDecimals(0);
+          b.matchFieldsWithName('Value #loads').overrideDisplayName('Page Loads').overrideDecimals(0);
+          b.matchFieldsWithName('Value #errors').overrideDisplayName('JS Errors').overrideDecimals(0);
+          b.matchFieldsWithName('Time').overrideCustomFieldConfig('hidden' as any, true);
+        })
+        .build(),
+    });
+
+    // --- Row 6: Page Load Duration Histogram ---
+    const pageLoadHistQ = makeQuery(
+      mDs,
+      `sum by (le) (increase(browser_page_load_duration_milliseconds_bucket{${svcFilter}}[$__range]))`,
+      '{{le}}',
+      { format: 'heatmap' }
+    );
+
+    const histogramItem = new SceneFlexItem({
+      minHeight: 250,
+      body: PanelBuilders.histogram()
+        .setTitle('Page Load Duration Distribution')
+        .setDescription('Distribution of page load durations')
+        .setData(pageLoadHistQ)
+        .setUnit('ms')
+        .build(),
+    });
+
+    const bottomRow = new SceneFlexLayout({
+      direction: 'row',
+      children: [
+        histogramItem,
+        browserTable,
+      ],
     });
 
     return new EmbeddedScene({
@@ -103,125 +317,11 @@ function WebVitalsPanels({ service, namespace }: { service: string; namespace: s
       body: new SceneFlexLayout({
         direction: 'column',
         children: [
-          // Core Web Vitals row
-          new SceneFlexLayout({
-            direction: 'row',
-            children: [
-              new SceneFlexItem({
-                minHeight: 160,
-                body: PanelBuilders.stat()
-                  .setTitle('LCP')
-                  .setDescription('Largest Contentful Paint — target < 2500ms')
-                  .setData(lcpQuery)
-                  .setUnit('ms')
-                  .setOverrides((b) => b.matchFieldsWithName('LCP')
-                    .overrideThresholds({
-                      mode: ThresholdsMode.Absolute,
-                      steps: [
-                        { value: 0, color: 'green' },
-                        { value: 2500, color: 'orange' },
-                        { value: 4000, color: 'red' },
-                      ],
-                    }))
-                  .build(),
-              }),
-              new SceneFlexItem({
-                minHeight: 160,
-                body: PanelBuilders.stat()
-                  .setTitle('FCP')
-                  .setDescription('First Contentful Paint — target < 1800ms')
-                  .setData(fcpQuery)
-                  .setUnit('ms')
-                  .setOverrides((b) => b.matchFieldsWithName('FCP')
-                    .overrideThresholds({
-                      mode: ThresholdsMode.Absolute,
-                      steps: [
-                        { value: 0, color: 'green' },
-                        { value: 1800, color: 'orange' },
-                        { value: 3000, color: 'red' },
-                      ],
-                    }))
-                  .build(),
-              }),
-              new SceneFlexItem({
-                minHeight: 160,
-                body: PanelBuilders.stat()
-                  .setTitle('CLS')
-                  .setDescription('Cumulative Layout Shift — target < 0.1')
-                  .setData(clsQuery)
-                  .setUnit('none')
-                  .setDecimals(3)
-                  .setOverrides((b) => b.matchFieldsWithName('CLS')
-                    .overrideThresholds({
-                      mode: ThresholdsMode.Absolute,
-                      steps: [
-                        { value: 0, color: 'green' },
-                        { value: 0.1, color: 'orange' },
-                        { value: 0.25, color: 'red' },
-                      ],
-                    }))
-                  .build(),
-              }),
-              new SceneFlexItem({
-                minHeight: 160,
-                body: PanelBuilders.stat()
-                  .setTitle('INP')
-                  .setDescription('Interaction to Next Paint — target < 200ms')
-                  .setData(inpQuery)
-                  .setUnit('ms')
-                  .setOverrides((b) => b.matchFieldsWithName('INP')
-                    .overrideThresholds({
-                      mode: ThresholdsMode.Absolute,
-                      steps: [
-                        { value: 0, color: 'green' },
-                        { value: 200, color: 'orange' },
-                        { value: 500, color: 'red' },
-                      ],
-                    }))
-                  .build(),
-              }),
-              new SceneFlexItem({
-                minHeight: 160,
-                body: PanelBuilders.stat()
-                  .setTitle('TTFB')
-                  .setDescription('Time to First Byte — target < 800ms')
-                  .setData(ttfbQuery)
-                  .setUnit('ms')
-                  .setOverrides((b) => b.matchFieldsWithName('TTFB')
-                    .overrideThresholds({
-                      mode: ThresholdsMode.Absolute,
-                      steps: [
-                        { value: 0, color: 'green' },
-                        { value: 800, color: 'orange' },
-                        { value: 1800, color: 'red' },
-                      ],
-                    }))
-                  .build(),
-              }),
-            ],
-          }),
-          // JS Errors + Page Load row
-          new SceneFlexLayout({
-            direction: 'row',
-            children: [
-              new SceneFlexItem({
-                minHeight: 200,
-                body: PanelBuilders.timeseries()
-                  .setTitle('JavaScript Errors')
-                  .setData(errQuery)
-                  .setUnit('short')
-                  .build(),
-              }),
-              new SceneFlexItem({
-                minHeight: 200,
-                body: PanelBuilders.histogram()
-                  .setTitle('Page Load Duration')
-                  .setData(pageLoadQuery)
-                  .setUnit('ms')
-                  .build(),
-              }),
-            ],
-          }),
+          vitalsRow,
+          trendsRow,
+          trafficRow,
+          perPageTable,
+          bottomRow,
         ],
       }),
     });

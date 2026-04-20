@@ -22,7 +22,7 @@ SERVICES = [
     {"name": "frontend", "namespace": "demo"},
 ]
 
-PAGES = ["/", "/products", "/cart", "/checkout", "/product/123"]
+PAGES = ["/", "/products", "/cart", "/checkout", "/product/:id"]
 BROWSERS = ["Chrome", "Firefox", "Safari", "Edge"]
 
 
@@ -39,7 +39,7 @@ def gauge_dp(value, page, browser):
         "timeUnixNano": now_ns(),
         "asDouble": value,
         "attributes": [
-            {"key": "page.url", "value": {"stringValue": page}},
+            {"key": "page.route", "value": {"stringValue": page}},
             {"key": "browser.name", "value": {"stringValue": browser}},
         ],
     }
@@ -54,7 +54,7 @@ def gauge_metric(name, description, unit, data_points):
     }
 
 
-def histogram_metric(name, description, unit, values):
+def histogram_metric(name, description, unit, values, browser=None):
     boundaries = [100, 500, 1000, 2000, 3000, 5000, 10000]
     counts = [0] * (len(boundaries) + 1)
     for v in values:
@@ -67,41 +67,47 @@ def histogram_metric(name, description, unit, values):
         if not placed:
             counts[-1] += 1
 
+    dp = {
+        "startTimeUnixNano": ago_ns(INTERVAL_SEC),
+        "timeUnixNano": now_ns(),
+        "count": str(len(values)),
+        "sum": sum(values),
+        "min": min(values) if values else 0,
+        "max": max(values) if values else 0,
+        "bucketCounts": [str(c) for c in counts],
+        "explicitBounds": [float(b) for b in boundaries],
+    }
+    if browser:
+        dp["attributes"] = [
+            {"key": "browser.name", "value": {"stringValue": browser}},
+        ]
+
     return {
         "name": name,
         "description": description,
         "unit": unit,
         "histogram": {
-            "dataPoints": [
-                {
-                    "startTimeUnixNano": ago_ns(INTERVAL_SEC),
-                    "timeUnixNano": now_ns(),
-                    "count": str(len(values)),
-                    "sum": sum(values),
-                    "min": min(values) if values else 0,
-                    "max": max(values) if values else 0,
-                    "bucketCounts": [str(c) for c in counts],
-                    "explicitBounds": [float(b) for b in boundaries],
-                }
-            ],
+            "dataPoints": [dp],
             "aggregationTemporality": 2,
         },
     }
 
 
-def counter_metric(name, description, unit, value):
+def counter_metric(name, description, unit, value, attributes=None):
+    dp = {
+        "startTimeUnixNano": ago_ns(INTERVAL_SEC),
+        "timeUnixNano": now_ns(),
+        "asDouble": value,
+    }
+    if attributes:
+        dp["attributes"] = attributes
+
     return {
         "name": name,
         "description": description,
         "unit": unit,
         "sum": {
-            "dataPoints": [
-                {
-                    "startTimeUnixNano": ago_ns(INTERVAL_SEC),
-                    "timeUnixNano": now_ns(),
-                    "asDouble": value,
-                }
-            ],
+            "dataPoints": [dp],
             "aggregationTemporality": 2,
             "isMonotonic": True,
         },
@@ -122,7 +128,9 @@ def build_service_metrics(service_name, service_namespace):
     cls_points = []
     inp_points = []
     ttfb_points = []
-    page_load_values = []
+
+    # Track page loads per route+browser for the counter
+    page_load_counters = []  # list of (page, browser, duration)
 
     num_views = random.randint(3, 8)
     for _ in range(num_views):
@@ -134,9 +142,23 @@ def build_service_metrics(service_name, service_namespace):
         cls_points.append(gauge_dp(max(0, random.gauss(0.08, 0.04)), page, browser))
         inp_points.append(gauge_dp(max(10, random.gauss(150, 60)), page, browser))
         ttfb_points.append(gauge_dp(max(20, random.gauss(400, 150)), page, browser))
-        page_load_values.append(max(200, random.gauss(3000, 800)))
+        page_load_counters.append((page, browser, max(200, random.gauss(3000, 800))))
 
-    js_errors = random.choices([0, 0, 0, 1, 1, 2, 3], k=1)[0]
+    # Group page loads by browser for histogram (one histogram per browser)
+    by_browser = {}
+    for page, browser, duration in page_load_counters:
+        by_browser.setdefault(browser, []).append(duration)
+
+    # Group page loads by route+browser for page_loads_total counter
+    by_route_browser = {}
+    for page, browser, _ in page_load_counters:
+        key = (page, browser)
+        by_route_browser[key] = by_route_browser.get(key, 0) + 1
+
+    # JS errors with page_route and browser_name
+    js_error_entries = []
+    for _ in range(random.choices([0, 0, 0, 1, 1, 2, 3], k=1)[0]):
+        js_error_entries.append((random.choice(PAGES), random.choice(BROWSERS)))
 
     metrics = [
         gauge_metric("browser.web_vitals.lcp", "Largest Contentful Paint", "ms", lcp_points),
@@ -144,9 +166,48 @@ def build_service_metrics(service_name, service_namespace):
         gauge_metric("browser.web_vitals.cls", "Cumulative Layout Shift", "", cls_points),
         gauge_metric("browser.web_vitals.inp", "Interaction to Next Paint", "ms", inp_points),
         gauge_metric("browser.web_vitals.ttfb", "Time to First Byte", "ms", ttfb_points),
-        histogram_metric("browser.page_load.duration", "Page load duration", "ms", page_load_values),
-        counter_metric("browser.errors", "JavaScript error count", "{errors}", js_errors),
     ]
+
+    # One histogram datapoint per browser
+    for browser, durations in by_browser.items():
+        metrics.append(
+            histogram_metric("browser.page_load.duration", "Page load duration", "ms", durations, browser=browser)
+        )
+
+    # Page loads counter — one datapoint per route+browser
+    for (page, browser), count in by_route_browser.items():
+        metrics.append(
+            counter_metric(
+                "browser.page_loads", "Page load count", "{loads}", count,
+                attributes=[
+                    {"key": "page.route", "value": {"stringValue": page}},
+                    {"key": "browser.name", "value": {"stringValue": browser}},
+                ],
+            )
+        )
+
+    # JS error counters — one per route+browser combo
+    error_groups = {}
+    for page, browser in js_error_entries:
+        key = (page, browser)
+        error_groups[key] = error_groups.get(key, 0) + 1
+
+    for (page, browser), count in error_groups.items():
+        metrics.append(
+            counter_metric(
+                "browser.errors", "JavaScript error count", "{errors}", count,
+                attributes=[
+                    {"key": "page.route", "value": {"stringValue": page}},
+                    {"key": "browser.name", "value": {"stringValue": browser}},
+                ],
+            )
+        )
+    # Also emit a total error counter (no extra dimensions) for backward compat
+    total_errors = len(js_error_entries)
+    if total_errors > 0:
+        metrics.append(
+            counter_metric("browser.errors", "JavaScript error count", "{errors}", total_errors)
+        )
 
     return {
         "resource": {
