@@ -244,7 +244,7 @@ function ServiceOverview() {
         direction: 'row',
         children: [
           new SceneFlexItem({
-            height: 200,
+            height: 250,
             body: PanelBuilders.timeseries()
               .setTitle('Duration')
               .setData(durationQuery)
@@ -256,7 +256,7 @@ function ServiceOverview() {
               .build(),
           }),
           new SceneFlexItem({
-            height: 200,
+            height: 250,
             body: PanelBuilders.timeseries()
               .setTitle('Errors')
               .setData(errorQuery)
@@ -268,7 +268,7 @@ function ServiceOverview() {
               .build(),
           }),
           new SceneFlexItem({
-            height: 200,
+            height: 250,
             body: PanelBuilders.timeseries()
               .setTitle('Rate')
               .setData(rateQuery)
@@ -309,7 +309,7 @@ function ServiceOverview() {
         direction: 'row',
         children: [
           new SceneFlexItem({
-            height: 200,
+            height: 280,
             body: PanelBuilders.heatmap()
               .setTitle('Duration Distribution')
               .setData(heatmapQuery)
@@ -453,12 +453,12 @@ function ServiceOverview() {
           <div style={{ display: activeTab === 'overview' ? undefined : 'none' }}>
             <>
               {/* RED panels */}
-              <div style={{ height: 200 }}>
+              <div style={{ height: 250, overflow: 'hidden' }}>
                 <scene.Component model={scene} />
               </div>
 
               {/* Duration distribution */}
-              <div style={{ height: 200, marginTop: 8 }}>
+              <div style={{ height: 280, marginTop: 8, overflow: 'hidden' }}>
                 <durationDistScene.Component model={durationDistScene} />
               </div>
 
