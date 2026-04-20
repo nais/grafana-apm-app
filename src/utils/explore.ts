@@ -1,5 +1,6 @@
 import { urlUtil } from '@grafana/data';
 import { escapeQueryString } from './sanitize';
+import { otel } from '../otelconfig';
 
 interface ExploreParams {
   datasourceUid: string;
@@ -33,9 +34,9 @@ export function buildTempoExploreUrl(
     namespace?: string;
   }
 ): string {
-  let query = `{resource.service.name="${escapeQueryString(serviceName)}"`;
+  let query = `{${otel.traceQL.serviceName}="${escapeQueryString(serviceName)}"`;
   if (options?.namespace) {
-    query += ` && resource.service.namespace="${escapeQueryString(options.namespace)}"`;
+    query += ` && ${otel.traceQL.serviceNamespace}="${escapeQueryString(options.namespace)}"`;
   }
   if (options?.statusCode) {
     query += ` && status=${options.statusCode}`;
@@ -69,8 +70,8 @@ export function buildLokiExploreUrl(
   }
 ): string {
   let expr = options?.namespace
-    ? `{service_name="${escapeQueryString(serviceName)}", service_namespace="${escapeQueryString(options.namespace)}"}`
-    : `{service_name="${escapeQueryString(serviceName)}"}`;
+    ? `{${otel.labels.serviceName}="${escapeQueryString(serviceName)}", ${otel.labels.serviceNamespace}="${escapeQueryString(options.namespace)}"}`
+    : `{${otel.labels.serviceName}="${escapeQueryString(serviceName)}"}`;
   if (options?.traceId) {
     expr += ` |= "${escapeQueryString(options.traceId)}"`;
   }

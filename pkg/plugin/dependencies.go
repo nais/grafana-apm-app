@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -99,7 +100,7 @@ func (a *App) handleDependencyDetail(w http.ResponseWriter, req *http.Request) {
 		writeJSON(w, DependencyDetailResponse{
 			Dependency: DependencySummary{Name: depName},
 			Upstreams:  []DependencySummary{},
-			Operations: []queries.OperationSummary{},
+			Operations: []queries.DependencyOperation{},
 		})
 		return
 	}
@@ -113,9 +114,22 @@ func (a *App) handleDependencyDetail(w http.ResponseWriter, req *http.Request) {
 
 // DependencyDetailResponse contains dependency info plus upstream callers and operations.
 type DependencyDetailResponse struct {
-	Dependency DependencySummary          `json:"dependency"`
-	Upstreams  []DependencySummary        `json:"upstreams"`
-	Operations []queries.OperationSummary `json:"operations"`
+	Dependency DependencySummary              `json:"dependency"`
+	Upstreams  []DependencySummary            `json:"upstreams"`
+	Operations []queries.DependencyOperation  `json:"operations"`
+}
+
+// depKey uniquely identifies a dependency by server name and connection type.
+type depKey struct {
+	server   string
+	connType string
+}
+
+func (k depKey) String() string {
+	if k.connType == "" {
+		return k.server
+	}
+	return k.server + "|" + k.connType
 }
 
 // queryDependencies queries servicegraph metrics for dependencies.
@@ -131,21 +145,15 @@ func (a *App) queryDependencies(
 	logger := log.DefaultLogger.With("handler", "dependencies")
 	rangeStr := "[5m]"
 	sgp := a.serviceGraphPrefix()
+	ct := a.otelCfg.Labels.ConnectionType
 
 	// Build label filter
 	filters := []string{}
 	if filterClient != "" {
-		filters = append(filters, fmt.Sprintf(`client="%s"`, filterClient))
+		filters = append(filters, fmt.Sprintf(`%s="%s"`, a.otelCfg.Labels.Client, filterClient))
 	}
 	if filterServer != "" {
-		filters = append(filters, fmt.Sprintf(`server="%s"`, filterServer))
-	}
-	// Note: service graph metrics don't carry namespace labels
-	// (only client, server, connection_type, client_db_system).
-	// Namespace filtering is not possible at the PromQL level for service graph data.
-	// Only virtual_node connections (external dependencies) unless filtering by server
-	if filterServer == "" {
-		filters = append(filters, `connection_type="virtual_node"`)
+		filters = append(filters, fmt.Sprintf(`%s="%s"`, a.otelCfg.Labels.Server, filterServer))
 	}
 
 	labelFilter := ""
@@ -156,17 +164,30 @@ func (a *App) queryDependencies(
 		labelFilter += f
 	}
 
+	// Include connection_type in group-by to preserve dependency classification.
 	rateQuery := fmt.Sprintf(
-		`sum by (client, server, connection_type) (rate(%s_request_total{%s}%s))`,
-		sgp, labelFilter, rangeStr,
+		`sum by (%s, %s, %s) (rate(%s%s{%s}%s))`,
+		a.otelCfg.Labels.Client, a.otelCfg.Labels.Server, ct,
+		sgp, a.otelCfg.ServiceGraph.RequestTotal, labelFilter, rangeStr,
 	)
 	errorQuery := fmt.Sprintf(
-		`sum by (client, server, connection_type) (rate(%s_request_failed_total{%s}%s))`,
-		sgp, labelFilter, rangeStr,
+		`sum by (%s, %s, %s) (rate(%s%s{%s}%s))`,
+		a.otelCfg.Labels.Client, a.otelCfg.Labels.Server, ct,
+		sgp, a.otelCfg.ServiceGraph.RequestFailedTotal, labelFilter, rangeStr,
 	)
 	p95Query := fmt.Sprintf(
-		`histogram_quantile(0.95, sum by (server, le) (rate(%s_request_server_seconds_bucket{%s}%s)))`,
-		sgp, labelFilter, rangeStr,
+		`histogram_quantile(0.95, sum by (%s, %s, %s) (rate(%s%s{%s}%s)))`,
+		a.otelCfg.Labels.Server, ct, a.otelCfg.Labels.Le,
+		sgp, a.otelCfg.ServiceGraph.RequestServerBucket, labelFilter, rangeStr,
+	)
+
+	// Enrichment: query spanmetrics for specific db_system per server_address.
+	// Only fetches for database-type dependencies to resolve postgresql vs oracle etc.
+	dbEnrichQuery := fmt.Sprintf(
+		`count by (%s, %s) (rate(%s{%s!="", %s="%s"}%s))`,
+		a.otelCfg.Labels.ServerAddress, a.otelCfg.Labels.DBSystem,
+		a.callsMetric(ctx), a.otelCfg.Labels.DBSystem, a.otelCfg.Labels.SpanKind, a.otelCfg.SpanKinds.Client,
+		rangeStr,
 	)
 
 	type queryResult struct {
@@ -176,7 +197,7 @@ func (a *App) queryDependencies(
 	}
 
 	var wg sync.WaitGroup
-	ch := make(chan queryResult, 3)
+	ch := make(chan queryResult, 4)
 
 	for _, q := range []struct {
 		name  string
@@ -185,6 +206,7 @@ func (a *App) queryDependencies(
 		{"rate", rateQuery},
 		{"error", errorQuery},
 		{"p95", p95Query},
+		{"db_enrich", dbEnrichQuery},
 	} {
 		wg.Add(1)
 		go func(n, query string) {
@@ -208,45 +230,56 @@ func (a *App) queryDependencies(
 		resultMap[r.name] = r.results
 	}
 
-	// Aggregate by dependency (server name)
+	// Build server_address → db_system mapping from enrichment query
+	dbSystemMap := make(map[string]string) // server_address → db_system
+	for _, r := range resultMap["db_enrich"] {
+		addr := r.Metric[a.otelCfg.Labels.ServerAddress]
+		dbSys := r.Metric[a.otelCfg.Labels.DBSystem]
+		if addr != "" && dbSys != "" {
+			dbSystemMap[addr] = dbSys
+		}
+	}
+
+	// Aggregate by (server, connection_type)
 	type depData struct {
 		rate      float64
 		errorRate float64
 		p95       float64
-		connType  string
 	}
-	deps := make(map[string]*depData)
+	deps := make(map[depKey]*depData)
 
 	for _, r := range resultMap["rate"] {
-		server := r.Metric["server"]
+		server := r.Metric[a.otelCfg.Labels.Server]
 		if server == "" {
 			continue
 		}
-		d, ok := deps[server]
+		k := depKey{server: server, connType: r.Metric[ct]}
+		d, ok := deps[k]
 		if !ok {
 			d = &depData{}
-			deps[server] = d
+			deps[k] = d
 		}
 		d.rate += r.Value.Float()
-		d.connType = r.Metric["connection_type"]
 	}
 
 	for _, r := range resultMap["error"] {
-		server := r.Metric["server"]
+		server := r.Metric[a.otelCfg.Labels.Server]
 		if server == "" {
 			continue
 		}
-		if d, ok := deps[server]; ok {
+		k := depKey{server: server, connType: r.Metric[ct]}
+		if d, ok := deps[k]; ok {
 			d.errorRate += r.Value.Float()
 		}
 	}
 
 	for _, r := range resultMap["p95"] {
-		server := r.Metric["server"]
+		server := r.Metric[a.otelCfg.Labels.Server]
 		if server == "" {
 			continue
 		}
-		if d, ok := deps[server]; ok {
+		k := depKey{server: server, connType: r.Metric[ct]}
+		if d, ok := deps[k]; ok {
 			v := r.Value.Float()
 			if !math.IsNaN(v) && !math.IsInf(v, 0) {
 				d.p95 = v
@@ -262,8 +295,8 @@ func (a *App) queryDependencies(
 
 	// Build response — skip entries with empty or placeholder names
 	result := make([]DependencySummary, 0, len(deps))
-	for name, d := range deps {
-		if name == "" || name == "unknown" || name == "<unknown>" {
+	for key, d := range deps {
+		if key.server == "" || key.server == "unknown" || key.server == "<unknown>" {
 			continue
 		}
 		errPct := 0.0
@@ -275,8 +308,8 @@ func (a *App) queryDependencies(
 			impact = (d.p95 * d.rate) / totalImpact
 		}
 		result = append(result, DependencySummary{
-			Name:         name,
-			Type:         inferDependencyType(name, d.connType),
+			Name:         key.server,
+			Type:         classifyDependency(key.server, key.connType, dbSystemMap),
 			Rate:         roundTo(d.rate, 3),
 			ErrorRate:    roundTo(errPct, 2),
 			P95Duration:  roundTo(d.p95*1000, 2), // seconds → milliseconds
@@ -306,20 +339,33 @@ func (a *App) queryDependencyDetail(
 	logger := log.DefaultLogger.With("handler", "dependency-detail", "dep", depName)
 	rangeStr := "[5m]"
 	sgp := a.serviceGraphPrefix()
-	labelFilter := fmt.Sprintf(`server="%s"`, depName)
+	labelFilter := fmt.Sprintf(`%s="%s"`, a.otelCfg.Labels.Server, depName)
 
 	// Query upstream services (by client)
 	rateQuery := fmt.Sprintf(
-		`sum by (client, server) (rate(%s_request_total{%s}%s))`,
-		sgp, labelFilter, rangeStr,
+		`sum by (%s, %s, %s) (rate(%s%s{%s}%s))`,
+		a.otelCfg.Labels.Client, a.otelCfg.Labels.Server, a.otelCfg.Labels.ConnectionType,
+		sgp, a.otelCfg.ServiceGraph.RequestTotal, labelFilter, rangeStr,
 	)
 	errorQuery := fmt.Sprintf(
-		`sum by (client, server) (rate(%s_request_failed_total{%s}%s))`,
-		sgp, labelFilter, rangeStr,
+		`sum by (%s, %s, %s) (rate(%s%s{%s}%s))`,
+		a.otelCfg.Labels.Client, a.otelCfg.Labels.Server, a.otelCfg.Labels.ConnectionType,
+		sgp, a.otelCfg.ServiceGraph.RequestFailedTotal, labelFilter, rangeStr,
 	)
 	p95Query := fmt.Sprintf(
-		`histogram_quantile(0.95, sum by (client, le) (rate(%s_request_server_seconds_bucket{%s}%s)))`,
-		sgp, labelFilter, rangeStr,
+		`histogram_quantile(0.95, sum by (%s, %s) (rate(%s%s{%s}%s)))`,
+		a.otelCfg.Labels.Client, a.otelCfg.Labels.Le,
+		sgp, a.otelCfg.ServiceGraph.RequestServerBucket, labelFilter, rangeStr,
+	)
+	// Enrichment for specific DB type
+	dbEnrichQuery := fmt.Sprintf(
+		`count by (%s, %s) (rate(%s{%s="%s", %s!="", %s="%s"}%s))`,
+		a.otelCfg.Labels.ServerAddress, a.otelCfg.Labels.DBSystem,
+		a.callsMetric(ctx),
+		a.otelCfg.Labels.ServerAddress, depName,
+		a.otelCfg.Labels.DBSystem,
+		a.otelCfg.Labels.SpanKind, a.otelCfg.SpanKinds.Client,
+		rangeStr,
 	)
 
 	type queryResult struct {
@@ -329,7 +375,7 @@ func (a *App) queryDependencyDetail(
 	}
 
 	var wg sync.WaitGroup
-	ch := make(chan queryResult, 3)
+	ch := make(chan queryResult, 4)
 
 	for _, q := range []struct {
 		name  string
@@ -338,6 +384,7 @@ func (a *App) queryDependencyDetail(
 		{"rate", rateQuery},
 		{"error", errorQuery},
 		{"p95", p95Query},
+		{"db_enrich", dbEnrichQuery},
 	} {
 		wg.Add(1)
 		go func(n, query string) {
@@ -361,6 +408,25 @@ func (a *App) queryDependencyDetail(
 		resultMap[r.name] = r.results
 	}
 
+	// Build db_system map from enrichment
+	dbSystemMap := make(map[string]string)
+	for _, r := range resultMap["db_enrich"] {
+		addr := r.Metric[a.otelCfg.Labels.ServerAddress]
+		dbSys := r.Metric[a.otelCfg.Labels.DBSystem]
+		if addr != "" && dbSys != "" {
+			dbSystemMap[addr] = dbSys
+		}
+	}
+
+	// Extract connection_type from any result
+	detectedConnType := ""
+	for _, r := range resultMap["rate"] {
+		if ct := r.Metric[a.otelCfg.Labels.ConnectionType]; ct != "" {
+			detectedConnType = ct
+			break
+		}
+	}
+
 	// Aggregate upstreams by client
 	type upstreamData struct {
 		rate      float64
@@ -373,7 +439,7 @@ func (a *App) queryDependencyDetail(
 	totalP95 := 0.0
 
 	for _, r := range resultMap["rate"] {
-		client := r.Metric["client"]
+		client := r.Metric[a.otelCfg.Labels.Client]
 		if client == "" {
 			continue
 		}
@@ -388,7 +454,7 @@ func (a *App) queryDependencyDetail(
 	}
 
 	for _, r := range resultMap["error"] {
-		client := r.Metric["client"]
+		client := r.Metric[a.otelCfg.Labels.Client]
 		if client == "" {
 			continue
 		}
@@ -400,7 +466,7 @@ func (a *App) queryDependencyDetail(
 	}
 
 	for _, r := range resultMap["p95"] {
-		client := r.Metric["client"]
+		client := r.Metric[a.otelCfg.Labels.Client]
 		if client == "" {
 			continue
 		}
@@ -458,7 +524,7 @@ func (a *App) queryDependencyDetail(
 	return DependencyDetailResponse{
 		Dependency: DependencySummary{
 			Name:         depName,
-			Type:         inferDependencyType(depName, ""),
+			Type:         classifyDependency(depName, detectedConnType, dbSystemMap),
 			Rate:         roundTo(totalRate, 3),
 			ErrorRate:    roundTo(errPct, 2),
 			P95Duration:  roundTo(totalP95*1000, 2),
@@ -476,25 +542,28 @@ func (a *App) queryDependencyOperations(
 	caps queries.Capabilities,
 	to time.Time,
 	depName string,
-) []queries.OperationSummary {
+) []queries.DependencyOperation {
 	logger := log.DefaultLogger.With("handler", "dependency-operations", "dep", depName)
 	callsMetric := caps.SpanMetrics.CallsMetric
 	durationUnit := caps.SpanMetrics.DurationUnit
 	durationBucket := caps.SpanMetrics.DurationMetric
 
 	rangeStr := "[5m]"
-	labelFilter := fmt.Sprintf(`peer_service="%s", span_kind="SPAN_KIND_CLIENT"`, depName)
+	labelFilter := fmt.Sprintf(`peer_service="%s", %s="%s"`, depName, a.otelCfg.Labels.SpanKind, a.otelCfg.SpanKinds.Client)
 
 	rateQuery := fmt.Sprintf(
-		`sum by (span_name, service_name) (rate(%s{%s}%s))`,
+		`sum by (%s, %s) (rate(%s{%s}%s))`,
+		a.otelCfg.Labels.SpanName, a.otelCfg.Labels.ServiceName,
 		callsMetric, labelFilter, rangeStr,
 	)
 	errorQuery := fmt.Sprintf(
-		`sum by (span_name, service_name) (rate(%s{%s, status_code="STATUS_CODE_ERROR"}%s))`,
-		callsMetric, labelFilter, rangeStr,
+		`sum by (%s, %s) (rate(%s{%s, %s="%s"}%s))`,
+		a.otelCfg.Labels.SpanName, a.otelCfg.Labels.ServiceName,
+		callsMetric, labelFilter, a.otelCfg.Labels.StatusCode, a.otelCfg.StatusCodes.Error, rangeStr,
 	)
 	p95Query := fmt.Sprintf(
-		`histogram_quantile(0.95, sum by (span_name, service_name, le) (rate(%s{%s}%s)))`,
+		`histogram_quantile(0.95, sum by (%s, %s, %s) (rate(%s{%s}%s)))`,
+		a.otelCfg.Labels.SpanName, a.otelCfg.Labels.ServiceName, a.otelCfg.Labels.Le,
 		durationBucket, labelFilter, rangeStr,
 	)
 
@@ -541,19 +610,19 @@ func (a *App) queryDependencyOperations(
 		spanName    string
 		serviceName string
 	}
-	opsMap := make(map[opKey]*queries.OperationSummary)
-	getOrCreate := func(r queries.PromResult) *queries.OperationSummary {
+	opsMap := make(map[opKey]*queries.DependencyOperation)
+	getOrCreate := func(r queries.PromResult) *queries.DependencyOperation {
 		k := opKey{
-			spanName:    r.Metric["span_name"],
-			serviceName: r.Metric["service_name"],
+			spanName:    r.Metric[a.otelCfg.Labels.SpanName],
+			serviceName: r.Metric[a.otelCfg.Labels.ServiceName],
 		}
 		if o, ok := opsMap[k]; ok {
 			return o
 		}
-		o := &queries.OperationSummary{
-			SpanName:     k.spanName,
-			SpanKind:     k.serviceName, // Use service_name as "kind" for dep operations
-			DurationUnit: durationUnit,
+		o := &queries.DependencyOperation{
+			SpanName:       k.spanName,
+			CallingService: k.serviceName,
+			DurationUnit:   durationUnit,
 		}
 		opsMap[k] = o
 		return o
@@ -566,7 +635,7 @@ func (a *App) queryDependencyOperations(
 	for _, r := range resultMap["error"] {
 		o := getOrCreate(r)
 		if o.Rate > 0 {
-			o.ErrorRate = roundTo(r.Value.Float()/o.Rate*100, 2)
+			o.ErrorRate = math.Min(roundTo(r.Value.Float()/o.Rate*100, 2), 100)
 		}
 	}
 	for _, r := range resultMap["p95"] {
@@ -577,47 +646,110 @@ func (a *App) queryDependencyOperations(
 		}
 	}
 
-	ops := make([]queries.OperationSummary, 0, len(opsMap))
+	ops := make([]queries.DependencyOperation, 0, len(opsMap))
 	for _, o := range opsMap {
 		ops = append(ops, *o)
 	}
 	return ops
 }
 
-// inferDependencyType maps a dependency name to a type for icon display.
-func inferDependencyType(name, connType string) string {
-	switch name {
-	case "redis", "valkey":
-		return "redis"
-	case "postgresql", "postgres":
-		return "postgresql"
-	case "mysql", "mariadb":
-		return "mysql"
-	case "mongodb", "mongo":
-		return "mongodb"
-	case "elasticsearch", "opensearch":
-		return "elasticsearch"
-	case "kafka":
-		return "kafka"
-	case "rabbitmq", "amqp":
-		return "rabbitmq"
-	case "memcached":
-		return "memcached"
-	}
+// classifyDependency determines the dependency type using service-graph
+// connection_type and optionally enriching database types from spanmetrics.
+func classifyDependency(name, connType string, dbSystemMap map[string]string) string {
+	switch connType {
+	case "database":
+		// Try to resolve specific DB type from spanmetrics enrichment
+		if dbSys, ok := dbSystemMap[name]; ok {
+			return normalizeDBSystem(dbSys)
+		}
+		// Fallback: try hostname pattern matching
+		return inferDBFromHostname(name)
 
-	if connType == "virtual_node" {
+	case "messaging_system":
+		return "kafka" // dominant messaging system; refined below if needed
+
+	case "virtual_node":
 		return "external"
 	}
-	return "service"
+
+	// No connection_type — check if we can still classify by name patterns
+	if dbSys, ok := dbSystemMap[name]; ok {
+		return normalizeDBSystem(dbSys)
+	}
+	return inferFromName(name)
+}
+
+// normalizeDBSystem maps OTel db.system values to our display types.
+func normalizeDBSystem(dbSys string) string {
+	switch dbSys {
+	case "postgresql", "postgres":
+		return "postgresql"
+	case "oracle":
+		return "oracle"
+	case "mongodb", "mongo":
+		return "mongodb"
+	case "redis":
+		return "redis"
+	case "mysql", "mariadb":
+		return "mysql"
+	case "db2":
+		return "db2"
+	case "opensearch", "elasticsearch":
+		return "opensearch"
+	case "h2":
+		return "h2"
+	case "other_sql":
+		return "database"
+	default:
+		return "database"
+	}
+}
+
+// inferDBFromHostname uses hostname patterns common at Nav.
+func inferDBFromHostname(name string) string {
+	lower := strings.ToLower(name)
+	if strings.HasPrefix(lower, "dmv") && strings.Contains(lower, "-scan") {
+		return "oracle" // Oracle RAC scan listeners
+	}
+	if strings.HasPrefix(lower, "a01db") {
+		return "postgresql" // Nav on-prem PostgreSQL hosts
+	}
+	if strings.Contains(lower, "redis") || strings.Contains(lower, "valkey") {
+		return "redis"
+	}
+	if strings.Contains(lower, "opensearch") || strings.Contains(lower, "elastic") {
+		return "opensearch"
+	}
+	if strings.Contains(lower, "mongo") {
+		return "mongodb"
+	}
+	return "database"
+}
+
+// inferFromName classifies by name when no connection_type is available.
+func inferFromName(name string) string {
+	lower := strings.ToLower(name)
+	switch {
+	case lower == "redis" || lower == "valkey":
+		return "redis"
+	case lower == "kafka":
+		return "kafka"
+	case strings.Contains(lower, "redis") || strings.Contains(lower, "valkey") ||
+		strings.HasSuffix(lower, ".aivencloud.com"):
+		return "redis"
+	default:
+		return "service"
+	}
 }
 
 // ConnectedService represents a service connected via service graph.
 type ConnectedService struct {
-	Name         string  `json:"name"`
-	Rate         float64 `json:"rate"`
-	ErrorRate    float64 `json:"errorRate"`
-	P95Duration  float64 `json:"p95Duration"`
-	DurationUnit string  `json:"durationUnit"`
+	Name           string  `json:"name"`
+	ConnectionType string  `json:"connectionType,omitempty"`
+	Rate           float64 `json:"rate"`
+	ErrorRate      float64 `json:"errorRate"`
+	P95Duration    float64 `json:"p95Duration"`
+	DurationUnit   string  `json:"durationUnit"`
 }
 
 // ConnectedServicesResponse contains inbound and outbound service connections.
@@ -661,32 +793,45 @@ func (a *App) queryConnectedServices(ctx context.Context, to time.Time, service 
 	rangeStr := "[5m]"
 	sgp := a.serviceGraphPrefix()
 
-	// Outbound: where service is the client (exclude virtual_node)
+	// Outbound: where service is the client
+	// Include connection_type to distinguish database, messaging, and service connections.
 	outRateQ := fmt.Sprintf(
-		`sum by (server) (rate(%s_request_total{client="%s", connection_type!="virtual_node"}%s))`,
-		sgp, service, rangeStr,
+		`sum by (%s, %s) (rate(%s%s{%s="%s"}%s))`,
+		a.otelCfg.Labels.Server, a.otelCfg.Labels.ConnectionType,
+		sgp, a.otelCfg.ServiceGraph.RequestTotal,
+		a.otelCfg.Labels.Client, service, rangeStr,
 	)
 	outErrQ := fmt.Sprintf(
-		`sum by (server) (rate(%s_request_failed_total{client="%s", connection_type!="virtual_node"}%s))`,
-		sgp, service, rangeStr,
+		`sum by (%s, %s) (rate(%s%s{%s="%s"}%s))`,
+		a.otelCfg.Labels.Server, a.otelCfg.Labels.ConnectionType,
+		sgp, a.otelCfg.ServiceGraph.RequestFailedTotal,
+		a.otelCfg.Labels.Client, service, rangeStr,
 	)
 	outP95Q := fmt.Sprintf(
-		`histogram_quantile(0.95, sum by (server, le) (rate(%s_request_server_seconds_bucket{client="%s", connection_type!="virtual_node"}%s)))`,
-		sgp, service, rangeStr,
+		`histogram_quantile(0.95, sum by (%s, %s, %s) (rate(%s%s{%s="%s"}%s)))`,
+		a.otelCfg.Labels.Server, a.otelCfg.Labels.ConnectionType, a.otelCfg.Labels.Le,
+		sgp, a.otelCfg.ServiceGraph.RequestServerBucket,
+		a.otelCfg.Labels.Client, service, rangeStr,
 	)
 
 	// Inbound: where service is the server
 	inRateQ := fmt.Sprintf(
-		`sum by (client) (rate(%s_request_total{server="%s"}%s))`,
-		sgp, service, rangeStr,
+		`sum by (%s) (rate(%s%s{%s="%s"}%s))`,
+		a.otelCfg.Labels.Client,
+		sgp, a.otelCfg.ServiceGraph.RequestTotal,
+		a.otelCfg.Labels.Server, service, rangeStr,
 	)
 	inErrQ := fmt.Sprintf(
-		`sum by (client) (rate(%s_request_failed_total{server="%s"}%s))`,
-		sgp, service, rangeStr,
+		`sum by (%s) (rate(%s%s{%s="%s"}%s))`,
+		a.otelCfg.Labels.Client,
+		sgp, a.otelCfg.ServiceGraph.RequestFailedTotal,
+		a.otelCfg.Labels.Server, service, rangeStr,
 	)
 	inP95Q := fmt.Sprintf(
-		`histogram_quantile(0.95, sum by (client, le) (rate(%s_request_server_seconds_bucket{server="%s"}%s)))`,
-		sgp, service, rangeStr,
+		`histogram_quantile(0.95, sum by (%s, %s) (rate(%s%s{%s="%s"}%s)))`,
+		a.otelCfg.Labels.Client, a.otelCfg.Labels.Le,
+		sgp, a.otelCfg.ServiceGraph.RequestServerBucket,
+		a.otelCfg.Labels.Server, service, rangeStr,
 	)
 
 	type queryResult struct {
@@ -728,33 +873,42 @@ func (a *App) queryConnectedServices(ctx context.Context, to time.Time, service 
 	}
 
 	buildList := func(rateKey, errKey, p95Key, peerLabel string) []ConnectedService {
+		type connKey struct {
+			name           string
+			connectionType string
+		}
 		type svcData struct {
 			rate  float64
 			err   float64
 			p95   float64
 		}
-		m := make(map[string]*svcData)
+		m := make(map[connKey]*svcData)
 		for _, r := range resultMap[rateKey] {
 			name := r.Metric[peerLabel]
 			if name == "" {
 				continue
 			}
-			d, ok := m[name]
+			k := connKey{name: name, connectionType: r.Metric[a.otelCfg.Labels.ConnectionType]}
+			d, ok := m[k]
 			if !ok {
 				d = &svcData{}
-				m[name] = d
+				m[k] = d
 			}
 			d.rate += r.Value.Float()
 		}
 		for _, r := range resultMap[errKey] {
 			name := r.Metric[peerLabel]
-			if d, ok := m[name]; ok {
+			ct := r.Metric[a.otelCfg.Labels.ConnectionType]
+			k := connKey{name: name, connectionType: ct}
+			if d, ok := m[k]; ok {
 				d.err += r.Value.Float()
 			}
 		}
 		for _, r := range resultMap[p95Key] {
 			name := r.Metric[peerLabel]
-			if d, ok := m[name]; ok {
+			ct := r.Metric[a.otelCfg.Labels.ConnectionType]
+			k := connKey{name: name, connectionType: ct}
+			if d, ok := m[k]; ok {
 				v := r.Value.Float()
 				if !math.IsNaN(v) && !math.IsInf(v, 0) {
 					d.p95 = v
@@ -762,17 +916,18 @@ func (a *App) queryConnectedServices(ctx context.Context, to time.Time, service 
 			}
 		}
 		result := make([]ConnectedService, 0, len(m))
-		for name, d := range m {
+		for k, d := range m {
 			errPct := 0.0
 			if d.rate > 0 {
 				errPct = (d.err / d.rate) * 100
 			}
 			result = append(result, ConnectedService{
-				Name:         name,
-				Rate:         roundTo(d.rate, 3),
-				ErrorRate:    roundTo(errPct, 2),
-				P95Duration:  roundTo(d.p95*1000, 2),
-				DurationUnit: "ms",
+				Name:           k.name,
+				ConnectionType: k.connectionType,
+				Rate:           roundTo(d.rate, 3),
+				ErrorRate:      roundTo(errPct, 2),
+				P95Duration:    roundTo(d.p95*1000, 2),
+				DurationUnit:   "ms",
 			})
 		}
 		sort.Slice(result, func(i, j int) bool {
@@ -781,8 +936,8 @@ func (a *App) queryConnectedServices(ctx context.Context, to time.Time, service 
 		return result
 	}
 
-	outbound := buildList("outRate", "outErr", "outP95", "server")
-	inbound := buildList("inRate", "inErr", "inP95", "client")
+	outbound := buildList("outRate", "outErr", "outP95", a.otelCfg.Labels.Server)
+	inbound := buildList("inRate", "inErr", "inP95", a.otelCfg.Labels.Client)
 
 	if outbound == nil {
 		outbound = []ConnectedService{}

@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { PluginPage } from '@grafana/runtime';
 import { Alert, Badge, Icon, Input, LoadingPlaceholder, Pagination, Select, useStyles2 } from '@grafana/ui';
 import { GrafanaTheme2, SelectableValue } from '@grafana/data';
@@ -7,21 +8,15 @@ import { getServices, getCapabilities, ServiceSummary, Capabilities } from '../a
 import { useTimeRange } from '../utils/timeRange';
 import { useAppNavigate } from '../utils/navigation';
 import { formatDuration } from '../utils/format';
+import { useFetch } from '../utils/useFetch';
 
-const SDK_BADGES: Record<string, { text: string; color: 'blue' | 'green' | 'orange' | 'red' | 'purple' }> = {
-  java: { text: 'Java', color: 'orange' },
-  go: { text: 'Go', color: 'blue' },
-  dotnet: { text: '.NET', color: 'purple' },
-  python: { text: 'Python', color: 'blue' },
-  nodejs: { text: 'Node.js', color: 'green' },
-  ruby: { text: 'Ruby', color: 'red' },
-  rust: { text: 'Rust', color: 'orange' },
-  cpp: { text: 'C++', color: 'blue' },
-  erlang: { text: 'Erlang', color: 'red' },
-  php: { text: 'PHP', color: 'purple' },
+const FRAMEWORK_BADGES: Record<string, { text: string; color: 'blue' | 'green' | 'orange' | 'red' | 'purple' }> = {
+  'Ktor':        { text: 'Ktor', color: 'purple' },
+  'Spring Boot': { text: 'Spring', color: 'green' },
+  'Node.js':     { text: 'Node.js', color: 'orange' },
 };
 
-type SortField = 'name' | 'namespace' | 'p95Duration' | 'errorRate' | 'rate';
+type SortField = 'name' | 'namespace' | 'environment' | 'p95Duration' | 'errorRate' | 'rate';
 type SortDir = 'asc' | 'desc';
 
 const PAGE_SIZE_OPTIONS: Array<SelectableValue<number>> = [
@@ -34,56 +29,78 @@ function ServiceInventory() {
   const styles = useStyles2(getStyles);
   const appNavigate = useAppNavigate();
   const { fromMs, toMs } = useTimeRange();
-  const [services, setServices] = useState<ServiceSummary[]>([]);
-  const [caps, setCaps] = useState<Capabilities | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
-  const [sortField, setSortField] = useState<SortField>('name');
-  const [sortDir, setSortDir] = useState<SortDir>('asc');
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
-  const [namespaceFilter, setNamespaceFilterRaw] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const setNamespaceFilter = (ns: string) => {
-    setNamespaceFilterRaw(ns);
-    setPage(1);
-  };
+  const { data: fetchResult, loading, error } = useFetch<{ services: ServiceSummary[]; caps: Capabilities }>(
+    async () => {
+      const [capsResult, servicesResult] = await Promise.all([
+        getCapabilities(),
+        getServices(fromMs, toMs, 60, true),
+      ]);
+      return { caps: capsResult, services: servicesResult };
+    },
+    [fromMs, toMs]
+  );
+  const services = fetchResult?.services ?? [];
+  const caps = fetchResult?.caps ?? null;
+
+  // Read all UI state from query params (persisted across navigation)
+  const namespaceFilter = searchParams.get('namespace') ?? '';
+  const envFilter = searchParams.get('environment') ?? '';
+  const search = searchParams.get('q') ?? '';
+  const sortField: SortField = (searchParams.get('sort') as SortField) || 'name';
+  const sortDir: SortDir = (searchParams.get('dir') as SortDir) || 'asc';
+  const page = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10) || 1);
+  const pageSize = parseInt(searchParams.get('pageSize') ?? '25', 10) || 25;
+
+  // Helper to update one or more query params without losing others
+  const updateParams = useCallback((updates: Record<string, string | null>) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      for (const [key, val] of Object.entries(updates)) {
+        if (val) {
+          next.set(key, val);
+        } else {
+          next.delete(key);
+        }
+      }
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  const setNamespaceFilter = (ns: string) => updateParams({ namespace: ns || null, page: null });
+  const setEnvFilter = (env: string) => updateParams({ environment: env || null, page: null });
+  const setSearch = (q: string) => updateParams({ q: q || null, page: null });
+  const setPage = (p: number) => updateParams({ page: p > 1 ? String(p) : null });
+  const setPageSize = (sz: number) => updateParams({ pageSize: sz !== 25 ? String(sz) : null, page: null });
 
   // Compute unique namespaces for the filter dropdown
   const namespaceOptions = useMemo<Array<SelectableValue<string>>>(() => {
     const nss = new Set(services.map((s) => s.namespace).filter(Boolean));
-    const opts: Array<SelectableValue<string>> = [{ label: 'All namespaces', value: '' }];
+    const opts: Array<SelectableValue<string>> = [];
     for (const ns of [...nss].sort()) {
       opts.push({ label: ns, value: ns });
     }
     return opts;
   }, [services]);
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const [capsResult, servicesResult] = await Promise.all([
-          getCapabilities(),
-          getServices(fromMs, toMs, 60, true),
-        ]);
-        setCaps(capsResult);
-        setServices(servicesResult);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Failed to load services');
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
-  }, [fromMs, toMs]);
+  // Compute unique environments for the filter dropdown
+  const envOptions = useMemo<Array<SelectableValue<string>>>(() => {
+    const envs = new Set(services.map((s) => s.environment).filter(Boolean));
+    const opts: Array<SelectableValue<string>> = [];
+    for (const e of [...envs].sort()) {
+      opts.push({ label: e, value: e });
+    }
+    return opts;
+  }, [services]);
 
   const filtered = useMemo(() => {
     let result = services;
     if (namespaceFilter) {
       result = result.filter((s) => s.namespace === namespaceFilter);
+    }
+    if (envFilter) {
+      result = result.filter((s) => s.environment === envFilter);
     }
     if (search) {
       const q = search.toLowerCase();
@@ -96,25 +113,27 @@ function ServiceInventory() {
       switch (sortField) {
         case 'name': cmp = a.name.localeCompare(b.name); break;
         case 'namespace': cmp = a.namespace.localeCompare(b.namespace); break;
+        case 'environment': cmp = (a.environment ?? '').localeCompare(b.environment ?? ''); break;
         case 'p95Duration': cmp = a.p95Duration - b.p95Duration; break;
         case 'errorRate': cmp = a.errorRate - b.errorRate; break;
         case 'rate': cmp = a.rate - b.rate; break;
       }
       return sortDir === 'asc' ? cmp : -cmp;
     });
-  }, [services, search, sortField, sortDir, namespaceFilter]);
+  }, [services, search, sortField, sortDir, namespaceFilter, envFilter]);
+
+  // Show environment column when multiple envs exist and no single env is selected
+  const showEnvColumn = envOptions.length > 1 && !envFilter;
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
 
   const toggleSort = (field: SortField) => {
     if (sortField === field) {
-      setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+      updateParams({ dir: sortDir === 'asc' ? 'desc' : 'asc', page: null });
     } else {
-      setSortField(field);
-      setSortDir('asc');
+      updateParams({ sort: field, dir: 'asc', page: null });
     }
-    setPage(1);
   };
 
   const sortIcon = (field: SortField) => {
@@ -144,16 +163,26 @@ function ServiceInventory() {
                 placeholder="Filter services..."
                 width={30}
                 value={search}
-                onChange={(e) => { setSearch(e.currentTarget.value); setPage(1); }}
+                onChange={(e) => { setSearch(e.currentTarget.value); }}
               />
               <Select
                 options={namespaceOptions}
-                value={namespaceFilter}
-                onChange={(v) => setNamespaceFilter(v.value ?? '')}
+                value={namespaceFilter || null}
+                onChange={(v) => setNamespaceFilter(v?.value ?? '')}
                 width={25}
                 placeholder="All namespaces"
                 isClearable
               />
+              {envOptions.length > 1 && (
+                <Select
+                  options={envOptions}
+                  value={envFilter || null}
+                  onChange={(v) => setEnvFilter(v?.value ?? '')}
+                  width={20}
+                  placeholder="All environments"
+                  isClearable
+                />
+              )}
             </div>
 
             <table className={styles.table}>
@@ -165,6 +194,11 @@ function ServiceInventory() {
                   <th className={styles.sortable} onClick={() => toggleSort('namespace')}>
                     Namespace {sortIcon('namespace')}
                   </th>
+                  {showEnvColumn && (
+                    <th className={styles.sortable} onClick={() => toggleSort('environment')}>
+                      Environment {sortIcon('environment')}
+                    </th>
+                  )}
                   <th className={styles.sortable} onClick={() => toggleSort('p95Duration')}>
                     Duration, p95 {sortIcon('p95Duration')}
                   </th>
@@ -187,11 +221,15 @@ function ServiceInventory() {
                   >
                     <td>
                       <div className={styles.nameCell}>
-                        <SDKIcon language={svc.sdkLanguage} />
+                        <FrameworkBadge framework={svc.framework} />
+                        {svc.hasFrontend && <Badge text="Faro" color="blue" icon="globe" />}
                         <span>{svc.name}</span>
                       </div>
                     </td>
                     <td className={styles.nsCell}>{svc.namespace}</td>
+                    {showEnvColumn && (
+                      <td className={styles.nsCell}>{svc.environment}</td>
+                    )}
                     <td>
                       <div className={styles.metricCell}>
                         <span className={styles.metricValue}>
@@ -228,7 +266,7 @@ function ServiceInventory() {
                 <Select
                   options={PAGE_SIZE_OPTIONS}
                   value={pageSize}
-                  onChange={(v) => { setPageSize(v.value ?? 25); setPage(1); }}
+                  onChange={(v) => { setPageSize(v.value ?? 25); }}
                   width={8}
                 />
               </div>
@@ -249,13 +287,13 @@ function ServiceInventory() {
   );
 }
 
-function SDKIcon({ language }: { language?: string }) {
-  if (!language) {
+function FrameworkBadge({ framework }: { framework?: string }) {
+  if (!framework) {
     return null;
   }
-  const info = SDK_BADGES[language.toLowerCase()];
+  const info = FRAMEWORK_BADGES[framework];
   if (!info) {
-    return <Badge text={language.substring(0, 4)} color="blue" />;
+    return <Badge text={framework} color="blue" />;
   }
   return <Badge text={info.text} color={info.color} />;
 }
@@ -305,12 +343,6 @@ const getStyles = (theme: GrafanaTheme2) => ({
     width: 100%;
     border-collapse: separate;
     border-spacing: 0;
-    table-layout: fixed;
-    th:nth-child(1) { width: 25%; }
-    th:nth-child(2) { width: 12%; }
-    th:nth-child(3) { width: 25%; }
-    th:nth-child(4) { width: 15%; }
-    th:nth-child(5) { width: 23%; }
     th {
       text-align: left;
       padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
@@ -344,6 +376,7 @@ const getStyles = (theme: GrafanaTheme2) => ({
     align-items: center;
     gap: ${theme.spacing(1.5)};
     font-weight: ${theme.typography.fontWeightMedium};
+    color: ${theme.colors.text.link};
   `,
   nsCell: css`
     color: ${theme.colors.text.secondary};

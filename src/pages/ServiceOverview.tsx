@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { PluginPage } from '@grafana/runtime';
-import { useStyles2, Tab, TabsBar, Icon, LinkButton, Select, LoadingPlaceholder, Alert } from '@grafana/ui';
-import { GrafanaTheme2, SelectableValue } from '@grafana/data';
+import { useStyles2, Tab, TabsBar, Icon, LinkButton, Select, LoadingPlaceholder, Alert, Badge } from '@grafana/ui';
+import { GrafanaTheme2, SelectableValue, PageLayoutType } from '@grafana/data';
 import { css } from '@emotion/css';
 import {
   SceneFlexLayout,
@@ -24,14 +24,16 @@ import { useTimeRange } from '../utils/timeRange';
 import { useCapabilities, getMetricNames } from '../utils/capabilities';
 import { useAppNavigate } from '../utils/navigation';
 import { sanitizeLabelValue } from '../utils/sanitize';
+import { otel } from '../otelconfig';
 import { TracesTab } from './tabs/TracesTab';
 import { LogsTab } from './tabs/LogsTab';
 import { ServiceMapTab } from './tabs/ServiceMapTab';
 import { DependenciesTab } from './tabs/DependenciesTab';
 import { ServerTab } from './tabs/ServerTab';
 import { FrontendTab } from './tabs/FrontendTab';
+import { RuntimeTab } from './tabs/RuntimeTab';
 
-type TabId = 'overview' | 'server' | 'frontend' | 'dependencies' | 'traces' | 'logs' | 'service-map';
+type TabId = 'overview' | 'server' | 'frontend' | 'runtime' | 'dependencies' | 'traces' | 'logs' | 'service-map';
 
 const PERCENTILE_OPTIONS: Array<SelectableValue<string>> = [
   { label: 'P50', value: '0.50' },
@@ -40,14 +42,10 @@ const PERCENTILE_OPTIONS: Array<SelectableValue<string>> = [
   { label: 'P99', value: '0.99' },
 ];
 
-const SDK_BADGES: Record<string, { label: string; bg: string }> = {
-  java: { label: 'JAVA', bg: '#E76F00' },
-  go: { label: 'GO', bg: '#00ADD8' },
-  dotnet: { label: '.NET', bg: '#512BD4' },
-  python: { label: 'PY', bg: '#3776AB' },
-  nodejs: { label: 'JS', bg: '#68A063' },
-  ruby: { label: 'RUBY', bg: '#CC342D' },
-  rust: { label: 'RUST', bg: '#DEA584' },
+const FRAMEWORK_BADGES: Record<string, { label: string; bg: string }> = {
+  'Ktor':        { label: 'KTOR', bg: '#7B68EE' },
+  'Spring Boot': { label: 'SPRING', bg: '#6DB33F' },
+  'Node.js':     { label: 'NODE', bg: '#68A063' },
 };
 
 function ServiceOverview() {
@@ -62,13 +60,11 @@ function ServiceOverview() {
   const metrics = getMetricNames(caps);
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [percentile, setPercentile] = useState<string>('0.95');
-  const [sdkLanguage, setSdkLanguage] = useState<string>('');
+  const [framework, setFramework] = useState<string>('');
   const [environments, setEnvironments] = useState<string[]>([]);
   const [operations, setOperations] = useState<OperationSummary[]>([]);
   const [opsLoading, setOpsLoading] = useState(true);
   const [opsError, setOpsError] = useState<string | null>(null);
-  const [opsSortField, setOpsSortField] = useState<keyof OperationSummary>('rate');
-  const [opsSortDir, setOpsSortDir] = useState<'asc' | 'desc'>('desc');
   const [connected, setConnected] = useState<import('../api/client').ConnectedServicesResponse | null>(null);
 
   // Fetch SDK language and available environments
@@ -77,8 +73,8 @@ function ServiceOverview() {
       try {
         const svcs = await getServices(fromMs, toMs, 60, false);
         const match = svcs.find((s) => s.name === service && s.namespace === namespace);
-        if (match?.sdkLanguage) {
-          setSdkLanguage(match.sdkLanguage);
+        if (match?.framework) {
+          setFramework(match.framework);
         }
         // Collect unique environments across all services (for filter dropdown)
         const envSet = new Set<string>();
@@ -130,9 +126,9 @@ function ServiceOverview() {
   // Scenes for RED panels — rebuild when percentile or capabilities change
   const scene = useMemo(() => {
     const timeRange = new SceneTimeRange({ from, to });
-    let svcFilter = `service_name="${sanitizeLabelValue(service)}", service_namespace="${sanitizeLabelValue(namespace)}"`;
+    let svcFilter = `${otel.labels.serviceName}="${sanitizeLabelValue(service)}", ${otel.labels.serviceNamespace}="${sanitizeLabelValue(namespace)}"`;
     if (envFilter) {
-      svcFilter += `, deployment_environment="${sanitizeLabelValue(envFilter)}"`;
+      svcFilter += `, ${otel.labels.deploymentEnv}="${sanitizeLabelValue(envFilter)}"`;
     }
     const durationUnit = metrics.durationUnit === 's' ? 's' : 'ms';
 
@@ -142,7 +138,7 @@ function ServiceOverview() {
       queries: [
         {
           refId: 'A',
-          expr: `histogram_quantile(${percentile}, sum by (le) (rate(${metrics.durationBucket}{${svcFilter}, span_kind="SPAN_KIND_SERVER"}[$__rate_interval])))`,
+          expr: `histogram_quantile(${percentile}, sum by (${otel.labels.le}) (rate(${metrics.durationBucket}{${svcFilter}, ${otel.labels.spanKind}="${otel.spanKinds.server}"}[$__rate_interval])))`,
           legendFormat: percentileLabel,
         },
       ],
@@ -154,7 +150,7 @@ function ServiceOverview() {
       queries: [
         {
           refId: 'A',
-          expr: `sum(rate(${metrics.callsMetric}{${svcFilter}, span_kind="SPAN_KIND_SERVER", status_code="STATUS_CODE_ERROR"}[$__rate_interval])) / sum(rate(${metrics.callsMetric}{${svcFilter}, span_kind="SPAN_KIND_SERVER"}[$__rate_interval])) * 100`,
+          expr: `sum(rate(${metrics.callsMetric}{${svcFilter}, ${otel.labels.spanKind}="${otel.spanKinds.server}", ${otel.labels.statusCode}="${otel.statusCodes.error}"}[$__rate_interval])) / sum(rate(${metrics.callsMetric}{${svcFilter}, ${otel.labels.spanKind}="${otel.spanKinds.server}"}[$__rate_interval])) * 100`,
           legendFormat: 'Error %',
         },
       ],
@@ -166,7 +162,7 @@ function ServiceOverview() {
       queries: [
         {
           refId: 'A',
-          expr: `sum(rate(${metrics.callsMetric}{${svcFilter}, span_kind="SPAN_KIND_SERVER"}[$__rate_interval]))`,
+          expr: `sum(rate(${metrics.callsMetric}{${svcFilter}, ${otel.labels.spanKind}="${otel.spanKinds.server}"}[$__rate_interval]))`,
           legendFormat: 'Rate',
         },
       ],
@@ -176,7 +172,7 @@ function ServiceOverview() {
     const lokiUrl = buildLokiExploreUrl(ds.logsUid, service, { namespace });
     const mimirUrl = buildMimirExploreUrl(
       ds.metricsUid,
-      `sum(rate(${metrics.callsMetric}{service_name="${service}", service_namespace="${namespace}", span_kind="SPAN_KIND_SERVER"}[5m]))`
+      `sum(rate(${metrics.callsMetric}{${otel.labels.serviceName}="${service}", ${otel.labels.serviceNamespace}="${namespace}", ${otel.labels.spanKind}="${otel.spanKinds.server}"}[5m]))`
     );
 
     return new EmbeddedScene({
@@ -226,20 +222,22 @@ function ServiceOverview() {
     });
   }, [service, namespace, envFilter, percentile, percentileLabel, from, to, ds, metrics]);
 
-  // Duration distribution histogram
+  // Duration distribution — heatmap over time shows latency density more intuitively
+  // than a static histogram. Users see where most requests land (dark bands) and
+  // whether latency is shifting over time.
   const durationDistScene = useMemo(() => {
     const timeRange = new SceneTimeRange({ from, to });
-    let svcFilter = `service_name="${sanitizeLabelValue(service)}", service_namespace="${sanitizeLabelValue(namespace)}"`;
+    let svcFilter = `${otel.labels.serviceName}="${sanitizeLabelValue(service)}", ${otel.labels.serviceNamespace}="${sanitizeLabelValue(namespace)}"`;
     if (envFilter) {
-      svcFilter += `, deployment_environment="${sanitizeLabelValue(envFilter)}"`;
+      svcFilter += `, ${otel.labels.deploymentEnv}="${sanitizeLabelValue(envFilter)}"`;
     }
 
-    const histQuery = new SceneQueryRunner({
+    const heatmapQuery = new SceneQueryRunner({
       datasource: { uid: ds.metricsUid, type: 'prometheus' },
       queries: [
         {
           refId: 'A',
-          expr: `sum by (le) (increase(${metrics.durationBucket}{${svcFilter}, span_kind="SPAN_KIND_SERVER"}[$__range]))`,
+          expr: `sum by (${otel.labels.le}) (increase(${metrics.durationBucket}{${svcFilter}, ${otel.labels.spanKind}="${otel.spanKinds.server}"}[$__rate_interval]))`,
           format: 'heatmap',
           legendFormat: '{{le}}',
         },
@@ -253,10 +251,20 @@ function ServiceOverview() {
         children: [
           new SceneFlexItem({
             minHeight: 200,
-            body: PanelBuilders.histogram()
+            body: PanelBuilders.heatmap()
               .setTitle('Duration Distribution')
-              .setData(histQuery)
-              .setUnit(metrics.durationUnit === 's' ? 's' : 'ms')
+              .setData(heatmapQuery)
+              .setOption('calculate', false)
+              .setOption('yAxis', {
+                unit: metrics.durationUnit === 's' ? 's' : 'ms',
+              })
+              .setOption('color', {
+                mode: 'scheme',
+                scheme: 'Oranges',
+                steps: 128,
+              })
+              .setOption('cellGap', 1)
+              .setOption('tooltip', { show: true, yHistogram: true })
               .build(),
           }),
         ],
@@ -264,30 +272,27 @@ function ServiceOverview() {
     });
   }, [service, namespace, envFilter, from, to, ds, metrics]);
 
-  const sortedOps = useMemo(() => {
-    return [...operations].sort((a, b) => {
-      const av = a[opsSortField];
-      const bv = b[opsSortField];
-      if (typeof av === 'string' && typeof bv === 'string') {
-        return opsSortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
-      }
-      return opsSortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number);
-    });
-  }, [operations, opsSortField, opsSortDir]);
+  const MAX_OVERVIEW_OPS = 5;
 
-  const toggleOpsSort = useCallback((field: keyof OperationSummary) => {
-    setOpsSortField((prev) => {
-      if (prev === field) {
-        setOpsSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-        return prev;
-      }
-      setOpsSortDir('desc');
-      return field;
-    });
-  }, []);
+  // Top operations for the overview: top N by rate + any with errors not already shown
+  const overviewOps = useMemo(() => {
+    const byRate = [...operations].sort((a, b) => b.rate - a.rate);
+    const topN = byRate.slice(0, MAX_OVERVIEW_OPS);
+    const topKeys = new Set(topN.map((o) => `${o.spanName}|${o.spanKind}`));
+    const erroring = operations
+      .filter((o) => o.errorRate > 0 && !topKeys.has(`${o.spanName}|${o.spanKind}`))
+      .sort((a, b) => b.errorRate - a.errorRate)
+      .slice(0, MAX_OVERVIEW_OPS);
+    return [...topN, ...erroring];
+  }, [operations]);
+
+  const hiddenCount = operations.length - overviewOps.length;
+
+  const fullHeightTabs = ['traces', 'logs', 'service-map'];
+  const pageLayout = fullHeightTabs.includes(activeTab) ? PageLayoutType.Canvas : undefined;
 
   return (
-    <PluginPage>
+    <PluginPage layout={pageLayout}>
       <div className={styles.container}>
         {/* Header */}
         <div className={styles.header}>
@@ -304,12 +309,12 @@ function ServiceOverview() {
             <h2 className={styles.title}>
               {namespace}/{service}
             </h2>
-            {sdkLanguage && SDK_BADGES[sdkLanguage.toLowerCase()] && (
+            {framework && FRAMEWORK_BADGES[framework] && (
               <span
                 className={styles.sdkBadge}
-                style={{ backgroundColor: SDK_BADGES[sdkLanguage.toLowerCase()].bg }}
+                style={{ backgroundColor: FRAMEWORK_BADGES[framework].bg }}
               >
-                {SDK_BADGES[sdkLanguage.toLowerCase()].label}
+                {FRAMEWORK_BADGES[framework].label}
               </span>
             )}
           </div>
@@ -363,6 +368,7 @@ function ServiceOverview() {
           <Tab label="Overview" active={activeTab === 'overview'} onChangeTab={() => setActiveTab('overview')} />
           <Tab label="Server" active={activeTab === 'server'} onChangeTab={() => setActiveTab('server')} />
           <Tab label="Frontend" active={activeTab === 'frontend'} onChangeTab={() => setActiveTab('frontend')} />
+          <Tab label="Runtime" active={activeTab === 'runtime'} onChangeTab={() => setActiveTab('runtime')} />
           {caps?.serviceGraph?.detected !== false && (
             <Tab label="Dependencies" active={activeTab === 'dependencies'} onChangeTab={() => setActiveTab('dependencies')} />
           )}
@@ -398,34 +404,44 @@ function ServiceOverview() {
                   </Alert>
                 )}
                 {!opsLoading && operations.length > 0 && (
-                  <table className={styles.opsTable}>
-                    <thead>
-                      <tr>
-                        <OpsHeader field="spanName" label="Operation" sortField={opsSortField} sortDir={opsSortDir} onSort={toggleOpsSort} />
-                        <OpsHeader field="spanKind" label="Kind" sortField={opsSortField} sortDir={opsSortDir} onSort={toggleOpsSort} />
-                        <OpsHeader field="rate" label="Rate" sortField={opsSortField} sortDir={opsSortDir} onSort={toggleOpsSort} />
-                        <OpsHeader field="errorRate" label="Error %" sortField={opsSortField} sortDir={opsSortDir} onSort={toggleOpsSort} />
-                        <OpsHeader field="p50Duration" label="P50" sortField={opsSortField} sortDir={opsSortDir} onSort={toggleOpsSort} />
-                        <OpsHeader field="p95Duration" label="P95" sortField={opsSortField} sortDir={opsSortDir} onSort={toggleOpsSort} />
-                        <OpsHeader field="p99Duration" label="P99" sortField={opsSortField} sortDir={opsSortDir} onSort={toggleOpsSort} />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sortedOps.map((op) => (
-                        <tr key={`${op.spanName}-${op.spanKind}`}>
-                          <td className={styles.opNameCell}>{op.spanName}</td>
-                          <td className={styles.opKindCell}>{op.spanKind}</td>
-                          <td className={styles.opNumCell}>{op.rate.toFixed(2)} req/s</td>
-                          <td className={op.errorRate > 0 ? styles.opErrorCell : styles.opNumCell}>
-                            {op.errorRate.toFixed(1)}%
-                          </td>
-                          <td className={styles.opNumCell}>{formatDuration(op.p50Duration, op.durationUnit)}</td>
-                          <td className={styles.opNumCell}>{formatDuration(op.p95Duration, op.durationUnit)}</td>
-                          <td className={styles.opNumCell}>{formatDuration(op.p99Duration, op.durationUnit)}</td>
+                  <>
+                    <table className={styles.opsTable}>
+                      <thead>
+                        <tr>
+                          <th>Operation</th>
+                          <th>Kind</th>
+                          <th style={{ textAlign: 'right' }}>Rate</th>
+                          <th style={{ textAlign: 'right' }}>Error %</th>
+                          <th style={{ textAlign: 'right' }}>P50</th>
+                          <th style={{ textAlign: 'right' }}>P95</th>
+                          <th style={{ textAlign: 'right' }}>P99</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {overviewOps.map((op) => (
+                          <tr key={`${op.spanName}-${op.spanKind}`}>
+                            <td className={styles.opNameCell}>{op.spanName}</td>
+                            <td className={styles.opKindCell}>{op.spanKind}</td>
+                            <td className={styles.opNumCell}>{op.rate.toFixed(2)} req/s</td>
+                            <td className={op.errorRate > 0 ? styles.opErrorCell : styles.opNumCell}>
+                              {op.errorRate.toFixed(1)}%
+                            </td>
+                            <td className={styles.opNumCell}>{formatDuration(op.p50Duration, op.durationUnit)}</td>
+                            <td className={styles.opNumCell}>{formatDuration(op.p95Duration, op.durationUnit)}</td>
+                            <td className={styles.opNumCell}>{formatDuration(op.p99Duration, op.durationUnit)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <button
+                      className={styles.viewAllLink}
+                      onClick={() => setActiveTab('server')}
+                    >
+                      {hiddenCount > 0
+                        ? `View all ${operations.length} operations on Server tab →`
+                        : 'View details on Server tab →'}
+                    </button>
+                  </>
                 )}
               </div>
 
@@ -443,6 +459,7 @@ function ServiceOverview() {
                           <thead>
                             <tr>
                               <th>Service</th>
+                              <th>Type</th>
                               <th>Rate</th>
                               <th>Error %</th>
                               <th>P95</th>
@@ -450,8 +467,13 @@ function ServiceOverview() {
                           </thead>
                           <tbody>
                             {connected.inbound.map((s) => (
-                              <tr key={s.name}>
-                                <td className={styles.opNameCell}>{s.name}</td>
+                              <tr
+                                key={s.name + (s.connectionType ?? '')}
+                                className={s.connectionType ? undefined : styles.clickableRow}
+                                onClick={s.connectionType ? undefined : () => appNavigate(`dependencies/${encodeURIComponent(s.name)}`)}
+                              >
+                                <td className={s.connectionType ? undefined : styles.linkCell}>{s.name}</td>
+                                <td><ConnectionTypeBadge type={s.connectionType} /></td>
                                 <td className={styles.opNumCell}>{s.rate.toFixed(2)} req/s</td>
                                 <td className={s.errorRate > 0 ? styles.opErrorCell : styles.opNumCell}>
                                   {s.errorRate.toFixed(1)}%
@@ -472,6 +494,7 @@ function ServiceOverview() {
                           <thead>
                             <tr>
                               <th>Service</th>
+                              <th>Type</th>
                               <th>Rate</th>
                               <th>Error %</th>
                               <th>P95</th>
@@ -479,8 +502,13 @@ function ServiceOverview() {
                           </thead>
                           <tbody>
                             {connected.outbound.map((s) => (
-                              <tr key={s.name}>
-                                <td className={styles.opNameCell}>{s.name}</td>
+                              <tr
+                                key={s.name + (s.connectionType ?? '')}
+                                className={s.connectionType ? undefined : styles.clickableRow}
+                                onClick={s.connectionType ? undefined : () => appNavigate(`dependencies/${encodeURIComponent(s.name)}`)}
+                              >
+                                <td className={s.connectionType ? undefined : styles.linkCell}>{s.name}</td>
+                                <td><ConnectionTypeBadge type={s.connectionType} /></td>
                                 <td className={styles.opNumCell}>{s.rate.toFixed(2)} req/s</td>
                                 <td className={s.errorRate > 0 ? styles.opErrorCell : styles.opNumCell}>
                                   {s.errorRate.toFixed(1)}%
@@ -507,7 +535,11 @@ function ServiceOverview() {
           )}
 
           {activeTab === 'frontend' && (
-            <FrontendTab service={service} namespace={namespace} />
+            <FrontendTab service={service} namespace={namespace} environment={envFilter} />
+          )}
+
+          {activeTab === 'runtime' && (
+            <RuntimeTab service={service} namespace={namespace} fromMs={fromMs} toMs={toMs} />
           )}
 
           {activeTab === 'dependencies' && (
@@ -527,25 +559,21 @@ function ServiceOverview() {
   );
 }
 
-function OpsHeader({
-  field,
-  label,
-  sortField,
-  sortDir,
-  onSort,
-}: {
-  field: keyof OperationSummary;
-  label: string;
-  sortField: keyof OperationSummary;
-  sortDir: 'asc' | 'desc';
-  onSort: (f: keyof OperationSummary) => void;
-}) {
-  const styles = useStyles2(getStyles);
-  return (
-    <th className={styles.sortableHeader} onClick={() => onSort(field)}>
-      {label} {sortField === field && <Icon name={sortDir === 'asc' ? 'arrow-up' : 'arrow-down'} size="sm" />}
-    </th>
-  );
+const CONNECTION_TYPE_LABELS: Record<string, { text: string; color: 'blue' | 'green' | 'orange' | 'red' | 'purple'; icon?: string }> = {
+  database:         { text: 'Database', color: 'purple', icon: 'database' },
+  messaging_system: { text: 'Messaging', color: 'orange', icon: 'envelope' },
+  virtual_node:     { text: 'External', color: 'blue', icon: 'cloud' },
+};
+
+function ConnectionTypeBadge({ type }: { type?: string }) {
+  if (!type) {
+    return null;
+  }
+  const info = CONNECTION_TYPE_LABELS[type];
+  if (!info) {
+    return null;
+  }
+  return <Badge text={info.text} color={info.color} icon={info.icon as any} />;
 }
 
 const getStyles = (theme: GrafanaTheme2) => ({
@@ -553,6 +581,7 @@ const getStyles = (theme: GrafanaTheme2) => ({
     display: flex;
     flex-direction: column;
     flex: 1;
+    min-height: 0;
     padding: 0;
   `,
   header: css`
@@ -602,6 +631,19 @@ const getStyles = (theme: GrafanaTheme2) => ({
   operationsSection: css`
     margin-top: ${theme.spacing(3)};
   `,
+  viewAllLink: css`
+    display: block;
+    margin-top: ${theme.spacing(1.5)};
+    padding: 0;
+    background: none;
+    border: none;
+    color: ${theme.colors.text.link};
+    font-size: ${theme.typography.bodySmall.fontSize};
+    cursor: pointer;
+    &:hover {
+      text-decoration: underline;
+    }
+  `,
   sectionTitle: css`
     margin-bottom: ${theme.spacing(1.5)};
     font-size: ${theme.typography.h4.fontSize};
@@ -622,6 +664,20 @@ const getStyles = (theme: GrafanaTheme2) => ({
     display: flex;
     align-items: center;
     gap: ${theme.spacing(0.5)};
+  `,
+  clickableRow: css`
+    cursor: pointer;
+    &:hover {
+      background: ${theme.colors.background.secondary};
+    }
+  `,
+  linkCell: css`
+    font-weight: ${theme.typography.fontWeightMedium};
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: ${theme.colors.text.link};
   `,
   opsTable: css`
     width: 100%;
@@ -647,13 +703,6 @@ const getStyles = (theme: GrafanaTheme2) => ({
     }
     tr:hover {
       background: ${theme.colors.background.secondary};
-    }
-  `,
-  sortableHeader: css`
-    cursor: pointer;
-    user-select: none;
-    &:hover {
-      color: ${theme.colors.text.primary};
     }
   `,
   opNameCell: css`

@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { LoadingPlaceholder, Alert } from '@grafana/ui';
-import { FieldType, LoadingState, toDataFrame } from '@grafana/data';
+import React, { useMemo } from 'react';
+import { LoadingPlaceholder, Alert, useStyles2 } from '@grafana/ui';
+import { FieldType, GrafanaTheme2, LoadingState, toDataFrame } from '@grafana/data';
+import { css } from '@emotion/css';
 import {
   SceneTimeRange,
   SceneDataNode,
@@ -9,7 +10,8 @@ import {
   SceneFlexItem,
   VizPanel,
 } from '@grafana/scenes';
-import { ServiceMapResponse } from '../../api/client';
+import { getServiceMap, ServiceMapResponse } from '../../api/client';
+import { useFetch } from '../../utils/useFetch';
 
 export interface ServiceMapTabProps {
   service: string;
@@ -19,26 +21,11 @@ export interface ServiceMapTabProps {
 }
 
 export function ServiceMapTab({ service, namespace, fromMs, toMs }: ServiceMapTabProps) {
-  const [mapData, setMapData] = useState<ServiceMapResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const load = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const { getServiceMap } = await import('../../api/client');
-        const data = await getServiceMap(fromMs, toMs, service, namespace);
-        setMapData(data);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Failed to load service map');
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
-  }, [service, namespace, fromMs, toMs]);
+  const styles = useStyles2(getStyles);
+  const { data: mapData, loading, error } = useFetch<ServiceMapResponse>(
+    () => getServiceMap(fromMs, toMs, service, namespace),
+    [service, namespace, fromMs, toMs]
+  );
 
   const scene = useMemo(() => {
     if (!mapData || mapData.nodes.length === 0) {
@@ -84,7 +71,7 @@ export function ServiceMapTab({ service, namespace, fromMs, toMs }: ServiceMapTa
         direction: 'column',
         children: [
           new SceneFlexItem({
-            minHeight: 400,
+            minHeight: 600,
             body: new VizPanel({
               title: `Service Map — ${service}`,
               pluginId: 'nodeGraph',
@@ -114,5 +101,15 @@ export function ServiceMapTab({ service, namespace, fromMs, toMs }: ServiceMapTa
     );
   }
 
-  return <scene.Component model={scene} />;
+  return <div className={styles.wrapper}><scene.Component model={scene} /></div>;
 }
+
+const getStyles = (theme: GrafanaTheme2) => ({
+  wrapper: css`
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+  `,
+});

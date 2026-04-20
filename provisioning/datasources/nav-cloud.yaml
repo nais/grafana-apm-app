@@ -21,6 +21,13 @@ datasources:
     secureJsonData:
       httpHeaderValue1: tenant
 
+  # Local demo Mimir — contains Faro/browser metrics from the demo stack
+  - name: local-mimir
+    type: prometheus
+    uid: local-mimir
+    url: http://mimir:9009/prometheus
+    access: proxy
+
   - name: dev-gcp-tempo
     type: tempo
     uid: dev-gcp-tempo

@@ -2,9 +2,12 @@ package plugin
 
 import (
 	"testing"
+
+	"github.com/nais/grafana-otel-plugin/pkg/plugin/otelconfig"
 )
 
 func TestFormatSpanKind(t *testing.T) {
+	cfg := otelconfig.Default()
 	tests := []struct {
 		input    string
 		expected string
@@ -20,9 +23,9 @@ func TestFormatSpanKind(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.input, func(t *testing.T) {
-			got := formatSpanKind(tc.input)
+			got := cfg.FormatSpanKind(tc.input)
 			if got != tc.expected {
-				t.Errorf("formatSpanKind(%q) = %q, want %q", tc.input, got, tc.expected)
+				t.Errorf("FormatSpanKind(%q) = %q, want %q", tc.input, got, tc.expected)
 			}
 		})
 	}

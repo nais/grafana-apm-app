@@ -15,6 +15,7 @@ import {
 } from '@grafana/scenes';
 import { useDebouncedValue, escapeRegex } from '../../utils/debounce';
 import { sanitizeLabelValue } from '../../utils/sanitize';
+import { otel } from '../../otelconfig';
 
 export interface LogsTabProps {
   service: string;
@@ -40,7 +41,7 @@ export function LogsTab({ service, namespace, logsUid }: LogsTabProps) {
     // Note: service_namespace may differ between signals (e.g., span metrics
     // report "opentelemetry-demo" while logs report "demo"). Only filter by
     // service_name for reliability; namespace scoping is handled at the backend API level.
-    const svcMatcher = `service_name="${sanitizeLabelValue(service)}"`;
+    const svcMatcher = `${otel.labels.serviceName}="${sanitizeLabelValue(service)}"`;
     const severityMatcher = severityFilter.length > 0
       ? ` | level=~"${severityFilter.join('|')}"`
       : '';
