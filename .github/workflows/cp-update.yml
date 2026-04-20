@@ -5,6 +5,10 @@ on:
   schedule:
     - cron: '0 0 1 * *' # run once a month on the 1st day
 
+permissions:
+  contents: write
+  pull-requests: write
+
 # To use this workflow please create a fine-grained personal access token for your repository with:
 # `contents: read and write`
 # `pull requests: read and write`
