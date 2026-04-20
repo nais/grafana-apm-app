@@ -58,14 +58,23 @@ func (a *App) handleCapabilities(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Check cache
+	// Check cache — only serve cached results if detection succeeded or
+	// if we're still within the short negative-cache TTL (30s) to avoid
+	// hammering a broken Mimir.
 	a.capMu.RLock()
 	cached := a.capCache
 	a.capMu.RUnlock()
 
-	if cached != nil && time.Since(cached.fetchedAt) < capabilitiesCacheTTL {
-		writeJSON(w, cached.caps)
-		return
+	if cached != nil {
+		ttl := capabilitiesCacheTTL
+		if !cached.caps.SpanMetrics.Detected {
+			// Negative results expire faster so we retry detection sooner
+			ttl = 30 * time.Second
+		}
+		if time.Since(cached.fetchedAt) < ttl {
+			writeJSON(w, cached.caps)
+			return
+		}
 	}
 
 	caps := a.detectCapabilities(req.Context())
