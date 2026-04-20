@@ -1,39 +1,26 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { PluginPage } from '@grafana/runtime';
 import { useStyles2, Icon, LoadingPlaceholder, Alert } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
-import { getGlobalDependencies, DependencySummary } from '../api/client';
+import { getGlobalDependencies, DependencySummary, DependenciesResponse } from '../api/client';
 import { formatDuration } from '../utils/format';
 import { useTimeRange } from '../utils/timeRange';
 import { useAppNavigate } from '../utils/navigation';
-import { DepTypeIcon } from '../components/DepTypeIcon';
+import { DepTypeIcon, formatDepType } from '../components/DepTypeIcon';
+import { useFetch } from '../utils/useFetch';
 
 function Dependencies() {
   const styles = useStyles2(getStyles);
   const appNavigate = useAppNavigate();
   const { fromMs, toMs } = useTimeRange();
-  const [deps, setDeps] = useState<DependencySummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data: depsResp, loading, error } = useFetch<DependenciesResponse>(
+    () => getGlobalDependencies(fromMs, toMs),
+    [fromMs, toMs]
+  );
+  const deps = depsResp?.dependencies ?? [];
   const [sortField, setSortField] = useState<keyof DependencySummary>('impact');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-
-  useEffect(() => {
-    const load = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const resp = await getGlobalDependencies(fromMs, toMs);
-        setDeps(resp.dependencies);
-      } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : 'Failed to load dependencies');
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
-  }, [fromMs, toMs]);
 
   const toggleSort = useCallback((field: keyof DependencySummary) => {
     setSortField((prev) => {
@@ -111,7 +98,7 @@ function Dependencies() {
                     <DepTypeIcon type={dep.type} />
                     <span style={{ marginLeft: 8 }}>{dep.name}</span>
                   </td>
-                  <td className={styles.typeCell}>{dep.type}</td>
+                  <td className={styles.typeCell}>{formatDepType(dep.type)}</td>
                   <td className={styles.numCell}>{dep.rate.toFixed(2)} req/s</td>
                   <td className={dep.errorRate > 0 ? styles.errorCell : styles.numCell}>
                     {dep.errorRate.toFixed(1)}%
@@ -210,6 +197,7 @@ const getStyles = (theme: GrafanaTheme2) => ({
   nameCell: css`
     font-weight: ${theme.typography.fontWeightMedium};
     white-space: nowrap;
+    color: ${theme.colors.text.link};
   `,
   depIcon: css`
     margin-right: ${theme.spacing(0.75)};

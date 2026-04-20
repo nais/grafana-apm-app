@@ -5,12 +5,37 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
+	"github.com/nais/grafana-otel-plugin/pkg/plugin/otelconfig"
 	"github.com/nais/grafana-otel-plugin/pkg/plugin/queries"
 )
+
+// httpMethods recognized when parsing span_name like "GET /path".
+var httpMethods = map[string]bool{
+	"GET": true, "POST": true, "PUT": true, "DELETE": true,
+	"PATCH": true, "HEAD": true, "OPTIONS": true, "CONNECT": true, "TRACE": true,
+}
+
+// parseHTTPSpanName extracts the HTTP method and route from a span_name
+// like "GET /some/path". Also handles bare methods like "GET".
+// Returns (method, route) or ("", spanName) if no HTTP method is found.
+func parseHTTPSpanName(name string) (method, route string) {
+	if idx := strings.IndexByte(name, ' '); idx > 0 && idx < 10 {
+		candidate := name[:idx]
+		if httpMethods[candidate] {
+			return candidate, strings.TrimSpace(name[idx+1:])
+		}
+	}
+	// Bare HTTP method with no path (e.g., "GET")
+	if httpMethods[name] {
+		return name, ""
+	}
+	return "", name
+}
 
 func (a *App) handleEndpoints(w http.ResponseWriter, req *http.Request) {
 	if !requireGET(w, req) {
@@ -21,8 +46,7 @@ func (a *App) handleEndpoints(w http.ResponseWriter, req *http.Request) {
 	namespace := queries.MustSanitizeLabel(req.PathValue("namespace"))
 	service := queries.MustSanitizeLabel(req.PathValue("service"))
 
-	if service == "" {
-		http.Error(w, `{"error":"missing service"}`, http.StatusBadRequest)
+	if !requireServiceParam(w, service) {
 		return
 	}
 
@@ -53,10 +77,7 @@ func (a *App) queryEndpoints(
 
 	rangeStr := "[5m]"
 
-	baseFilter := fmt.Sprintf(`service_name="%s"`, service)
-	if namespace != "" {
-		baseFilter += fmt.Sprintf(`, service_namespace="%s"`, namespace)
-	}
+	baseFilter := a.otelCfg.ServiceFilter(service, namespace)
 
 	// Define query groups for each protocol category
 	type endpointCategory struct {
@@ -69,46 +90,63 @@ func (a *App) queryEndpoints(
 	categories := []endpointCategory{
 		{
 			name:    "http",
-			filter:  baseFilter + `, span_kind="SPAN_KIND_SERVER", http_route!=""`,
-			groupBy: "http_route, http_method",
+			filter:  baseFilter + fmt.Sprintf(`, %s="%s"`, a.otelCfg.Labels.SpanKind, a.otelCfg.SpanKinds.Server),
+			groupBy: a.otelCfg.Labels.SpanName,
 			keyExtract: func(r queries.PromResult) queries.EndpointSummary {
+				name := r.Metric[a.otelCfg.Labels.SpanName]
+				method, route := parseHTTPSpanName(name)
 				return queries.EndpointSummary{
-					SpanName:   r.Metric["http_method"] + " " + r.Metric["http_route"],
-					HTTPMethod: r.Metric["http_method"],
-					HTTPRoute:  r.Metric["http_route"],
+					SpanName:   name,
+					HTTPMethod: method,
+					HTTPRoute:  route,
 				}
 			},
 		},
 		{
 			name:    "grpc",
-			filter:  baseFilter + `, rpc_service!=""`,
-			groupBy: "rpc_service, rpc_method",
+			filter:  baseFilter + fmt.Sprintf(`, %s!=""`, a.otelCfg.Labels.RPCService),
+			groupBy: a.otelCfg.Labels.RPCService + ", " + a.otelCfg.Labels.RPCMethod,
 			keyExtract: func(r queries.PromResult) queries.EndpointSummary {
 				return queries.EndpointSummary{
-					SpanName:   r.Metric["rpc_service"] + "/" + r.Metric["rpc_method"],
-					RPCService: r.Metric["rpc_service"],
-					RPCMethod:  r.Metric["rpc_method"],
+					SpanName:   r.Metric[a.otelCfg.Labels.RPCService] + "/" + r.Metric[a.otelCfg.Labels.RPCMethod],
+					RPCService: r.Metric[a.otelCfg.Labels.RPCService],
+					RPCMethod:  r.Metric[a.otelCfg.Labels.RPCMethod],
 				}
 			},
 		},
 		{
 			name:    "database",
-			filter:  baseFilter + `, db_system!=""`,
-			groupBy: "db_system, span_name",
+			filter:  baseFilter + fmt.Sprintf(`, %s!=""`, a.otelCfg.Labels.DBSystem),
+			groupBy: a.otelCfg.Labels.DBSystem + ", " + a.otelCfg.Labels.SpanName,
 			keyExtract: func(r queries.PromResult) queries.EndpointSummary {
 				return queries.EndpointSummary{
-					SpanName: r.Metric["span_name"],
-					DBSystem: r.Metric["db_system"],
+					SpanName: r.Metric[a.otelCfg.Labels.SpanName],
+					DBSystem: r.Metric[a.otelCfg.Labels.DBSystem],
+				}
+			},
+		},
+		{
+			name:    "messaging",
+			filter:  baseFilter + fmt.Sprintf(`, %s=~"%s|%s"`, a.otelCfg.Labels.SpanKind, a.otelCfg.SpanKinds.Consumer, a.otelCfg.SpanKinds.Producer),
+			groupBy: a.otelCfg.Labels.SpanName + ", " + a.otelCfg.Labels.SpanKind,
+			keyExtract: func(r queries.PromResult) queries.EndpointSummary {
+				kind := "Consumer"
+				if r.Metric[a.otelCfg.Labels.SpanKind] == a.otelCfg.SpanKinds.Producer {
+					kind = "Producer"
+				}
+				return queries.EndpointSummary{
+					SpanName:      r.Metric[a.otelCfg.Labels.SpanName],
+					MessagingKind: kind,
 				}
 			},
 		},
 		{
 			name:    "internal",
-			filter:  baseFilter + `, span_kind="SPAN_KIND_INTERNAL"`,
-			groupBy: "span_name",
+			filter:  baseFilter + fmt.Sprintf(`, %s="%s"`, a.otelCfg.Labels.SpanKind, a.otelCfg.SpanKinds.Internal),
+			groupBy: a.otelCfg.Labels.SpanName,
 			keyExtract: func(r queries.PromResult) queries.EndpointSummary {
 				return queries.EndpointSummary{
-					SpanName: r.Metric["span_name"],
+					SpanName: r.Metric[a.otelCfg.Labels.SpanName],
 				}
 			},
 		},
@@ -119,6 +157,7 @@ func (a *App) queryEndpoints(
 		HTTP:         []queries.EndpointSummary{},
 		GRPC:         []queries.EndpointSummary{},
 		Database:     []queries.EndpointSummary{},
+		Messaging:    []queries.EndpointSummary{},
 		Internal:     []queries.EndpointSummary{},
 	}
 
@@ -148,11 +187,13 @@ func (a *App) queryEndpoints(
 	for r := range ch {
 		switch r.name {
 		case "http":
-			groups.HTTP = r.endpoints
+			groups.HTTP = filterNoisyEndpoints(r.endpoints)
 		case "grpc":
 			groups.GRPC = r.endpoints
 		case "database":
 			groups.Database = r.endpoints
+		case "messaging":
+			groups.Messaging = r.endpoints
 		case "internal":
 			groups.Internal = r.endpoints
 		}
@@ -169,11 +210,11 @@ func (a *App) queryEndpointCategory(
 	at time.Time,
 	keyExtract func(queries.PromResult) queries.EndpointSummary,
 ) []queries.EndpointSummary {
-	rateQ := fmt.Sprintf(`sum by (%s) (rate(%s{%s}%s))`, groupBy, callsMetric, filter, rangeStr)
-	errorQ := fmt.Sprintf(`sum by (%s) (rate(%s{%s, status_code="STATUS_CODE_ERROR"}%s))`, groupBy, callsMetric, filter, rangeStr)
-	p50Q := fmt.Sprintf(`histogram_quantile(0.50, sum by (%s, le) (rate(%s{%s}%s)))`, groupBy, durationBucket, filter, rangeStr)
-	p95Q := fmt.Sprintf(`histogram_quantile(0.95, sum by (%s, le) (rate(%s{%s}%s)))`, groupBy, durationBucket, filter, rangeStr)
-	p99Q := fmt.Sprintf(`histogram_quantile(0.99, sum by (%s, le) (rate(%s{%s}%s)))`, groupBy, durationBucket, filter, rangeStr)
+	rateQ := otelconfig.Rate(callsMetric, filter, groupBy, rangeStr)
+	errorQ := otelconfig.Rate(callsMetric, a.otelCfg.ErrorFilter(filter), groupBy, rangeStr)
+	p50Q := otelconfig.Quantile(0.50, durationBucket, filter, groupBy, a.otelCfg.Labels.Le, rangeStr)
+	p95Q := otelconfig.Quantile(0.95, durationBucket, filter, groupBy, a.otelCfg.Labels.Le, rangeStr)
+	p99Q := otelconfig.Quantile(0.99, durationBucket, filter, groupBy, a.otelCfg.Labels.Le, rangeStr)
 
 	type qr struct {
 		name    string
@@ -236,7 +277,7 @@ func (a *App) queryEndpointCategory(
 	for _, r := range resultMap["error"] {
 		ep := getOrCreate(r)
 		if ep.Rate > 0 {
-			ep.ErrorRate = roundTo(r.Value.Float()/ep.Rate*100, 2)
+			ep.ErrorRate = math.Min(roundTo(r.Value.Float()/ep.Rate*100, 2), 100)
 		}
 	}
 	for _, r := range resultMap["p50"] {
@@ -266,4 +307,88 @@ func (a *App) queryEndpointCategory(
 		eps = append(eps, *ep)
 	}
 	return eps
+}
+
+// noisyPathSegments are framework-generated route segments that clutter the
+// Server tab without providing actionable insight. Matched anywhere in the path.
+var noisyPathSegments = []string{
+	"/_next/",
+	"/__next",
+	"/_nuxt/",
+	"/.well-known/",
+	"/_app/",        // SvelteKit
+	"/@vite/",       // Vite dev
+	"/@fs/",         // Vite dev
+	"/__webpack",    // Webpack dev
+}
+
+// noisyPathPrefixes are matched only at the start of the path.
+var noisyPathPrefixes = []string{
+	"/static/",
+	"/assets/",
+	"/public/",
+}
+
+// noisyPathSuffixes are static-content file extensions that are not
+// interesting API routes.
+var noisyPathSuffixes = []string{
+	".js", ".css", ".map",
+	".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp", ".avif",
+	".woff", ".woff2", ".ttf", ".eot",
+	".xml", ".txt", ".webmanifest",
+}
+
+// noisyExactPaths are specific well-known static paths to filter.
+var noisyExactPaths = map[string]bool{
+	"/manifest.json":  true,
+	"/robots.txt":     true,
+	"/favicon.ico":    true,
+	"/sitemap.xml":    true,
+	"/browserconfig.xml": true,
+}
+
+// filterNoisyEndpoints removes framework-generated static asset routes from
+// HTTP endpoint lists so users see only their real API endpoints.
+func filterNoisyEndpoints(eps []queries.EndpointSummary) []queries.EndpointSummary {
+	out := make([]queries.EndpointSummary, 0, len(eps))
+	for _, ep := range eps {
+		route := ep.HTTPRoute
+		if route == "" {
+			route = ep.SpanName
+		}
+		routeLower := strings.ToLower(route)
+
+		skip := false
+		if noisyExactPaths[routeLower] {
+			skip = true
+		}
+		if !skip {
+			for _, seg := range noisyPathSegments {
+				if strings.Contains(routeLower, seg) {
+					skip = true
+					break
+				}
+			}
+		}
+		if !skip {
+			for _, prefix := range noisyPathPrefixes {
+				if strings.HasPrefix(routeLower, prefix) {
+					skip = true
+					break
+				}
+			}
+		}
+		if !skip {
+			for _, suffix := range noisyPathSuffixes {
+				if strings.HasSuffix(routeLower, suffix) {
+					skip = true
+					break
+				}
+			}
+		}
+		if !skip {
+			out = append(out, ep)
+		}
+	}
+	return out
 }

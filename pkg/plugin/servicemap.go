@@ -80,16 +80,19 @@ func (a *App) queryServiceMap(
 
 	// Service graph metrics
 	rateQuery := fmt.Sprintf(
-		`sum by (client, server, connection_type) (rate(%s_request_total%s%s))`,
-		sgp, labelFilterStr(labelFilter), rangeStr,
+		`sum by (%s, %s, %s) (rate(%s%s%s%s))`,
+		a.otelCfg.Labels.Client, a.otelCfg.Labels.Server, a.otelCfg.Labels.ConnectionType,
+		sgp, a.otelCfg.ServiceGraph.RequestTotal, labelFilterStr(labelFilter), rangeStr,
 	)
 	errorQuery := fmt.Sprintf(
-		`sum by (client, server, connection_type) (rate(%s_request_failed_total%s%s))`,
-		sgp, labelFilterStr(labelFilter), rangeStr,
+		`sum by (%s, %s, %s) (rate(%s%s%s%s))`,
+		a.otelCfg.Labels.Client, a.otelCfg.Labels.Server, a.otelCfg.Labels.ConnectionType,
+		sgp, a.otelCfg.ServiceGraph.RequestFailedTotal, labelFilterStr(labelFilter), rangeStr,
 	)
 	p95Query := fmt.Sprintf(
-		`histogram_quantile(0.95, sum by (client, server, le) (rate(%s_request_server_seconds_bucket%s%s)))`,
-		sgp, labelFilterStr(labelFilter), rangeStr,
+		`histogram_quantile(0.95, sum by (%s, %s, %s) (rate(%s%s%s%s)))`,
+		a.otelCfg.Labels.Client, a.otelCfg.Labels.Server, a.otelCfg.Labels.Le,
+		sgp, a.otelCfg.ServiceGraph.RequestServerBucket, labelFilterStr(labelFilter), rangeStr,
 	)
 
 	type queryResult struct {
@@ -159,19 +162,19 @@ func (a *App) queryServiceMap(
 	}
 
 	for _, r := range resultMap["rate"] {
-		client := r.Metric["client"]
-		server := r.Metric["server"]
+		client := r.Metric[a.otelCfg.Labels.Client]
+		server := r.Metric[a.otelCfg.Labels.Server]
 		if client == "" || server == "" {
 			continue
 		}
 		e := getEdge(client, server)
 		e.rate = r.Value.Float()
-		e.connType = r.Metric["connection_type"]
+		e.connType = r.Metric[a.otelCfg.Labels.ConnectionType]
 	}
 
 	for _, r := range resultMap["error"] {
-		client := r.Metric["client"]
-		server := r.Metric["server"]
+		client := r.Metric[a.otelCfg.Labels.Client]
+		server := r.Metric[a.otelCfg.Labels.Server]
 		if client == "" || server == "" {
 			continue
 		}
@@ -180,8 +183,8 @@ func (a *App) queryServiceMap(
 	}
 
 	for _, r := range resultMap["p95"] {
-		client := r.Metric["client"]
-		server := r.Metric["server"]
+		client := r.Metric[a.otelCfg.Labels.Client]
+		server := r.Metric[a.otelCfg.Labels.Server]
 		if client == "" || server == "" {
 			continue
 		}

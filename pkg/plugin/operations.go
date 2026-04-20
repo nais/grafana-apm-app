@@ -2,13 +2,13 @@ package plugin
 
 import (
 	"context"
-	"fmt"
 	"math"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
+	"github.com/nais/grafana-otel-plugin/pkg/plugin/otelconfig"
 	"github.com/nais/grafana-otel-plugin/pkg/plugin/queries"
 )
 
@@ -21,8 +21,7 @@ func (a *App) handleOperations(w http.ResponseWriter, req *http.Request) {
 	namespace := queries.MustSanitizeLabel(req.PathValue("namespace"))
 	service := queries.MustSanitizeLabel(req.PathValue("service"))
 
-	if service == "" {
-		http.Error(w, `{"error":"missing service"}`, http.StatusBadRequest)
+	if !requireServiceParam(w, service) {
 		return
 	}
 
@@ -54,31 +53,14 @@ func (a *App) queryOperations(
 	rangeStr := "[5m]"
 
 	// Build label filter
-	labelFilter := fmt.Sprintf(`service_name="%s"`, service)
-	if namespace != "" {
-		labelFilter += fmt.Sprintf(`, service_namespace="%s"`, namespace)
-	}
+	labelFilter := a.otelCfg.ServiceFilter(service, namespace)
 
-	rateQuery := fmt.Sprintf(
-		`sum by (span_name, span_kind) (rate(%s{%s}%s))`,
-		callsMetric, labelFilter, rangeStr,
-	)
-	errorQuery := fmt.Sprintf(
-		`sum by (span_name, span_kind) (rate(%s{%s, status_code="STATUS_CODE_ERROR"}%s))`,
-		callsMetric, labelFilter, rangeStr,
-	)
-	p50Query := fmt.Sprintf(
-		`histogram_quantile(0.50, sum by (span_name, span_kind, le) (rate(%s{%s}%s)))`,
-		durationBucket, labelFilter, rangeStr,
-	)
-	p95Query := fmt.Sprintf(
-		`histogram_quantile(0.95, sum by (span_name, span_kind, le) (rate(%s{%s}%s)))`,
-		durationBucket, labelFilter, rangeStr,
-	)
-	p99Query := fmt.Sprintf(
-		`histogram_quantile(0.99, sum by (span_name, span_kind, le) (rate(%s{%s}%s)))`,
-		durationBucket, labelFilter, rangeStr,
-	)
+	groupBy := a.otelCfg.Labels.SpanName + ", " + a.otelCfg.Labels.SpanKind
+	rateQuery := otelconfig.Rate(callsMetric, labelFilter, groupBy, rangeStr)
+	errorQuery := otelconfig.Rate(callsMetric, a.otelCfg.ErrorFilter(labelFilter), groupBy, rangeStr)
+	p50Query := otelconfig.Quantile(0.50, durationBucket, labelFilter, groupBy, a.otelCfg.Labels.Le, rangeStr)
+	p95Query := otelconfig.Quantile(0.95, durationBucket, labelFilter, groupBy, a.otelCfg.Labels.Le, rangeStr)
+	p99Query := otelconfig.Quantile(0.99, durationBucket, labelFilter, groupBy, a.otelCfg.Labels.Le, rangeStr)
 
 	type queryResult struct {
 		name    string
@@ -129,15 +111,15 @@ func (a *App) queryOperations(
 	opsMap := make(map[opKey]*queries.OperationSummary)
 	getOrCreate := func(r queries.PromResult) *queries.OperationSummary {
 		k := opKey{
-			spanName: r.Metric["span_name"],
-			spanKind: r.Metric["span_kind"],
+			spanName: r.Metric[a.otelCfg.Labels.SpanName],
+			spanKind: r.Metric[a.otelCfg.Labels.SpanKind],
 		}
 		if o, ok := opsMap[k]; ok {
 			return o
 		}
 		o := &queries.OperationSummary{
 			SpanName:     k.spanName,
-			SpanKind:     formatSpanKind(k.spanKind),
+			SpanKind:     a.otelCfg.FormatSpanKind(k.spanKind),
 			DurationUnit: durationUnit,
 		}
 		opsMap[k] = o
@@ -152,7 +134,7 @@ func (a *App) queryOperations(
 	for _, r := range resultMap["error"] {
 		o := getOrCreate(r)
 		if o.Rate > 0 {
-			o.ErrorRate = roundTo(r.Value.Float()/o.Rate*100, 2)
+			o.ErrorRate = math.Min(roundTo(r.Value.Float()/o.Rate*100, 2), 100)
 		}
 	}
 
@@ -185,19 +167,4 @@ func (a *App) queryOperations(
 	return ops
 }
 
-func formatSpanKind(kind string) string {
-	switch kind {
-	case "SPAN_KIND_SERVER":
-		return "Server"
-	case "SPAN_KIND_CLIENT":
-		return "Client"
-	case "SPAN_KIND_PRODUCER":
-		return "Producer"
-	case "SPAN_KIND_CONSUMER":
-		return "Consumer"
-	case "SPAN_KIND_INTERNAL":
-		return "Internal"
-	default:
-		return kind
-	}
-}
+

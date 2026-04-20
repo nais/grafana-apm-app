@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
@@ -64,17 +65,17 @@ type cachedCapabilities struct {
 	fetchedAt time.Time
 }
 
-const capabilitiesCacheTTL = 5 * time.Minute
+const (
+	capabilitiesCacheTTL    = 5 * time.Minute
+	capabilitiesNegativeTTL = 30 * time.Second
+)
 
 func (a *App) handleCapabilities(w http.ResponseWriter, req *http.Request) {
-	if req.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !requireGET(w, req) {
 		return
 	}
 
-	// Check cache — only serve cached results if detection succeeded or
-	// if we're still within the short negative-cache TTL (30s) to avoid
-	// hammering a broken Mimir.
+	// Check cache — use short TTL for negative results so we retry sooner.
 	a.capMu.RLock()
 	cached := a.capCache
 	a.capMu.RUnlock()
@@ -82,8 +83,7 @@ func (a *App) handleCapabilities(w http.ResponseWriter, req *http.Request) {
 	if cached != nil {
 		ttl := capabilitiesCacheTTL
 		if !cached.caps.SpanMetrics.Detected {
-			// Negative results expire faster so we retry detection sooner
-			ttl = 30 * time.Second
+			ttl = capabilitiesNegativeTTL
 		}
 		if time.Since(cached.fetchedAt) < ttl {
 			writeJSON(w, cached.caps)
@@ -91,10 +91,14 @@ func (a *App) handleCapabilities(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	ctx := req.Context()
-	ctx = withAuthContext(ctx, a.promClientForRequest(req))
+	authClient := a.promClientForRequest(req)
+	// Use a detached context with generous timeout so slow health checks
+	// don't get canceled by the HTTP request's shorter deadline.
+	detachedCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	detachedCtx = withAuthContext(detachedCtx, authClient)
 
-	caps := a.detectCapabilities(ctx)
+	caps := a.detectCapabilities(detachedCtx, req.Header)
 
 	a.capMu.Lock()
 	a.capCache = &cachedCapabilities{caps: caps, fetchedAt: time.Now()}
@@ -103,7 +107,7 @@ func (a *App) handleCapabilities(w http.ResponseWriter, req *http.Request) {
 	writeJSON(w, caps)
 }
 
-func (a *App) detectCapabilities(ctx context.Context) queries.Capabilities {
+func (a *App) detectCapabilities(ctx context.Context, headers http.Header) queries.Capabilities {
 	logger := log.DefaultLogger.With("handler", "capabilities")
 	caps := queries.Capabilities{}
 
@@ -147,51 +151,100 @@ func (a *App) detectCapabilities(ctx context.Context) queries.Capabilities {
 		}
 	}
 
-	// Detect service graph
-	for _, sg := range serviceGraphCandidates {
-		sgExists, err := a.prom(ctx).SeriesExists(ctx, sg.probe)
-		if err != nil {
-			logger.Debug("Service graph probe failed", "metric", sg.probe, "error", err)
-			continue
-		}
-		if sgExists {
-			caps.ServiceGraph.Detected = true
-			caps.ServiceGraph.Prefix = sg.prefix
-			logger.Info("Detected service graph", "prefix", sg.prefix)
-			break
-		}
-	}
+	// Run remaining checks in parallel to avoid context cancellation from sequential timeouts
+	var wg sync.WaitGroup
+	var mu sync.Mutex
 
-	// Detect available services
+	// Service graph detection
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for _, sg := range serviceGraphCandidates {
+			sgExists, err := a.prom(ctx).SeriesExists(ctx, sg.probe)
+			if err != nil {
+				logger.Debug("Service graph probe failed", "metric", sg.probe, "error", err)
+				continue
+			}
+			if sgExists {
+				mu.Lock()
+				caps.ServiceGraph.Detected = true
+				caps.ServiceGraph.Prefix = sg.prefix
+				mu.Unlock()
+				logger.Info("Detected service graph", "prefix", sg.prefix)
+				break
+			}
+		}
+	}()
+
+	// Service list
 	if caps.SpanMetrics.Detected {
-		caps.Services = a.detectServices(ctx, caps.SpanMetrics.CallsMetric)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			svcs := a.detectServices(ctx, caps.SpanMetrics.CallsMetric)
+			mu.Lock()
+			caps.Services = svcs
+			mu.Unlock()
+		}()
 	}
 
-	// Check Tempo reachability (default)
-	caps.Tempo = a.checkHTTPHealth(ctx, a.tempoURL(""), "/api/status/buildinfo")
+	// Tempo + Loki health checks (with auth headers forwarded)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		result := a.checkHTTPHealth(ctx, a.tempoURL(""), "/api/status/buildinfo", headers)
+		mu.Lock()
+		caps.Tempo = result
+		mu.Unlock()
+	}()
 
-	// Check Loki reachability (default)
-	caps.Loki = a.checkHTTPHealth(ctx, a.lokiURL(""), "/loki/api/v1/labels")
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		result := a.checkHTTPHealth(ctx, a.lokiURL(""), "/loki/api/v1/labels", headers)
+		mu.Lock()
+		caps.Loki = result
+		mu.Unlock()
+	}()
 
-	// Check per-environment datasource reachability
-	if len(a.settings.TracesDataSource.ByEnvironment) > 0 {
-		caps.TempoByEnv = make(map[string]queries.DataSourceStatus)
-		for env := range a.settings.TracesDataSource.ByEnvironment {
-			caps.TempoByEnv[env] = a.checkHTTPHealth(ctx, a.tempoURL(env), "/api/status/buildinfo")
-		}
+	// Per-environment Tempo/Loki health checks
+	for env := range a.settings.TracesDataSource.ByEnvironment {
+		env := env
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			result := a.checkHTTPHealth(ctx, a.tempoURL(env), "/api/status/buildinfo", headers)
+			mu.Lock()
+			if caps.TempoByEnv == nil {
+				caps.TempoByEnv = make(map[string]queries.DataSourceStatus)
+			}
+			caps.TempoByEnv[env] = result
+			mu.Unlock()
+		}()
 	}
-	if len(a.settings.LogsDataSource.ByEnvironment) > 0 {
-		caps.LokiByEnv = make(map[string]queries.DataSourceStatus)
-		for env := range a.settings.LogsDataSource.ByEnvironment {
-			caps.LokiByEnv[env] = a.checkHTTPHealth(ctx, a.lokiURL(env), "/loki/api/v1/labels")
-		}
+
+	for env := range a.settings.LogsDataSource.ByEnvironment {
+		env := env
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			result := a.checkHTTPHealth(ctx, a.lokiURL(env), "/loki/api/v1/labels", headers)
+			mu.Lock()
+			if caps.LokiByEnv == nil {
+				caps.LokiByEnv = make(map[string]queries.DataSourceStatus)
+			}
+			caps.LokiByEnv[env] = result
+			mu.Unlock()
+		}()
 	}
+
+	wg.Wait()
 
 	return caps
 }
 
 func (a *App) detectServices(ctx context.Context, callsMetric string) []string {
-	query := fmt.Sprintf(`group by (service_name) (%s)`, callsMetric)
+	query := fmt.Sprintf(`group by (%s) (%s)`, a.otelCfg.Labels.ServiceName, callsMetric)
 	results, err := a.prom(ctx).InstantQuery(ctx, query, time.Now())
 	if err != nil {
 		log.DefaultLogger.Warn("Failed to detect services", "error", err)
@@ -200,19 +253,19 @@ func (a *App) detectServices(ctx context.Context, callsMetric string) []string {
 
 	var services []string
 	for _, r := range results {
-		if name, ok := r.Metric["service_name"]; ok && name != "" {
+		if name, ok := r.Metric[a.otelCfg.Labels.ServiceName]; ok && name != "" {
 			services = append(services, name)
 		}
 	}
 	return services
 }
 
-func (a *App) checkHTTPHealth(ctx context.Context, baseURL, path string) queries.DataSourceStatus {
+func (a *App) checkHTTPHealth(ctx context.Context, baseURL, path string, headers http.Header) queries.DataSourceStatus {
 	if baseURL == "" {
 		return queries.DataSourceStatus{Available: false, Error: "not configured"}
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+path, nil)
@@ -220,7 +273,16 @@ func (a *App) checkHTTPHealth(ctx context.Context, baseURL, path string) queries
 		return queries.DataSourceStatus{Available: false, Error: err.Error()}
 	}
 
-	client := &http.Client{Timeout: 5 * time.Second}
+	// Forward auth headers from the incoming user request
+	for _, key := range []string{"Cookie", "Authorization", "X-Grafana-Org-Id"} {
+		if vals := headers.Values(key); len(vals) > 0 {
+			for _, v := range vals {
+				req.Header.Add(key, v)
+			}
+		}
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return queries.DataSourceStatus{Available: false, Error: err.Error()}

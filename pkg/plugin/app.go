@@ -13,6 +13,7 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/backend/instancemgmt"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/resource/httpadapter"
+	"github.com/nais/grafana-otel-plugin/pkg/plugin/otelconfig"
 	"github.com/nais/grafana-otel-plugin/pkg/plugin/queries"
 )
 
@@ -26,6 +27,7 @@ var (
 type App struct {
 	backend.CallResourceHandler
 
+	otelCfg    otelconfig.Config
 	settings   queries.PluginSettings
 	promClient *queries.PrometheusClient
 	grafanaURL string // base URL for datasource proxy resolution
@@ -39,6 +41,7 @@ func NewApp(_ context.Context, settings backend.AppInstanceSettings) (instancemg
 	logger := log.DefaultLogger.With("component", "app")
 
 	var app App
+	app.otelCfg = otelconfig.Default()
 
 	// Parse plugin settings from jsonData
 	if len(settings.JSONData) > 0 {
@@ -109,6 +112,16 @@ func (a *App) serviceGraphPrefix() string {
 	return "traces_service_graph"
 }
 
+// callsMetric returns the detected span metrics calls metric name.
+// Falls back to "traces_spanmetrics_calls_total" if not yet detected.
+func (a *App) callsMetric(ctx context.Context) string {
+	caps := a.cachedOrDetectCapabilities(ctx)
+	if caps.SpanMetrics.CallsMetric != "" {
+		return caps.SpanMetrics.CallsMetric
+	}
+	return "traces_spanmetrics_calls_total"
+}
+
 // promClientForRequest returns a PrometheusClient with the incoming user's auth headers.
 func (a *App) promClientForRequest(r *http.Request) *queries.PrometheusClient {
 	if a.promClient == nil {
@@ -120,9 +133,25 @@ func (a *App) promClientForRequest(r *http.Request) *queries.PrometheusClient {
 // Context key for per-request PrometheusClient with forwarded auth.
 type promClientCtxKey struct{}
 
+// Context key for raw HTTP headers (used by health checks).
+type httpHeadersCtxKey struct{}
+
 // withAuthContext stores an auth-enhanced PrometheusClient in the context.
 func withAuthContext(ctx context.Context, c *queries.PrometheusClient) context.Context {
 	return context.WithValue(ctx, promClientCtxKey{}, c)
+}
+
+// withHTTPHeaders stores raw HTTP headers in the context for health check forwarding.
+func withHTTPHeaders(ctx context.Context, h http.Header) context.Context {
+	return context.WithValue(ctx, httpHeadersCtxKey{}, h)
+}
+
+// httpHeaders returns the stored HTTP headers from context, or an empty header.
+func httpHeaders(ctx context.Context) http.Header {
+	if h, ok := ctx.Value(httpHeadersCtxKey{}).(http.Header); ok && h != nil {
+		return h
+	}
+	return http.Header{}
 }
 
 // prom returns the per-request auth-enhanced PrometheusClient, or falls back to the base client.
@@ -144,7 +173,7 @@ func (a *App) CheckHealth(ctx context.Context, req *backend.CheckHealthRequest) 
 		ctx = withAuthContext(ctx, a.promClient.WithAuthHeaders(h))
 	}
 
-	caps := a.detectCapabilities(ctx)
+	caps := a.detectCapabilities(ctx, h)
 
 	if !caps.SpanMetrics.Detected {
 		return &backend.CheckHealthResult{
@@ -181,6 +210,8 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/services/{namespace}/{service}/frontend", a.handleFrontendMetrics)
 	mux.HandleFunc("/services/{namespace}/{service}/dependencies", a.handleServiceDependencies)
 	mux.HandleFunc("/services/{namespace}/{service}/connected", a.handleConnectedServices)
+	mux.HandleFunc("/services/{namespace}/{service}/graphql", a.handleGraphQLMetrics)
+	mux.HandleFunc("/services/{namespace}/{service}/runtime", a.handleRuntime)
 	mux.HandleFunc("/service-map", a.handleServiceMap)
 	mux.HandleFunc("/dependencies", a.handleGlobalDependencies)
 	mux.HandleFunc("/dependencies/{name}", a.handleDependencyDetail)

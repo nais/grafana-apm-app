@@ -1,11 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { useStyles2, Icon, LoadingPlaceholder, Alert } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
-import { getServiceDependencies, DependencySummary } from '../../api/client';
+import { getServiceDependencies, DependencySummary, DependenciesResponse } from '../../api/client';
 import { useAppNavigate } from '../../utils/navigation';
-import { DepTypeIcon } from '../../components/DepTypeIcon';
+import { DepTypeIcon, formatDepType } from '../../components/DepTypeIcon';
 import { formatDuration } from '../../utils/format';
+import { useFetch } from '../../utils/useFetch';
 
 export interface DependenciesTabProps {
   service: string;
@@ -17,27 +18,13 @@ export interface DependenciesTabProps {
 export function DependenciesTab({ service, namespace, fromMs, toMs }: DependenciesTabProps) {
   const styles = useStyles2(getStyles);
   const appNavigate = useAppNavigate();
-  const [deps, setDeps] = useState<DependencySummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data: depsResp, loading, error } = useFetch<DependenciesResponse>(
+    () => getServiceDependencies(namespace, service, fromMs, toMs),
+    [service, namespace, fromMs, toMs]
+  );
+  const deps = depsResp?.dependencies ?? [];
   const [sortField, setSortField] = useState<keyof DependencySummary>('impact');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-
-  useEffect(() => {
-    const load = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const resp = await getServiceDependencies(namespace, service, fromMs, toMs);
-        setDeps(resp.dependencies);
-      } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : 'Failed to load dependencies');
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
-  }, [service, namespace, fromMs, toMs]);
 
   const toggleSort = useCallback((field: keyof DependencySummary) => {
     setSortField((prev) => {
@@ -103,7 +90,7 @@ export function DependenciesTab({ service, namespace, fromMs, toMs }: Dependenci
                 <DepTypeIcon type={dep.type} />
                 <span style={{ marginLeft: 8 }}>{dep.name}</span>
               </td>
-              <td className={styles.kindCell}>{dep.type}</td>
+              <td className={styles.kindCell}>{formatDepType(dep.type)}</td>
               <td className={styles.numCell}>{dep.rate.toFixed(2)} req/s</td>
               <td className={dep.errorRate > 0 ? styles.errorCell : styles.numCell}>
                 {dep.errorRate.toFixed(1)}%
@@ -157,9 +144,6 @@ const getStyles = (theme: GrafanaTheme2) => ({
     width: 100%;
     border-collapse: separate;
     border-spacing: 0;
-    table-layout: fixed;
-    th:nth-child(1) { width: 28%; }
-    th:nth-child(2) { width: 10%; }
     th {
       text-align: left;
       padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
@@ -170,7 +154,7 @@ const getStyles = (theme: GrafanaTheme2) => ({
       white-space: nowrap;
       user-select: none;
     }
-    th:nth-child(n+3) { width: auto; text-align: right; }
+    th:nth-child(n+3) { text-align: right; }
     td {
       padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
       border-bottom: 1px solid ${theme.colors.border.weak};
@@ -193,16 +177,13 @@ const getStyles = (theme: GrafanaTheme2) => ({
   nameCell: css`
     font-weight: ${theme.typography.fontWeightMedium};
     white-space: nowrap;
-    max-width: 300px;
     overflow: hidden;
     text-overflow: ellipsis;
-    display: flex;
-    align-items: center;
+    color: ${theme.colors.text.link};
   `,
   kindCell: css`
     color: ${theme.colors.text.secondary};
     font-size: ${theme.typography.bodySmall.fontSize};
-    text-transform: capitalize;
   `,
   numCell: css`
     text-align: right;

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { PluginPage } from '@grafana/runtime';
 import { Alert, LoadingPlaceholder, useStyles2 } from '@grafana/ui';
 import { GrafanaTheme2, FieldType, LoadingState, toDataFrame } from '@grafana/data';
@@ -15,29 +15,15 @@ import {
 } from '@grafana/scenes';
 import { getServiceMap, ServiceMapResponse } from '../api/client';
 import { useTimeRange } from '../utils/timeRange';
+import { useFetch } from '../utils/useFetch';
 
 function ServiceMap() {
   const styles = useStyles2(getStyles);
   const { fromMs, toMs } = useTimeRange();
-  const [mapData, setMapData] = useState<ServiceMapResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const load = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const data = await getServiceMap(fromMs, toMs);
-        setMapData(data);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Failed to load service map');
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
-  }, [fromMs, toMs]);
+  const { data: mapData, loading, error } = useFetch<ServiceMapResponse>(
+    () => getServiceMap(fromMs, toMs),
+    [fromMs, toMs]
+  );
 
   const scene = useMemo(() => {
     if (!mapData || mapData.nodes.length === 0) {

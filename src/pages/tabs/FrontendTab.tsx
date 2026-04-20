@@ -19,33 +19,46 @@ import { getFrontendMetrics } from '../../api/client';
 import { usePluginDatasources } from '../../utils/datasources';
 import { useTimeRange } from '../../utils/timeRange';
 import { sanitizeLabelValue } from '../../utils/sanitize';
+import { otel } from '../../otelconfig';
 
 interface FrontendTabProps {
   service: string;
   namespace: string;
+  environment?: string;
 }
 
-export function FrontendTab({ service, namespace }: FrontendTabProps) {
+type FrontendSource = 'mimir' | 'loki';
+
+export function FrontendTab({ service, namespace, environment }: FrontendTabProps) {
   const styles = useStyles2(getStyles);
   const [available, setAvailable] = useState<boolean | null>(null);
+  const [source, setSource] = useState<FrontendSource | null>(null);
 
   useEffect(() => {
-    getFrontendMetrics(namespace, service)
-      .then((r) => setAvailable(r.available))
+    getFrontendMetrics(namespace, service, environment || undefined)
+      .then((r) => {
+        setAvailable(r.available);
+        setSource((r.source as FrontendSource) ?? null);
+      })
       .catch(() => setAvailable(false));
-  }, [service, namespace]);
+  }, [service, namespace, environment]);
 
   if (available === null) {
     return <LoadingPlaceholder text="Checking for browser telemetry..." />;
   }
 
-  if (!available) {
+  if (!available || !source) {
     return <SetupPlaceholder namespace={namespace} service={service} />;
   }
 
   return (
     <div className={styles.container}>
-      <WebVitalsPanels service={service} namespace={namespace} />
+      {source === 'loki' && (
+        <LokiWebVitalsPanels service={service} environment={environment} />
+      )}
+      {source === 'mimir' && (
+        <MimirWebVitalsPanels service={service} namespace={namespace} />
+      )}
     </div>
   );
 }
@@ -70,7 +83,7 @@ function statPanel(title: string, description: string, query: SceneQueryRunner, 
     .build();
 }
 
-function makeQuery(ds: { uid: string }, expr: string, legendFormat: string, opts?: { minInterval?: string; format?: string }) {
+function makePromQuery(ds: { uid: string }, expr: string, legendFormat: string, opts?: { minInterval?: string; format?: string; instant?: boolean }) {
   return new SceneQueryRunner({
     datasource: { uid: ds.uid, type: 'prometheus' },
     ...(opts?.minInterval ? { minInterval: opts.minInterval } : {}),
@@ -79,51 +92,382 @@ function makeQuery(ds: { uid: string }, expr: string, legendFormat: string, opts
       expr,
       legendFormat,
       ...(opts?.format ? { format: opts.format } : {}),
+      ...(opts?.instant ? { instant: true } : {}),
     }],
   });
 }
 
-// ---- Web Vitals panels (Scenes) ----
+function makeLokiQuery(ds: { uid: string }, expr: string, legendFormat: string, opts?: { instant?: boolean }) {
+  return new SceneQueryRunner({
+    datasource: { uid: ds.uid, type: 'loki' },
+    queries: [{
+      refId: 'A',
+      expr,
+      legendFormat,
+      ...(opts?.instant ? { instant: true } : {}),
+    }],
+  });
+}
 
-function WebVitalsPanels({ service, namespace }: { service: string; namespace: string }) {
+// ---- Vital thresholds (shared between Mimir and Loki panels) ----
+
+const VITAL_THRESHOLDS = {
+  lcp: [{ value: 0, color: 'green' }, { value: 2500, color: 'orange' }, { value: 4000, color: 'red' }],
+  fcp: [{ value: 0, color: 'green' }, { value: 1800, color: 'orange' }, { value: 3000, color: 'red' }],
+  cls: [{ value: 0, color: 'green' }, { value: 0.1, color: 'orange' }, { value: 0.25, color: 'red' }],
+  inp: [{ value: 0, color: 'green' }, { value: 200, color: 'orange' }, { value: 500, color: 'red' }],
+  ttfb: [{ value: 0, color: 'green' }, { value: 800, color: 'orange' }, { value: 1800, color: 'red' }],
+};
+
+// ---- LogQL helper for Faro vital queries ----
+
+function lokiVitalExpr(service: string, vital: string, window: string): string {
+  const fl = otel.faroLoki;
+  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindMeasurement}"}`;
+  return `avg(avg_over_time(${stream} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" | ${vital}!="" | keep ${vital} | unwrap ${vital} ${window}))`;
+}
+
+function lokiVitalByGroupExpr(service: string, vital: string, groupBy: string, window: string): string {
+  const fl = otel.faroLoki;
+  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindMeasurement}"}`;
+  return `avg by (${groupBy}) (avg_over_time(${stream} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" | ${vital}!="" | keep ${vital}, ${groupBy} | unwrap ${vital} ${window}))`;
+}
+
+function lokiExceptionExpr(service: string, window: string): string {
+  const fl = otel.faroLoki;
+  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindException}"}`;
+  return `sum(count_over_time(${stream} ${window}))`;
+}
+
+function lokiTopExceptionsExpr(service: string, window: string): string {
+  const fl = otel.faroLoki;
+  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindException}"}`;
+  return `topk(10, sum by (value) (count_over_time(${stream} | logfmt | value!="" | keep value ${window})))`;
+}
+
+function lokiSessionStartExpr(service: string, window: string): string {
+  const fl = otel.faroLoki;
+  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindEvent}"}`;
+  return `sum(count_over_time(${stream} | logfmt | event_name="session_start" ${window}))`;
+}
+
+function lokiTopEventsExpr(service: string, window: string): string {
+  const fl = otel.faroLoki;
+  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindEvent}"}`;
+  return `topk(10, sum by (event_name) (count_over_time(${stream} | logfmt | event_name!="" | keep event_name ${window})))`;
+}
+
+function lokiMeasurementCountExpr(service: string, window: string): string {
+  const fl = otel.faroLoki;
+  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindMeasurement}"}`;
+  return `sum(count_over_time(${stream} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" ${window}))`;
+}
+
+// ========================================================================
+// Loki-based Web Vitals panels (Faro data in Loki)
+// ========================================================================
+
+function LokiWebVitalsPanels({ service, environment }: { service: string; environment?: string }) {
+  const ds = usePluginDatasources(environment || undefined);
+  const { from, to } = useTimeRange();
+
+  const scene = useMemo(() => {
+    const timeRange = new SceneTimeRange({ from, to });
+    const lDs = { uid: ds.logsUid };
+
+    // --- Row 1: Core Web Vitals stat panels (use $__range for full-range stats) ---
+    const lcpQ = makeLokiQuery(lDs, lokiVitalExpr(service, otel.faroLoki.lcp, '[$__range]'), 'LCP', { instant: true });
+    const fcpQ = makeLokiQuery(lDs, lokiVitalExpr(service, otel.faroLoki.fcp, '[$__range]'), 'FCP', { instant: true });
+    const clsQ = makeLokiQuery(lDs, lokiVitalExpr(service, otel.faroLoki.cls, '[$__range]'), 'CLS', { instant: true });
+    const inpQ = makeLokiQuery(lDs, lokiVitalExpr(service, otel.faroLoki.inp, '[$__range]'), 'INP', { instant: true });
+    const ttfbQ = makeLokiQuery(lDs, lokiVitalExpr(service, otel.faroLoki.ttfb, '[$__range]'), 'TTFB', { instant: true });
+
+    const vitalsRow = new SceneFlexLayout({
+      direction: 'row',
+      children: [
+        new SceneFlexItem({ minHeight: 130, body: statPanel('LCP', 'Largest Contentful Paint — target < 2500ms', lcpQ, 'ms', VITAL_THRESHOLDS.lcp) }),
+        new SceneFlexItem({ minHeight: 130, body: statPanel('FCP', 'First Contentful Paint — target < 1800ms', fcpQ, 'ms', VITAL_THRESHOLDS.fcp) }),
+        new SceneFlexItem({ minHeight: 130, body: statPanel('CLS', 'Cumulative Layout Shift — target < 0.1', clsQ, 'none', VITAL_THRESHOLDS.cls, 3) }),
+        new SceneFlexItem({ minHeight: 130, body: statPanel('INP', 'Interaction to Next Paint — target < 200ms', inpQ, 'ms', VITAL_THRESHOLDS.inp) }),
+        new SceneFlexItem({ minHeight: 130, body: statPanel('TTFB', 'Time to First Byte — target < 800ms', ttfbQ, 'ms', VITAL_THRESHOLDS.ttfb) }),
+      ],
+    });
+
+    // --- Row 2: Web Vitals time series trends (use $__auto for trend resolution) ---
+    const pageLoadVitalsQ = new SceneQueryRunner({
+      datasource: { uid: ds.logsUid, type: 'loki' },
+      queries: [
+        { refId: 'A', expr: lokiVitalExpr(service, otel.faroLoki.ttfb, '[$__auto]'), legendFormat: 'TTFB' },
+        { refId: 'B', expr: lokiVitalExpr(service, otel.faroLoki.fcp, '[$__auto]'), legendFormat: 'FCP' },
+        { refId: 'C', expr: lokiVitalExpr(service, otel.faroLoki.lcp, '[$__auto]'), legendFormat: 'LCP' },
+      ],
+    });
+    const inpTrendQ = makeLokiQuery(lDs, lokiVitalExpr(service, otel.faroLoki.inp, '[$__auto]'), 'INP');
+    const clsTrendQ = makeLokiQuery(lDs, lokiVitalExpr(service, otel.faroLoki.cls, '[$__auto]'), 'CLS');
+
+    const trendsRow = new SceneFlexLayout({
+      direction: 'row',
+      children: [
+        new SceneFlexItem({
+          minHeight: 200,
+          body: PanelBuilders.timeseries()
+            .setTitle('Page Load Vitals')
+            .setDescription('TTFB → FCP → LCP loading sequence over time')
+            .setData(pageLoadVitalsQ)
+            .setUnit('ms')
+            .build(),
+        }),
+        new SceneFlexItem({
+          minHeight: 200,
+          body: PanelBuilders.timeseries()
+            .setTitle('Interactivity (INP)')
+            .setDescription('Interaction to Next Paint trend')
+            .setData(inpTrendQ)
+            .setUnit('ms')
+            .build(),
+        }),
+        new SceneFlexItem({
+          minHeight: 200,
+          body: PanelBuilders.timeseries()
+            .setTitle('Layout Stability (CLS)')
+            .setDescription('Cumulative Layout Shift trend')
+            .setData(clsTrendQ)
+            .setUnit('none')
+            .setDecimals(3)
+            .build(),
+        }),
+      ],
+    });
+
+    // --- Row 3: Measurement count + JS Exceptions ---
+    const measurementCountQ = makeLokiQuery(lDs, lokiMeasurementCountExpr(service, '[$__auto]'), 'Measurements');
+    const exceptionCountQ = makeLokiQuery(lDs, lokiExceptionExpr(service, '[$__auto]'), 'JS Exceptions');
+
+    const trafficRow = new SceneFlexLayout({
+      direction: 'row',
+      children: [
+        new SceneFlexItem({
+          minHeight: 200,
+          body: PanelBuilders.timeseries()
+            .setTitle('Web Vitals Measurements')
+            .setDescription('Number of web vitals measurements over time')
+            .setData(measurementCountQ)
+            .setUnit('short')
+            .setCustomFieldConfig('fillOpacity', 30)
+            .build(),
+        }),
+        new SceneFlexItem({
+          minHeight: 200,
+          body: PanelBuilders.timeseries()
+            .setTitle('JavaScript Exceptions')
+            .setDescription('JS exception count over time')
+            .setData(exceptionCountQ)
+            .setUnit('short')
+            .setCustomFieldConfig('fillOpacity', 15)
+            .build(),
+        }),
+      ],
+    });
+
+    // --- Row 4: Browser Breakdown Table ---
+    const browserQ = new SceneQueryRunner({
+      datasource: { uid: ds.logsUid, type: 'loki' },
+      queries: [
+        { refId: 'lcp', expr: lokiVitalByGroupExpr(service, otel.faroLoki.lcp, otel.faroLoki.browserName, '[$__range]'), legendFormat: '__auto', format: 'table', instant: true },
+        { refId: 'fcp', expr: lokiVitalByGroupExpr(service, otel.faroLoki.fcp, otel.faroLoki.browserName, '[$__range]'), legendFormat: '__auto', format: 'table', instant: true },
+        { refId: 'ttfb', expr: lokiVitalByGroupExpr(service, otel.faroLoki.ttfb, otel.faroLoki.browserName, '[$__range]'), legendFormat: '__auto', format: 'table', instant: true },
+      ],
+    });
+    const browserData = new SceneDataTransformer({
+      $data: browserQ,
+      transformations: [{ id: 'merge', options: {} }],
+    });
+
+    const browserTable = new SceneFlexItem({
+      minHeight: 250,
+      body: PanelBuilders.table()
+        .setTitle('Browser Breakdown')
+        .setDescription('Average Web Vitals by browser')
+        .setData(browserData)
+        .setOverrides((b) => {
+          b.matchFieldsWithName(otel.faroLoki.browserName).overrideDisplayName('Browser');
+          b.matchFieldsWithName('Value #lcp').overrideDisplayName('Avg LCP (ms)')
+            .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.lcp })
+            .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
+            .overrideDecimals(0);
+          b.matchFieldsWithName('Value #fcp').overrideDisplayName('Avg FCP (ms)')
+            .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.fcp })
+            .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
+            .overrideDecimals(0);
+          b.matchFieldsWithName('Value #ttfb').overrideDisplayName('Avg TTFB (ms)')
+            .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.ttfb })
+            .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
+            .overrideDecimals(0);
+          b.matchFieldsWithName('Time').overrideCustomFieldConfig('hidden' as any, true);
+        })
+        .build(),
+    });
+
+    // --- Row 5: Rating Distribution ---
+    const fl = otel.faroLoki;
+    const ratingStream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindMeasurement}"}`;
+    const ratingQ = makeLokiQuery(
+      lDs,
+      `sum by (${fl.rating}) (count_over_time(${ratingStream} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" | ${fl.rating}!="" | keep ${fl.rating} [$__range]))`,
+      `{{${fl.rating}}}`,
+      { instant: true }
+    );
+
+    const ratingPanel = new SceneFlexItem({
+      minHeight: 250,
+      body: PanelBuilders.piechart()
+        .setTitle('Web Vitals Rating Distribution')
+        .setDescription('Distribution of good / needs-improvement / poor ratings')
+        .setData(ratingQ)
+        .setOverrides((b) => {
+          b.matchFieldsWithName('good').overrideColor({ mode: 'fixed', fixedColor: 'green' });
+          b.matchFieldsWithName('needs-improvement').overrideColor({ mode: 'fixed', fixedColor: 'orange' });
+          b.matchFieldsWithName('poor').overrideColor({ mode: 'fixed', fixedColor: 'red' });
+        })
+        .build(),
+    });
+
+    const bottomRow = new SceneFlexLayout({
+      direction: 'row',
+      children: [ratingPanel, browserTable],
+    });
+
+    // --- Row 6: Top Exceptions table ---
+    const topExceptionsQ = makeLokiQuery(
+      lDs,
+      lokiTopExceptionsExpr(service, '[$__range]'),
+      '{{value}}',
+      { instant: true }
+    );
+    const topExceptionsPanel = new SceneFlexItem({
+      minHeight: 300,
+      body: PanelBuilders.table()
+        .setTitle('Top Exceptions')
+        .setDescription('Most frequent JS exceptions in the selected time range')
+        .setData(topExceptionsQ)
+        .setOverrides((b) => {
+          b.matchFieldsWithName('value').overrideDisplayName('Error');
+          b.matchFieldsWithName('Value').overrideDisplayName('Count');
+          b.matchFieldsWithName('Time').overrideCustomFieldConfig('hidden' as any, true);
+        })
+        .build(),
+    });
+
+    // --- Row 7: Sessions + Exceptions over time ---
+    const sessionQ = makeLokiQuery(lDs, lokiSessionStartExpr(service, '[$__auto]'), 'Sessions');
+    const sessionsAndExceptionsRow = new SceneFlexLayout({
+      direction: 'row',
+      children: [
+        new SceneFlexItem({
+          minHeight: 200,
+          body: PanelBuilders.timeseries()
+            .setTitle('Sessions (Visits)')
+            .setDescription('New session starts over time — indicates user traffic volume')
+            .setData(sessionQ)
+            .setUnit('short')
+            .setCustomFieldConfig('fillOpacity', 25)
+            .setColor({ mode: 'fixed', fixedColor: 'blue' } as any)
+            .build(),
+        }),
+        topExceptionsPanel,
+      ],
+    });
+
+    // --- Row 8: Top Events table ---
+    const topEventsQ = makeLokiQuery(
+      lDs,
+      lokiTopEventsExpr(service, '[$__range]'),
+      '{{event_name}}',
+      { instant: true }
+    );
+    const topEventsPanel = new SceneFlexItem({
+      minHeight: 250,
+      body: PanelBuilders.table()
+        .setTitle('Top Events')
+        .setDescription('Most frequent Faro events (navigation, resource loading, sessions)')
+        .setData(topEventsQ)
+        .setOverrides((b) => {
+          b.matchFieldsWithName('event_name').overrideDisplayName('Event');
+          b.matchFieldsWithName('Value').overrideDisplayName('Count');
+          b.matchFieldsWithName('Time').overrideCustomFieldConfig('hidden' as any, true);
+        })
+        .build(),
+    });
+
+    const eventsRow = new SceneFlexLayout({
+      direction: 'row',
+      children: [topEventsPanel],
+    });
+
+    return new EmbeddedScene({
+      $timeRange: timeRange,
+      $behaviors: [new behaviors.CursorSync({ sync: DashboardCursorSync.Crosshair })],
+      controls: [new SceneTimePicker({}), new SceneRefreshPicker({})],
+      body: new SceneFlexLayout({
+        direction: 'column',
+        children: [
+          vitalsRow,
+          trendsRow,
+          trafficRow,
+          bottomRow,
+          sessionsAndExceptionsRow,
+          eventsRow,
+        ],
+      }),
+    });
+  }, [from, to, ds, service, environment]);
+
+  return <scene.Component model={scene} />;
+}
+
+// ========================================================================
+// Mimir-based Web Vitals panels (standard Prometheus/Faro metrics)
+// ========================================================================
+
+function MimirWebVitalsPanels({ service, namespace }: { service: string; namespace: string }) {
   const ds = usePluginDatasources();
   const { from, to } = useTimeRange();
 
-  const svcFilter = `service_name="${sanitizeLabelValue(service)}", service_namespace="${sanitizeLabelValue(namespace)}"`;
+  const svcFilter = `${otel.labels.serviceName}="${sanitizeLabelValue(service)}", ${otel.labels.serviceNamespace}="${sanitizeLabelValue(namespace)}"`;
 
   const scene = useMemo(() => {
     const timeRange = new SceneTimeRange({ from, to });
     const mDs = { uid: ds.metricsUid };
 
     // --- Row 1: Core Web Vitals stat panels ---
-    const lcpQ = makeQuery(mDs, `avg(browser_web_vitals_lcp_milliseconds{${svcFilter}})`, 'LCP');
-    const fcpQ = makeQuery(mDs, `avg(browser_web_vitals_fcp_milliseconds{${svcFilter}})`, 'FCP');
-    const clsQ = makeQuery(mDs, `avg(browser_web_vitals_cls{${svcFilter}})`, 'CLS');
-    const inpQ = makeQuery(mDs, `avg(browser_web_vitals_inp_milliseconds{${svcFilter}})`, 'INP');
-    const ttfbQ = makeQuery(mDs, `avg(browser_web_vitals_ttfb_milliseconds{${svcFilter}})`, 'TTFB');
+    const lcpQ = makePromQuery(mDs, `avg(${otel.browser.lcp}{${svcFilter}})`, 'LCP');
+    const fcpQ = makePromQuery(mDs, `avg(${otel.browser.fcp}{${svcFilter}})`, 'FCP');
+    const clsQ = makePromQuery(mDs, `avg(${otel.browser.cls}{${svcFilter}})`, 'CLS');
+    const inpQ = makePromQuery(mDs, `avg(${otel.browser.inp}{${svcFilter}})`, 'INP');
+    const ttfbQ = makePromQuery(mDs, `avg(${otel.browser.ttfb}{${svcFilter}})`, 'TTFB');
 
     const vitalsRow = new SceneFlexLayout({
       direction: 'row',
       children: [
-        new SceneFlexItem({ minHeight: 130, body: statPanel('LCP', 'Largest Contentful Paint — target < 2500ms', lcpQ, 'ms', [{ value: 0, color: 'green' }, { value: 2500, color: 'orange' }, { value: 4000, color: 'red' }]) }),
-        new SceneFlexItem({ minHeight: 130, body: statPanel('FCP', 'First Contentful Paint — target < 1800ms', fcpQ, 'ms', [{ value: 0, color: 'green' }, { value: 1800, color: 'orange' }, { value: 3000, color: 'red' }]) }),
-        new SceneFlexItem({ minHeight: 130, body: statPanel('CLS', 'Cumulative Layout Shift — target < 0.1', clsQ, 'none', [{ value: 0, color: 'green' }, { value: 0.1, color: 'orange' }, { value: 0.25, color: 'red' }], 3) }),
-        new SceneFlexItem({ minHeight: 130, body: statPanel('INP', 'Interaction to Next Paint — target < 200ms', inpQ, 'ms', [{ value: 0, color: 'green' }, { value: 200, color: 'orange' }, { value: 500, color: 'red' }]) }),
-        new SceneFlexItem({ minHeight: 130, body: statPanel('TTFB', 'Time to First Byte — target < 800ms', ttfbQ, 'ms', [{ value: 0, color: 'green' }, { value: 800, color: 'orange' }, { value: 1800, color: 'red' }]) }),
+        new SceneFlexItem({ minHeight: 130, body: statPanel('LCP', 'Largest Contentful Paint — target < 2500ms', lcpQ, 'ms', VITAL_THRESHOLDS.lcp) }),
+        new SceneFlexItem({ minHeight: 130, body: statPanel('FCP', 'First Contentful Paint — target < 1800ms', fcpQ, 'ms', VITAL_THRESHOLDS.fcp) }),
+        new SceneFlexItem({ minHeight: 130, body: statPanel('CLS', 'Cumulative Layout Shift — target < 0.1', clsQ, 'none', VITAL_THRESHOLDS.cls, 3) }),
+        new SceneFlexItem({ minHeight: 130, body: statPanel('INP', 'Interaction to Next Paint — target < 200ms', inpQ, 'ms', VITAL_THRESHOLDS.inp) }),
+        new SceneFlexItem({ minHeight: 130, body: statPanel('TTFB', 'Time to First Byte — target < 800ms', ttfbQ, 'ms', VITAL_THRESHOLDS.ttfb) }),
       ],
     });
 
-    // --- Row 2: Web Vitals P75 time series ---
+    // --- Row 2: Web Vitals time series ---
     const pageLoadVitalsQ = new SceneQueryRunner({
       datasource: { uid: ds.metricsUid, type: 'prometheus' },
       queries: [
-        { refId: 'A', expr: `avg(browser_web_vitals_ttfb_milliseconds{${svcFilter}})`, legendFormat: 'TTFB' },
-        { refId: 'B', expr: `avg(browser_web_vitals_fcp_milliseconds{${svcFilter}})`, legendFormat: 'FCP' },
-        { refId: 'C', expr: `avg(browser_web_vitals_lcp_milliseconds{${svcFilter}})`, legendFormat: 'LCP' },
+        { refId: 'A', expr: `avg(${otel.browser.ttfb}{${svcFilter}})`, legendFormat: 'TTFB' },
+        { refId: 'B', expr: `avg(${otel.browser.fcp}{${svcFilter}})`, legendFormat: 'FCP' },
+        { refId: 'C', expr: `avg(${otel.browser.lcp}{${svcFilter}})`, legendFormat: 'LCP' },
       ],
     });
-    const inpTrendQ = makeQuery(mDs, `avg(browser_web_vitals_inp_milliseconds{${svcFilter}})`, 'INP');
-    const clsTrendQ = makeQuery(mDs, `avg(browser_web_vitals_cls{${svcFilter}})`, 'CLS');
+    const inpTrendQ = makePromQuery(mDs, `avg(${otel.browser.inp}{${svcFilter}})`, 'INP');
+    const clsTrendQ = makePromQuery(mDs, `avg(${otel.browser.cls}{${svcFilter}})`, 'CLS');
 
     const trendsRow = new SceneFlexLayout({
       direction: 'row',
@@ -160,15 +504,15 @@ function WebVitalsPanels({ service, namespace }: { service: string; namespace: s
     });
 
     // --- Row 3: Page Loads Over Time + JS Errors ---
-    const pageLoadsQ = makeQuery(
+    const pageLoadsQ = makePromQuery(
       mDs,
-      `sum by (page_route) (increase(browser_page_loads_total{${svcFilter}}[$__rate_interval]))`,
-      '{{page_route}}',
+      `sum by (${otel.browser.pageRoute}) (increase(${otel.browser.pageLoads}{${svcFilter}}[$__rate_interval]))`,
+      `{{${otel.browser.pageRoute}}}`,
       { minInterval: '1m' }
     );
-    const errQ = makeQuery(
+    const errQ = makePromQuery(
       mDs,
-      `sum(rate(browser_errors_total{${svcFilter}}[$__rate_interval]))`,
+      `sum(rate(${otel.browser.errors}{${svcFilter}}[$__rate_interval]))`,
       'JS Errors/s',
       { minInterval: '1m' }
     );
@@ -204,12 +548,12 @@ function WebVitalsPanels({ service, namespace }: { service: string; namespace: s
     const perPageQ = new SceneQueryRunner({
       datasource: { uid: ds.metricsUid, type: 'prometheus' },
       queries: [
-        { refId: 'lcp', expr: `avg by (page_route) (browser_web_vitals_lcp_milliseconds{${svcFilter}})`, legendFormat: '__auto', format: 'table', instant: true },
-        { refId: 'fcp', expr: `avg by (page_route) (browser_web_vitals_fcp_milliseconds{${svcFilter}})`, legendFormat: '__auto', format: 'table', instant: true },
-        { refId: 'cls', expr: `avg by (page_route) (browser_web_vitals_cls{${svcFilter}})`, legendFormat: '__auto', format: 'table', instant: true },
-        { refId: 'inp', expr: `avg by (page_route) (browser_web_vitals_inp_milliseconds{${svcFilter}})`, legendFormat: '__auto', format: 'table', instant: true },
-        { refId: 'ttfb', expr: `avg by (page_route) (browser_web_vitals_ttfb_milliseconds{${svcFilter}})`, legendFormat: '__auto', format: 'table', instant: true },
-        { refId: 'loads', expr: `sum by (page_route) (increase(browser_page_loads_total{${svcFilter}}[$__range]))`, legendFormat: '__auto', format: 'table', instant: true },
+        { refId: 'lcp', expr: `avg by (${otel.browser.pageRoute}) (${otel.browser.lcp}{${svcFilter}})`, legendFormat: '__auto', format: 'table', instant: true },
+        { refId: 'fcp', expr: `avg by (${otel.browser.pageRoute}) (${otel.browser.fcp}{${svcFilter}})`, legendFormat: '__auto', format: 'table', instant: true },
+        { refId: 'cls', expr: `avg by (${otel.browser.pageRoute}) (${otel.browser.cls}{${svcFilter}})`, legendFormat: '__auto', format: 'table', instant: true },
+        { refId: 'inp', expr: `avg by (${otel.browser.pageRoute}) (${otel.browser.inp}{${svcFilter}})`, legendFormat: '__auto', format: 'table', instant: true },
+        { refId: 'ttfb', expr: `avg by (${otel.browser.pageRoute}) (${otel.browser.ttfb}{${svcFilter}})`, legendFormat: '__auto', format: 'table', instant: true },
+        { refId: 'loads', expr: `sum by (${otel.browser.pageRoute}) (increase(${otel.browser.pageLoads}{${svcFilter}}[$__range]))`, legendFormat: '__auto', format: 'table', instant: true },
       ],
     });
     const perPageData = new SceneDataTransformer({
@@ -225,28 +569,27 @@ function WebVitalsPanels({ service, namespace }: { service: string; namespace: s
         .setData(perPageData)
         .setOverrides((b) => {
           b.matchFieldsWithName('Value #lcp').overrideDisplayName('LCP (ms)')
-            .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: [{ value: 0, color: 'green' }, { value: 2500, color: 'orange' }, { value: 4000, color: 'red' }] })
+            .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.lcp })
             .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
             .overrideDecimals(0);
           b.matchFieldsWithName('Value #fcp').overrideDisplayName('FCP (ms)')
-            .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: [{ value: 0, color: 'green' }, { value: 1800, color: 'orange' }, { value: 3000, color: 'red' }] })
+            .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.fcp })
             .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
             .overrideDecimals(0);
           b.matchFieldsWithName('Value #cls').overrideDisplayName('CLS')
-            .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: [{ value: 0, color: 'green' }, { value: 0.1, color: 'orange' }, { value: 0.25, color: 'red' }] })
+            .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.cls })
             .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
             .overrideDecimals(3);
           b.matchFieldsWithName('Value #inp').overrideDisplayName('INP (ms)')
-            .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: [{ value: 0, color: 'green' }, { value: 200, color: 'orange' }, { value: 500, color: 'red' }] })
+            .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.inp })
             .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
             .overrideDecimals(0);
           b.matchFieldsWithName('Value #ttfb').overrideDisplayName('TTFB (ms)')
-            .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: [{ value: 0, color: 'green' }, { value: 800, color: 'orange' }, { value: 1800, color: 'red' }] })
+            .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.ttfb })
             .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
             .overrideDecimals(0);
           b.matchFieldsWithName('Value #loads').overrideDisplayName('Page Loads').overrideDecimals(0);
           b.matchFieldsWithName('page_route').overrideDisplayName('Page Route');
-          // Hide Time columns
           b.matchFieldsWithName('Time').overrideCustomFieldConfig('hidden' as any, true);
         })
         .build(),
@@ -256,9 +599,9 @@ function WebVitalsPanels({ service, namespace }: { service: string; namespace: s
     const browserQ = new SceneQueryRunner({
       datasource: { uid: ds.metricsUid, type: 'prometheus' },
       queries: [
-        { refId: 'lcp', expr: `avg by (browser_name) (browser_web_vitals_lcp_milliseconds{${svcFilter}})`, legendFormat: '__auto', format: 'table', instant: true },
-        { refId: 'loads', expr: `sum by (browser_name) (increase(browser_page_loads_total{${svcFilter}}[$__range]))`, legendFormat: '__auto', format: 'table', instant: true },
-        { refId: 'errors', expr: `sum by (browser_name) (increase(browser_errors_total{${svcFilter}, browser_name!=""}[$__range]))`, legendFormat: '__auto', format: 'table', instant: true },
+        { refId: 'lcp', expr: `avg by (${otel.browser.browserName}) (${otel.browser.lcp}{${svcFilter}})`, legendFormat: '__auto', format: 'table', instant: true },
+        { refId: 'loads', expr: `sum by (${otel.browser.browserName}) (increase(${otel.browser.pageLoads}{${svcFilter}}[$__range]))`, legendFormat: '__auto', format: 'table', instant: true },
+        { refId: 'errors', expr: `sum by (${otel.browser.browserName}) (increase(${otel.browser.errors}{${svcFilter}, ${otel.browser.browserName}!=""}[$__range]))`, legendFormat: '__auto', format: 'table', instant: true },
       ],
     });
     const browserData = new SceneDataTransformer({
@@ -275,7 +618,7 @@ function WebVitalsPanels({ service, namespace }: { service: string; namespace: s
         .setOverrides((b) => {
           b.matchFieldsWithName('browser_name').overrideDisplayName('Browser');
           b.matchFieldsWithName('Value #lcp').overrideDisplayName('Avg LCP (ms)')
-            .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: [{ value: 0, color: 'green' }, { value: 2500, color: 'orange' }, { value: 4000, color: 'red' }] })
+            .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.lcp })
             .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
             .overrideDecimals(0);
           b.matchFieldsWithName('Value #loads').overrideDisplayName('Page Loads').overrideDecimals(0);
@@ -286,9 +629,9 @@ function WebVitalsPanels({ service, namespace }: { service: string; namespace: s
     });
 
     // --- Row 6: Page Load Duration Histogram ---
-    const pageLoadHistQ = makeQuery(
+    const pageLoadHistQ = makePromQuery(
       mDs,
-      `sum by (le) (increase(browser_page_load_duration_milliseconds_bucket{${svcFilter}}[$__range]))`,
+      `sum by (${otel.labels.le}) (increase(${otel.browser.pageLoadDuration}{${svcFilter}}[$__range]))`,
       '{{le}}',
       { format: 'heatmap' }
     );

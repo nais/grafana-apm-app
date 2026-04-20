@@ -46,6 +46,8 @@ export interface ServiceSummary {
   namespace: string;
   environment?: string;
   sdkLanguage?: string;
+  framework?: string;
+  hasFrontend?: boolean;
   rate: number;
   errorRate: number;
   p95Duration: number;
@@ -163,6 +165,7 @@ export async function getServiceMap(
 
 export interface ConnectedService {
   name: string;
+  connectionType?: string;
   rate: number;
   errorRate: number;
   p95Duration: number;
@@ -205,10 +208,19 @@ export interface DependenciesResponse {
   dependencies: DependencySummary[];
 }
 
+export interface DependencyOperation {
+  spanName: string;
+  callingService: string;
+  rate: number;
+  errorRate: number;
+  p95Duration: number;
+  durationUnit: string;
+}
+
 export interface DependencyDetailResponse {
   dependency: DependencySummary;
   upstreams: DependencySummary[];
-  operations: OperationSummary[];
+  operations: DependencyOperation[];
 }
 
 export async function getServiceDependencies(
@@ -265,12 +277,14 @@ export interface EndpointSummary {
   rpcService?: string;
   rpcMethod?: string;
   dbSystem?: string;
+  messagingKind?: string;
 }
 
 export interface EndpointGroups {
   http: EndpointSummary[];
   grpc: EndpointSummary[];
   database: EndpointSummary[];
+  messaging: EndpointSummary[];
   internal: EndpointSummary[];
   durationUnit: string;
 }
@@ -294,15 +308,157 @@ export async function getEndpoints(
 
 export interface FrontendMetricsResponse {
   available: boolean;
+  source?: string; // "mimir" or "loki"
   vitals?: Record<string, number>;
   errorRate: number;
 }
 
 export async function getFrontendMetrics(
   namespace: string,
-  service: string
+  service: string,
+  environment?: string
 ): Promise<FrontendMetricsResponse> {
+  const params: Record<string, string> = {};
+  if (environment) {
+    params.environment = environment;
+  }
   return fetchResource<FrontendMetricsResponse>(
-    `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(service)}/frontend`
+    `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(service)}/frontend`,
+    Object.keys(params).length > 0 ? params : undefined
+  );
+}
+
+export interface GraphQLOperation {
+  name: string;
+  type?: string;
+  rate: number;
+  errorRate: number | null;
+  avgLatency: number;
+  latencyUnit: string;
+}
+
+export interface GraphQLMetricsResponse {
+  detected: boolean;
+  framework?: string;
+  operations?: GraphQLOperation[];
+  fetchers?: GraphQLOperation[];
+}
+
+export async function getGraphQLMetrics(
+  namespace: string,
+  service: string,
+  from: number,
+  to: number
+): Promise<GraphQLMetricsResponse> {
+  return fetchResource<GraphQLMetricsResponse>(
+    `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(service)}/graphql`,
+    {
+      from: String(Math.floor(from / 1000)),
+      to: String(Math.floor(to / 1000)),
+    }
+  );
+}
+
+// ---- Runtime metrics (JVM, Node.js, DB Pool, Kafka) ----
+
+export type DetectionStatus = 'detected' | 'absent' | 'error';
+
+export interface RuntimeVersion {
+  version: string;
+  runtime?: string;
+  count: number;
+}
+
+export interface JVMRuntime {
+  status: DetectionStatus;
+  heapUsed: number;
+  heapMax: number;
+  heapCommitted: number;
+  nonHeapUsed: number;
+  gcPauseRate: number;
+  gcPauseAvg: number;
+  gcOverhead: number;
+  threadsLive: number;
+  threadsDaemon: number;
+  threadsPeak: number;
+  threadStates?: Record<string, number>;
+  classesLoaded: number;
+  cpuUtilization: number;
+  cpuCount: number;
+  uptime: number;
+  bufferUsed: number;
+  bufferCapacity: number;
+  versions?: RuntimeVersion[];
+  podCount: number;
+}
+
+export interface NodeJSRuntime {
+  status: DetectionStatus;
+  eventLoopP99: number;
+  eventLoopP90: number;
+  eventLoopP50: number;
+  eventLoopMean: number;
+  eventLoopUtil: number;
+  heapUsed: number;
+  heapTotal: number;
+  externalMem: number;
+  rss: number;
+  gcRate: number;
+  activeHandles: number;
+  activeRequests: number;
+  cpuUsage: number;
+  openFds: number;
+  maxFds: number;
+  versions?: RuntimeVersion[];
+  podCount: number;
+}
+
+export interface DBPool {
+  name: string;
+  type: string;
+  active: number;
+  idle: number;
+  max: number;
+  pending: number;
+  timeoutRate: number;
+  utilization: number;
+}
+
+export interface DBPoolRuntime {
+  status: DetectionStatus;
+  pools: DBPool[];
+}
+
+export interface KafkaTopic {
+  topic: string;
+  maxLag: number;
+  partitions: number;
+  consumeRate: number;
+}
+
+export interface KafkaRuntime {
+  status: DetectionStatus;
+  topics: KafkaTopic[];
+}
+
+export interface RuntimeResponse {
+  jvm?: JVMRuntime;
+  nodejs?: NodeJSRuntime;
+  dbPool?: DBPoolRuntime;
+  kafka?: KafkaRuntime;
+}
+
+export async function getRuntimeMetrics(
+  namespace: string,
+  service: string,
+  from: number,
+  to: number
+): Promise<RuntimeResponse> {
+  return fetchResource<RuntimeResponse>(
+    `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(service)}/runtime`,
+    {
+      from: String(Math.floor(from / 1000)),
+      to: String(Math.floor(to / 1000)),
+    }
   );
 }

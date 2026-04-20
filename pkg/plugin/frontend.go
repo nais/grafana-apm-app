@@ -18,35 +18,47 @@ func (a *App) handleFrontendMetrics(w http.ResponseWriter, req *http.Request) {
 	ctx = withAuthContext(ctx, a.promClientForRequest(req))
 	namespace := queries.MustSanitizeLabel(req.PathValue("namespace"))
 	service := queries.MustSanitizeLabel(req.PathValue("service"))
+	env := req.URL.Query().Get("environment")
 
-	if service == "" {
-		http.Error(w, `{"error":"missing service"}`, http.StatusBadRequest)
+	if !requireServiceParam(w, service) {
 		return
 	}
 
 	now := time.Now()
-	result := a.queryFrontendMetrics(ctx, namespace, service, now)
+	result := a.queryFrontendMetrics(ctx, namespace, service, env, now, req.Header)
 	writeJSON(w, result)
 }
 
 type FrontendMetricsResponse struct {
 	Available bool               `json:"available"`
+	Source    string             `json:"source,omitempty"` // "mimir" or "loki"
 	Vitals    map[string]float64 `json:"vitals,omitempty"`
 	ErrorRate float64            `json:"errorRate"`
 }
 
-func (a *App) queryFrontendMetrics(ctx context.Context, namespace, service string, at time.Time) FrontendMetricsResponse {
-	if a.promClient == nil {
-		return FrontendMetricsResponse{}
+func (a *App) queryFrontendMetrics(ctx context.Context, namespace, service, env string, at time.Time, headers http.Header) FrontendMetricsResponse {
+	// 1. Try Mimir first
+	if a.promClient != nil {
+		resp := a.queryFrontendFromMimir(ctx, namespace, service, at)
+		if resp.Available {
+			return resp
+		}
 	}
 
-	filter := fmt.Sprintf(`service_name="%s"`, service)
-	if namespace != "" {
-		filter += fmt.Sprintf(`, service_namespace="%s"`, namespace)
+	// 2. Fall back to Loki (Faro structured logs)
+	lokiResp := a.queryFrontendFromLoki(ctx, service, env, at, headers)
+	if lokiResp.Available {
+		return lokiResp
 	}
 
-	// Quick existence check
-	checkQ := fmt.Sprintf(`count(browser_web_vitals_lcp_milliseconds{%s})`, filter)
+	return FrontendMetricsResponse{Available: false}
+}
+
+// queryFrontendFromMimir checks Prometheus/Mimir for browser metrics.
+func (a *App) queryFrontendFromMimir(ctx context.Context, namespace, service string, at time.Time) FrontendMetricsResponse {
+	filter := a.otelCfg.ServiceFilter(service, namespace)
+
+	checkQ := fmt.Sprintf(`count(%s{%s})`, a.otelCfg.BrowserMetrics.LCP, filter)
 	results, err := a.prom(ctx).InstantQuery(ctx, checkQ, at)
 	if err != nil || len(results) == 0 || results[0].Value.Float() == 0 {
 		return FrontendMetricsResponse{Available: false}
@@ -54,16 +66,16 @@ func (a *App) queryFrontendMetrics(ctx context.Context, namespace, service strin
 
 	resp := FrontendMetricsResponse{
 		Available: true,
+		Source:    "mimir",
 		Vitals:    make(map[string]float64),
 	}
 
-	// Fetch latest average values for each vital
 	vitalMetrics := map[string]string{
-		"lcp":  "browser_web_vitals_lcp_milliseconds",
-		"fcp":  "browser_web_vitals_fcp_milliseconds",
-		"cls":  "browser_web_vitals_cls",
-		"inp":  "browser_web_vitals_inp_milliseconds",
-		"ttfb": "browser_web_vitals_ttfb_milliseconds",
+		"lcp":  a.otelCfg.BrowserMetrics.LCP,
+		"fcp":  a.otelCfg.BrowserMetrics.FCP,
+		"cls":  a.otelCfg.BrowserMetrics.CLS,
+		"inp":  a.otelCfg.BrowserMetrics.INP,
+		"ttfb": a.otelCfg.BrowserMetrics.TTFB,
 	}
 
 	for key, metric := range vitalMetrics {
@@ -74,12 +86,49 @@ func (a *App) queryFrontendMetrics(ctx context.Context, namespace, service strin
 		}
 	}
 
-	// Error rate
-	errQ := fmt.Sprintf(`sum(rate(browser_errors_total{%s}[5m]))`, filter)
+	errQ := fmt.Sprintf(`sum(rate(%s{%s}[5m]))`, a.otelCfg.BrowserMetrics.Errors, filter)
 	r, err := a.prom(ctx).InstantQuery(ctx, errQ, at)
 	if err == nil && len(r) > 0 {
 		resp.ErrorRate = roundTo(r[0].Value.Float(), 4)
 	}
 
 	return resp
+}
+
+// queryFrontendFromLoki checks Loki for Faro measurement logs.
+func (a *App) queryFrontendFromLoki(ctx context.Context, service, env string, at time.Time, headers http.Header) FrontendMetricsResponse {
+	lokiURL := a.lokiURL(env)
+	if lokiURL == "" {
+		return FrontendMetricsResponse{Available: false}
+	}
+
+	lokiClient := queries.NewLokiMetricClient(lokiURL)
+	if headers != nil {
+		lokiClient = lokiClient.WithAuthHeaders(headers)
+	}
+
+	// Existence check: are there any measurement logs in the last hour?
+	checkQ := fmt.Sprintf(
+		`count_over_time(%s [1h])`,
+		a.otelCfg.LokiStreamSelector(service, a.otelCfg.FaroLoki.KindMeasurement),
+	)
+	results, err := lokiClient.InstantQuery(ctx, checkQ, at)
+	if err != nil || len(results) == 0 {
+		return FrontendMetricsResponse{Available: false}
+	}
+
+	// Sum all streams to get total count
+	total := 0.0
+	for _, r := range results {
+		total += r.Value.Float()
+	}
+	if total == 0 {
+		return FrontendMetricsResponse{Available: false}
+	}
+
+	// Return availability — let Scenes panels handle the actual queries
+	return FrontendMetricsResponse{
+		Available: true,
+		Source:    "loki",
+	}
 }

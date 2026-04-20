@@ -33,6 +33,19 @@ func NewPrometheusClient(baseURL string) *PrometheusClient {
 	}
 }
 
+// NewLokiMetricClient creates a client for Loki's Prometheus-compatible metric query API.
+// Loki exposes /loki/api/v1/query and /loki/api/v1/query_range with the same response
+// format as Prometheus, so we reuse PrometheusClient with a /loki path prefix.
+func NewLokiMetricClient(proxyURL string) *PrometheusClient {
+	return &PrometheusClient{
+		baseURL: strings.TrimRight(proxyURL, "/") + "/loki",
+		httpClient: &http.Client{
+			Timeout: 30 * time.Second,
+		},
+		logger: log.DefaultLogger.With("component", "lokiMetricClient"),
+	}
+}
+
 // WithAuthHeaders returns a shallow copy of the client with auth headers set.
 // Use this to forward the user's authentication from the incoming request.
 func (c *PrometheusClient) WithAuthHeaders(h http.Header) *PrometheusClient {
@@ -118,6 +131,46 @@ func (c *PrometheusClient) SeriesExists(ctx context.Context, metricName string) 
 		}
 	}
 	return false, nil
+}
+
+// LabelValues fetches all values for a given label name via /api/v1/label/<name>/values.
+func (c *PrometheusClient) LabelValues(ctx context.Context, labelName string) ([]string, error) {
+	reqURL := c.baseURL + "/api/v1/label/" + url.PathEscape(labelName) + "/values"
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	for _, key := range []string{"Cookie", "Authorization", "X-Grafana-Org-Id"} {
+		if vals := c.authHeaders.Values(key); len(vals) > 0 {
+			for _, v := range vals {
+				req.Header.Add(key, v)
+			}
+		}
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetching label values: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("label values returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var envelope struct {
+		Status string   `json:"status"`
+		Data   []string `json:"data"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return nil, fmt.Errorf("unmarshaling label values: %w", err)
+	}
+	return envelope.Data, nil
 }
 
 func (c *PrometheusClient) doQuery(ctx context.Context, path string, params url.Values) ([]PromResult, error) {

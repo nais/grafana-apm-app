@@ -1,41 +1,27 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { PluginPage } from '@grafana/runtime';
 import { useStyles2, Icon, LoadingPlaceholder, Alert, LinkButton } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
-import { getDependencyDetail, DependencySummary, DependencyDetailResponse, OperationSummary } from '../api/client';
+import { getDependencyDetail, DependencySummary, DependencyDetailResponse, DependencyOperation } from '../api/client';
 import { formatDuration } from '../utils/format';
 import { useTimeRange } from '../utils/timeRange';
 import { useAppNavigate } from '../utils/navigation';
 import { DepTypeIcon } from '../components/DepTypeIcon';
+import { useFetch } from '../utils/useFetch';
 
 function DependencyDetail() {
   const { name = '' } = useParams<{ name: string }>();
   const styles = useStyles2(getStyles);
   const appNavigate = useAppNavigate();
   const { fromMs, toMs } = useTimeRange();
-  const [data, setData] = useState<DependencyDetailResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data, loading, error } = useFetch<DependencyDetailResponse>(
+    () => getDependencyDetail(name, fromMs, toMs),
+    [name, fromMs, toMs]
+  );
   const [sortField, setSortField] = useState<keyof DependencySummary>('impact');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-
-  useEffect(() => {
-    const load = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const resp = await getDependencyDetail(name, fromMs, toMs);
-        setData(resp);
-      } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : 'Failed to load dependency details');
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
-  }, [name, fromMs, toMs]);
 
   const toggleSort = useCallback((field: keyof DependencySummary) => {
     setSortField((prev) => {
@@ -177,8 +163,10 @@ function DependencyDetail() {
                   {sorted.map((upstream) => (
                     <tr
                       key={upstream.name}
+                      className={styles.clickableRow}
+                      onClick={() => appNavigate(`dependencies/${encodeURIComponent(upstream.name)}`)}
                     >
-                      <td className={styles.nameCell}>
+                      <td className={styles.linkNameCell}>
                         <Icon name="gf-layout-simple" size="sm" />
                         <span style={{ marginLeft: 8 }}>{upstream.name}</span>
                       </td>
@@ -216,10 +204,10 @@ function DependencyDetail() {
                     </tr>
                   </thead>
                   <tbody>
-                    {data.operations.map((op: OperationSummary, idx: number) => (
-                      <tr key={`${op.spanName}-${op.spanKind}-${idx}`}>
+                    {data.operations.map((op: DependencyOperation, idx: number) => (
+                      <tr key={`${op.spanName}-${op.callingService}-${idx}`}>
                         <td className={styles.nameCell}>{op.spanName}</td>
-                        <td>{op.spanKind}</td>
+                        <td>{op.callingService}</td>
                         <td className={styles.numCell}>{op.rate.toFixed(2)} req/s</td>
                         <td className={op.errorRate > 0 ? styles.errorCell : styles.numCell}>
                           {op.errorRate.toFixed(1)}%
@@ -376,12 +364,22 @@ const getStyles = (theme: GrafanaTheme2) => ({
   `,
   clickableRow: css`
     cursor: pointer;
+    &:hover {
+      background: ${theme.colors.background.secondary};
+    }
   `,
   nameCell: css`
     font-weight: ${theme.typography.fontWeightMedium};
     white-space: nowrap;
     display: flex;
     align-items: center;
+  `,
+  linkNameCell: css`
+    font-weight: ${theme.typography.fontWeightMedium};
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    color: ${theme.colors.text.link};
   `,
   numCell: css`
     text-align: right;
