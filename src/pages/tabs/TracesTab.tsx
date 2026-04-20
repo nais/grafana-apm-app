@@ -14,7 +14,7 @@ import {
 } from '@grafana/scenes';
 import { useDebouncedValue, escapeRegex } from '../../utils/debounce';
 
-export interface TracesTabProps {
+interface TracesTabProps {
   service: string;
   namespace: string;
   tracesUid: string;

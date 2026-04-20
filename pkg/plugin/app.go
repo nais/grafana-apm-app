@@ -147,11 +147,6 @@ func withAuthContext(ctx context.Context, c *queries.PrometheusClient) context.C
 	return context.WithValue(ctx, promClientCtxKey{}, c)
 }
 
-// withHTTPHeaders stores raw HTTP headers in the context for health check forwarding.
-func withHTTPHeaders(ctx context.Context, h http.Header) context.Context { //nolint:unused // reserved for datasource health check forwarding
-	return context.WithValue(ctx, httpHeadersCtxKey{}, h)
-}
-
 // httpHeaders returns the stored HTTP headers from context, or an empty header.
 func httpHeaders(ctx context.Context) http.Header {
 	if h, ok := ctx.Value(httpHeadersCtxKey{}).(http.Header); ok && h != nil {

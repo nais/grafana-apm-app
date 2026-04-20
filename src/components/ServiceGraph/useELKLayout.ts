@@ -2,14 +2,14 @@ import ELK, { ElkNode, ElkExtendedEdge } from 'elkjs/lib/elk.bundled.js';
 import { useCallback, useEffect, useState } from 'react';
 import { type Node, type Edge, Position } from '@xyflow/react';
 
-export interface GraphInput {
+interface GraphInput {
   nodes: Node[];
   edges: Edge[];
   groups?: Map<string, string[]>; // groupId → nodeIds
   direction?: 'RIGHT' | 'DOWN';
 }
 
-export interface LayoutResult {
+interface LayoutResult {
   nodes: Node[];
   edges: Edge[];
   loading: boolean;

@@ -125,13 +125,6 @@ type depKey struct {
 	connType string
 }
 
-func (k depKey) String() string {
-	if k.connType == "" {
-		return k.server
-	}
-	return k.server + "|" + k.connType
-}
-
 // queryDependencies queries servicegraph metrics for dependencies.
 // If filterClient is set, only returns dependencies called by that service.
 // If filterNamespace is set, scopes to that client_service_namespace.

@@ -255,7 +255,8 @@ function ServiceInventory() {
                     key={`${svc.namespace}/${svc.name}`}
                     className={styles.row}
                     onClick={() => {
-                      appNavigate(`services/${encodeURIComponent(svc.namespace)}/${encodeURIComponent(svc.name)}`);
+                      const ns = svc.namespace || '_';
+                      appNavigate(`services/${encodeURIComponent(ns)}/${encodeURIComponent(svc.name)}`);
                     }}
                   >
                     <td className={styles.typeCell}>
@@ -409,16 +410,26 @@ const getStyles = (theme: GrafanaTheme2) => ({
     color: ${theme.colors.text.link};
   `,
   typeColHeader: css`
-    width: 1px;
-    white-space: nowrap;
+    width: 120px;
+    max-width: 120px;
     color: ${theme.colors.text.secondary};
     font-weight: ${theme.typography.fontWeightMedium};
+    padding-right: ${theme.spacing(0.5)} !important;
   `,
   typeCell: css`
-    display: flex;
-    align-items: center;
-    gap: ${theme.spacing(0.5)};
-    white-space: nowrap;
+    width: 120px;
+    max-width: 120px;
+    padding-right: ${theme.spacing(0.5)} !important;
+    text-align: right;
+    line-height: 1;
+    & > span {
+      display: inline-flex;
+      vertical-align: middle;
+      margin-left: ${theme.spacing(0.5)};
+    }
+    & > span:first-of-type {
+      margin-left: 0;
+    }
   `,
   nsCell: css`
     color: ${theme.colors.text.secondary};

@@ -39,7 +39,7 @@ export interface ServiceGraphEdge {
   secondaryStat?: string;
 }
 
-export interface ServiceGraphProps {
+interface ServiceGraphProps {
   nodes: ServiceGraphNode[];
   edges: ServiceGraphEdge[];
   focusNode?: string;

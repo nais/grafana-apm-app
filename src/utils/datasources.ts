@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { config } from '@grafana/runtime';
 import pluginJson from '../plugin.json';
 
-export interface PluginDatasources {
+interface PluginDatasources {
   metricsUid: string;
   tracesUid: string;
   logsUid: string;
@@ -82,7 +82,7 @@ function getJsonData(): Record<string, any> {
 }
 
 /** Read datasource UIDs from plugin config, optionally resolved for an environment */
-export function getPluginDatasources(env?: string): PluginDatasources {
+function getPluginDatasources(env?: string): PluginDatasources {
   const jsonData = getJsonData();
   const tracesDs: EnvAwareDs = jsonData.tracesDataSource ?? {};
   const logsDs: EnvAwareDs = jsonData.logsDataSource ?? {};
@@ -115,10 +115,4 @@ export function usePluginDatasources(env?: string): PluginDatasources {
   return useMemo(() => getPluginDatasources(env), [env, rev]);
 }
 
-/** Returns the list of environments that have datasource overrides configured */
-export function getConfiguredEnvironments(): string[] {
-  const jsonData = getJsonData();
-  const tracesEnvs = Object.keys(jsonData.tracesDataSource?.byEnvironment ?? {});
-  const logsEnvs = Object.keys(jsonData.logsDataSource?.byEnvironment ?? {});
-  return [...new Set([...tracesEnvs, ...logsEnvs])].sort();
-}
+

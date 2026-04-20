@@ -1,8 +1,7 @@
 import React, { memo } from 'react';
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import { Icon, useStyles2 } from '@grafana/ui';
-import { GrafanaTheme2 } from '@grafana/data';
-import type { IconName } from '@grafana/data';
+import { GrafanaTheme2, type IconName } from '@grafana/data';
 import { css, cx } from '@emotion/css';
 
 export interface ServiceNodeData {

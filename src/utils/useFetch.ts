@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
-export interface FetchState<T> {
+interface FetchState<T> {
   data: T | null;
   loading: boolean;
   error: string | null;

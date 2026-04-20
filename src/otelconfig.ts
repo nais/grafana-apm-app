@@ -90,6 +90,3 @@ export const otel = {
     pageUrl: 'page_url',
   },
 } as const;
-
-/** Shorthand type for the label bag. */
-export type OtelLabels = typeof otel.labels;

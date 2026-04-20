@@ -4,11 +4,6 @@ import pluginJson from '../plugin.json';
 
 const BASE_URL = `/api/plugins/${pluginJson.id}/resources`;
 
-export interface DataSourceRef {
-  uid: string;
-  type: string;
-}
-
 export interface SpanMetricsCapability {
   detected: boolean;
   namespace?: string;
@@ -161,7 +156,7 @@ export async function getServiceMap(
 
 // ---- Connected Services ----
 
-export interface ConnectedService {
+interface ConnectedService {
   name: string;
   connectionType?: string;
   rate: number;
@@ -294,7 +289,7 @@ export async function getEndpoints(
 
 // ---- Frontend / Faro metrics ----
 
-export interface FrontendMetricsResponse {
+interface FrontendMetricsResponse {
   available: boolean;
   source?: string; // "mimir" or "loki"
   vitals?: Record<string, number>;

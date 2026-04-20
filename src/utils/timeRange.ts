@@ -5,7 +5,7 @@ import { dateMath } from '@grafana/data';
 const DEFAULT_FROM = 'now-1h';
 const DEFAULT_TO = 'now';
 
-export interface TimeRangeState {
+interface TimeRangeState {
   /** Grafana relative or absolute time range */
   from: string;
   to: string;

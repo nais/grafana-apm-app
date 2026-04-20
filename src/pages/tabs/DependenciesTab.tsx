@@ -8,7 +8,7 @@ import { DepTypeIcon, formatDepType } from '../../components/DepTypeIcon';
 import { formatDuration } from '../../utils/format';
 import { useFetch } from '../../utils/useFetch';
 
-export interface DependenciesTabProps {
+interface DependenciesTabProps {
   service: string;
   namespace: string;
   fromMs: number;

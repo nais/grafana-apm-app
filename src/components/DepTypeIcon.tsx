@@ -70,4 +70,4 @@ export function formatDepType(type: string): string {
   return ICON_CONFIGS[type]?.displayName ?? type.charAt(0).toUpperCase() + type.slice(1);
 }
 
-export default DepTypeIcon;
+

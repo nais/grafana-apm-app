@@ -17,7 +17,7 @@ import { useDebouncedValue, escapeRegex } from '../../utils/debounce';
 import { sanitizeLabelValue } from '../../utils/sanitize';
 import { otel } from '../../otelconfig';
 
-export interface LogsTabProps {
+interface LogsTabProps {
   service: string;
   namespace: string;
   logsUid: string;

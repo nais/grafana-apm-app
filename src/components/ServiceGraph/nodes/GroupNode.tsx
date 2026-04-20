@@ -4,7 +4,7 @@ import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import type { NodeProps, Node } from '@xyflow/react';
 
-export interface GroupNodeData {
+interface GroupNodeData {
   label: string;
   [key: string]: unknown;
 }
