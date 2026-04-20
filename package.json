@@ -8,7 +8,7 @@
     "test:ci": "jest --passWithNoTests --maxWorkers 4",
     "typecheck": "tsc --noEmit",
     "lint": "eslint --cache .",
-    "lint:fix": "npm run lint -- --fix && prettier --write --list-different .",
+    "lint:fix": "pnpm run lint -- --fix && prettier --write --list-different .",
     "e2e": "playwright test",
     "server": "docker compose up --build",
     "sign": "npx --yes @grafana/sign-plugin@latest"
@@ -78,5 +78,5 @@
     "react-router-dom": "^6.22.0",
     "rxjs": "7.8.2"
   },
-  "packageManager": "npm@11.11.0"
+  "packageManager": "pnpm@10.25.0"
 }

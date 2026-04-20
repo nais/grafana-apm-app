@@ -19,7 +19,7 @@ discuss the approach.
    ```bash
    git clone https://github.com/nais/grafana-otel-plugin.git
    cd grafana-otel-plugin
-   npm install
+   pnpm install
    ```
 
 2. Start the development stack (Grafana + Mimir + Tempo + Loki + OTel Collector):
@@ -31,7 +31,7 @@ discuss the approach.
 3. In a separate terminal, run the frontend in watch mode:
 
    ```bash
-   npm run dev
+   pnpm run dev
    ```
 
 4. Open Grafana at `http://localhost:3000` (default login: `admin` / `admin`)
@@ -61,17 +61,17 @@ Restart the Docker Compose stack to pick up backend changes.
 ## Testing
 
 ```bash
-npm run test        # Unit tests (watch mode)
-npm run test:ci     # Unit tests (CI)
-npm run typecheck   # TypeScript type checking
-npm run lint        # ESLint
-npm run e2e         # Playwright E2E tests
+pnpm run test        # Unit tests (watch mode)
+pnpm run test:ci     # Unit tests (CI)
+pnpm run typecheck   # TypeScript type checking
+pnpm run lint        # ESLint
+pnpm run e2e         # Playwright E2E tests
 ```
 
 ## Pull requests
 
 - Create a feature branch from `main`
-- Make sure checks pass: `npm run test:ci && npm run typecheck && npm run lint`
+- Make sure checks pass: `pnpm run test:ci && pnpm run typecheck && pnpm run lint`
 - Write tests for new functionality
 - Keep PRs focused — one feature or fix per PR
 
@@ -83,5 +83,5 @@ npm run e2e         # Playwright E2E tests
 ## Code style
 
 - TypeScript for the frontend, Go for the backend
-- ESLint and Prettier are configured — run `npm run lint:fix` before committing
+- ESLint and Prettier are configured — run `pnpm run lint:fix` before committing
 - Follow existing patterns in the codebase

@@ -111,7 +111,7 @@ auto-detection fails or when running non-standard pipelines.
 ```bash
 git clone https://github.com/nais/grafana-otel-plugin.git
 cd grafana-otel-plugin
-npm install
+pnpm install
 ```
 
 Start the full development stack (Grafana + Mimir + Tempo + Loki + OTel Collector):
@@ -123,7 +123,7 @@ docker compose up
 In a separate terminal, run the frontend in watch mode:
 
 ```bash
-npm run dev
+pnpm run dev
 ```
 
 Open `http://localhost:3000/a/nais-apm-app/services`.
@@ -147,14 +147,14 @@ docker compose -f docker-compose.demo.yaml up
 
 | Command | Description |
 |---------|-------------|
-| `npm run dev` | Frontend watch mode |
-| `npm run build` | Production frontend build |
-| `npm run test` | Unit tests (watch mode) |
-| `npm run test:ci` | Unit tests (CI) |
-| `npm run typecheck` | TypeScript type checking |
-| `npm run lint` | ESLint |
-| `npm run lint:fix` | Auto-fix lint and format |
-| `npm run e2e` | Playwright end-to-end tests |
+| `pnpm run dev` | Frontend watch mode |
+| `pnpm run build` | Production frontend build |
+| `pnpm run test` | Unit tests (watch mode) |
+| `pnpm run test:ci` | Unit tests (CI) |
+| `pnpm run typecheck` | TypeScript type checking |
+| `pnpm run lint` | ESLint |
+| `pnpm run lint:fix` | Auto-fix lint and format |
+| `pnpm run e2e` | Playwright end-to-end tests |
 | `mage -v build:linux` | Backend build (Go) |
 
 ### Requirements
