@@ -19,6 +19,10 @@
       {
         "name": "Service Inventory",
         "path": "img/screenshot-service-inventory.png"
+      },
+      {
+        "name": "Service Overview",
+        "path": "img/screenshot-service-overview.png"
       }
     ],
     "links": [

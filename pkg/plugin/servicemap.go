@@ -76,18 +76,20 @@ func (a *App) queryServiceMap(
 	// Per-service filtering is done post-query on filterService.
 	labelFilter := ""
 
+	sgp := a.serviceGraphPrefix()
+
 	// Service graph metrics
 	rateQuery := fmt.Sprintf(
-		`sum by (client, server, connection_type) (rate(traces_service_graph_request_total%s%s))`,
-		labelFilterStr(labelFilter), rangeStr,
+		`sum by (client, server, connection_type) (rate(%s_request_total%s%s))`,
+		sgp, labelFilterStr(labelFilter), rangeStr,
 	)
 	errorQuery := fmt.Sprintf(
-		`sum by (client, server, connection_type) (rate(traces_service_graph_request_failed_total%s%s))`,
-		labelFilterStr(labelFilter), rangeStr,
+		`sum by (client, server, connection_type) (rate(%s_request_failed_total%s%s))`,
+		sgp, labelFilterStr(labelFilter), rangeStr,
 	)
 	p95Query := fmt.Sprintf(
-		`histogram_quantile(0.95, sum by (client, server, le) (rate(traces_service_graph_request_server_seconds_bucket%s%s)))`,
-		labelFilterStr(labelFilter), rangeStr,
+		`histogram_quantile(0.95, sum by (client, server, le) (rate(%s_request_server_seconds_bucket%s%s)))`,
+		sgp, labelFilterStr(labelFilter), rangeStr,
 	)
 
 	type queryResult struct {

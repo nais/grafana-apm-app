@@ -12,15 +12,18 @@ permissions: read-all
 jobs:
   release:
     permissions:
+      id-token: write
       contents: write
+      attestations: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
 
-      - uses: grafana/plugin-actions/build-plugin@build-plugin/v1.0.2
+      - uses: grafana/plugin-actions/build-plugin@build-plugin/v1.2.0
         # To enable plugin signing, add GRAFANA_ACCESS_POLICY_TOKEN to repository secrets.
         # See: https://grafana.com/developers/plugin-tools/publish-a-plugin/sign-a-plugin#generate-an-access-policy-token
         with:
           policy_token: ${{ secrets.GRAFANA_ACCESS_POLICY_TOKEN }}
+          attestation: true

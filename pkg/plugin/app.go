@@ -87,6 +87,17 @@ func NewApp(_ context.Context, settings backend.AppInstanceSettings) (instancemg
 
 func (a *App) Dispose() {}
 
+// serviceGraphPrefix returns the detected service graph metric prefix.
+// Falls back to "traces_service_graph" if not yet detected.
+func (a *App) serviceGraphPrefix() string {
+	a.capMu.RLock()
+	defer a.capMu.RUnlock()
+	if a.capCache != nil && a.capCache.caps.ServiceGraph.Prefix != "" {
+		return a.capCache.caps.ServiceGraph.Prefix
+	}
+	return "traces_service_graph"
+}
+
 // promClientForRequest returns a PrometheusClient with the incoming user's auth headers.
 func (a *App) promClientForRequest(r *http.Request) *queries.PrometheusClient {
 	if a.promClient == nil {
