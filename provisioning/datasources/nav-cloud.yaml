@@ -1,0 +1,77 @@
+# Nav Cloud datasources — add this file to provisioning/datasources/ when
+# testing against real Nav infrastructure. Requires network access to *.nav.cloud.nais.io.
+#
+# Usage: place in provisioning/datasources/ alongside datasources.yaml,
+# or volume-mount into Grafana at /etc/grafana/provisioning/datasources/.
+
+apiVersion: 1
+
+datasources:
+  - name: nav-metrics
+    type: prometheus
+    uid: nav-metrics
+    url: https://mimir.nav.cloud.nais.io/prometheus
+    access: proxy
+    jsonData:
+      httpMethod: POST
+      exemplarTraceIdDestinations:
+        - name: traceID
+          datasourceUid: dev-gcp-tempo
+
+  - name: dev-gcp-tempo
+    type: tempo
+    uid: dev-gcp-tempo
+    url: https://tempo.dev.nav.cloud.nais.io
+    access: proxy
+    jsonData:
+      tracesToLogs:
+        datasourceUid: dev-gcp-loki
+        filterByTraceID: true
+        tags: ['service.name']
+      tracesToMetrics:
+        datasourceUid: nav-metrics
+      serviceMap:
+        datasourceUid: nav-metrics
+      nodeGraph:
+        enabled: true
+
+  - name: dev-gcp-loki
+    type: loki
+    uid: dev-gcp-loki
+    url: https://loki.dev.nav.cloud.nais.io
+    access: proxy
+    jsonData:
+      derivedFields:
+        - name: TraceID
+          matcherRegex: '"traceID":"(\\w+)"'
+          url: '$${__value.raw}'
+          datasourceUid: dev-gcp-tempo
+
+  - name: prod-gcp-tempo
+    type: tempo
+    uid: prod-gcp-tempo
+    url: https://tempo.prod.nav.cloud.nais.io
+    access: proxy
+    jsonData:
+      tracesToLogs:
+        datasourceUid: prod-gcp-loki
+        filterByTraceID: true
+        tags: ['service.name']
+      tracesToMetrics:
+        datasourceUid: nav-metrics
+      serviceMap:
+        datasourceUid: nav-metrics
+      nodeGraph:
+        enabled: true
+
+  - name: prod-gcp-loki
+    type: loki
+    uid: prod-gcp-loki
+    url: https://loki.prod.nav.cloud.nais.io
+    access: proxy
+    jsonData:
+      derivedFields:
+        - name: TraceID
+          matcherRegex: '"traceID":"(\\w+)"'
+          url: '$${__value.raw}'
+          datasourceUid: prod-gcp-tempo

@@ -156,11 +156,25 @@ func (a *App) detectCapabilities(ctx context.Context) queries.Capabilities {
 		caps.Services = a.detectServices(ctx, caps.SpanMetrics.CallsMetric)
 	}
 
-	// Check Tempo reachability
-	caps.Tempo = a.checkHTTPHealth(ctx, a.tempoURL, "/api/status/buildinfo")
+	// Check Tempo reachability (default)
+	caps.Tempo = a.checkHTTPHealth(ctx, a.tempoURL(""), "/api/status/buildinfo")
 
-	// Check Loki reachability
-	caps.Loki = a.checkHTTPHealth(ctx, a.lokiURL, "/loki/api/v1/status/buildinfo")
+	// Check Loki reachability (default)
+	caps.Loki = a.checkHTTPHealth(ctx, a.lokiURL(""), "/loki/api/v1/status/buildinfo")
+
+	// Check per-environment datasource reachability
+	if len(a.settings.TracesDataSource.ByEnvironment) > 0 {
+		caps.TempoByEnv = make(map[string]queries.DataSourceStatus)
+		for env := range a.settings.TracesDataSource.ByEnvironment {
+			caps.TempoByEnv[env] = a.checkHTTPHealth(ctx, a.tempoURL(env), "/api/status/buildinfo")
+		}
+	}
+	if len(a.settings.LogsDataSource.ByEnvironment) > 0 {
+		caps.LokiByEnv = make(map[string]queries.DataSourceStatus)
+		for env := range a.settings.LogsDataSource.ByEnvironment {
+			caps.LokiByEnv[env] = a.checkHTTPHealth(ctx, a.lokiURL(env), "/loki/api/v1/status/buildinfo")
+		}
+	}
 
 	return caps
 }

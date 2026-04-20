@@ -55,7 +55,8 @@ function ServiceOverview() {
   const appNavigate = useAppNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const styles = useStyles2(getStyles);
-  const ds = usePluginDatasources();
+  const envFilter = searchParams.get('environment') ?? '';
+  const ds = usePluginDatasources(envFilter || undefined);
   const { from, to, fromMs, toMs } = useTimeRange();
   const { caps } = useCapabilities();
   const metrics = getMetricNames(caps);
@@ -63,7 +64,6 @@ function ServiceOverview() {
   const [percentile, setPercentile] = useState<string>('0.95');
   const [sdkLanguage, setSdkLanguage] = useState<string>('');
   const [environments, setEnvironments] = useState<string[]>([]);
-  const envFilter = searchParams.get('environment') ?? '';
   const [operations, setOperations] = useState<OperationSummary[]>([]);
   const [opsLoading, setOpsLoading] = useState(true);
   const [opsError, setOpsError] = useState<string | null>(null);

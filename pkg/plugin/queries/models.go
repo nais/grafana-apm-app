@@ -6,11 +6,38 @@ type DataSourceRef struct {
 	Type string `json:"type"`
 }
 
+// EnvAwareDataSource holds a default datasource UID plus optional per-environment overrides.
+type EnvAwareDataSource struct {
+	UID           string                   `json:"uid"`
+	Type          string                   `json:"type"`
+	ByEnvironment map[string]DataSourceRef `json:"byEnvironment,omitempty"`
+}
+
+// Resolve returns the datasource ref for a given environment.
+// Falls back to the default UID/Type when the environment has no override.
+func (e EnvAwareDataSource) Resolve(env string) DataSourceRef {
+	if env != "" {
+		if ds, ok := e.ByEnvironment[env]; ok && ds.UID != "" {
+			return ds
+		}
+	}
+	return DataSourceRef{UID: e.UID, Type: e.Type}
+}
+
+// HasEnvironment returns true if an override exists for the given environment.
+func (e EnvAwareDataSource) HasEnvironment(env string) bool {
+	if env == "" {
+		return true // default always "exists"
+	}
+	_, ok := e.ByEnvironment[env]
+	return ok
+}
+
 // PluginSettings holds parsed jsonData from the app plugin configuration.
 type PluginSettings struct {
-	MetricsDataSource DataSourceRef `json:"metricsDataSource"`
-	TracesDataSource  DataSourceRef `json:"tracesDataSource"`
-	LogsDataSource    DataSourceRef `json:"logsDataSource"`
+	MetricsDataSource DataSourceRef      `json:"metricsDataSource"`
+	TracesDataSource  EnvAwareDataSource `json:"tracesDataSource"`
+	LogsDataSource    EnvAwareDataSource `json:"logsDataSource"`
 
 	// Optional overrides (auto-detected if empty)
 	MetricNamespace string `json:"metricNamespace,omitempty"`
@@ -24,6 +51,10 @@ type Capabilities struct {
 	Tempo        DataSourceStatus       `json:"tempo"`
 	Loki         DataSourceStatus       `json:"loki"`
 	Services     []string               `json:"services"`
+
+	// Per-environment datasource availability
+	TempoByEnv map[string]DataSourceStatus `json:"tempoByEnv,omitempty"`
+	LokiByEnv  map[string]DataSourceStatus `json:"lokiByEnv,omitempty"`
 }
 
 // SpanMetricsCapability describes detected span metrics configuration.

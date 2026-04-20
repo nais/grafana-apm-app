@@ -28,8 +28,7 @@ type App struct {
 
 	settings   queries.PluginSettings
 	promClient *queries.PrometheusClient
-	tempoURL   string
-	lokiURL    string
+	grafanaURL string // base URL for datasource proxy resolution
 
 	capMu    sync.RWMutex
 	capCache *cachedCapabilities
@@ -50,13 +49,13 @@ func NewApp(_ context.Context, settings backend.AppInstanceSettings) (instancemg
 
 	// Resolve datasource URLs via Grafana datasource proxy.
 	// GF_APP_URL is set by Grafana; fall back to localhost for development.
-	grafanaURL := strings.TrimRight(os.Getenv("GF_APP_URL"), "/")
-	if grafanaURL == "" {
-		grafanaURL = "http://localhost:3000"
+	app.grafanaURL = strings.TrimRight(os.Getenv("GF_APP_URL"), "/")
+	if app.grafanaURL == "" {
+		app.grafanaURL = "http://localhost:3000"
 	}
 
 	if uid := app.settings.MetricsDataSource.UID; uid != "" {
-		proxyURL := fmt.Sprintf("%s/api/datasources/proxy/uid/%s", grafanaURL, uid)
+		proxyURL := fmt.Sprintf("%s/api/datasources/proxy/uid/%s", app.grafanaURL, uid)
 		app.promClient = queries.NewPrometheusClient(proxyURL)
 		logger.Info("Metrics datasource configured via proxy", "uid", uid)
 	} else {
@@ -64,18 +63,12 @@ func NewApp(_ context.Context, settings backend.AppInstanceSettings) (instancemg
 		logger.Warn("No metrics datasource configured — plugin will not function until configured")
 	}
 
-	if uid := app.settings.TracesDataSource.UID; uid != "" {
-		app.tempoURL = fmt.Sprintf("%s/api/datasources/proxy/uid/%s", grafanaURL, uid)
-	}
-	if uid := app.settings.LogsDataSource.UID; uid != "" {
-		app.lokiURL = fmt.Sprintf("%s/api/datasources/proxy/uid/%s", grafanaURL, uid)
-	}
-
 	logger.Info("Plugin initialized",
 		"metricsDS", app.settings.MetricsDataSource.UID,
 		"tracesDS", app.settings.TracesDataSource.UID,
 		"logsDS", app.settings.LogsDataSource.UID,
-		"grafanaURL", grafanaURL,
+		"envOverrides", len(app.settings.TracesDataSource.ByEnvironment)+len(app.settings.LogsDataSource.ByEnvironment),
+		"grafanaURL", app.grafanaURL,
 	)
 
 	mux := http.NewServeMux()
@@ -86,6 +79,24 @@ func NewApp(_ context.Context, settings backend.AppInstanceSettings) (instancemg
 }
 
 func (a *App) Dispose() {}
+
+// proxyURL builds a Grafana datasource proxy URL for the given UID.
+func (a *App) proxyURL(uid string) string {
+	if uid == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s/api/datasources/proxy/uid/%s", a.grafanaURL, uid)
+}
+
+// tempoURL returns the Tempo proxy URL, optionally resolved for a specific environment.
+func (a *App) tempoURL(env string) string {
+	return a.proxyURL(a.settings.TracesDataSource.Resolve(env).UID)
+}
+
+// lokiURL returns the Loki proxy URL, optionally resolved for a specific environment.
+func (a *App) lokiURL(env string) string {
+	return a.proxyURL(a.settings.LogsDataSource.Resolve(env).UID)
+}
 
 // serviceGraphPrefix returns the detected service graph metric prefix.
 // Falls back to "traces_service_graph" if not yet detected.
@@ -142,7 +153,7 @@ func (a *App) CheckHealth(ctx context.Context, req *backend.CheckHealthRequest) 
 		}, nil
 	}
 
-	if !caps.Tempo.Available {
+	if !caps.Tempo.Available && len(caps.TempoByEnv) == 0 {
 		return &backend.CheckHealthResult{
 			Status:  backend.HealthStatusError,
 			Message: "Tempo is not reachable: " + caps.Tempo.Error,
