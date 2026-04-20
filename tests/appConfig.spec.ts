@@ -1,41 +1,32 @@
 import { test, expect } from './fixtures';
 
-// Grafana 13+ shows a "What's new" carousel/overlay on first load.
-// This makes plugin content inert (invisible to accessibility tree).
-// Dismiss it by closing any dialog or clicking the carousel Close button.
+// Grafana 13+ shows a "What's new" carousel/overlay on first load that makes
+// plugin content inert (invisible to the accessibility tree). We must dismiss
+// it before asserting on plugin elements. Uses CSS selectors with .first() to
+// avoid Playwright strict-mode violations when multiple Close buttons exist.
 async function dismissWhatsNew(page: import('@playwright/test').Page) {
-  // Approach 1: Try closing a modal dialog (Grafana 13.0.x)
-  const dialog = page.getByRole('dialog');
-  if (await dialog.isVisible({ timeout: 2000 }).catch(() => false)) {
-    const closeBtn = dialog.getByRole('button', { name: /close/i });
-    if (await closeBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
-      await closeBtn.click();
-      await dialog.waitFor({ state: 'hidden', timeout: 3000 }).catch(() => {});
-      return;
-    }
-  }
+  await page.waitForLoadState('networkidle');
 
-  // Approach 2: Close the "What's new" carousel overlay
-  // In Grafana 13, this renders as an inline carousel with a Close button
-  // that marks the main content as inert/aria-hidden
-  const closeBtn = page.getByRole('button', { name: 'Close', exact: true });
-  if (await closeBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+  // Click any visible close button (aria-label="Close") — covers both
+  // the "What's new" carousel and modal dialog variants in Grafana 13.
+  const closeBtn = page.locator('button[aria-label="Close"]').first();
+  try {
+    await closeBtn.waitFor({ state: 'visible', timeout: 3000 });
     await closeBtn.click();
-    // Wait for the carousel to disappear
-    await closeBtn.waitFor({ state: 'hidden', timeout: 3000 }).catch(() => {});
+    await page.waitForTimeout(500);
+  } catch {
+    // No overlay present (e.g. Grafana 12) — nothing to dismiss
   }
 }
 
 test.describe('app configuration', () => {
   test('config page should render with datasource fields', async ({ appConfigPage, page }) => {
     await dismissWhatsNew(page);
-    await page.waitForLoadState('networkidle');
     await expect(page.getByText('Data Sources')).toBeVisible();
   });
 
   test('should display auto-detect capability button', async ({ appConfigPage, page }) => {
     await dismissWhatsNew(page);
-    await page.waitForLoadState('networkidle');
     await expect(page.getByRole('button', { name: /Auto-detect/i })).toBeVisible({ timeout: 10000 });
   });
 });
