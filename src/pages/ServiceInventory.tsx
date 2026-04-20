@@ -126,6 +126,7 @@ function ServiceInventory() {
     }
     // NaN-safe numeric comparison — NaN/undefined/Infinity sort to bottom
     const safeNum = (v: number) => (Number.isFinite(v) ? v : -Infinity);
+    const dir = sortDir === 'desc' ? -1 : 1;
     return [...result].sort((a, b) => {
       let cmp = 0;
       switch (sortField) {
@@ -148,11 +149,11 @@ function ServiceInventory() {
           cmp = safeNum(a.rate) - safeNum(b.rate);
           break;
       }
-      // Stable tiebreaker: deterministic order when primary values are equal
-      if (cmp === 0 && sortField !== 'name') {
-        cmp = a.name.localeCompare(b.name);
+      if (cmp !== 0) {
+        return cmp * dir;
       }
-      return sortDir === 'asc' ? cmp : -cmp;
+      // Stable tiebreaker: always sort by name ascending when primary values tie
+      return a.name.localeCompare(b.name);
     });
   }, [services, search, sortField, sortDir, namespaceFilter, envFilter]);
 
@@ -166,7 +167,9 @@ function ServiceInventory() {
     if (sortField === field) {
       updateParams({ dir: sortDir === 'asc' ? 'desc' : 'asc', page: null });
     } else {
-      updateParams({ sort: field, dir: 'asc', page: null });
+      // Numeric columns default to descending (show highest first)
+      const defaultDir = field === 'name' || field === 'namespace' || field === 'environment' ? 'asc' : 'desc';
+      updateParams({ sort: field, dir: defaultDir, page: null });
     }
   };
 
