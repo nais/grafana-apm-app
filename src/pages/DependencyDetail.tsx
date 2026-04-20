@@ -14,7 +14,14 @@ import {
   behaviors,
 } from '@grafana/scenes';
 import { DashboardCursorSync } from '@grafana/schema';
-import { getDependencyDetail, DependencySummary, DependencyDetailResponse, DependencyOperation } from '../api/client';
+import {
+  getDependencyDetail,
+  getServices,
+  DependencySummary,
+  DependencyDetailResponse,
+  DependencyOperation,
+  ServiceSummary,
+} from '../api/client';
 import { formatDuration } from '../utils/format';
 import { useTimeRange } from '../utils/timeRange';
 import { useAppNavigate } from '../utils/navigation';
@@ -35,6 +42,16 @@ function DependencyDetail() {
     () => getDependencyDetail(name, fromMs, toMs),
     [name, fromMs, toMs]
   );
+
+  // Resolve namespaces for upstream services (they're internal and should link to service overview)
+  const { data: services } = useFetch<ServiceSummary[]>(() => getServices(fromMs, toMs), [fromMs, toMs]);
+  const serviceNsMap = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const svc of services ?? []) {
+      m.set(svc.name, svc.namespace);
+    }
+    return m;
+  }, [services]);
   const [sortField, setSortField] = useState<keyof DependencySummary>('impact');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
@@ -255,7 +272,12 @@ function DependencyDetail() {
                     <tr
                       key={upstream.name}
                       className={styles.clickableRow}
-                      onClick={() => appNavigate(`dependencies/${encodeURIComponent(upstream.name)}`)}
+                      onClick={() => {
+                        const ns = serviceNsMap.get(upstream.name);
+                        if (ns) {
+                          appNavigate(`services/${encodeURIComponent(ns)}/${encodeURIComponent(upstream.name)}`);
+                        }
+                      }}
                     >
                       <td className={styles.linkNameCell}>
                         <Icon name="gf-layout-simple" size="sm" />
