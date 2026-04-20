@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { PluginPage } from '@grafana/runtime';
 import { Alert, Badge, Icon, Input, LoadingPlaceholder, Pagination, Select, useStyles2 } from '@grafana/ui';

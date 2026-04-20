@@ -15,7 +15,8 @@ import {
   EmbeddedScene,
   behaviors,
 } from '@grafana/scenes';
-import { DashboardCursorSync } from '@grafana/schema';
+import { DashboardCursorSync, TooltipDisplayMode } from '@grafana/schema';
+import { HeatmapColorMode } from '@grafana/schema/dist/esm/raw/composable/heatmap/panelcfg/x/HeatmapPanelCfg_types.gen';
 import { buildTempoExploreUrl, buildLokiExploreUrl, buildMimirExploreUrl } from '../utils/explore';
 import { getOperations, getServices, OperationSummary } from '../api/client';
 import { formatDuration } from '../utils/format';
@@ -272,12 +273,12 @@ function ServiceOverview() {
                 unit: metrics.durationUnit === 's' ? 's' : 'ms',
               })
               .setOption('color', {
-                mode: 'scheme',
+                mode: HeatmapColorMode.Scheme,
                 scheme: 'Oranges',
                 steps: 128,
               })
               .setOption('cellGap', 1)
-              .setOption('tooltip', { show: true, yHistogram: true })
+              .setOption('tooltip', { mode: TooltipDisplayMode.Single, yHistogram: true })
               .build(),
           }),
         ],
