@@ -479,15 +479,8 @@ func (a *App) queryDependencyOperations(
 ) []queries.OperationSummary {
 	logger := log.DefaultLogger.With("handler", "dependency-operations", "dep", depName)
 	callsMetric := caps.SpanMetrics.CallsMetric
-	ns := caps.SpanMetrics.Namespace
 	durationUnit := caps.SpanMetrics.DurationUnit
-
-	durationBucket := ns + "_duration_" + durationUnit + "_bucket"
-	if durationUnit == "ms" {
-		durationBucket = ns + "_duration_milliseconds_bucket"
-	} else if durationUnit == "s" {
-		durationBucket = ns + "_duration_seconds_bucket"
-	}
+	durationBucket := caps.SpanMetrics.DurationMetric
 
 	rangeStr := "[5m]"
 	labelFilter := fmt.Sprintf(`peer_service="%s", span_kind="SPAN_KIND_CLIENT"`, depName)

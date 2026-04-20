@@ -14,34 +14,39 @@ import (
 // Candidate metric names and their namespace derivation.
 // We probe these in order, first match wins.
 var spanMetricsCandidates = []struct {
-	calls    string
-	durMs    string
-	durSec   string
-	ns       string
+	calls      string
+	durMs      string
+	durSec     string
+	latencySec string // Tempo metrics generator uses "latency" instead of "duration"
+	ns         string
 }{
 	{
-		calls:  "traces_span_metrics_calls_total",
-		durMs:  "traces_span_metrics_duration_milliseconds_bucket",
-		durSec: "traces_span_metrics_duration_seconds_bucket",
-		ns:     "traces_span_metrics",
+		calls:      "traces_span_metrics_calls_total",
+		durMs:      "traces_span_metrics_duration_milliseconds_bucket",
+		durSec:     "traces_span_metrics_duration_seconds_bucket",
+		latencySec: "traces_span_metrics_latency_bucket",
+		ns:         "traces_span_metrics",
 	},
 	{
-		calls:  "traces_spanmetrics_calls_total",
-		durMs:  "traces_spanmetrics_duration_milliseconds_bucket",
-		durSec: "traces_spanmetrics_duration_seconds_bucket",
-		ns:     "traces_spanmetrics",
+		calls:      "traces_spanmetrics_calls_total",
+		durMs:      "traces_spanmetrics_duration_milliseconds_bucket",
+		durSec:     "traces_spanmetrics_duration_seconds_bucket",
+		latencySec: "traces_spanmetrics_latency_bucket",
+		ns:         "traces_spanmetrics",
 	},
 	{
-		calls:  "spanmetrics_calls_total",
-		durMs:  "spanmetrics_duration_milliseconds_bucket",
-		durSec: "spanmetrics_duration_seconds_bucket",
-		ns:     "spanmetrics",
+		calls:      "spanmetrics_calls_total",
+		durMs:      "spanmetrics_duration_milliseconds_bucket",
+		durSec:     "spanmetrics_duration_seconds_bucket",
+		latencySec: "spanmetrics_latency_bucket",
+		ns:         "spanmetrics",
 	},
 	{
-		calls:  "calls_total",
-		durMs:  "duration_milliseconds_bucket",
-		durSec: "duration_seconds_bucket",
-		ns:     "",
+		calls:      "calls_total",
+		durMs:      "duration_milliseconds_bucket",
+		durSec:     "duration_seconds_bucket",
+		latencySec: "latency_bucket",
+		ns:         "",
 	},
 }
 
@@ -119,7 +124,7 @@ func (a *App) detectCapabilities(ctx context.Context) queries.Capabilities {
 			caps.SpanMetrics.Namespace = c.ns
 			caps.SpanMetrics.CallsMetric = c.calls
 
-			// Detect duration unit: try milliseconds first
+			// Detect duration unit: try milliseconds first, then seconds, then latency (Tempo)
 			msExists, _ := a.prom(ctx).SeriesExists(ctx, c.durMs)
 			if msExists {
 				caps.SpanMetrics.DurationMetric = c.durMs
@@ -129,6 +134,12 @@ func (a *App) detectCapabilities(ctx context.Context) queries.Capabilities {
 				if secExists {
 					caps.SpanMetrics.DurationMetric = c.durSec
 					caps.SpanMetrics.DurationUnit = "s"
+				} else if c.latencySec != "" {
+					latExists, _ := a.prom(ctx).SeriesExists(ctx, c.latencySec)
+					if latExists {
+						caps.SpanMetrics.DurationMetric = c.latencySec
+						caps.SpanMetrics.DurationUnit = "s"
+					}
 				}
 			}
 			logger.Info("Detected span metrics", "namespace", c.ns, "durationUnit", caps.SpanMetrics.DurationUnit)
@@ -160,7 +171,7 @@ func (a *App) detectCapabilities(ctx context.Context) queries.Capabilities {
 	caps.Tempo = a.checkHTTPHealth(ctx, a.tempoURL(""), "/api/status/buildinfo")
 
 	// Check Loki reachability (default)
-	caps.Loki = a.checkHTTPHealth(ctx, a.lokiURL(""), "/loki/api/v1/status/buildinfo")
+	caps.Loki = a.checkHTTPHealth(ctx, a.lokiURL(""), "/loki/api/v1/labels")
 
 	// Check per-environment datasource reachability
 	if len(a.settings.TracesDataSource.ByEnvironment) > 0 {
@@ -172,7 +183,7 @@ func (a *App) detectCapabilities(ctx context.Context) queries.Capabilities {
 	if len(a.settings.LogsDataSource.ByEnvironment) > 0 {
 		caps.LokiByEnv = make(map[string]queries.DataSourceStatus)
 		for env := range a.settings.LogsDataSource.ByEnvironment {
-			caps.LokiByEnv[env] = a.checkHTTPHealth(ctx, a.lokiURL(env), "/loki/api/v1/status/buildinfo")
+			caps.LokiByEnv[env] = a.checkHTTPHealth(ctx, a.lokiURL(env), "/loki/api/v1/labels")
 		}
 	}
 
