@@ -62,7 +62,7 @@ export function LogsTab({ service, namespace, logsUid }: LogsTabProps) {
       queries: [
         {
           refId: 'A',
-          expr: `{${svcMatcher}}${severityMatcher}${textFilter}`,
+          expr: `{${svcMatcher}}${severityMatcher}${textFilter} | json | line_format "{{.message}}"`,
           queryType: 'range',
           maxLines: 100,
         },
@@ -94,6 +94,10 @@ export function LogsTab({ service, namespace, logsUid }: LogsTabProps) {
               .setData(logQuery)
               .setOption('enableLogDetails', true)
               .setOption('showTime', true)
+              .setOption('wrapLogMessage', true)
+              .setOption('prettifyLogMessage', false)
+              .setOption('showLabels', false)
+              .setOption('showCommonLabels', false)
               .build(),
           }),
         ],
