@@ -44,18 +44,26 @@ test.describe('app configuration', () => {
       const iframeCount = await page.locator('iframe').count();
       console.log(`[DEBUG] Iframes on page: ${iframeCount}`);
 
-      // Check for text "Auto-detect" anywhere including hidden elements
-      const autoDetectAny = await page.locator('text=Auto-detect').count();
-      console.log(`[DEBUG] "Auto-detect" text locator count: ${autoDetectAny}`);
+      // Check "Auto-detect" text anywhere (including hidden)
+      const autoDetectEls = await page.locator('text=Auto-detect').all();
+      console.log(`[DEBUG] "Auto-detect" text count: ${autoDetectEls.length}`);
+      for (let i = 0; i < autoDetectEls.length; i++) {
+        const el = autoDetectEls[i];
+        const tag = await el.evaluate((e) => e.tagName);
+        const vis = await el.isVisible().catch(() => false);
+        const txt = (await el.textContent()) || '(empty)';
+        console.log(`[DEBUG]   [${i}] <${tag}> visible=${vis} text="${txt.slice(0, 60)}"`);
+      }
 
-      // If iframe exists, try searching inside it
-      if (iframeCount > 0) {
-        for (let i = 0; i < iframeCount; i++) {
-          const frame = page.frameLocator(`iframe >> nth=${i}`);
-          const iframeBtnCount = await frame.getByRole('button', { name: /Auto-detect/i }).count();
-          const iframeDS = await frame.getByText('Data Sources').count();
-          console.log(`[DEBUG] iframe[${i}] Auto-detect buttons: ${iframeBtnCount}, Data Sources: ${iframeDS}`);
-        }
+      // Check if any button-like element contains "Auto-detect"
+      const btnHasText = await page.locator('button:has-text("Auto-detect")').count();
+      const roleHasText = await page.locator('[role="button"]:has-text("Auto-detect")').count();
+      console.log(`[DEBUG] button:has-text count: ${btnHasText}, [role=button]:has-text count: ${roleHasText}`);
+
+      // Dump the 7 buttons' outerHTML (truncated)
+      for (let i = 0; i < Math.min(allButtons.length, 3); i++) {
+        const html = await allButtons[i].evaluate((e) => e.outerHTML.slice(0, 200));
+        console.log(`[DEBUG] button[${i}] html: ${html}`);
       }
     }
     await expect(btn).toBeVisible({ timeout: 10000 });
