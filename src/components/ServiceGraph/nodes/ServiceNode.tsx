@@ -1,8 +1,9 @@
 import React, { memo } from 'react';
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
-import { useStyles2 } from '@grafana/ui';
+import { Icon, useStyles2 } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
-import { css } from '@emotion/css';
+import type { IconName } from '@grafana/data';
+import { css, cx } from '@emotion/css';
 
 export interface ServiceNodeData {
   label: string;
@@ -11,31 +12,35 @@ export interface ServiceNodeData {
   errorRate?: number;
   nodeType?: 'service' | 'database' | 'messaging' | 'external';
   isFocused?: boolean;
+  dimmed?: boolean;
   [key: string]: unknown;
 }
 
 type ServiceNodeType = Node<ServiceNodeData>;
 
-const nodeIcons: Record<string, string> = {
-  service: '⚙️',
-  database: '🗄️',
-  messaging: '📨',
-  external: '🌐',
+const NODE_TYPE_CONFIG: Record<string, { icon: IconName; bg: string }> = {
+  service: { icon: 'cube', bg: '#3871DC' },
+  database: { icon: 'database', bg: '#336791' },
+  messaging: { icon: 'envelope', bg: '#FF6600' },
+  external: { icon: 'globe', bg: '#6E6E6E' },
 };
 
 export const ServiceNode = memo(({ data, sourcePosition, targetPosition }: NodeProps<ServiceNodeType>) => {
   const styles = useStyles2(getStyles);
   const nodeType = data.nodeType ?? 'service';
-  const icon = nodeIcons[nodeType] ?? '⚙️';
+  const config = NODE_TYPE_CONFIG[nodeType] ?? NODE_TYPE_CONFIG.service;
   const errorRate = data.errorRate ?? 0;
 
-  const borderClass = errorRate > 0.05 ? styles.borderError : errorRate > 0.01 ? styles.borderWarning : styles.borderOk;
+  const borderClass =
+    errorRate > 0.05 ? styles.borderError : errorRate > 0.01 ? styles.borderWarning : styles.borderDefault;
 
   return (
-    <div className={`${styles.node} ${borderClass} ${data.isFocused ? styles.focused : ''}`}>
+    <div className={cx(styles.node, borderClass, data.isFocused && styles.focused, data.dimmed && styles.dimmed)}>
       <Handle type="target" position={targetPosition ?? Position.Left} className={styles.handle} />
       <div className={styles.header}>
-        <span className={styles.icon}>{icon}</span>
+        <span className={styles.iconBadge} style={{ background: config.bg }}>
+          <Icon name={config.icon} size="xs" />
+        </span>
         <span className={styles.label} title={data.label}>
           {data.label}
         </span>
@@ -56,40 +61,53 @@ ServiceNode.displayName = 'ServiceNode';
 const getStyles = (theme: GrafanaTheme2) => ({
   node: css`
     background: ${theme.colors.background.secondary};
-    border: 2px solid ${theme.colors.border.medium};
+    border: 1.5px solid ${theme.colors.border.medium};
     border-radius: ${theme.shape.radius.default};
     padding: ${theme.spacing(0.5)} ${theme.spacing(1)};
-    min-width: 120px;
+    min-width: 110px;
     max-width: 200px;
     cursor: pointer;
-    font-size: 11px;
     transition:
       border-color 0.15s ease,
-      box-shadow 0.15s ease;
+      box-shadow 0.15s ease,
+      opacity 0.15s ease;
     &:hover {
       box-shadow: ${theme.shadows.z2};
+      border-color: ${theme.colors.text.secondary};
     }
   `,
-  borderOk: css`
-    border-color: ${theme.colors.success.border};
+  borderDefault: css`
+    border-color: ${theme.colors.border.medium};
   `,
   borderWarning: css`
     border-color: ${theme.colors.warning.border};
+    border-width: 2px;
   `,
   borderError: css`
     border-color: ${theme.colors.error.border};
+    border-width: 2px;
   `,
   focused: css`
-    border-width: 3px;
-    box-shadow: 0 0 0 2px ${theme.colors.primary.border};
+    border-width: 2px;
+    border-color: ${theme.colors.primary.border};
+    box-shadow: 0 0 0 2px ${theme.colors.primary.transparent};
+  `,
+  dimmed: css`
+    opacity: 0.5;
   `,
   header: css`
     display: flex;
     align-items: center;
     gap: ${theme.spacing(0.5)};
   `,
-  icon: css`
-    font-size: 12px;
+  iconBadge: css`
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    color: #fff;
     flex-shrink: 0;
   `,
   label: css`
@@ -105,6 +123,7 @@ const getStyles = (theme: GrafanaTheme2) => ({
     gap: ${theme.spacing(0.5)};
     font-size: 10px;
     margin-top: 1px;
+    padding-left: 22px;
   `,
   mainStat: css`
     color: ${theme.colors.text.secondary};

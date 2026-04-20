@@ -7,7 +7,9 @@ import {
   type Node,
   type Edge,
   type NodeTypes,
+  type DefaultEdgeOptions,
   BackgroundVariant,
+  MarkerType,
   useReactFlow,
   ReactFlowProvider,
 } from '@xyflow/react';
@@ -51,6 +53,16 @@ const nodeTypes: NodeTypes = {
   group: GroupNode,
 };
 
+const defaultEdgeOptions: DefaultEdgeOptions = {
+  type: 'smoothstep',
+  animated: false,
+  markerEnd: {
+    type: MarkerType.ArrowClosed,
+    width: 12,
+    height: 12,
+  },
+};
+
 function ServiceGraphInner({
   nodes: inputNodes,
   edges: inputEdges,
@@ -88,7 +100,6 @@ function ServiceGraphInner({
         id: e.id,
         source: e.source,
         target: e.target,
-        animated: false,
       })),
     [inputEdges]
   );
@@ -106,7 +117,6 @@ function ServiceGraphInner({
         nsMap.set(n.namespace, members);
       }
     }
-    // Only create groups with 2+ members
     const filtered = new Map<string, string[]>();
     for (const [ns, members] of nsMap) {
       if (members.length >= 2) {
@@ -139,7 +149,7 @@ function ServiceGraphInner({
   // Fit view after layout completes
   React.useEffect(() => {
     if (!loading && layoutedNodes.length > 0) {
-      setTimeout(() => fitView({ padding: 0.15, duration: 300 }), 50);
+      setTimeout(() => fitView({ padding: 0.1, duration: 400 }), 100);
     }
   }, [loading, layoutedNodes.length, fitView]);
 
@@ -153,10 +163,11 @@ function ServiceGraphInner({
         nodes={layoutedNodes}
         edges={layoutedEdges}
         nodeTypes={nodeTypes}
+        defaultEdgeOptions={defaultEdgeOptions}
         onNodeClick={handleNodeClick}
         fitView
-        fitViewOptions={{ padding: 0.15 }}
-        minZoom={0.2}
+        fitViewOptions={{ padding: 0.1 }}
+        minZoom={0.1}
         maxZoom={2}
         proOptions={{ hideAttribution: true }}
         nodesDraggable={false}
@@ -169,7 +180,7 @@ function ServiceGraphInner({
           nodeColor={(n) => {
             const data = n.data as ServiceNodeData | undefined;
             if (!data) {
-              return '#666';
+              return '#555';
             }
             if ((data.errorRate ?? 0) > 0.05) {
               return '#f85149';
@@ -177,11 +188,14 @@ function ServiceGraphInner({
             if ((data.errorRate ?? 0) > 0.01) {
               return '#d29922';
             }
-            return '#3fb950';
+            if (data.isFocused) {
+              return theme.colors.primary.main;
+            }
+            return theme.colors.text.disabled;
           }}
           nodeStrokeWidth={0}
           nodeBorderRadius={2}
-          maskColor="rgba(0,0,0,0.6)"
+          maskColor="rgba(0,0,0,0.7)"
           style={{ background: theme.colors.background.secondary }}
         />
       </ReactFlow>
@@ -211,7 +225,7 @@ const getStyles = (theme: GrafanaTheme2) => ({
       stroke-width: 1;
     }
     .react-flow__edge:hover .react-flow__edge-path {
-      stroke: ${theme.colors.text.secondary};
+      stroke: ${theme.colors.primary.text};
       stroke-width: 2;
     }
     .react-flow__minimap {
