@@ -288,8 +288,7 @@ function ServiceOverview() {
 
   const hiddenCount = operations.length - overviewOps.length;
 
-  const fullHeightTabs = ['traces', 'logs', 'service-map'];
-  const pageLayout = fullHeightTabs.includes(activeTab) ? PageLayoutType.Canvas : undefined;
+  const pageLayout = PageLayoutType.Canvas;
 
   return (
     <PluginPage layout={pageLayout}>

@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { PluginPage } from '@grafana/runtime';
 import { Alert, LoadingPlaceholder, useStyles2 } from '@grafana/ui';
-import { GrafanaTheme2, FieldType, LoadingState, toDataFrame } from '@grafana/data';
+import { GrafanaTheme2, FieldType, LoadingState, toDataFrame, PageLayoutType } from '@grafana/data';
 import { css } from '@emotion/css';
 import {
   SceneFlexLayout,
@@ -86,7 +86,7 @@ function ServiceMap() {
   }, [mapData]);
 
   return (
-    <PluginPage>
+    <PluginPage layout={PageLayoutType.Canvas}>
       <div className={styles.container}>
         {error && <Alert severity="error" title="Error">{error}</Alert>}
         {loading && <LoadingPlaceholder text="Loading service map..." />}
