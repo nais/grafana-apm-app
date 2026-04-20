@@ -17,11 +17,11 @@ jobs:
       attestations: write
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
         with:
           persist-credentials: false
 
-      - uses: grafana/plugin-actions/build-plugin@build-plugin/v1.2.0
+      - uses: grafana/plugin-actions/build-plugin@8b12a2d6fa5fc0939a6bf75905453d4b505ef29a # ratchet:grafana/plugin-actions/build-plugin@build-plugin/v1.2.0
         # To enable plugin signing, add GRAFANA_ACCESS_POLICY_TOKEN to repository secrets.
         # See: https://grafana.com/developers/plugin-tools/publish-a-plugin/sign-a-plugin#generate-an-access-policy-token
         with:
