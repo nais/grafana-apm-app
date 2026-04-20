@@ -26,3 +26,6 @@ pre-commit:
     js-test:
       glob: "*.{ts,tsx}"
       run: pnpm run test:ci
+    plugin-validate:
+      glob: "*.json"
+      run: pnpm run validate

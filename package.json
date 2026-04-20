@@ -17,7 +17,8 @@
     "lint:fix": "pnpm run lint -- --fix && prettier --write --list-different .",
     "e2e": "playwright test",
     "server": "docker compose up --build",
-    "sign": "npx --yes @grafana/sign-plugin@latest"
+    "sign": "npx --yes @grafana/sign-plugin@latest",
+    "validate": "bash scripts/validate-plugin.sh"
   },
   "author": "Nais",
   "license": "Apache-2.0",

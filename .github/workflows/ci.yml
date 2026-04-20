@@ -100,6 +100,7 @@ jobs:
       - name: Sign plugin
         run: pnpm run sign
         if: ${{ env.GRAFANA_ACCESS_POLICY_TOKEN != '' }}
+        continue-on-error: true
 
       - name: Get plugin metadata
         id: metadata
