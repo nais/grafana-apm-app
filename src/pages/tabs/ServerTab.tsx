@@ -18,6 +18,7 @@ interface ServerTabProps {
   namespace: string;
   fromMs: number;
   toMs: number;
+  onViewTraces?: (spanName: string, status?: string) => void;
 }
 
 type SortField = 'spanName' | 'rate' | 'errorRate' | 'p50Duration' | 'p95Duration' | 'p99Duration';
@@ -27,7 +28,7 @@ interface ServerData {
   graphql: GraphQLMetricsResponse | null;
 }
 
-export function ServerTab({ service, namespace, fromMs, toMs }: ServerTabProps) {
+export function ServerTab({ service, namespace, fromMs, toMs, onViewTraces }: ServerTabProps) {
   const styles = useStyles2(getStyles);
   const { data, loading, error } = useFetch<ServerData>(async () => {
     const [endpoints, graphql] = await Promise.all([
@@ -97,6 +98,7 @@ export function ServerTab({ service, namespace, fromMs, toMs }: ServerTabProps) 
           color="blue"
           endpoints={endpoints.http}
           durationUnit={endpoints.durationUnit}
+          onViewTraces={onViewTraces}
           renderName={(ep) => (
             <span className={styles.httpEndpoint}>
               <span className={styles.httpMethod}>{ep.httpMethod}</span>
@@ -114,6 +116,7 @@ export function ServerTab({ service, namespace, fromMs, toMs }: ServerTabProps) 
           color="purple"
           endpoints={endpoints.grpc}
           durationUnit={endpoints.durationUnit}
+          onViewTraces={onViewTraces}
           renderName={(ep) => (
             <span className={styles.grpcEndpoint}>
               <span className={styles.grpcService}>{ep.rpcService}</span>
@@ -132,6 +135,7 @@ export function ServerTab({ service, namespace, fromMs, toMs }: ServerTabProps) 
           color="orange"
           endpoints={endpoints.database}
           durationUnit={endpoints.durationUnit}
+          onViewTraces={onViewTraces}
           renderName={(ep) => (
             <span className={styles.dbEndpoint}>
               <Badge text={ep.dbSystem ?? 'db'} color="orange" />
@@ -149,6 +153,7 @@ export function ServerTab({ service, namespace, fromMs, toMs }: ServerTabProps) 
           color="purple"
           endpoints={endpoints.messaging}
           durationUnit={endpoints.durationUnit}
+          onViewTraces={onViewTraces}
           renderName={(ep) => (
             <span className={styles.httpEndpoint}>
               <Badge text={ep.messagingKind ?? 'messaging'} color="purple" />
@@ -166,6 +171,7 @@ export function ServerTab({ service, namespace, fromMs, toMs }: ServerTabProps) 
           color="green"
           endpoints={endpoints.internal}
           durationUnit={endpoints.durationUnit}
+          onViewTraces={onViewTraces}
           renderName={(ep) => <span>{ep.spanName}</span>}
         />
       )}
@@ -183,6 +189,7 @@ function EndpointSection({
   endpoints,
   durationUnit,
   renderName,
+  onViewTraces,
 }: {
   title: string;
   subtitle: string;
@@ -191,6 +198,7 @@ function EndpointSection({
   endpoints: EndpointSummary[];
   durationUnit: string;
   renderName: (ep: EndpointSummary) => React.ReactNode;
+  onViewTraces?: (spanName: string, status?: string) => void;
 }) {
   const styles = useStyles2(getStyles);
   const [sortField, setSortField] = useState<SortField>('rate');
@@ -339,16 +347,25 @@ function EndpointSection({
               </tr>
             </thead>
             <tbody>
-              {paged.map((ep) => (
-                <tr key={ep.spanName}>
-                  <td className={styles.nameCell}>{renderName(ep)}</td>
-                  <td className={styles.numCell}>{ep.rate.toFixed(2)} req/s</td>
-                  <td className={ep.errorRate > 0 ? styles.errorCell : styles.numCell}>{ep.errorRate.toFixed(1)}%</td>
-                  <td className={styles.numCell}>{formatDuration(ep.p50Duration, durationUnit)}</td>
-                  <td className={styles.numCell}>{formatDuration(ep.p95Duration, durationUnit)}</td>
-                  <td className={styles.numCell}>{formatDuration(ep.p99Duration, durationUnit)}</td>
-                </tr>
-              ))}
+              {paged.map((ep) => {
+                const spanName = ep.httpRoute || ep.spanName || ep.rpcMethod || '';
+                const clickable = onViewTraces && spanName;
+                return (
+                  <tr
+                    key={ep.spanName}
+                    className={clickable ? styles.clickableRow : undefined}
+                    onClick={clickable ? () => onViewTraces(spanName, ep.errorRate > 0 ? 'error' : '') : undefined}
+                    title={clickable ? `View traces for ${spanName}` : undefined}
+                  >
+                    <td className={styles.nameCell}>{renderName(ep)}</td>
+                    <td className={styles.numCell}>{ep.rate.toFixed(2)} req/s</td>
+                    <td className={ep.errorRate > 0 ? styles.errorCell : styles.numCell}>{ep.errorRate.toFixed(1)}%</td>
+                    <td className={styles.numCell}>{formatDuration(ep.p50Duration, durationUnit)}</td>
+                    <td className={styles.numCell}>{formatDuration(ep.p95Duration, durationUnit)}</td>
+                    <td className={styles.numCell}>{formatDuration(ep.p99Duration, durationUnit)}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
           {sorted.length > PAGE_SIZE && (
@@ -695,6 +712,12 @@ const getStyles = (theme: GrafanaTheme2) => ({
     font-variant-numeric: tabular-nums;
     color: ${theme.colors.error.text};
     font-weight: ${theme.typography.fontWeightMedium};
+  `,
+  clickableRow: css`
+    cursor: pointer;
+    &:hover td {
+      color: ${theme.colors.text.maxContrast};
+    }
   `,
   httpEndpoint: css`
     display: inline-flex;

@@ -79,6 +79,31 @@ function ServiceOverview() {
     },
     [setSearchParams]
   );
+
+  // Read trace filter params (set when navigating from endpoint → traces)
+  const traceSpan = searchParams.get('traceSpan') ?? '';
+  const traceStatus = searchParams.get('traceStatus') ?? '';
+
+  const onViewTraces = useCallback(
+    (spanName: string, status?: string) => {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.set('tab', 'traces');
+        if (spanName) {
+          next.set('traceSpan', spanName);
+        } else {
+          next.delete('traceSpan');
+        }
+        if (status) {
+          next.set('traceStatus', status);
+        } else {
+          next.delete('traceStatus');
+        }
+        return next;
+      });
+    },
+    [setSearchParams]
+  );
   const [percentile, setPercentile] = useState<string>('0.95');
   const [framework, setFramework] = useState<string>('');
   const [environments, setEnvironments] = useState<string[]>([]);
@@ -628,13 +653,13 @@ function ServiceOverview() {
                 minHeight: 0,
               }}
             >
-              <TracesTab service={service} namespace={namespace} tracesUid={ds.tracesUid} />
+              <TracesTab key={`${traceSpan}|${traceStatus}`} service={service} namespace={namespace} tracesUid={ds.tracesUid} initialSpan={traceSpan} initialStatus={traceStatus} />
             </div>
           )}
 
           {visitedTabs.has('server') && (
             <div style={{ display: activeTab === 'server' ? undefined : 'none' }}>
-              <ServerTab service={service} namespace={namespace} fromMs={fromMs} toMs={toMs} />
+              <ServerTab service={service} namespace={namespace} fromMs={fromMs} toMs={toMs} onViewTraces={onViewTraces} />
             </div>
           )}
 

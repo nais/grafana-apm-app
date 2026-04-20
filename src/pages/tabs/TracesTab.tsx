@@ -18,13 +18,15 @@ interface TracesTabProps {
   service: string;
   namespace: string;
   tracesUid: string;
+  initialSpan?: string;
+  initialStatus?: string;
 }
 
-export function TracesTab({ service, namespace, tracesUid }: TracesTabProps) {
-  const [statusFilter, setStatusFilter] = useState<string>('');
+export function TracesTab({ service, namespace, tracesUid, initialSpan, initialStatus }: TracesTabProps) {
+  const [statusFilter, setStatusFilter] = useState<string>(initialStatus ?? '');
   const [durationMin, setDurationMin] = useState<string>('');
   const [durationMax, setDurationMax] = useState<string>('');
-  const [spanSearch, setSpanSearch] = useState<string>('');
+  const [spanSearch, setSpanSearch] = useState<string>(initialSpan ?? '');
   const debouncedSearch = useDebouncedValue(spanSearch, 500);
   const styles = useStyles2(getStyles);
 
