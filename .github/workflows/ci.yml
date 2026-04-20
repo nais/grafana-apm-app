@@ -98,8 +98,11 @@ jobs:
           fi
 
       - name: Sign plugin
-        run: pnpm run sign
-        if: ${{ env.GRAFANA_ACCESS_POLICY_TOKEN != '' }}
+        run: npx --yes @grafana/sign-plugin@latest --rootUrls "$GRAFANA_PLUGIN_ROOT_URLS"
+        env:
+          GRAFANA_ACCESS_POLICY_TOKEN: ${{ secrets.GRAFANA_ACCESS_POLICY_TOKEN }}
+          GRAFANA_PLUGIN_ROOT_URLS: ${{ secrets.GRAFANA_PLUGIN_ROOT_URLS }}
+        if: ${{ secrets.GRAFANA_ACCESS_POLICY_TOKEN != '' }}
         continue-on-error: true
 
       - name: Get plugin metadata

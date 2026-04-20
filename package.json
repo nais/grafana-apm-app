@@ -17,11 +17,9 @@
     "lint:fix": "pnpm run lint -- --fix && prettier --write --list-different .",
     "e2e": "playwright test",
     "server": "docker compose up --build",
-    "sign": "npx --yes @grafana/sign-plugin@latest",
+    "sign": "npx --yes @grafana/sign-plugin@latest --rootUrls https://grafana.nav.cloud.nais.io/,https://grafana.dev-nais.cloud.nais.io/,https://monitoring.nais.io",
     "validate": "bash scripts/validate-plugin.sh"
   },
-  "author": "Nais",
-  "license": "Apache-2.0",
   "devDependencies": {
     "@grafana/eslint-config": "^9.0.0",
     "@grafana/plugin-e2e": "^3.4.12",
