@@ -228,17 +228,16 @@ jobs:
         run: |
           docker logs nais-apm-app >& grafana-server.log
 
+      - name: Upload server log
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # ratchet:actions/upload-artifact@v7
+        if: ${{ always() && steps.run-tests.outcome == 'failure' }}
+        with:
+          name: ${{ matrix.GRAFANA_IMAGE.NAME }}-v${{ matrix.GRAFANA_IMAGE.VERSION }}-${{github.run_id}}-server-log
+          path: grafana-server.log
+          retention-days: 5
+
       - name: Stop grafana docker
         run: docker compose down
-
-        # Uncomment this step to upload the server log to Github artifacts. Remember Github artifacts are public on the Internet if the repository is public.
-        # - name: Upload server log
-        #   uses: actions/upload-artifact@v4
-        #   if: ${{ always() && steps.run-tests.outcome == 'failure' }}
-        #   with:
-        #     name: ${{ matrix.GRAFANA_IMAGE.NAME }}-v${{ matrix.GRAFANA_IMAGE.VERSION }}-${{github.run_id}}-server-log
-        #     path: grafana-server.log
-        #     retention-days: 5
 
   publish-report:
     if: ${{ always() && !cancelled() }}
