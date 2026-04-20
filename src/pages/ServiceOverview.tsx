@@ -454,12 +454,12 @@ function ServiceOverview() {
           <div style={{ display: activeTab === 'overview' ? undefined : 'none' }}>
             <>
               {/* RED panels */}
-              <div style={{ height: 300, overflow: 'hidden' }}>
+              <div style={{ marginBottom: 16 }}>
                 <scene.Component model={scene} />
               </div>
 
               {/* Duration distribution */}
-              <div style={{ height: 320, marginTop: 8, overflow: 'hidden' }}>
+              <div style={{ marginBottom: 16 }}>
                 <durationDistScene.Component model={durationDistScene} />
               </div>
 
