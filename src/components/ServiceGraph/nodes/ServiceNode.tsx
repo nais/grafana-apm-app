@@ -58,10 +58,11 @@ const getStyles = (theme: GrafanaTheme2) => ({
     background: ${theme.colors.background.secondary};
     border: 2px solid ${theme.colors.border.medium};
     border-radius: ${theme.shape.radius.default};
-    padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
-    min-width: 160px;
-    max-width: 220px;
+    padding: ${theme.spacing(0.5)} ${theme.spacing(1)};
+    min-width: 120px;
+    max-width: 200px;
     cursor: pointer;
+    font-size: 11px;
     transition:
       border-color 0.15s ease,
       box-shadow 0.15s ease;
@@ -86,14 +87,13 @@ const getStyles = (theme: GrafanaTheme2) => ({
     display: flex;
     align-items: center;
     gap: ${theme.spacing(0.5)};
-    margin-bottom: ${theme.spacing(0.5)};
   `,
   icon: css`
-    font-size: 14px;
+    font-size: 12px;
     flex-shrink: 0;
   `,
   label: css`
-    font-size: ${theme.typography.bodySmall.fontSize};
+    font-size: 12px;
     font-weight: ${theme.typography.fontWeightMedium};
     color: ${theme.colors.text.primary};
     white-space: nowrap;
@@ -102,8 +102,9 @@ const getStyles = (theme: GrafanaTheme2) => ({
   `,
   stats: css`
     display: flex;
-    gap: ${theme.spacing(1)};
-    font-size: 11px;
+    gap: ${theme.spacing(0.5)};
+    font-size: 10px;
+    margin-top: 1px;
   `,
   mainStat: css`
     color: ${theme.colors.text.secondary};
@@ -112,9 +113,9 @@ const getStyles = (theme: GrafanaTheme2) => ({
     color: ${theme.colors.text.disabled};
   `,
   handle: css`
-    width: 6px !important;
-    height: 6px !important;
-    background: ${theme.colors.border.strong} !important;
-    border: none !important;
+    width: 8px !important;
+    height: 8px !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
   `,
 });

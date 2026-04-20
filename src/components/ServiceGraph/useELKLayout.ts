@@ -17,8 +17,8 @@ export interface LayoutResult {
 
 const elk = new ELK();
 
-const DEFAULT_NODE_WIDTH = 200;
-const DEFAULT_NODE_HEIGHT = 70;
+const DEFAULT_NODE_WIDTH = 170;
+const DEFAULT_NODE_HEIGHT = 46;
 const GROUP_PADDING = 40;
 
 export function useELKLayout({ nodes, edges, groups, direction = 'RIGHT' }: GraphInput): LayoutResult {
@@ -84,10 +84,15 @@ export function useELKLayout({ nodes, edges, groups, direction = 'RIGHT' }: Grap
         'elk.algorithm': 'layered',
         'elk.direction': direction,
         'elk.edgeRouting': 'ORTHOGONAL',
-        'elk.spacing.nodeNode': '60',
-        'elk.layered.spacing.nodeNodeBetweenLayers': '80',
+        'elk.spacing.nodeNode': '20',
+        'elk.spacing.edgeNode': '30',
+        'elk.spacing.edgeEdge': '15',
+        'elk.layered.spacing.nodeNodeBetweenLayers': '120',
+        'elk.layered.spacing.edgeNodeBetweenLayers': '40',
         'elk.hierarchyHandling': 'INCLUDE_CHILDREN',
         'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
+        'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF',
+        'elk.layered.compactness.connectedComponents': 'true',
       },
       children: elkChildren,
       edges: elkEdges,

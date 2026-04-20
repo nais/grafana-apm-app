@@ -12,7 +12,7 @@ import {
   ReactFlowProvider,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { useStyles2 } from '@grafana/ui';
+import { useStyles2, useTheme2 } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { ServiceNode, type ServiceNodeData } from './nodes/ServiceNode';
@@ -60,6 +60,7 @@ function ServiceGraphInner({
   onNodeClick,
 }: ServiceGraphProps) {
   const styles = useStyles2(getStyles);
+  const theme = useTheme2();
   const { fitView } = useReactFlow();
 
   // Convert input data to React Flow format
@@ -87,9 +88,7 @@ function ServiceGraphInner({
         id: e.id,
         source: e.source,
         target: e.target,
-        label: e.mainStat,
         animated: false,
-        style: { stroke: 'var(--grafana-border-medium, #444)' },
       })),
     [inputEdges]
   );
@@ -180,7 +179,10 @@ function ServiceGraphInner({
             }
             return '#3fb950';
           }}
-          maskColor="rgba(0,0,0,0.5)"
+          nodeStrokeWidth={0}
+          nodeBorderRadius={2}
+          maskColor="rgba(0,0,0,0.6)"
+          style={{ background: theme.colors.background.secondary }}
         />
       </ReactFlow>
     </div>
@@ -206,11 +208,11 @@ const getStyles = (theme: GrafanaTheme2) => ({
     }
     .react-flow__edge-path {
       stroke: ${theme.colors.border.medium};
-      stroke-width: 1.5;
+      stroke-width: 1;
     }
-    .react-flow__edge-text {
-      font-size: 10px;
-      fill: ${theme.colors.text.disabled};
+    .react-flow__edge:hover .react-flow__edge-path {
+      stroke: ${theme.colors.text.secondary};
+      stroke-width: 2;
     }
     .react-flow__minimap {
       background: ${theme.colors.background.primary};
