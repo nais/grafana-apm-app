@@ -36,30 +36,24 @@ function ServiceInventory() {
     loading,
     error,
   } = useFetch<{ services: ServiceSummary[]; caps: Capabilities }>(async () => {
-    // Load without sparklines first for fast initial render
     const [capsResult, servicesResult] = await Promise.all([getCapabilities(), getServices(fromMs, toMs, 60, false)]);
     return { caps: capsResult, services: servicesResult };
   }, [fromMs, toMs]);
 
-  // Lazy-load sparklines after initial data is on screen
+  // Lazy-load sparklines after initial data is on screen (stored separately to avoid re-sorting)
   const { data: sparklineResult } = useFetch<ServiceSummary[]>(
     () => getServices(fromMs, toMs, 60, true),
     [fromMs, toMs],
     { skip: !fetchResult }
   );
 
-  // Merge sparkline data into services when available
-  const services = useMemo(() => {
-    const base = fetchResult?.services ?? [];
+  const services = useMemo(() => fetchResult?.services ?? [], [fetchResult]);
+  const sparklineMap = useMemo(() => {
     if (!sparklineResult) {
-      return base;
+      return new Map<string, ServiceSummary>();
     }
-    const sparkMap = new Map(sparklineResult.map((s) => [`${s.namespace}/${s.name}`, s]));
-    return base.map((s) => {
-      const spark = sparkMap.get(`${s.namespace}/${s.name}`);
-      return spark ? { ...s, rateSeries: spark.rateSeries, durationSeries: spark.durationSeries } : s;
-    });
-  }, [fetchResult, sparklineResult]);
+    return new Map(sparklineResult.map((s) => [`${s.namespace}/${s.name}`, s]));
+  }, [sparklineResult]);
   const caps = fetchResult?.caps ?? null;
 
   // Read all UI state from query params (persisted across navigation)
@@ -151,6 +145,10 @@ function ServiceInventory() {
         case 'rate':
           cmp = a.rate - b.rate;
           break;
+      }
+      // Stable tiebreaker: deterministic order when primary values are equal
+      if (cmp === 0 && sortField !== 'name') {
+        cmp = a.name.localeCompare(b.name);
       }
       return sortDir === 'asc' ? cmp : -cmp;
     });
@@ -271,7 +269,7 @@ function ServiceInventory() {
                     <td>
                       <div className={styles.metricCell}>
                         <span className={styles.metricValue}>{formatDuration(svc.p95Duration, svc.durationUnit)}</span>
-                        <AreaSparkline data={svc.durationSeries?.map((p) => p.v)} color="#E0B400" />
+                        <AreaSparkline data={sparklineMap.get(`${svc.namespace}/${svc.name}`)?.durationSeries?.map((p) => p.v)} color="#E0B400" />
                       </div>
                     </td>
                     <td>
@@ -286,7 +284,7 @@ function ServiceInventory() {
                     <td>
                       <div className={styles.metricCell}>
                         <span className={styles.metricValue}>{svc.rate.toFixed(1)} req/s</span>
-                        <AreaSparkline data={svc.rateSeries?.map((p) => p.v)} color="#73BF69" />
+                        <AreaSparkline data={sparklineMap.get(`${svc.namespace}/${svc.name}`)?.rateSeries?.map((p) => p.v)} color="#73BF69" />
                       </div>
                     </td>
                   </tr>
