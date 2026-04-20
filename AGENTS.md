@@ -40,6 +40,11 @@ docker compose -f docker-compose.demo.yaml up  # With OTel Demo traffic
 - **Per-environment datasources** — config supports mapping `deployment.environment` values to different Tempo/Loki UIDs
 - **Plugin ID** — `nais-apm-app` in URLs, binary is `gpx_application_observability`
 
+## Constraints
+
+- **Do not push** — git credential helper (`osxkeychain`) is unavailable in agent sessions. Stage and commit freely; the user will push.
+- **No co-author trailers** — do not add `Co-authored-by` lines to commit messages.
+
 ## Testing
 
 - Unit tests live next to source files (`*.test.tsx`)
