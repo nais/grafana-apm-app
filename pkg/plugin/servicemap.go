@@ -225,21 +225,27 @@ func (a *App) queryServiceMap( //nolint:gocyclo // complex due to parallel queri
 		nodeSet = filteredNodes
 	}
 
-	// Calculate per-node aggregate error rates for arc display
+	// Calculate per-node aggregate error rates for display.
+	// Use only edges where the node is the server (incoming traffic)
+	// to avoid double-counting across client/server roles.
 	type nodeAgg struct {
 		totalRate float64
 		errorRate float64
 	}
 	nodeAggs := make(map[string]*nodeAgg)
 	for k, e := range edges {
-		for _, n := range []string{k.client, k.server} {
-			agg, ok := nodeAggs[n]
-			if !ok {
-				agg = &nodeAgg{}
-				nodeAggs[n] = agg
-			}
-			agg.totalRate += e.rate
-			agg.errorRate += e.errorRate
+		// Aggregate incoming traffic (where node is the server)
+		agg, ok := nodeAggs[k.server]
+		if !ok {
+			agg = &nodeAgg{}
+			nodeAggs[k.server] = agg
+		}
+		agg.totalRate += e.rate
+		agg.errorRate += e.errorRate
+
+		// Ensure client nodes exist in the map (with zero if no incoming edges)
+		if _, ok := nodeAggs[k.client]; !ok {
+			nodeAggs[k.client] = &nodeAgg{}
 		}
 	}
 
@@ -267,6 +273,13 @@ func (a *App) queryServiceMap( //nolint:gocyclo // complex due to parallel queri
 		errPct := 0.0
 		if agg != nil && agg.totalRate > 0 {
 			errPct = agg.errorRate / agg.totalRate
+			if errPct > 1.0 {
+				errPct = 1.0
+			}
+		}
+		totalRate := 0.0
+		if agg != nil {
+			totalRate = agg.totalRate
 		}
 		nType := nodeTypes[name]
 		if nType == "" {
@@ -275,7 +288,7 @@ func (a *App) queryServiceMap( //nolint:gocyclo // complex due to parallel queri
 		nodes = append(nodes, ServiceMapNode{
 			ID:            name,
 			Title:         name,
-			MainStat:      fmt.Sprintf("%.1f req/s", agg.totalRate),
+			MainStat:      fmt.Sprintf("%.1f req/s", totalRate),
 			SecondaryStat: fmt.Sprintf("%.1f%% errors", errPct*100),
 			ArcErrors:     errPct,
 			ArcOK:         1 - errPct,
