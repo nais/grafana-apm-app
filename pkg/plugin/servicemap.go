@@ -14,13 +14,15 @@ import (
 
 // ServiceMapNode represents a node in the service map.
 type ServiceMapNode struct {
-	ID        string  `json:"id"`
-	Title     string  `json:"title"`
-	SubTitle  string  `json:"subtitle,omitempty"`
-	MainStat  string  `json:"mainStat,omitempty"`
-	SecondaryStat string `json:"secondaryStat,omitempty"`
-	ArcErrors float64 `json:"arc__errors"` //nolint:revive // JSON field required by Grafana node graph
-	ArcOK     float64 `json:"arc__ok"`     //nolint:revive // JSON field required by Grafana node graph
+	ID            string  `json:"id"`
+	Title         string  `json:"title"`
+	SubTitle      string  `json:"subtitle,omitempty"`
+	MainStat      string  `json:"mainStat,omitempty"`
+	SecondaryStat string  `json:"secondaryStat,omitempty"`
+	ArcErrors     float64 `json:"arc__errors"` //nolint:revive // JSON field required by Grafana node graph
+	ArcOK         float64 `json:"arc__ok"`     //nolint:revive // JSON field required by Grafana node graph
+	NodeType      string  `json:"nodeType,omitempty"`
+	ErrorRate     float64 `json:"errorRate"`
 }
 
 // ServiceMapEdge represents an edge between two services.
@@ -63,7 +65,7 @@ func (a *App) handleServiceMap(w http.ResponseWriter, req *http.Request) {
 	writeJSON(w, graph)
 }
 
-func (a *App) queryServiceMap(
+func (a *App) queryServiceMap( //nolint:gocyclo // complex due to parallel queries + node/edge assembly
 	ctx context.Context,
 	_, to time.Time,
 	filterService, _ string,
@@ -228,7 +230,24 @@ func (a *App) queryServiceMap(
 		}
 	}
 
-	// Build response
+	// Build response — infer node types from connection_type on edges
+	// The connection_type label on an edge describes the server end
+	nodeTypes := make(map[string]string)
+	for k, e := range edges {
+		if e.connType != "" {
+			switch e.connType {
+			case "database":
+				nodeTypes[k.server] = "database"
+			case "messaging":
+				nodeTypes[k.server] = "messaging"
+			default:
+				if _, exists := nodeTypes[k.server]; !exists {
+					nodeTypes[k.server] = "external"
+				}
+			}
+		}
+	}
+
 	var nodes []ServiceMapNode
 	for name := range nodeSet {
 		agg := nodeAggs[name]
@@ -236,13 +255,19 @@ func (a *App) queryServiceMap(
 		if agg != nil && agg.totalRate > 0 {
 			errPct = agg.errorRate / agg.totalRate
 		}
+		nType := nodeTypes[name]
+		if nType == "" {
+			nType = "service"
+		}
 		nodes = append(nodes, ServiceMapNode{
 			ID:            name,
 			Title:         name,
 			MainStat:      fmt.Sprintf("%.1f req/s", agg.totalRate),
 			SecondaryStat: fmt.Sprintf("%.1f%% errors", errPct*100),
-			ArcErrors:   errPct,
-			ArcOK:       1 - errPct,
+			ArcErrors:     errPct,
+			ArcOK:         1 - errPct,
+			NodeType:      nType,
+			ErrorRate:     errPct,
 		})
 	}
 

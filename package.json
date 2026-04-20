@@ -73,6 +73,8 @@
     "@grafana/scenes": "^6.57.2",
     "@grafana/schema": "12.4.2",
     "@grafana/ui": "12.4.2",
+    "@xyflow/react": "^12.10.2",
+    "elkjs": "^0.11.1",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "react-router-dom": "^6.22.0",

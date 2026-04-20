@@ -123,6 +123,8 @@ export interface ServiceMapNode {
   secondaryStat?: string;
   arc__errors: number;
   arc__ok: number;
+  nodeType?: 'service' | 'database' | 'messaging' | 'external';
+  errorRate: number;
 }
 
 export interface ServiceMapEdge {
