@@ -46,15 +46,8 @@ export function useCapabilities(): { caps: Capabilities | null; loading: boolean
  */
 export function getMetricNames(caps: Capabilities | null) {
   const callsMetric = caps?.spanMetrics?.callsMetric || 'traces_span_metrics_calls_total';
-  const namespace = caps?.spanMetrics?.namespace || 'traces_span_metrics';
   const durationUnit = caps?.spanMetrics?.durationUnit || 'ms';
+  const durationBucket = caps?.spanMetrics?.durationMetric || 'traces_span_metrics_duration_milliseconds_bucket';
 
-  let durationBucket: string;
-  if (durationUnit === 'ms') {
-    durationBucket = namespace + '_duration_milliseconds_bucket';
-  } else {
-    durationBucket = namespace + '_duration_seconds_bucket';
-  }
-
-  return { callsMetric, durationBucket, durationUnit, namespace };
+  return { callsMetric, durationBucket, durationUnit };
 }
