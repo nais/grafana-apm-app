@@ -46,22 +46,22 @@ func TestCallResource(t *testing.T) {
 			expStatus: http.StatusOK,
 		},
 		{
-			name:      "get services 200",
+			name:      "get services 503 when unconfigured",
 			method:    http.MethodGet,
 			path:      "services",
-			expStatus: http.StatusOK,
+			expStatus: http.StatusServiceUnavailable,
 		},
 		{
-			name:      "get services with namespace filter 200",
+			name:      "get services with namespace filter 503 when unconfigured",
 			method:    http.MethodGet,
 			path:      "services?namespace=otel-demo",
-			expStatus: http.StatusOK,
+			expStatus: http.StatusServiceUnavailable,
 		},
 		{
-			name:      "get services with environment filter 200",
+			name:      "get services with environment filter 503 when unconfigured",
 			method:    http.MethodGet,
 			path:      "services?environment=production",
-			expStatus: http.StatusOK,
+			expStatus: http.StatusServiceUnavailable,
 		},
 		{
 			name:      "get service-map 200",

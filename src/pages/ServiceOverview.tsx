@@ -23,6 +23,7 @@ import { usePluginDatasources } from '../utils/datasources';
 import { useTimeRange } from '../utils/timeRange';
 import { useCapabilities, getMetricNames } from '../utils/capabilities';
 import { useAppNavigate } from '../utils/navigation';
+import { sanitizeLabelValue } from '../utils/sanitize';
 import { TracesTab } from './tabs/TracesTab';
 import { LogsTab } from './tabs/LogsTab';
 import { ServiceMapTab } from './tabs/ServiceMapTab';
@@ -129,9 +130,9 @@ function ServiceOverview() {
   // Scenes for RED panels — rebuild when percentile or capabilities change
   const scene = useMemo(() => {
     const timeRange = new SceneTimeRange({ from, to });
-    let svcFilter = `service_name="${service}", service_namespace="${namespace}"`;
+    let svcFilter = `service_name="${sanitizeLabelValue(service)}", service_namespace="${sanitizeLabelValue(namespace)}"`;
     if (envFilter) {
-      svcFilter += `, deployment_environment="${envFilter}"`;
+      svcFilter += `, deployment_environment="${sanitizeLabelValue(envFilter)}"`;
     }
     const durationUnit = metrics.durationUnit === 's' ? 's' : 'ms';
 
@@ -228,9 +229,9 @@ function ServiceOverview() {
   // Duration distribution histogram
   const durationDistScene = useMemo(() => {
     const timeRange = new SceneTimeRange({ from, to });
-    let svcFilter = `service_name="${service}", service_namespace="${namespace}"`;
+    let svcFilter = `service_name="${sanitizeLabelValue(service)}", service_namespace="${sanitizeLabelValue(namespace)}"`;
     if (envFilter) {
-      svcFilter += `, deployment_environment="${envFilter}"`;
+      svcFilter += `, deployment_environment="${sanitizeLabelValue(envFilter)}"`;
     }
 
     const histQuery = new SceneQueryRunner({

@@ -17,17 +17,3 @@ export function formatDuration(value: number, unit: string): string {
   }
   return `${value.toFixed(1)}s`;
 }
-
-/** Dependency type → emoji icon mapping */
-export const DEP_TYPE_ICONS: Record<string, string> = {
-  redis: '🔴',
-  postgresql: '🐘',
-  mysql: '🐬',
-  mongodb: '🍃',
-  kafka: '📨',
-  rabbitmq: '🐇',
-  elasticsearch: '🔍',
-  memcached: '⚡',
-  external: '🌐',
-  service: '🔷',
-};

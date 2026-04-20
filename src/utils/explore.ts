@@ -1,4 +1,5 @@
 import { urlUtil } from '@grafana/data';
+import { escapeQueryString } from './sanitize';
 
 interface ExploreParams {
   datasourceUid: string;
@@ -32,15 +33,15 @@ export function buildTempoExploreUrl(
     namespace?: string;
   }
 ): string {
-  let query = `{resource.service.name="${serviceName}"`;
+  let query = `{resource.service.name="${escapeQueryString(serviceName)}"`;
   if (options?.namespace) {
-    query += ` && resource.service.namespace="${options.namespace}"`;
+    query += ` && resource.service.namespace="${escapeQueryString(options.namespace)}"`;
   }
   if (options?.statusCode) {
     query += ` && status=${options.statusCode}`;
   }
   if (options?.operation) {
-    query += ` && name="${options.operation}"`;
+    query += ` && name="${escapeQueryString(options.operation)}"`;
   }
   query += '}';
 
@@ -68,10 +69,10 @@ export function buildLokiExploreUrl(
   }
 ): string {
   let expr = options?.namespace
-    ? `{service_name="${serviceName}", service_namespace="${options.namespace}"}`
-    : `{service_name="${serviceName}"}`;
+    ? `{service_name="${escapeQueryString(serviceName)}", service_namespace="${escapeQueryString(options.namespace)}"}`
+    : `{service_name="${escapeQueryString(serviceName)}"}`;
   if (options?.traceId) {
-    expr += ` |= "${options.traceId}"`;
+    expr += ` |= "${escapeQueryString(options.traceId)}"`;
   }
 
   return buildExploreUrl({

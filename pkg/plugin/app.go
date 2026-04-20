@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"strings"
 	"sync"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
@@ -46,16 +48,34 @@ func NewApp(_ context.Context, settings backend.AppInstanceSettings) (instancemg
 		}
 	}
 
-	// For Phase 1, use direct URLs to datasources within the Docker network.
-	// TODO: Abstract to use Grafana datasource proxy for production deployments.
-	app.promClient = queries.NewPrometheusClient("http://mimir:9009/prometheus")
-	app.tempoURL = "http://tempo:3200"
-	app.lokiURL = "http://loki:3100"
+	// Resolve datasource URLs via Grafana datasource proxy.
+	// GF_APP_URL is set by Grafana; fall back to localhost for development.
+	grafanaURL := strings.TrimRight(os.Getenv("GF_APP_URL"), "/")
+	if grafanaURL == "" {
+		grafanaURL = "http://localhost:3000"
+	}
+
+	if uid := app.settings.MetricsDataSource.UID; uid != "" {
+		proxyURL := fmt.Sprintf("%s/api/datasources/proxy/uid/%s", grafanaURL, uid)
+		app.promClient = queries.NewPrometheusClient(proxyURL)
+		logger.Info("Metrics datasource configured via proxy", "uid", uid)
+	} else {
+		// Fallback for unconfigured plugin (e.g., first install before config is saved)
+		logger.Warn("No metrics datasource configured — plugin will not function until configured")
+	}
+
+	if uid := app.settings.TracesDataSource.UID; uid != "" {
+		app.tempoURL = fmt.Sprintf("%s/api/datasources/proxy/uid/%s", grafanaURL, uid)
+	}
+	if uid := app.settings.LogsDataSource.UID; uid != "" {
+		app.lokiURL = fmt.Sprintf("%s/api/datasources/proxy/uid/%s", grafanaURL, uid)
+	}
 
 	logger.Info("Plugin initialized",
 		"metricsDS", app.settings.MetricsDataSource.UID,
 		"tracesDS", app.settings.TracesDataSource.UID,
 		"logsDS", app.settings.LogsDataSource.UID,
+		"grafanaURL", grafanaURL,
 	)
 
 	mux := http.NewServeMux()
@@ -67,8 +87,41 @@ func NewApp(_ context.Context, settings backend.AppInstanceSettings) (instancemg
 
 func (a *App) Dispose() {}
 
+// promClientForRequest returns a PrometheusClient with the incoming user's auth headers.
+func (a *App) promClientForRequest(r *http.Request) *queries.PrometheusClient {
+	if a.promClient == nil {
+		return nil
+	}
+	return a.promClient.WithAuthHeaders(r.Header)
+}
+
+// Context key for per-request PrometheusClient with forwarded auth.
+type promClientCtxKey struct{}
+
+// withAuthContext stores an auth-enhanced PrometheusClient in the context.
+func withAuthContext(ctx context.Context, c *queries.PrometheusClient) context.Context {
+	return context.WithValue(ctx, promClientCtxKey{}, c)
+}
+
+// prom returns the per-request auth-enhanced PrometheusClient, or falls back to the base client.
+func (a *App) prom(ctx context.Context) *queries.PrometheusClient {
+	if c, ok := ctx.Value(promClientCtxKey{}).(*queries.PrometheusClient); ok && c != nil {
+		return c
+	}
+	return a.promClient
+}
+
 // CheckHealth validates datasource connectivity.
-func (a *App) CheckHealth(ctx context.Context, _ *backend.CheckHealthRequest) (*backend.CheckHealthResult, error) {
+func (a *App) CheckHealth(ctx context.Context, req *backend.CheckHealthRequest) (*backend.CheckHealthResult, error) {
+	// Forward auth headers from the health check request for datasource proxy calls
+	h := make(http.Header)
+	for k, v := range req.Headers {
+		h.Set(k, v)
+	}
+	if a.promClient != nil {
+		ctx = withAuthContext(ctx, a.promClient.WithAuthHeaders(h))
+	}
+
 	caps := a.detectCapabilities(ctx)
 
 	if !caps.SpanMetrics.Detected {
@@ -85,7 +138,11 @@ func (a *App) CheckHealth(ctx context.Context, _ *backend.CheckHealthRequest) (*
 		}, nil
 	}
 
-	details, _ := json.Marshal(caps)
+	details, err := json.Marshal(caps)
+	if err != nil {
+		log.DefaultLogger.Warn("Failed to marshal capabilities", "error", err)
+		details = []byte("{}")
+	}
 	msg := fmt.Sprintf("OK — %s metrics detected, %d services found", caps.SpanMetrics.Namespace, len(caps.Services))
 	return &backend.CheckHealthResult{
 		Status:      backend.HealthStatusOk,

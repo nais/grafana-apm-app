@@ -6,6 +6,7 @@ import { css } from '@emotion/css';
 import { getServices, getCapabilities, ServiceSummary, Capabilities } from '../api/client';
 import { useTimeRange } from '../utils/timeRange';
 import { useAppNavigate } from '../utils/navigation';
+import { formatDuration } from '../utils/format';
 
 const SDK_BADGES: Record<string, { text: string; color: 'blue' | 'green' | 'orange' | 'red' | 'purple' }> = {
   java: { text: 'Java', color: 'orange' },
@@ -285,26 +286,6 @@ function AreaSparkline({ data, color }: { data?: number[]; color: string }) {
       <polyline fill="none" stroke={color} strokeWidth="1.5" points={linePoints} />
     </svg>
   );
-}
-
-function formatDuration(value: number, unit: string): string {
-  if (unit === 'ms') {
-    if (value < 1) {
-      return '< 1ms';
-    }
-    if (value >= 1000) {
-      return `${(value / 1000).toFixed(1)}s`;
-    }
-    return `${Math.round(value)}ms`;
-  }
-  // seconds
-  if (value < 0.001) {
-    return '< 1ms';
-  }
-  if (value < 1) {
-    return `${Math.round(value * 1000)}ms`;
-  }
-  return `${value.toFixed(1)}s`;
 }
 
 const getStyles = (theme: GrafanaTheme2) => ({

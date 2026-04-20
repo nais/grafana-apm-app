@@ -1,4 +1,4 @@
-import { formatDuration, DEP_TYPE_ICONS } from './format';
+import { formatDuration } from './format';
 
 describe('formatDuration', () => {
   describe('millisecond unit', () => {
@@ -23,15 +23,5 @@ describe('formatDuration', () => {
     it('formats seconds', () => {
       expect(formatDuration(1.5, 's')).toBe('1.5s');
     });
-  });
-});
-
-describe('DEP_TYPE_ICONS', () => {
-  it('has entries for common dependency types', () => {
-    expect(DEP_TYPE_ICONS.redis).toBeDefined();
-    expect(DEP_TYPE_ICONS.postgresql).toBeDefined();
-    expect(DEP_TYPE_ICONS.kafka).toBeDefined();
-    expect(DEP_TYPE_ICONS.service).toBeDefined();
-    expect(DEP_TYPE_ICONS.external).toBeDefined();
   });
 });

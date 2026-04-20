@@ -15,7 +15,17 @@
       "small": "img/logo.svg",
       "large": "img/logo.svg"
     },
-    "screenshots": [],
+    "screenshots": [
+      {
+        "name": "Service Inventory",
+        "path": "img/screenshot-service-inventory.png"
+      }
+    ],
+    "links": [
+      { "name": "GitHub", "url": "https://github.com/nais/grafana-otel-plugin" },
+      { "name": "Issues", "url": "https://github.com/nais/grafana-otel-plugin/issues" },
+      { "name": "License", "url": "https://github.com/nais/grafana-otel-plugin/blob/main/LICENSE" }
+    ],
     "version": "%VERSION%",
     "updated": "%TODAY%"
   },

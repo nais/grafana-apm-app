@@ -39,7 +39,11 @@ type ServiceMapResponse struct {
 }
 
 func (a *App) handleServiceMap(w http.ResponseWriter, req *http.Request) {
+	if !requireGET(w, req) {
+		return
+	}
 	ctx := req.Context()
+	ctx = withAuthContext(ctx, a.promClientForRequest(req))
 
 	caps := a.cachedOrDetectCapabilities(ctx)
 	if !caps.ServiceGraph.Detected {
@@ -106,7 +110,7 @@ func (a *App) queryServiceMap(
 		wg.Add(1)
 		go func(n, query string) {
 			defer wg.Done()
-			results, err := a.promClient.InstantQuery(ctx, query, to)
+			results, err := a.prom(ctx).InstantQuery(ctx, query, to)
 			ch <- queryResult{name: n, results: results, err: err}
 		}(q.name, q.query)
 	}
