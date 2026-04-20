@@ -619,7 +619,7 @@ function ServiceOverview() {
           </div>
 
           {visitedTabs.has('traces') && (
-            <div style={{ display: activeTab === 'traces' ? undefined : 'none' }}>
+            <div style={{ display: activeTab === 'traces' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}>
               <TracesTab service={service} namespace={namespace} tracesUid={ds.tracesUid} />
             </div>
           )}
@@ -649,7 +649,7 @@ function ServiceOverview() {
           )}
 
           {visitedTabs.has('logs') && (
-            <div style={{ display: activeTab === 'logs' ? undefined : 'none' }}>
+            <div style={{ display: activeTab === 'logs' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}>
               <LogsTab service={service} namespace={namespace} logsUid={ds.logsUid} />
             </div>
           )}
