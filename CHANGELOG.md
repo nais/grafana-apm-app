@@ -2,7 +2,7 @@
 
 ## 0.1.0 (2026-04-20)
 
-First public release of Application Observability for Grafana — a self-hosted APM plugin
+First public release of Nais APM — a self-hosted APM plugin
 powered by OpenTelemetry data from Mimir, Loki, and Tempo.
 
 ### Features
