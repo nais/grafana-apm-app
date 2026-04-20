@@ -39,6 +39,24 @@ test.describe('app configuration', () => {
       console.log(`[DEBUG] Found ${allButtons.length} buttons: ${JSON.stringify(names)}`);
       console.log(`[DEBUG] Has "Data Sources": ${await page.getByText('Data Sources').count()}`);
       console.log(`[DEBUG] Has "Detection": ${await page.getByText('Detection').count()}`);
+
+      // Check for iframes
+      const iframeCount = await page.locator('iframe').count();
+      console.log(`[DEBUG] Iframes on page: ${iframeCount}`);
+
+      // Check for text "Auto-detect" anywhere including hidden elements
+      const autoDetectAny = await page.locator('text=Auto-detect').count();
+      console.log(`[DEBUG] "Auto-detect" text locator count: ${autoDetectAny}`);
+
+      // If iframe exists, try searching inside it
+      if (iframeCount > 0) {
+        for (let i = 0; i < iframeCount; i++) {
+          const frame = page.frameLocator(`iframe >> nth=${i}`);
+          const iframeBtnCount = await frame.getByRole('button', { name: /Auto-detect/i }).count();
+          const iframeDS = await frame.getByText('Data Sources').count();
+          console.log(`[DEBUG] iframe[${i}] Auto-detect buttons: ${iframeBtnCount}, Data Sources: ${iframeDS}`);
+        }
+      }
     }
     await expect(btn).toBeVisible({ timeout: 10000 });
   });
