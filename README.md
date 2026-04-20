@@ -1,24 +1,24 @@
 # Nais APM
 
-A Grafana app plugin that provides Application Performance Monitoring (APM) using
-OpenTelemetry data from Mimir, Loki, and Tempo. It discovers instrumented services
-automatically and presents RED metrics (Rate, Errors, Duration), service dependency
-maps, and cross-signal navigation between metrics, traces, and logs.
+APM for teams that already run the LGTM stack.
 
-Built for self-hosted Grafana stacks running the LGTM stack with OpenTelemetry
-instrumentation. No proprietary agents, no Grafana Cloud lock-in.
+If you have OpenTelemetry data flowing into Mimir, Tempo, and Loki, this Grafana
+plugin turns it into a full APM experience — service inventory, RED dashboards,
+dependency maps, and one-click navigation between metrics, traces, and logs.
+No proprietary agents. No cloud lock-in. Just a plugin on top of the stack you
+already operate.
 
 ![Service Inventory](src/img/screenshot-service-inventory.png)
 
 ## Features
 
-- **Service Inventory** — auto-discovered table of all instrumented services with health sparklines, SDK language icons, and sort/filter/pagination
+- **Service Inventory** — auto-discovers all instrumented services with health sparklines, SDK language icons, and sort/filter
 - **RED Dashboards** — per-service Rate, Errors, and Duration panels with percentile selectors and exemplar overlays
-- **Operations Breakdown** — top operations table and duration distribution histogram per service
-- **Service Map** — topology graph showing inter-service dependencies
-- **Cross-Signal Navigation** — click a data point on any panel to jump to correlated traces or logs
+- **Operations Breakdown** — top operations table and duration distribution histogram
+- **Service Map** — topology graph showing how your services call each other
+- **Cross-Signal Navigation** — click a spike on any chart to jump straight to the relevant traces or logs
 - **Trace & Log Exploration** — search and browse traces and logs scoped to a service
-- **Auto-Detection** — detects span metric names, duration units, and available capabilities from your data
+- **Zero Config** — auto-detects span metric names, duration units, and available capabilities from your data
 
 ## Prerequisites
 
