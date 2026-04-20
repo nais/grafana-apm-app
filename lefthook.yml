@@ -12,11 +12,9 @@ pre-commit:
     ts-typecheck:
       glob: "*.{ts,tsx}"
       run: pnpm run typecheck
-
-pre-push:
-  parallel: true
-  commands:
     go-test:
+      glob: "*.go"
       run: go test -short -race ./pkg/...
     js-test:
+      glob: "*.{ts,tsx}"
       run: pnpm run test:ci
