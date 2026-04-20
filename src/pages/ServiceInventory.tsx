@@ -261,7 +261,9 @@ function ServiceInventory() {
                   >
                     <td className={styles.typeCell}>
                       <FrameworkBadge framework={svc.framework} />
-                      {svc.hasFrontend && <Badge text="" color="blue" icon="globe" tooltip="Faro Web SDK" />}
+                      {svc.hasFrontend && (
+                        <span className={styles.faroBadge} title="Faro Web SDK">🌐</span>
+                      )}
                     </td>
                     <td>
                       <span className={styles.nameCell}>{svc.name}</span>
@@ -430,6 +432,20 @@ const getStyles = (theme: GrafanaTheme2) => ({
     & > span:first-of-type {
       margin-left: 0;
     }
+  `,
+  faroBadge: css`
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    vertical-align: middle;
+    margin-left: ${theme.spacing(0.75)};
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+    line-height: 1;
+    background: ${theme.colors.info.transparent};
+    border: 1px solid ${theme.colors.info.border};
+    color: ${theme.colors.info.text};
   `,
   nsCell: css`
     color: ${theme.colors.text.secondary};
