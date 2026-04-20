@@ -165,10 +165,27 @@ type EndpointGroups struct {
 
 // RuntimeResponse is the top-level response for the Runtime tab.
 type RuntimeResponse struct {
-	JVM    *JVMRuntime    `json:"jvm,omitempty"`
-	NodeJS *NodeJSRuntime `json:"nodejs,omitempty"`
-	DBPool *DBPoolRuntime `json:"dbPool,omitempty"`
-	Kafka  *KafkaRuntime  `json:"kafka,omitempty"`
+	Container *ContainerRuntime `json:"container,omitempty"`
+	JVM       *JVMRuntime       `json:"jvm,omitempty"`
+	NodeJS    *NodeJSRuntime    `json:"nodejs,omitempty"`
+	Go        *GoRuntime        `json:"go,omitempty"`
+	DBPool    *DBPoolRuntime    `json:"dbPool,omitempty"`
+	Kafka     *KafkaRuntime     `json:"kafka,omitempty"`
+}
+
+// ContainerRuntime holds Kubernetes container resource metrics.
+type ContainerRuntime struct {
+	Status         DetectionStatus `json:"status"`
+	CPUUsage       float64         `json:"cpuUsage"`       // cores, avg rate across pods
+	CPURequests    float64         `json:"cpuRequests"`     // cores, from resource requests
+	CPULimits      float64         `json:"cpuLimits"`       // cores, from resource limits
+	CPUThrottled   float64         `json:"cpuThrottled"`    // seconds/sec of throttling
+	MemoryUsage    float64         `json:"memoryUsage"`     // bytes, avg across pods
+	MemoryRequests float64         `json:"memoryRequests"`  // bytes, from resource requests
+	MemoryLimits   float64         `json:"memoryLimits"`    // bytes, from resource limits
+	Restarts       float64         `json:"restarts"`        // total restarts across pods (24h)
+	PodCount       int             `json:"podCount"`
+	DesiredReplicas int            `json:"desiredReplicas"`
 }
 
 // DetectionStatus indicates whether a metric category was found.
@@ -203,8 +220,26 @@ type JVMRuntime struct {
 	Uptime         float64          `json:"uptime"`          // seconds, min across pods
 	BufferUsed     float64          `json:"bufferUsed"`      // bytes, buffer pool usage
 	BufferCapacity float64          `json:"bufferCapacity"`  // bytes, buffer pool capacity
+	MemoryPools    []MemoryPool     `json:"memoryPools,omitempty"`
+	GCTypes        []GCType         `json:"gcTypes,omitempty"`
 	Versions       []RuntimeVersion `json:"versions,omitempty"`
 	PodCount       int              `json:"podCount"`
+}
+
+// MemoryPool is a single JVM memory pool (e.g. G1 Eden, G1 Old, Metaspace).
+type MemoryPool struct {
+	Name string  `json:"name"`
+	Area string  `json:"area"` // "heap" or "nonheap"
+	Used float64 `json:"used"` // bytes
+	Max  float64 `json:"max"`  // bytes (0 if unbounded)
+}
+
+// GCType is GC metrics broken down by collector type (e.g. G1 Young, G1 Old).
+type GCType struct {
+	Name     string  `json:"name"`
+	Rate     float64 `json:"rate"`     // pauses/sec
+	AvgPause float64 `json:"avgPause"` // seconds
+	P99Pause float64 `json:"p99Pause"` // seconds (from histogram)
 }
 
 // RuntimeVersion describes a JVM or Node.js version in use.
@@ -262,8 +297,25 @@ type KafkaRuntime struct {
 
 // KafkaTopic is lag/throughput for a single Kafka topic.
 type KafkaTopic struct {
-	Topic       string  `json:"topic"`
-	MaxLag      float64 `json:"maxLag"`      // max lag across partitions
-	Partitions  int     `json:"partitions"`   // number of partitions seen
-	ConsumeRate float64 `json:"consumeRate"` // records/sec
+	Topic        string  `json:"topic"`
+	MaxLag       float64 `json:"maxLag"`       // max lag across partitions
+	Partitions   int     `json:"partitions"`    // number of partitions seen
+	ConsumeRate  float64 `json:"consumeRate"`   // records/sec consumed
+	ProduceRate  float64 `json:"produceRate"`   // records/sec produced (0 if N/A)
+}
+
+// GoRuntime holds Go runtime metrics for a service.
+type GoRuntime struct {
+	Status     DetectionStatus  `json:"status"`
+	Goroutines float64          `json:"goroutines"`  // avg across pods
+	Threads    float64          `json:"threads"`     // OS threads, avg
+	MemAlloc   float64          `json:"memAlloc"`    // bytes, heap allocation
+	MemSys     float64          `json:"memSys"`      // bytes, total from OS
+	GCRate     float64          `json:"gcRate"`      // GC runs/sec
+	GCPauseAvg float64          `json:"gcPauseAvg"`  // seconds, avg GC pause
+	CPUUsage   float64          `json:"cpuUsage"`    // CPU seconds/sec (rate)
+	OpenFDs    float64          `json:"openFds"`     // avg across pods
+	MaxFDs     float64          `json:"maxFds"`      // max allowed
+	Versions   []RuntimeVersion `json:"versions,omitempty"`
+	PodCount   int              `json:"podCount"`
 }

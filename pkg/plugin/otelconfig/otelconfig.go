@@ -233,13 +233,41 @@ type KafkaMetrics struct {
 	ConsumerGroupLabel  string // "consumer_group" (if available)
 }
 
+// ContainerMetrics defines metric names for Kubernetes container resource metrics.
+type ContainerMetrics struct {
+	CPUUsage        string // container_cpu_usage_seconds_total — counter
+	CPUThrottled    string // container_cpu_cfs_throttled_seconds_total — counter
+	MemoryUsage     string // container_memory_usage_bytes — gauge
+	ResourceReqs    string // kube_pod_container_resource_requests — gauge (resource label)
+	ResourceLimits  string // kube_pod_container_resource_limits — gauge (resource label)
+	Restarts        string // kube_pod_container_status_restarts_total — counter
+	DesiredReplicas string // kube_deployment_spec_replicas — gauge
+	ContainerLabel  string // "container"
+	ResourceLabel   string // "resource"
+}
+
+// GoMetrics defines metric names for Go runtime observability.
+type GoMetrics struct {
+	Goroutines  string // go_goroutines — gauge
+	Threads     string // go_threads — gauge
+	MemAlloc    string // go_memstats_alloc_bytes — gauge
+	MemSys      string // go_memstats_sys_bytes — gauge
+	GCDuration  string // go_gc_duration_seconds — summary
+	CPUTotal    string // process_cpu_seconds_total — counter (shared with Node.js)
+	OpenFDs     string // process_open_fds — gauge
+	MaxFDs      string // process_max_fds — gauge
+	Info        string // go_info — info metric with version label
+}
+
 // RuntimeMetrics groups all runtime metric naming conventions.
 type RuntimeMetrics struct {
-	Labels RuntimeLabels
-	JVM    JVMMetrics
-	NodeJS NodeJSMetrics
-	DBPool DBPoolMetrics
-	Kafka  KafkaMetrics
+	Labels    RuntimeLabels
+	JVM       JVMMetrics
+	NodeJS    NodeJSMetrics
+	Go        GoMetrics
+	DBPool    DBPoolMetrics
+	Kafka     KafkaMetrics
+	Container ContainerMetrics
 }
 
 // ---------------------------------------------------------------------------
@@ -423,6 +451,28 @@ func Default() Config {
 				ClientIDLabel:      "client_id",
 				ConsumerGroupLabel: "consumer_group",
 			},
+			Go: GoMetrics{
+				Goroutines: "go_goroutines",
+				Threads:    "go_threads",
+				MemAlloc:   "go_memstats_alloc_bytes",
+				MemSys:     "go_memstats_sys_bytes",
+				GCDuration: "go_gc_duration_seconds",
+				CPUTotal:   "process_cpu_seconds_total",
+				OpenFDs:    "process_open_fds",
+				MaxFDs:     "process_max_fds",
+				Info:       "go_info",
+			},
+			Container: ContainerMetrics{
+				CPUUsage:        "container_cpu_usage_seconds_total",
+				CPUThrottled:    "container_cpu_cfs_throttled_seconds_total",
+				MemoryUsage:     "container_memory_usage_bytes",
+				ResourceReqs:    "kube_pod_container_resource_requests",
+				ResourceLimits:  "kube_pod_container_resource_limits",
+				Restarts:        "kube_pod_container_status_restarts_total",
+				DesiredReplicas: "kube_deployment_spec_replicas",
+				ContainerLabel:  "container",
+				ResourceLabel:   "resource",
+			},
 		},
 	}
 }
@@ -465,6 +515,16 @@ func Rate(metric, filter, groupBy, window string) string {
 // These use app/namespace labels from Prometheus scraping, NOT service_name/service_namespace.
 func (c *Config) RuntimeFilter(service, namespace string) string {
 	f := fmt.Sprintf(`%s="%s"`, c.Runtime.Labels.App, service)
+	if namespace != "" {
+		f += fmt.Sprintf(`, %s="%s"`, c.Runtime.Labels.Namespace, namespace)
+	}
+	return f
+}
+
+// ContainerFilter returns a PromQL label matcher for container/kube-state-metrics.
+// Uses container=service, namespace=namespace.
+func (c *Config) ContainerFilter(service, namespace string) string {
+	f := fmt.Sprintf(`%s="%s"`, c.Runtime.Container.ContainerLabel, service)
 	if namespace != "" {
 		f += fmt.Sprintf(`, %s="%s"`, c.Runtime.Labels.Namespace, namespace)
 	}

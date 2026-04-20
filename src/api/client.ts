@@ -371,8 +371,24 @@ export interface JVMRuntime {
   uptime: number;
   bufferUsed: number;
   bufferCapacity: number;
+  memoryPools?: MemoryPool[];
+  gcTypes?: GCType[];
   versions?: RuntimeVersion[];
   podCount: number;
+}
+
+export interface MemoryPool {
+  name: string;
+  area: string;
+  used: number;
+  max: number;
+}
+
+export interface GCType {
+  name: string;
+  rate: number;
+  avgPause: number;
+  p99Pause: number;
 }
 
 export interface NodeJSRuntime {
@@ -417,6 +433,7 @@ export interface KafkaTopic {
   maxLag: number;
   partitions: number;
   consumeRate: number;
+  produceRate: number;
 }
 
 export interface KafkaRuntime {
@@ -424,9 +441,40 @@ export interface KafkaRuntime {
   topics: KafkaTopic[];
 }
 
+export interface ContainerRuntime {
+  status: DetectionStatus;
+  cpuUsage: number;
+  cpuRequests: number;
+  cpuLimits: number;
+  cpuThrottled: number;
+  memoryUsage: number;
+  memoryRequests: number;
+  memoryLimits: number;
+  restarts: number;
+  podCount: number;
+  desiredReplicas: number;
+}
+
+export interface GoRuntime {
+  status: DetectionStatus;
+  goroutines: number;
+  threads: number;
+  memAlloc: number;
+  memSys: number;
+  gcRate: number;
+  gcPauseAvg: number;
+  cpuUsage: number;
+  openFds: number;
+  maxFds: number;
+  versions?: RuntimeVersion[];
+  podCount: number;
+}
+
 export interface RuntimeResponse {
+  container?: ContainerRuntime;
   jvm?: JVMRuntime;
   nodejs?: NodeJSRuntime;
+  go?: GoRuntime;
   dbPool?: DBPoolRuntime;
   kafka?: KafkaRuntime;
 }

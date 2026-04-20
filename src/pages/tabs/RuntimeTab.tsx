@@ -9,6 +9,9 @@ import {
   NodeJSRuntime,
   DBPoolRuntime,
   KafkaRuntime,
+  ContainerRuntime,
+  GoRuntime,
+  MemoryPool,
 } from '../../api/client';
 import { useFetch } from '../../utils/useFetch';
 
@@ -38,21 +41,23 @@ export function RuntimeTab({ service, namespace, fromMs, toMs }: RuntimeTabProps
     );
   }
 
-  const hasAny = data?.jvm || data?.nodejs || data?.dbPool || data?.kafka;
+  const hasAny = data?.container || data?.jvm || data?.nodejs || data?.go || data?.dbPool || data?.kafka;
 
   if (!hasAny) {
     return (
       <Alert severity="info" title="No runtime metrics detected">
-        This service does not emit JVM, Node.js, database pool, or Kafka client metrics. Runtime metrics are emitted by
-        the application&apos;s Micrometer, prom-client, or OTel SDK instrumentation.
+        This service does not emit JVM, Node.js, Go, database pool, or Kafka client metrics. Runtime metrics are emitted
+        by the application&apos;s Micrometer, prom-client, or OTel SDK instrumentation.
       </Alert>
     );
   }
 
   return (
     <div className={styles.container}>
+      {data?.container && <ContainerCard container={data.container} />}
       {data?.jvm && <JVMCard jvm={data.jvm} />}
       {data?.nodejs && <NodeJSCard nodejs={data.nodejs} />}
+      {data?.go && <GoCard goRt={data.go} />}
       {data?.dbPool && <DBPoolCard dbPool={data.dbPool} />}
       {data?.kafka && <KafkaCard kafka={data.kafka} />}
     </div>
@@ -127,14 +132,33 @@ function JVMCard({ jvm }: { jvm: JVMRuntime }) {
         {/* GC */}
         <div className={styles.metricGroup}>
           <h5 className={styles.groupTitle}>Garbage Collection</h5>
-          <div className={styles.metricRow}>
-            <span className={styles.metricLabel}>GC Rate</span>
-            <span className={styles.metricValue}>{jvm.gcPauseRate.toFixed(2)}/s</span>
-          </div>
-          <div className={styles.metricRow}>
-            <span className={styles.metricLabel}>Avg Pause</span>
-            <span className={styles.metricValue}>{formatMs(jvm.gcPauseAvg)}</span>
-          </div>
+          {jvm.gcTypes && jvm.gcTypes.length > 0 ? (
+            jvm.gcTypes.map((gc) => (
+              <React.Fragment key={gc.name}>
+                <div className={styles.metricRow}>
+                  <span className={styles.metricLabel}>{gc.name}</span>
+                  <span className={styles.metricValue}>{gc.rate.toFixed(2)}/s</span>
+                </div>
+                <div className={styles.metricRow}>
+                  <span className={styles.metricLabel}>&nbsp;&nbsp;avg / p99</span>
+                  <span className={styles.metricValue}>
+                    {formatMs(gc.avgPause)} / {gc.p99Pause > 0 ? formatMs(gc.p99Pause) : '—'}
+                  </span>
+                </div>
+              </React.Fragment>
+            ))
+          ) : (
+            <>
+              <div className={styles.metricRow}>
+                <span className={styles.metricLabel}>GC Rate</span>
+                <span className={styles.metricValue}>{jvm.gcPauseRate.toFixed(2)}/s</span>
+              </div>
+              <div className={styles.metricRow}>
+                <span className={styles.metricLabel}>Avg Pause</span>
+                <span className={styles.metricValue}>{formatMs(jvm.gcPauseAvg)}</span>
+              </div>
+            </>
+          )}
           {jvm.gcOverhead > 0 && (
             <div className={styles.metricRow}>
               <span className={styles.metricLabel}>GC Overhead</span>
@@ -169,13 +193,14 @@ function JVMCard({ jvm }: { jvm: JVMRuntime }) {
           </div>
         </div>
       </div>
+
+      {/* Memory Pools (expandable detail) */}
+      {jvm.memoryPools && jvm.memoryPools.length > 0 && (
+        <MemoryPoolTable pools={jvm.memoryPools} />
+      )}
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Node.js Card
-// ---------------------------------------------------------------------------
 
 function NodeJSCard({ nodejs }: { nodejs: NodeJSRuntime }) {
   const styles = useStyles2(getStyles);
@@ -370,6 +395,7 @@ function KafkaCard({ kafka }: { kafka: KafkaRuntime }) {
             <th>Max Lag</th>
             <th>Partitions</th>
             <th>Consume Rate</th>
+            <th>Produce Rate</th>
           </tr>
         </thead>
         <tbody>
@@ -383,8 +409,239 @@ function KafkaCard({ kafka }: { kafka: KafkaRuntime }) {
               </td>
               <td className={styles.numCell}>{topic.partitions}</td>
               <td className={styles.numCell}>{topic.consumeRate.toFixed(1)} rec/s</td>
+              <td className={styles.numCell}>{topic.produceRate > 0 ? `${topic.produceRate.toFixed(1)} rec/s` : '—'}</td>
             </tr>
           ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Container Resources Card
+// ---------------------------------------------------------------------------
+
+function ContainerCard({ container }: { container: ContainerRuntime }) {
+  const styles = useStyles2(getStyles);
+
+  const cpuPctReq = container.cpuRequests > 0 ? (container.cpuUsage / container.cpuRequests) * 100 : 0;
+  const cpuPctLim = container.cpuLimits > 0 ? (container.cpuUsage / container.cpuLimits) * 100 : 0;
+  const memPctReq = container.memoryRequests > 0 ? (container.memoryUsage / container.memoryRequests) * 100 : 0;
+  const memPctLim = container.memoryLimits > 0 ? (container.memoryUsage / container.memoryLimits) * 100 : 0;
+
+  return (
+    <div className={styles.card}>
+      <div className={styles.cardHeader}>
+        <Icon name="docker" />
+        <span>Container Resources</span>
+        <Badge text={`${container.podCount} pod${container.podCount !== 1 ? 's' : ''}`} color="blue" />
+        {container.desiredReplicas > 0 && container.desiredReplicas !== container.podCount && (
+          <Badge text={`desired: ${container.desiredReplicas}`} color="orange" />
+        )}
+        {container.restarts > 0 && (
+          <Badge text={`${Math.round(container.restarts)} restart${container.restarts !== 1 ? 's' : ''} (24h)`} color="red" />
+        )}
+      </div>
+
+      <div className={styles.metricsGrid}>
+        {/* CPU */}
+        <div className={styles.metricGroup}>
+          <h5 className={styles.groupTitle}>CPU</h5>
+          <div className={styles.metricRow}>
+            <span className={styles.metricLabel}>Usage</span>
+            <span className={styles.metricValue}>{formatCores(container.cpuUsage)}</span>
+          </div>
+          {container.cpuRequests > 0 && (
+            <>
+              <div className={styles.metricRow}>
+                <span className={styles.metricLabel}>Requests</span>
+                <span className={styles.metricValue}>{formatCores(container.cpuRequests)}</span>
+              </div>
+              <UtilizationBar value={cpuPctReq} />
+            </>
+          )}
+          {container.cpuLimits > 0 && (
+            <div className={styles.metricRow}>
+              <span className={styles.metricLabel}>Limits</span>
+              <span className={styles.metricValue}>{formatCores(container.cpuLimits)} ({formatPct(cpuPctLim)})</span>
+            </div>
+          )}
+          {container.cpuThrottled > 0 && (
+            <div className={styles.metricRow}>
+              <span className={styles.metricLabel}>Throttled</span>
+              <span className={styles.warnValue}>{container.cpuThrottled.toFixed(3)}s/s</span>
+            </div>
+          )}
+        </div>
+
+        {/* Memory */}
+        <div className={styles.metricGroup}>
+          <h5 className={styles.groupTitle}>Memory</h5>
+          <div className={styles.metricRow}>
+            <span className={styles.metricLabel}>Usage</span>
+            <span className={styles.metricValue}>{formatBytes(container.memoryUsage)}</span>
+          </div>
+          {container.memoryRequests > 0 && (
+            <>
+              <div className={styles.metricRow}>
+                <span className={styles.metricLabel}>Requests</span>
+                <span className={styles.metricValue}>{formatBytes(container.memoryRequests)}</span>
+              </div>
+              <UtilizationBar value={memPctReq} />
+            </>
+          )}
+          {container.memoryLimits > 0 && (
+            <div className={styles.metricRow}>
+              <span className={styles.metricLabel}>Limits</span>
+              <span className={styles.metricValue}>
+                {formatBytes(container.memoryLimits)} ({formatPct(memPctLim)})
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Go Runtime Card
+// ---------------------------------------------------------------------------
+
+function GoCard({ goRt }: { goRt: GoRuntime }) {
+  const styles = useStyles2(getStyles);
+
+  const memPct = goRt.memSys > 0 ? (goRt.memAlloc / goRt.memSys) * 100 : 0;
+  const fdPct = goRt.maxFds > 0 ? (goRt.openFds / goRt.maxFds) * 100 : 0;
+
+  return (
+    <div className={styles.card}>
+      <div className={styles.cardHeader}>
+        <Icon name="brackets-curly" />
+        <span>Go Runtime</span>
+        <Badge text={`${goRt.podCount} pod${goRt.podCount !== 1 ? 's' : ''}`} color="blue" />
+        {goRt.versions?.map((v) => (
+          <Badge key={v.version} text={`go${v.version}`} color="purple" />
+        ))}
+      </div>
+
+      <div className={styles.metricsGrid}>
+        {/* Goroutines & Threads */}
+        <div className={styles.metricGroup}>
+          <h5 className={styles.groupTitle}>Concurrency</h5>
+          <div className={styles.metricRow}>
+            <span className={styles.metricLabel}>Goroutines</span>
+            <span className={styles.metricValue}>{Math.round(goRt.goroutines).toLocaleString()}</span>
+          </div>
+          {goRt.threads > 0 && (
+            <div className={styles.metricRow}>
+              <span className={styles.metricLabel}>OS Threads</span>
+              <span className={styles.metricValue}>{Math.round(goRt.threads)}</span>
+            </div>
+          )}
+          {goRt.cpuUsage > 0 && (
+            <div className={styles.metricRow}>
+              <span className={styles.metricLabel}>CPU Usage</span>
+              <span className={styles.metricValue}>{(goRt.cpuUsage * 100).toFixed(1)}%</span>
+            </div>
+          )}
+        </div>
+
+        {/* Memory */}
+        <div className={styles.metricGroup}>
+          <h5 className={styles.groupTitle}>Memory</h5>
+          <div className={styles.metricRow}>
+            <span className={styles.metricLabel}>Heap Alloc</span>
+            <span className={styles.metricValue}>{formatBytes(goRt.memAlloc)}</span>
+          </div>
+          <div className={styles.metricRow}>
+            <span className={styles.metricLabel}>Sys (from OS)</span>
+            <span className={styles.metricValue}>{formatBytes(goRt.memSys)}</span>
+          </div>
+          {goRt.memSys > 0 && <UtilizationBar value={memPct} />}
+        </div>
+
+        {/* GC */}
+        {goRt.gcRate > 0 && (
+          <div className={styles.metricGroup}>
+            <h5 className={styles.groupTitle}>Garbage Collection</h5>
+            <div className={styles.metricRow}>
+              <span className={styles.metricLabel}>GC Rate</span>
+              <span className={styles.metricValue}>{goRt.gcRate.toFixed(2)}/s</span>
+            </div>
+            {goRt.gcPauseAvg > 0 && (
+              <div className={styles.metricRow}>
+                <span className={styles.metricLabel}>Avg Pause</span>
+                <span className={styles.metricValue}>{formatMs(goRt.gcPauseAvg)}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* File Descriptors */}
+        {goRt.openFds > 0 && (
+          <div className={styles.metricGroup}>
+            <h5 className={styles.groupTitle}>File Descriptors</h5>
+            <div className={styles.metricRow}>
+              <span className={styles.metricLabel}>Open</span>
+              <span className={styles.metricValue}>{Math.round(goRt.openFds)}</span>
+            </div>
+            {goRt.maxFds > 0 && (
+              <>
+                <div className={styles.metricRow}>
+                  <span className={styles.metricLabel}>Max</span>
+                  <span className={styles.metricValue}>{Math.round(goRt.maxFds)}</span>
+                </div>
+                <UtilizationBar value={fdPct} />
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// JVM Memory Pool Table
+// ---------------------------------------------------------------------------
+
+function MemoryPoolTable({ pools }: { pools: MemoryPool[] }) {
+  const styles = useStyles2(getStyles);
+
+  return (
+    <div className={styles.poolSection}>
+      <h5 className={styles.groupTitle}>Memory Pools</h5>
+      <table className={styles.table}>
+        <thead>
+          <tr>
+            <th>Pool</th>
+            <th>Area</th>
+            <th>Used</th>
+            <th>Max</th>
+            <th>Utilization</th>
+          </tr>
+        </thead>
+        <tbody>
+          {pools.map((pool) => {
+            const pct = pool.max > 0 ? (pool.used / pool.max) * 100 : 0;
+            return (
+              <tr key={pool.name}>
+                <td className={styles.nameCell}>
+                  <span className={styles.mono}>{pool.name}</span>
+                </td>
+                <td className={styles.numCell}>
+                  <Badge text={pool.area} color={pool.area === 'heap' ? 'blue' : 'orange'} />
+                </td>
+                <td className={styles.numCell}>{formatBytes(pool.used)}</td>
+                <td className={styles.numCell}>{pool.max > 0 ? formatBytes(pool.max) : '∞'}</td>
+                <td className={styles.numCell}>
+                  {pool.max > 0 ? <UtilizationBar value={pct} inline /> : '—'}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -518,6 +775,17 @@ function formatUptime(seconds: number): string {
   return `${mins}m`;
 }
 
+function formatCores(cores: number): string {
+  if (cores === 0) {
+    return '0';
+  }
+  const millis = cores * 1000;
+  if (millis < 1000) {
+    return `${Math.round(millis)}m`;
+  }
+  return `${cores.toFixed(2)} cores`;
+}
+
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
@@ -533,6 +801,11 @@ const getStyles = (theme: GrafanaTheme2) => ({
     border-radius: ${theme.shape.radius.default};
     padding: ${theme.spacing(2)};
     background: ${theme.colors.background.primary};
+  `,
+  poolSection: css`
+    margin-top: ${theme.spacing(2)};
+    border-top: 1px solid ${theme.colors.border.weak};
+    padding-top: ${theme.spacing(2)};
   `,
   cardHeader: css`
     display: flex;
