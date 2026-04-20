@@ -34,6 +34,7 @@ import { FrontendTab } from './tabs/FrontendTab';
 import { RuntimeTab } from './tabs/RuntimeTab';
 
 type TabId = 'overview' | 'server' | 'frontend' | 'runtime' | 'dependencies' | 'traces' | 'logs' | 'service-map';
+const VALID_TABS: TabId[] = ['overview', 'server', 'frontend', 'runtime', 'dependencies', 'traces', 'logs', 'service-map'];
 
 const PERCENTILE_OPTIONS: Array<SelectableValue<string>> = [
   { label: 'P50', value: '0.50' },
@@ -58,7 +59,19 @@ function ServiceOverview() {
   const { from, to, fromMs, toMs } = useTimeRange();
   const { caps } = useCapabilities();
   const metrics = getMetricNames(caps);
-  const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const tabParam = searchParams.get('tab') ?? '';
+  const activeTab: TabId = VALID_TABS.includes(tabParam as TabId) ? (tabParam as TabId) : 'overview';
+  const setActiveTab = useCallback((tab: TabId) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (tab === 'overview') {
+        next.delete('tab');
+      } else {
+        next.set('tab', tab);
+      }
+      return next;
+    });
+  }, [setSearchParams]);
   const [percentile, setPercentile] = useState<string>('0.95');
   const [framework, setFramework] = useState<string>('');
   const [environments, setEnvironments] = useState<string[]>([]);
