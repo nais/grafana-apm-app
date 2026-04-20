@@ -20,6 +20,10 @@ already operate.
 - **Trace & Log Exploration** — search and browse traces and logs scoped to a service
 - **Zero Config** — auto-detects span metric names, duration units, and available capabilities from your data
 
+![Service Overview](src/img/screenshot-service-overview.png)
+![Server Endpoints](src/img/screenshot-service-server.png)
+![Frontend Observability](src/img/screenshot-service-frontend.png)
+
 ## Prerequisites
 
 - **Grafana** >= 12.0.0

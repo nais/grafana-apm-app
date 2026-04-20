@@ -23,6 +23,14 @@
       {
         "name": "Service Overview",
         "path": "img/screenshot-service-overview.png"
+      },
+      {
+        "name": "Server Endpoints",
+        "path": "img/screenshot-service-server.png"
+      },
+      {
+        "name": "Frontend Observability",
+        "path": "img/screenshot-service-frontend.png"
       }
     ],
     "links": [
