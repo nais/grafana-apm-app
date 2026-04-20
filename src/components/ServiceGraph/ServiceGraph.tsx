@@ -1,13 +1,11 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   ReactFlow,
-  Background,
   Controls,
   type Node,
   type Edge,
   type NodeTypes,
   type DefaultEdgeOptions,
-  BackgroundVariant,
   MarkerType,
   useReactFlow,
   ReactFlowProvider,
@@ -306,7 +304,7 @@ function ServiceGraphInner({
         defaultEdgeOptions={defaultEdgeOptions}
         onNodeClick={handleNodeClick}
         fitView
-        fitViewOptions={{ padding: 0.1 }}
+        fitViewOptions={{ padding: 0.2 }}
         minZoom={0.1}
         maxZoom={2}
         proOptions={{ hideAttribution: true }}
@@ -314,7 +312,6 @@ function ServiceGraphInner({
         nodesConnectable={false}
         elementsSelectable={true}
       >
-        <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
         <Controls showInteractive={false} />
       </ReactFlow>
     </div>
