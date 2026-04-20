@@ -14,9 +14,12 @@ datasources:
     access: proxy
     jsonData:
       httpMethod: POST
+      httpHeaderName1: X-Scope-OrgID
       exemplarTraceIdDestinations:
         - name: traceID
           datasourceUid: dev-gcp-tempo
+    secureJsonData:
+      httpHeaderValue1: nais
 
   - name: dev-gcp-tempo
     type: tempo
@@ -24,6 +27,7 @@ datasources:
     url: https://tempo.dev.nav.cloud.nais.io
     access: proxy
     jsonData:
+      httpHeaderName1: X-Scope-OrgID
       tracesToLogs:
         datasourceUid: dev-gcp-loki
         filterByTraceID: true
@@ -34,6 +38,8 @@ datasources:
         datasourceUid: nav-metrics
       nodeGraph:
         enabled: true
+    secureJsonData:
+      httpHeaderValue1: nais
 
   - name: dev-gcp-loki
     type: loki
@@ -41,11 +47,14 @@ datasources:
     url: https://loki.dev.nav.cloud.nais.io
     access: proxy
     jsonData:
+      httpHeaderName1: X-Scope-OrgID
       derivedFields:
         - name: TraceID
           matcherRegex: '"traceID":"(\\w+)"'
           url: '$${__value.raw}'
           datasourceUid: dev-gcp-tempo
+    secureJsonData:
+      httpHeaderValue1: nais
 
   - name: prod-gcp-tempo
     type: tempo
@@ -53,6 +62,7 @@ datasources:
     url: https://tempo.prod.nav.cloud.nais.io
     access: proxy
     jsonData:
+      httpHeaderName1: X-Scope-OrgID
       tracesToLogs:
         datasourceUid: prod-gcp-loki
         filterByTraceID: true
@@ -63,6 +73,8 @@ datasources:
         datasourceUid: nav-metrics
       nodeGraph:
         enabled: true
+    secureJsonData:
+      httpHeaderValue1: nais
 
   - name: prod-gcp-loki
     type: loki
@@ -70,8 +82,11 @@ datasources:
     url: https://loki.prod.nav.cloud.nais.io
     access: proxy
     jsonData:
+      httpHeaderName1: X-Scope-OrgID
       derivedFields:
         - name: TraceID
           matcherRegex: '"traceID":"(\\w+)"'
           url: '$${__value.raw}'
           datasourceUid: prod-gcp-tempo
+    secureJsonData:
+      httpHeaderValue1: nais

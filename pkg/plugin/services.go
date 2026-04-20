@@ -58,16 +58,8 @@ func (a *App) fetchServiceSummaries(
 ) []queries.ServiceSummary {
 	logger := log.DefaultLogger.With("handler", "services")
 	callsMetric := caps.SpanMetrics.CallsMetric
-	ns := caps.SpanMetrics.Namespace
 	durationUnit := caps.SpanMetrics.DurationUnit
-
-	// Build duration histogram metric name (without _bucket suffix for histogram_quantile)
-	durationBucket := ns + "_duration_" + durationUnit + "_bucket"
-	if durationUnit == "ms" {
-		durationBucket = ns + "_duration_milliseconds_bucket"
-	} else if durationUnit == "s" {
-		durationBucket = ns + "_duration_seconds_bucket"
-	}
+	durationBucket := caps.SpanMetrics.DurationMetric
 
 	rangeStr := "[5m]"
 
