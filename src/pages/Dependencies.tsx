@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { PluginPage } from '@grafana/runtime';
 import { useStyles2, Icon, LoadingPlaceholder, Alert } from '@grafana/ui';
-import { GrafanaTheme2 } from '@grafana/data';
+import { GrafanaTheme2, PageLayoutType } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getGlobalDependencies, DependencySummary, DependenciesResponse } from '../api/client';
 import { formatDuration } from '../utils/format';
@@ -47,7 +47,7 @@ function Dependencies() {
   }, [deps, sortField, sortDir]);
 
   return (
-    <PluginPage>
+    <PluginPage layout={PageLayoutType.Canvas}>
       <div className={styles.container}>
         <p className={styles.description}>
           External dependencies detected from service graph edges. Shows databases, caches, message brokers, and

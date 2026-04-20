@@ -2,7 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { PluginPage } from '@grafana/runtime';
 import { useStyles2, Icon, LoadingPlaceholder, Alert, LinkButton } from '@grafana/ui';
-import { GrafanaTheme2 } from '@grafana/data';
+import { GrafanaTheme2, PageLayoutType } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getDependencyDetail, DependencySummary, DependencyDetailResponse, DependencyOperation } from '../api/client';
 import { formatDuration } from '../utils/format';
@@ -51,7 +51,7 @@ function DependencyDetail() {
   }, [data, sortField, sortDir]);
 
   return (
-    <PluginPage>
+    <PluginPage layout={PageLayoutType.Canvas}>
       <div className={styles.container}>
         <div className={styles.header}>
           <LinkButton
