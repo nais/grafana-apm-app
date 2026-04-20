@@ -19,7 +19,7 @@ datasources:
         - name: traceID
           datasourceUid: dev-gcp-tempo
     secureJsonData:
-      httpHeaderValue1: nais
+      httpHeaderValue1: tenant
 
   - name: dev-gcp-tempo
     type: tempo
