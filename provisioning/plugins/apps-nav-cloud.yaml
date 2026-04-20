@@ -1,0 +1,34 @@
+# Nav Cloud plugin config — use alongside nav-cloud.yaml datasources.
+# Configures the plugin to use nav-metrics for metrics with per-environment
+# Tempo/Loki datasources.
+
+apiVersion: 1
+
+apps:
+  - type: 'nais-applicationobservability-app'
+    org_id: 1
+    disabled: false
+    jsonData:
+      metricsDataSource:
+        uid: nav-metrics
+        type: prometheus
+      tracesDataSource:
+        uid: dev-gcp-tempo
+        type: tempo
+        byEnvironment:
+          dev-gcp:
+            uid: dev-gcp-tempo
+            type: tempo
+          prod-gcp:
+            uid: prod-gcp-tempo
+            type: tempo
+      logsDataSource:
+        uid: dev-gcp-loki
+        type: loki
+        byEnvironment:
+          dev-gcp:
+            uid: dev-gcp-loki
+            type: loki
+          prod-gcp:
+            uid: prod-gcp-loki
+            type: loki
