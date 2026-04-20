@@ -52,7 +52,9 @@ const FRAMEWORK_BADGES: Record<string, { label: string; bg: string }> = {
 };
 
 function ServiceOverview() {
-  const { namespace = '', service = '' } = useParams<{ namespace: string; service: string }>();
+  const { namespace: rawNamespace = '', service = '' } = useParams<{ namespace: string; service: string }>();
+  // '_' is a placeholder for services with no namespace
+  const namespace = rawNamespace === '_' ? '' : rawNamespace;
   const appNavigate = useAppNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const styles = useStyles2(getStyles);
@@ -362,7 +364,7 @@ function ServiceOverview() {
               Services
             </LinkButton>
             <h2 className={styles.title}>
-              {namespace}/{service}
+              {namespace ? `${namespace}/` : ''}{service}
             </h2>
             {framework && FRAMEWORK_BADGES[framework] && (
               <span className={styles.sdkBadge} style={{ backgroundColor: FRAMEWORK_BADGES[framework].bg }}>
