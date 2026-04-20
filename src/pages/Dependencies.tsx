@@ -3,13 +3,7 @@ import { PluginPage } from '@grafana/runtime';
 import { useStyles2, Icon, LoadingPlaceholder, Alert, Input, RadioButtonGroup } from '@grafana/ui';
 import { GrafanaTheme2, PageLayoutType } from '@grafana/data';
 import { css } from '@emotion/css';
-import {
-  getGlobalDependencies,
-  getServices,
-  DependencySummary,
-  DependenciesResponse,
-  ServiceSummary,
-} from '../api/client';
+import { getGlobalDependencies, DependencySummary, DependenciesResponse } from '../api/client';
 import { formatDuration } from '../utils/format';
 import { useTimeRange } from '../utils/timeRange';
 import { useAppNavigate } from '../utils/navigation';
@@ -27,15 +21,6 @@ function Dependencies() {
   } = useFetch<DependenciesResponse>(() => getGlobalDependencies(fromMs, toMs), [fromMs, toMs]);
   const deps = useMemo(() => depsResp?.dependencies ?? [], [depsResp]);
 
-  // Fetch services to resolve namespaces for service-type dependencies
-  const { data: services } = useFetch<ServiceSummary[]>(() => getServices(fromMs, toMs), [fromMs, toMs]);
-  const serviceNsMap = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const svc of services ?? []) {
-      m.set(svc.name, svc.namespace);
-    }
-    return m;
-  }, [services]);
   const [sortField, setSortField] = useState<keyof DependencySummary>('impact');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [search, setSearch] = useState('');
@@ -200,17 +185,7 @@ function Dependencies() {
                       <tr
                         key={dep.name}
                         className={styles.clickableRow}
-                        onClick={() => {
-                          // Internal services link to the full service overview
-                          if (dep.type === 'service') {
-                            const ns = serviceNsMap.get(dep.name);
-                            if (ns) {
-                              appNavigate(`services/${encodeURIComponent(ns)}/${encodeURIComponent(dep.name)}`);
-                              return;
-                            }
-                          }
-                          appNavigate(`dependencies/${encodeURIComponent(dep.name)}`);
-                        }}
+                        onClick={() => appNavigate(`dependencies/${encodeURIComponent(dep.name)}`)}
                       >
                         <td className={styles.nameCell}>
                           <DepTypeIcon type={dep.type} />

@@ -335,10 +335,15 @@ func (a *App) queryDependencies(
 		totalImpact += d.p95 * d.rate
 	}
 
-	// Build response — skip entries with empty or placeholder names
+	// Build response — skip entries with empty or placeholder names,
+	// and skip internal services (type "service") since they have their own overview page.
 	result := make([]DependencySummary, 0, len(deps))
 	for key, d := range deps {
 		if key.server == "" || key.server == "unknown" || key.server == "<unknown>" {
+			continue
+		}
+		depType := classifyDependency(key.server, key.connType, dbSystemMap)
+		if depType == "service" {
 			continue
 		}
 		errPct := 0.0
@@ -351,7 +356,7 @@ func (a *App) queryDependencies(
 		}
 		result = append(result, DependencySummary{
 			Name:         key.server,
-			Type:         classifyDependency(key.server, key.connType, dbSystemMap),
+			Type:         depType,
 			Rate:         roundTo(d.rate, 3),
 			ErrorRate:    roundTo(errPct, 2),
 			P95Duration:  roundTo(d.p95*1000, 2), // seconds → milliseconds
@@ -982,9 +987,17 @@ func inferFromName(name string) string {
 	case strings.Contains(lower, "redis") || strings.Contains(lower, "valkey") ||
 		strings.HasSuffix(lower, ".aivencloud.com"):
 		return "redis"
+	case looksLikeHostname(lower):
+		return "external"
 	default:
 		return "service"
 	}
+}
+
+// looksLikeHostname returns true if the name contains dots or colons (host:port),
+// indicating an external hostname rather than an internal service name.
+func looksLikeHostname(name string) bool {
+	return strings.Contains(name, ".") || strings.Contains(name, ":")
 }
 
 // ConnectedService represents a service connected via service graph.
