@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -13,6 +14,34 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/nais/grafana-otel-plugin/pkg/plugin/queries"
 )
+
+// normalizeAddress cleans up a server address / http_host value for display.
+// It strips well-known ports (:443, :80) and trailing dots.
+func normalizeAddress(addr string) string {
+	if addr == "" {
+		return ""
+	}
+	// Split host:port, strip trailing dot from host, then handle ports
+	host, port, hasPort := strings.Cut(addr, ":")
+	host = strings.TrimRight(host, ".")
+	if hasPort {
+		switch port {
+		case "443", "80":
+			return strings.ToLower(host)
+		}
+		return strings.ToLower(host + ":" + port)
+	}
+	return strings.ToLower(host)
+}
+
+// coalesceAddress returns a normalized address from server_address / http_host labels.
+// Prefers server_address; falls back to http_host.
+func coalesceAddress(serverAddress, httpHost string) string {
+	if serverAddress != "" {
+		return normalizeAddress(serverAddress)
+	}
+	return normalizeAddress(httpHost)
+}
 
 // DependencySummary represents an external dependency (DB, cache, API).
 type DependencySummary struct {
@@ -125,9 +154,10 @@ type depKey struct {
 	connType string
 }
 
-// queryDependencies queries servicegraph metrics for dependencies.
-// If filterClient is set, only returns dependencies called by that service.
-// If filterNamespace is set, scopes to that client_service_namespace.
+// queryDependencies queries servicegraph metrics for dependencies,
+// supplemented by spanmetrics for richer type information and to catch
+// dependencies that the service graph connector may miss (e.g. external
+// APIs identified by server_address / http_host).
 func (a *App) queryDependencies(
 	ctx context.Context,
 	to time.Time,
@@ -183,6 +213,11 @@ func (a *App) queryDependencies(
 		rangeStr,
 	)
 
+	// Spanmetrics supplement: discover downstream dependencies from CLIENT/CONSUMER
+	// spans using server_address, http_host, db_system, messaging_system attributes.
+	// This catches external APIs and dependencies that the service graph connector misses.
+	smQueries := a.buildSpanmetricsDepsQueries(ctx, filterClient, rangeStr)
+
 	type queryResult struct {
 		name    string
 		results []queries.PromResult
@@ -190,9 +225,8 @@ func (a *App) queryDependencies(
 	}
 
 	var wg sync.WaitGroup
-	ch := make(chan queryResult, 4)
 
-	for _, q := range []struct {
+	allQueries := []struct {
 		name  string
 		query string
 	}{
@@ -200,7 +234,16 @@ func (a *App) queryDependencies(
 		{"error", errorQuery},
 		{"p95", p95Query},
 		{"db_enrich", dbEnrichQuery},
-	} {
+	}
+	for _, sq := range smQueries {
+		allQueries = append(allQueries, struct {
+			name  string
+			query string
+		}{sq.name, sq.query})
+	}
+
+	ch := make(chan queryResult, len(allQueries))
+	for _, q := range allQueries {
 		wg.Add(1)
 		go func(n, query string) {
 			defer wg.Done()
@@ -234,11 +277,6 @@ func (a *App) queryDependencies(
 	}
 
 	// Aggregate by (server, connection_type)
-	type depData struct {
-		rate      float64
-		errorRate float64
-		p95       float64
-	}
 	deps := make(map[depKey]*depData)
 
 	for _, r := range resultMap["rate"] {
@@ -278,6 +316,17 @@ func (a *App) queryDependencies(
 				d.p95 = v
 			}
 		}
+	}
+
+	// Merge spanmetrics supplement: add dependencies discovered via CLIENT/CONSUMER spans
+	// that weren't already found via service graph.
+	sgNames := make(map[string]bool, len(deps))
+	for k := range deps {
+		sgNames[strings.ToLower(k.server)] = true
+	}
+	smDeps := a.mergeSpanmetricsDeps(resultMap, dbSystemMap, sgNames)
+	for k, d := range smDeps {
+		deps[k] = d
 	}
 
 	// Calculate total impact denominator
@@ -322,6 +371,134 @@ func (a *App) queryDependencies(
 	return result
 }
 
+// spanmetricsQuery is a named query for the spanmetrics supplement.
+type spanmetricsQuery struct {
+	name  string
+	query string
+}
+
+// buildSpanmetricsDepsQueries builds spanmetrics queries to supplement service graph
+// dependency discovery. Returns rate and error queries using CLIENT/CONSUMER spans.
+func (a *App) buildSpanmetricsDepsQueries(ctx context.Context, filterClient string, rangeStr string) []spanmetricsQuery {
+	if filterClient == "" {
+		return nil // only supplement when scoped to a specific service
+	}
+	cfg := a.otelCfg
+	kindFilter := fmt.Sprintf(
+		`%s=~"%s|%s|%s"`,
+		cfg.Labels.SpanKind, cfg.SpanKinds.Client, cfg.SpanKinds.Consumer, cfg.SpanKinds.Producer,
+	)
+
+	// Rate by (server_address, http_host, db_system, messaging_system)
+	smRateQ := fmt.Sprintf(
+		`sum by (%s, %s, %s, %s) (rate(%s{%s, %s="%s"}%s))`,
+		cfg.Labels.ServerAddress, cfg.Labels.HTTPHost,
+		cfg.Labels.DBSystem, cfg.Labels.MessagingSystem,
+		a.callsMetric(ctx),
+		kindFilter, cfg.Labels.ServiceName, filterClient,
+		rangeStr,
+	)
+	// Error rate
+	smErrQ := fmt.Sprintf(
+		`sum by (%s, %s, %s, %s) (rate(%s{%s, %s="%s", %s="%s"}%s))`,
+		cfg.Labels.ServerAddress, cfg.Labels.HTTPHost,
+		cfg.Labels.DBSystem, cfg.Labels.MessagingSystem,
+		a.callsMetric(ctx),
+		kindFilter, cfg.Labels.ServiceName, filterClient,
+		cfg.Labels.StatusCode, cfg.StatusCodes.Error,
+		rangeStr,
+	)
+
+	return []spanmetricsQuery{
+		{"sm_rate", smRateQ},
+		{"sm_error", smErrQ},
+	}
+}
+
+// mergeSpanmetricsDeps processes spanmetrics results and returns deps not already in service graph.
+// sgNames contains lowercased names already discovered via service graph.
+func (a *App) mergeSpanmetricsDeps(
+	resultMap map[string][]queries.PromResult,
+	dbSystemMap map[string]string,
+	sgNames map[string]bool,
+) map[depKey]*depData {
+	cfg := a.otelCfg
+	smRateResults := resultMap["sm_rate"]
+	smErrResults := resultMap["sm_error"]
+	if len(smRateResults) == 0 {
+		return nil
+	}
+
+	type smDepData struct {
+		rate     float64
+		errRate  float64
+		connType string
+	}
+	smDeps := make(map[string]*smDepData) // normalized address → data
+
+	for _, r := range smRateResults {
+		addr := coalesceAddress(
+			r.Metric[cfg.Labels.ServerAddress],
+			r.Metric[cfg.Labels.HTTPHost],
+		)
+		if addr == "" {
+			continue
+		}
+
+		// Determine system type for classification
+		connType := ""
+		if dbSys := r.Metric[cfg.Labels.DBSystem]; dbSys != "" {
+			connType = "database"
+			dbSystemMap[addr] = dbSys
+		} else if r.Metric[cfg.Labels.MessagingSystem] != "" {
+			connType = "messaging_system"
+		}
+
+		d, ok := smDeps[addr]
+		if !ok {
+			d = &smDepData{connType: connType}
+			smDeps[addr] = d
+		}
+		d.rate += r.Value.Float()
+	}
+
+	for _, r := range smErrResults {
+		addr := coalesceAddress(
+			r.Metric[cfg.Labels.ServerAddress],
+			r.Metric[cfg.Labels.HTTPHost],
+		)
+		if addr == "" {
+			continue
+		}
+		if d, ok := smDeps[addr]; ok {
+			d.errRate += r.Value.Float()
+		}
+	}
+
+	// Only add deps not already found via service graph
+	result := make(map[depKey]*depData)
+	for addr, sd := range smDeps {
+		if sgNames[strings.ToLower(addr)] {
+			continue
+		}
+		if addr == "" || addr == "unknown" || addr == "<unknown>" {
+			continue
+		}
+		k := depKey{server: addr, connType: sd.connType}
+		result[k] = &depData{
+			rate:      sd.rate,
+			errorRate: sd.errRate,
+		}
+	}
+	return result
+}
+
+type depData struct {
+	rate      float64
+	errorRate float64
+	p95       float64
+}
+
 // queryDependencyDetail returns RED metrics + upstream callers + operations for a dependency.
 func (a *App) queryDependencyDetail(
 	ctx context.Context,
@@ -332,33 +509,58 @@ func (a *App) queryDependencyDetail(
 	logger := log.DefaultLogger.With("handler", "dependency-detail", "dep", depName)
 	rangeStr := "[5m]"
 	sgp := a.serviceGraphPrefix()
-	labelFilter := fmt.Sprintf(`%s="%s"`, a.otelCfg.Labels.Server, depName)
+	cfg := a.otelCfg
+	labelFilter := fmt.Sprintf(`%s="%s"`, cfg.Labels.Server, depName)
 
-	// Query upstream services (by client)
+	// Query upstream services (by client) — service graph
 	rateQuery := fmt.Sprintf(
 		`sum by (%s, %s, %s) (rate(%s%s{%s}%s))`,
-		a.otelCfg.Labels.Client, a.otelCfg.Labels.Server, a.otelCfg.Labels.ConnectionType,
-		sgp, a.otelCfg.ServiceGraph.RequestTotal, labelFilter, rangeStr,
+		cfg.Labels.Client, cfg.Labels.Server, cfg.Labels.ConnectionType,
+		sgp, cfg.ServiceGraph.RequestTotal, labelFilter, rangeStr,
 	)
 	errorQuery := fmt.Sprintf(
 		`sum by (%s, %s, %s) (rate(%s%s{%s}%s))`,
-		a.otelCfg.Labels.Client, a.otelCfg.Labels.Server, a.otelCfg.Labels.ConnectionType,
-		sgp, a.otelCfg.ServiceGraph.RequestFailedTotal, labelFilter, rangeStr,
+		cfg.Labels.Client, cfg.Labels.Server, cfg.Labels.ConnectionType,
+		sgp, cfg.ServiceGraph.RequestFailedTotal, labelFilter, rangeStr,
 	)
 	p95Query := fmt.Sprintf(
 		`histogram_quantile(0.95, sum by (%s, %s) (rate(%s%s{%s}%s)))`,
-		a.otelCfg.Labels.Client, a.otelCfg.Labels.Le,
-		sgp, a.otelCfg.ServiceGraph.RequestServerBucket, labelFilter, rangeStr,
+		cfg.Labels.Client, cfg.Labels.Le,
+		sgp, cfg.ServiceGraph.RequestServerBucket, labelFilter, rangeStr,
 	)
 	// Enrichment for specific DB type
 	dbEnrichQuery := fmt.Sprintf(
 		`count by (%s, %s) (rate(%s{%s="%s", %s!="", %s="%s"}%s))`,
-		a.otelCfg.Labels.ServerAddress, a.otelCfg.Labels.DBSystem,
+		cfg.Labels.ServerAddress, cfg.Labels.DBSystem,
 		a.callsMetric(ctx),
-		a.otelCfg.Labels.ServerAddress, depName,
-		a.otelCfg.Labels.DBSystem,
-		a.otelCfg.Labels.SpanKind, a.otelCfg.SpanKinds.Client,
+		cfg.Labels.ServerAddress, depName,
+		cfg.Labels.DBSystem,
+		cfg.Labels.SpanKind, cfg.SpanKinds.Client,
 		rangeStr,
+	)
+
+	// Spanmetrics supplement: find upstream callers that target this dependency
+	// via server_address or http_host. This catches external API callers that
+	// the service graph connector may not see.
+	smUpRateQ := fmt.Sprintf(
+		`sum by (%s, %s) (rate(%s{%s="%s", %s="%s"}%s)) or sum by (%s, %s) (rate(%s{%s="%s", %s=~"%s(:%s)?"}%s))`,
+		cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
+		a.callsMetric(ctx), cfg.Labels.SpanKind, cfg.SpanKinds.Client,
+		cfg.Labels.ServerAddress, depName, rangeStr,
+		cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
+		a.callsMetric(ctx), cfg.Labels.SpanKind, cfg.SpanKinds.Client,
+		cfg.Labels.HTTPHost, depName, "443", rangeStr,
+	)
+	smUpErrQ := fmt.Sprintf(
+		`sum by (%s, %s) (rate(%s{%s="%s", %s="%s", %s="%s"}%s)) or sum by (%s, %s) (rate(%s{%s="%s", %s="%s", %s=~"%s(:%s)?"}%s))`,
+		cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
+		a.callsMetric(ctx), cfg.Labels.SpanKind, cfg.SpanKinds.Client,
+		cfg.Labels.StatusCode, cfg.StatusCodes.Error,
+		cfg.Labels.ServerAddress, depName, rangeStr,
+		cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
+		a.callsMetric(ctx), cfg.Labels.SpanKind, cfg.SpanKinds.Client,
+		cfg.Labels.StatusCode, cfg.StatusCodes.Error,
+		cfg.Labels.HTTPHost, depName, "443", rangeStr,
 	)
 
 	type queryResult struct {
@@ -368,9 +570,7 @@ func (a *App) queryDependencyDetail(
 	}
 
 	var wg sync.WaitGroup
-	ch := make(chan queryResult, 4)
-
-	for _, q := range []struct {
+	allQueries := []struct {
 		name  string
 		query string
 	}{
@@ -378,7 +578,12 @@ func (a *App) queryDependencyDetail(
 		{"error", errorQuery},
 		{"p95", p95Query},
 		{"db_enrich", dbEnrichQuery},
-	} {
+		{"smUpRate", smUpRateQ},
+		{"smUpErr", smUpErrQ},
+	}
+	ch := make(chan queryResult, len(allQueries))
+
+	for _, q := range allQueries {
 		wg.Add(1)
 		go func(n, query string) {
 			defer wg.Done()
@@ -474,6 +679,34 @@ func (a *App) queryDependencyDetail(
 		}
 	}
 
+	// Merge spanmetrics upstream callers (services that call this dependency
+	// via server_address / http_host)
+	for _, r := range resultMap["smUpRate"] {
+		svc := r.Metric[cfg.Labels.ServiceName]
+		if svc == "" {
+			continue
+		}
+		u, ok := upstreams[svc]
+		if !ok {
+			u = &upstreamData{}
+			upstreams[svc] = u
+		}
+		v := r.Value.Float()
+		u.rate += v
+		totalRate += v
+	}
+	for _, r := range resultMap["smUpErr"] {
+		svc := r.Metric[cfg.Labels.ServiceName]
+		if svc == "" {
+			continue
+		}
+		if u, ok := upstreams[svc]; ok {
+			v := r.Value.Float()
+			u.errorRate += v
+			totalError += v
+		}
+	}
+
 	// Build upstreams list
 	totalImpact := 0.0
 	for _, u := range upstreams {
@@ -529,7 +762,7 @@ func (a *App) queryDependencyDetail(
 }
 
 // queryDependencyOperations queries spanmetrics for operations calling this dependency.
-// Uses peer_service label from spanmetrics connector dimensions.
+// Tries peer_service first, then falls back to server_address / http_host.
 func (a *App) queryDependencyOperations(
 	ctx context.Context,
 	caps queries.Capabilities,
@@ -537,27 +770,46 @@ func (a *App) queryDependencyOperations(
 	depName string,
 ) []queries.DependencyOperation {
 	logger := log.DefaultLogger.With("handler", "dependency-operations", "dep", depName)
+	cfg := a.otelCfg
 	callsMetric := caps.SpanMetrics.CallsMetric
 	durationUnit := caps.SpanMetrics.DurationUnit
 	durationBucket := caps.SpanMetrics.DurationMetric
 
 	rangeStr := "[5m]"
-	labelFilter := fmt.Sprintf(`peer_service="%s", %s="%s"`, depName, a.otelCfg.Labels.SpanKind, a.otelCfg.SpanKinds.Client)
+	// Primary filter: peer_service (from spanmetrics connector dimensions)
+	peerFilter := fmt.Sprintf(`peer_service="%s", %s="%s"`, depName, cfg.Labels.SpanKind, cfg.SpanKinds.Client)
+	// Fallback filter: server_address (from span attributes promoted to metrics)
+	addrFilter := fmt.Sprintf(`%s="%s", %s="%s"`, cfg.Labels.ServerAddress, depName, cfg.Labels.SpanKind, cfg.SpanKinds.Client)
+	// Second fallback: http_host with optional :443 suffix
+	hostFilter := fmt.Sprintf(`%s=~"%s(:443)?", %s="%s"`, cfg.Labels.HTTPHost, depName, cfg.Labels.SpanKind, cfg.SpanKinds.Client)
 
+	// Build queries using OR across all three filter strategies
 	rateQuery := fmt.Sprintf(
-		`sum by (%s, %s) (rate(%s{%s}%s))`,
-		a.otelCfg.Labels.SpanName, a.otelCfg.Labels.ServiceName,
-		callsMetric, labelFilter, rangeStr,
+		`sum by (%s, %s) (rate(%s{%s}%s)) or sum by (%s, %s) (rate(%s{%s}%s)) or sum by (%s, %s) (rate(%s{%s}%s))`,
+		cfg.Labels.SpanName, cfg.Labels.ServiceName,
+		callsMetric, peerFilter, rangeStr,
+		cfg.Labels.SpanName, cfg.Labels.ServiceName,
+		callsMetric, addrFilter, rangeStr,
+		cfg.Labels.SpanName, cfg.Labels.ServiceName,
+		callsMetric, hostFilter, rangeStr,
 	)
 	errorQuery := fmt.Sprintf(
-		`sum by (%s, %s) (rate(%s{%s, %s="%s"}%s))`,
-		a.otelCfg.Labels.SpanName, a.otelCfg.Labels.ServiceName,
-		callsMetric, labelFilter, a.otelCfg.Labels.StatusCode, a.otelCfg.StatusCodes.Error, rangeStr,
+		`sum by (%s, %s) (rate(%s{%s, %s="%s"}%s)) or sum by (%s, %s) (rate(%s{%s, %s="%s"}%s)) or sum by (%s, %s) (rate(%s{%s, %s="%s"}%s))`,
+		cfg.Labels.SpanName, cfg.Labels.ServiceName,
+		callsMetric, peerFilter, cfg.Labels.StatusCode, cfg.StatusCodes.Error, rangeStr,
+		cfg.Labels.SpanName, cfg.Labels.ServiceName,
+		callsMetric, addrFilter, cfg.Labels.StatusCode, cfg.StatusCodes.Error, rangeStr,
+		cfg.Labels.SpanName, cfg.Labels.ServiceName,
+		callsMetric, hostFilter, cfg.Labels.StatusCode, cfg.StatusCodes.Error, rangeStr,
 	)
 	p95Query := fmt.Sprintf(
-		`histogram_quantile(0.95, sum by (%s, %s, %s) (rate(%s{%s}%s)))`,
-		a.otelCfg.Labels.SpanName, a.otelCfg.Labels.ServiceName, a.otelCfg.Labels.Le,
-		durationBucket, labelFilter, rangeStr,
+		`histogram_quantile(0.95, sum by (%s, %s, %s) (rate(%s{%s}%s))) or histogram_quantile(0.95, sum by (%s, %s, %s) (rate(%s{%s}%s))) or histogram_quantile(0.95, sum by (%s, %s, %s) (rate(%s{%s}%s)))`,
+		cfg.Labels.SpanName, cfg.Labels.ServiceName, cfg.Labels.Le,
+		durationBucket, peerFilter, rangeStr,
+		cfg.Labels.SpanName, cfg.Labels.ServiceName, cfg.Labels.Le,
+		durationBucket, addrFilter, rangeStr,
+		cfg.Labels.SpanName, cfg.Labels.ServiceName, cfg.Labels.Le,
+		durationBucket, hostFilter, rangeStr,
 	)
 
 	type queryResult struct {
@@ -785,46 +1037,73 @@ func (a *App) queryConnectedServices(ctx context.Context, to time.Time, service 
 	logger := log.DefaultLogger.With("handler", "connected-services")
 	rangeStr := "[5m]"
 	sgp := a.serviceGraphPrefix()
+	cfg := a.otelCfg
 
 	// Outbound: where service is the client
 	// Include connection_type to distinguish database, messaging, and service connections.
 	outRateQ := fmt.Sprintf(
 		`sum by (%s, %s) (rate(%s%s{%s="%s"}%s))`,
-		a.otelCfg.Labels.Server, a.otelCfg.Labels.ConnectionType,
-		sgp, a.otelCfg.ServiceGraph.RequestTotal,
-		a.otelCfg.Labels.Client, service, rangeStr,
+		cfg.Labels.Server, cfg.Labels.ConnectionType,
+		sgp, cfg.ServiceGraph.RequestTotal,
+		cfg.Labels.Client, service, rangeStr,
 	)
 	outErrQ := fmt.Sprintf(
 		`sum by (%s, %s) (rate(%s%s{%s="%s"}%s))`,
-		a.otelCfg.Labels.Server, a.otelCfg.Labels.ConnectionType,
-		sgp, a.otelCfg.ServiceGraph.RequestFailedTotal,
-		a.otelCfg.Labels.Client, service, rangeStr,
+		cfg.Labels.Server, cfg.Labels.ConnectionType,
+		sgp, cfg.ServiceGraph.RequestFailedTotal,
+		cfg.Labels.Client, service, rangeStr,
 	)
 	outP95Q := fmt.Sprintf(
 		`histogram_quantile(0.95, sum by (%s, %s, %s) (rate(%s%s{%s="%s"}%s)))`,
-		a.otelCfg.Labels.Server, a.otelCfg.Labels.ConnectionType, a.otelCfg.Labels.Le,
-		sgp, a.otelCfg.ServiceGraph.RequestServerBucket,
-		a.otelCfg.Labels.Client, service, rangeStr,
+		cfg.Labels.Server, cfg.Labels.ConnectionType, cfg.Labels.Le,
+		sgp, cfg.ServiceGraph.RequestServerBucket,
+		cfg.Labels.Client, service, rangeStr,
 	)
 
-	// Inbound: where service is the server
+	// Inbound: where service is the server (service graph)
 	inRateQ := fmt.Sprintf(
 		`sum by (%s) (rate(%s%s{%s="%s"}%s))`,
-		a.otelCfg.Labels.Client,
-		sgp, a.otelCfg.ServiceGraph.RequestTotal,
-		a.otelCfg.Labels.Server, service, rangeStr,
+		cfg.Labels.Client,
+		sgp, cfg.ServiceGraph.RequestTotal,
+		cfg.Labels.Server, service, rangeStr,
 	)
 	inErrQ := fmt.Sprintf(
 		`sum by (%s) (rate(%s%s{%s="%s"}%s))`,
-		a.otelCfg.Labels.Client,
-		sgp, a.otelCfg.ServiceGraph.RequestFailedTotal,
-		a.otelCfg.Labels.Server, service, rangeStr,
+		cfg.Labels.Client,
+		sgp, cfg.ServiceGraph.RequestFailedTotal,
+		cfg.Labels.Server, service, rangeStr,
 	)
 	inP95Q := fmt.Sprintf(
 		`histogram_quantile(0.95, sum by (%s, %s) (rate(%s%s{%s="%s"}%s)))`,
-		a.otelCfg.Labels.Client, a.otelCfg.Labels.Le,
-		sgp, a.otelCfg.ServiceGraph.RequestServerBucket,
-		a.otelCfg.Labels.Server, service, rangeStr,
+		cfg.Labels.Client, cfg.Labels.Le,
+		sgp, cfg.ServiceGraph.RequestServerBucket,
+		cfg.Labels.Server, service, rangeStr,
+	)
+
+	// Spanmetrics supplement: find upstream callers via CLIENT spans whose
+	// server_address or http_host matches this service name.
+	// Pattern: server_address=~"appname[.:].*" catches both
+	// "appname.namespace.svc" and "appname:8080" style addresses.
+	escapedSvc := url.PathEscape(service) // safe for regex literal
+	smInRateQ := fmt.Sprintf(
+		`sum by (%s, %s) (rate(%s{%s="%s", %s=~"%s[.:].*"}%s)) or sum by (%s, %s) (rate(%s{%s="%s", %s=~"%s[.:].*"}%s))`,
+		cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
+		a.callsMetric(ctx), cfg.Labels.SpanKind, cfg.SpanKinds.Client,
+		cfg.Labels.ServerAddress, escapedSvc, rangeStr,
+		cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
+		a.callsMetric(ctx), cfg.Labels.SpanKind, cfg.SpanKinds.Client,
+		cfg.Labels.HTTPHost, escapedSvc, rangeStr,
+	)
+	smInErrQ := fmt.Sprintf(
+		`sum by (%s, %s) (rate(%s{%s="%s", %s="%s", %s=~"%s[.:].*"}%s)) or sum by (%s, %s) (rate(%s{%s="%s", %s="%s", %s=~"%s[.:].*"}%s))`,
+		cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
+		a.callsMetric(ctx), cfg.Labels.SpanKind, cfg.SpanKinds.Client,
+		cfg.Labels.StatusCode, cfg.StatusCodes.Error,
+		cfg.Labels.ServerAddress, escapedSvc, rangeStr,
+		cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
+		a.callsMetric(ctx), cfg.Labels.SpanKind, cfg.SpanKinds.Client,
+		cfg.Labels.StatusCode, cfg.StatusCodes.Error,
+		cfg.Labels.HTTPHost, escapedSvc, rangeStr,
 	)
 
 	type queryResult struct {
@@ -834,15 +1113,17 @@ func (a *App) queryConnectedServices(ctx context.Context, to time.Time, service 
 	}
 
 	var wg sync.WaitGroup
-	ch := make(chan queryResult, 6)
-
-	for _, q := range []struct {
+	allQueries := []struct {
 		name  string
 		query string
 	}{
 		{"outRate", outRateQ}, {"outErr", outErrQ}, {"outP95", outP95Q},
 		{"inRate", inRateQ}, {"inErr", inErrQ}, {"inP95", inP95Q},
-	} {
+		{"smInRate", smInRateQ}, {"smInErr", smInErrQ},
+	}
+	ch := make(chan queryResult, len(allQueries))
+
+	for _, q := range allQueries {
 		wg.Add(1)
 		go func(n, query string) {
 			defer wg.Done()
@@ -881,7 +1162,7 @@ func (a *App) queryConnectedServices(ctx context.Context, to time.Time, service 
 			if name == "" {
 				continue
 			}
-			k := connKey{name: name, connectionType: r.Metric[a.otelCfg.Labels.ConnectionType]}
+			k := connKey{name: name, connectionType: r.Metric[cfg.Labels.ConnectionType]}
 			d, ok := m[k]
 			if !ok {
 				d = &svcData{}
@@ -891,20 +1172,22 @@ func (a *App) queryConnectedServices(ctx context.Context, to time.Time, service 
 		}
 		for _, r := range resultMap[errKey] {
 			name := r.Metric[peerLabel]
-			ct := r.Metric[a.otelCfg.Labels.ConnectionType]
+			ct := r.Metric[cfg.Labels.ConnectionType]
 			k := connKey{name: name, connectionType: ct}
 			if d, ok := m[k]; ok {
 				d.err += r.Value.Float()
 			}
 		}
-		for _, r := range resultMap[p95Key] {
-			name := r.Metric[peerLabel]
-			ct := r.Metric[a.otelCfg.Labels.ConnectionType]
-			k := connKey{name: name, connectionType: ct}
-			if d, ok := m[k]; ok {
-				v := r.Value.Float()
-				if !math.IsNaN(v) && !math.IsInf(v, 0) {
-					d.p95 = v
+		if p95Key != "" {
+			for _, r := range resultMap[p95Key] {
+				name := r.Metric[peerLabel]
+				ct := r.Metric[cfg.Labels.ConnectionType]
+				k := connKey{name: name, connectionType: ct}
+				if d, ok := m[k]; ok {
+					v := r.Value.Float()
+					if !math.IsNaN(v) && !math.IsInf(v, 0) {
+						d.p95 = v
+					}
 				}
 			}
 		}
@@ -929,8 +1212,25 @@ func (a *App) queryConnectedServices(ctx context.Context, to time.Time, service 
 		return result
 	}
 
-	outbound := buildList("outRate", "outErr", "outP95", a.otelCfg.Labels.Server)
-	inbound := buildList("inRate", "inErr", "inP95", a.otelCfg.Labels.Client)
+	outbound := buildList("outRate", "outErr", "outP95", cfg.Labels.Server)
+	inbound := buildList("inRate", "inErr", "inP95", cfg.Labels.Client)
+
+	// Merge spanmetrics inbound callers (discovered via server_address/http_host matching)
+	smInbound := buildList("smInRate", "smInErr", "", cfg.Labels.ServiceName)
+	inboundNames := make(map[string]bool, len(inbound))
+	for _, s := range inbound {
+		inboundNames[strings.ToLower(s.Name)] = true
+	}
+	for _, s := range smInbound {
+		if s.Name == service || inboundNames[strings.ToLower(s.Name)] {
+			continue // already in service graph results or self-reference
+		}
+		inbound = append(inbound, s)
+	}
+	// Re-sort merged inbound by rate
+	sort.Slice(inbound, func(i, j int) bool {
+		return inbound[i].Rate > inbound[j].Rate
+	})
 
 	if outbound == nil {
 		outbound = []ConnectedService{}

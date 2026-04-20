@@ -115,3 +115,55 @@ func TestInferFromName(t *testing.T) {
 		})
 	}
 }
+
+func TestNormalizeAddress(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"empty", "", ""},
+		{"plain hostname", "graph.microsoft.com", "graph.microsoft.com"},
+		{"strip port 443", "login.microsoftonline.com:443", "login.microsoftonline.com"},
+		{"strip port 80", "example.com:80", "example.com"},
+		{"keep other port", "my-service:8080", "my-service:8080"},
+		{"trailing dot", "idporten.no.", "idporten.no"},
+		{"trailing dot with port", "api.example.com.:443", "api.example.com"},
+		{"uppercase", "Graph.Microsoft.COM", "graph.microsoft.com"},
+		{"uppercase with port", "IDPORTEN.NO:443", "idporten.no"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := normalizeAddress(tc.input)
+			if got != tc.expected {
+				t.Errorf("normalizeAddress(%q) = %q, want %q", tc.input, got, tc.expected)
+			}
+		})
+	}
+}
+
+func TestCoalesceAddress(t *testing.T) {
+	tests := []struct {
+		name          string
+		serverAddress string
+		httpHost      string
+		expected      string
+	}{
+		{"prefer server_address", "api.example.com", "api.example.com:443", "api.example.com"},
+		{"fallback to http_host", "", "login.microsoftonline.com:443", "login.microsoftonline.com"},
+		{"both empty", "", "", ""},
+		{"only server_address", "graph.microsoft.com", "", "graph.microsoft.com"},
+		{"server_address with port", "db.example.com:5432", "", "db.example.com:5432"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := coalesceAddress(tc.serverAddress, tc.httpHost)
+			if got != tc.expected {
+				t.Errorf("coalesceAddress(%q, %q) = %q, want %q",
+					tc.serverAddress, tc.httpHost, got, tc.expected)
+			}
+		})
+	}
+}

@@ -32,8 +32,12 @@ type Labels struct {
 	// Database
 	DBSystem string
 
+	// Messaging
+	MessagingSystem string
+
 	// Network / peer
 	ServerAddress string
+	HTTPHost      string
 
 	// Resource / deployment
 	DeploymentEnv string
@@ -275,7 +279,10 @@ func Default() Config {
 
 			DBSystem: "db_system",
 
+			MessagingSystem: "messaging_system",
+
 			ServerAddress: "server_address",
+			HTTPHost:      "http_host",
 
 			DeploymentEnv: "k8s_cluster_name",
 			SDKLanguage:   "telemetry_sdk_language",
