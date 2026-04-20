@@ -229,6 +229,15 @@ function ServiceInventory() {
             </div>
 
             <table className={styles.table}>
+              <colgroup>
+                <col style={{ width: '80px' }} />
+                <col style={{ width: '22%' }} />
+                <col style={{ width: '14%' }} />
+                {showEnvColumn && <col style={{ width: '10%' }} />}
+                <col style={{ width: '18%' }} />
+                <col style={{ width: '18%' }} />
+                <col style={{ width: '18%' }} />
+              </colgroup>
               <thead>
                 <tr>
                   <th className={styles.typeColHeader}>Type</th>
@@ -351,7 +360,7 @@ function FrameworkBadge({ framework }: { framework?: string }) {
 
 function AreaSparkline({ data, color }: { data?: number[]; color: string }) {
   if (!data || data.length < 2) {
-    return <div style={{ width: 120, height: 28 }} />;
+    return <div style={{ width: '100%', maxWidth: 120, height: 28, flexShrink: 1 }} />;
   }
   const max = Math.max(...data);
   const min = Math.min(...data);
@@ -370,7 +379,11 @@ function AreaSparkline({ data, color }: { data?: number[]; color: string }) {
   const areaPoints = `${pad},${h} ${linePoints} ${w - pad},${h}`;
 
   return (
-    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`}>
+    <svg
+      viewBox={`0 0 ${w} ${h}`}
+      style={{ width: '100%', maxWidth: 120, height: 28, flexShrink: 1, display: 'block' }}
+      preserveAspectRatio="none"
+    >
       <polygon fill={color} fillOpacity="0.25" points={areaPoints} />
       <polyline fill="none" stroke={color} strokeWidth="1.5" points={linePoints} />
     </svg>
@@ -383,6 +396,7 @@ const getStyles = (theme: GrafanaTheme2) => ({
     flex-direction: column;
     flex: 1;
     padding: 0;
+    overflow: hidden;
   `,
   toolbar: css`
     display: flex;
@@ -392,6 +406,7 @@ const getStyles = (theme: GrafanaTheme2) => ({
   `,
   table: css`
     width: 100%;
+    table-layout: fixed;
     border-collapse: separate;
     border-spacing: 0;
     th {
@@ -403,11 +418,15 @@ const getStyles = (theme: GrafanaTheme2) => ({
       border-bottom: 1px solid ${theme.colors.border.medium};
       white-space: nowrap;
       user-select: none;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     td {
       padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
       border-bottom: 1px solid ${theme.colors.border.weak};
       vertical-align: middle;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
   `,
   sortable: css`
@@ -425,6 +444,10 @@ const getStyles = (theme: GrafanaTheme2) => ({
   nameCell: css`
     font-weight: ${theme.typography.fontWeightMedium};
     color: ${theme.colors.text.link};
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: block;
   `,
   typeColHeader: css`
     width: 120px;
@@ -464,11 +487,15 @@ const getStyles = (theme: GrafanaTheme2) => ({
   `,
   nsCell: css`
     color: ${theme.colors.text.secondary};
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   `,
   metricCell: css`
     display: flex;
     align-items: center;
     gap: ${theme.spacing(1)};
+    overflow: hidden;
   `,
   metricValue: css`
     min-width: 55px;
@@ -487,12 +514,16 @@ const getStyles = (theme: GrafanaTheme2) => ({
     font-weight: ${theme.typography.fontWeightMedium};
   `,
   errorBar: css`
-    width: 80px;
+    flex: 1;
+    min-width: 20px;
+    max-width: 80px;
     height: 2px;
     background: ${theme.colors.error.main};
   `,
   errorBarFlat: css`
-    width: 80px;
+    flex: 1;
+    min-width: 20px;
+    max-width: 80px;
     height: 2px;
     background: ${theme.colors.border.weak};
   `,
