@@ -226,6 +226,7 @@ function ServiceInventory() {
             <table className={styles.table}>
               <thead>
                 <tr>
+                  <th className={styles.typeColHeader}>Type</th>
                   <th className={styles.sortable} onClick={() => toggleSort('name')}>
                     Name {sortIcon('name')}
                   </th>
@@ -257,12 +258,12 @@ function ServiceInventory() {
                       appNavigate(`services/${encodeURIComponent(svc.namespace)}/${encodeURIComponent(svc.name)}`);
                     }}
                   >
+                    <td className={styles.typeCell}>
+                      <FrameworkBadge framework={svc.framework} />
+                      {svc.hasFrontend && <Badge text="Faro" color="blue" icon="globe" />}
+                    </td>
                     <td>
-                      <div className={styles.nameCell}>
-                        <FrameworkBadge framework={svc.framework} />
-                        {svc.hasFrontend && <Badge text="Faro" color="blue" icon="globe" />}
-                        <span>{svc.name}</span>
-                      </div>
+                      <span className={styles.nameCell}>{svc.name}</span>
                     </td>
                     <td className={styles.nsCell}>{svc.namespace}</td>
                     {showEnvColumn && <td className={styles.nsCell}>{svc.environment}</td>}
@@ -404,11 +405,20 @@ const getStyles = (theme: GrafanaTheme2) => ({
     }
   `,
   nameCell: css`
-    display: flex;
-    align-items: center;
-    gap: ${theme.spacing(1.5)};
     font-weight: ${theme.typography.fontWeightMedium};
     color: ${theme.colors.text.link};
+  `,
+  typeColHeader: css`
+    width: 1px;
+    white-space: nowrap;
+    color: ${theme.colors.text.secondary};
+    font-weight: ${theme.typography.fontWeightMedium};
+  `,
+  typeCell: css`
+    display: flex;
+    align-items: center;
+    gap: ${theme.spacing(0.5)};
+    white-space: nowrap;
   `,
   nsCell: css`
     color: ${theme.colors.text.secondary};
