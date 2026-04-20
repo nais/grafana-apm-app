@@ -14,6 +14,7 @@ export interface SpanMetricsCapability {
 
 export interface ServiceGraphCapability {
   detected: boolean;
+  prefix?: string;
 }
 
 export interface DataSourceStatus {
