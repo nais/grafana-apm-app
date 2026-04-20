@@ -18,33 +18,25 @@ import {
 import { DashboardCursorSync, TooltipDisplayMode } from '@grafana/schema';
 import { HeatmapColorMode } from '@grafana/schema/dist/esm/raw/composable/heatmap/panelcfg/x/HeatmapPanelCfg_types.gen';
 import { buildTempoExploreUrl, buildLokiExploreUrl, buildMimirExploreUrl } from '../utils/explore';
-import { getOperations, getServices, OperationSummary } from '../api/client';
+import { getOperations, getServices, getServiceMap, OperationSummary, ServiceMapResponse } from '../api/client';
 import { formatDuration } from '../utils/format';
 import { usePluginDatasources } from '../utils/datasources';
 import { useTimeRange } from '../utils/timeRange';
 import { useCapabilities, getMetricNames } from '../utils/capabilities';
 import { useAppNavigate } from '../utils/navigation';
 import { sanitizeLabelValue } from '../utils/sanitize';
+import { useFetch } from '../utils/useFetch';
 import { otel } from '../otelconfig';
 import { TracesTab } from './tabs/TracesTab';
 import { LogsTab } from './tabs/LogsTab';
-import { ServiceMapTab } from './tabs/ServiceMapTab';
 import { DependenciesTab } from './tabs/DependenciesTab';
 import { ServerTab } from './tabs/ServerTab';
 import { FrontendTab } from './tabs/FrontendTab';
 import { RuntimeTab } from './tabs/RuntimeTab';
+import { ServiceGraph, type ServiceGraphNode, type ServiceGraphEdge } from '../components/ServiceGraph';
 
-type TabId = 'overview' | 'server' | 'frontend' | 'runtime' | 'dependencies' | 'traces' | 'logs' | 'service-map';
-const VALID_TABS: TabId[] = [
-  'overview',
-  'server',
-  'frontend',
-  'runtime',
-  'dependencies',
-  'traces',
-  'logs',
-  'service-map',
-];
+type TabId = 'overview' | 'server' | 'frontend' | 'runtime' | 'dependencies' | 'traces' | 'logs';
+const VALID_TABS: TabId[] = ['overview', 'server', 'frontend', 'runtime', 'dependencies', 'traces', 'logs'];
 
 const PERCENTILE_OPTIONS: Array<SelectableValue<string>> = [
   { label: 'P50', value: '0.50' },
@@ -145,6 +137,34 @@ function ServiceOverview() {
     };
     fetchOps();
   }, [service, namespace, fromMs, toMs]);
+
+  // Fetch service map for overview graph
+  const { data: mapData } = useFetch<ServiceMapResponse>(
+    () => getServiceMap(fromMs, toMs, service, namespace),
+    [service, namespace, fromMs, toMs]
+  );
+  const { graphNodes, graphEdges } = useMemo(() => {
+    if (!mapData) {
+      return { graphNodes: [] as ServiceGraphNode[], graphEdges: [] as ServiceGraphEdge[] };
+    }
+    return {
+      graphNodes: mapData.nodes.map((n) => ({
+        id: n.id,
+        title: n.title,
+        mainStat: n.mainStat,
+        secondaryStat: n.secondaryStat,
+        errorRate: n.errorRate ?? 0,
+        nodeType: n.nodeType,
+      })),
+      graphEdges: mapData.edges.map((e) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        mainStat: e.mainStat,
+        secondaryStat: e.secondaryStat,
+      })),
+    };
+  }, [mapData]);
 
   // Fetch connected services (inbound/outbound)
   useEffect(() => {
@@ -424,13 +444,6 @@ function ServiceOverview() {
           {caps?.loki?.available !== false && (
             <Tab label="Logs" active={activeTab === 'logs'} onChangeTab={() => setActiveTab('logs')} />
           )}
-          {caps?.serviceGraph?.detected !== false && (
-            <Tab
-              label="Service Map"
-              active={activeTab === 'service-map'}
-              onChangeTab={() => setActiveTab('service-map')}
-            />
-          )}
         </TabsBar>
 
         {/* Tab content — keep visited tabs mounted to avoid re-fetching */}
@@ -495,6 +508,16 @@ function ServiceOverview() {
                   </>
                 )}
               </div>
+
+              {/* Service topology graph */}
+              {graphNodes.length > 0 && (
+                <div className={styles.operationsSection}>
+                  <h3 className={styles.sectionTitle}>Service Topology</h3>
+                  <div style={{ height: 320, borderRadius: 4, overflow: 'hidden' }}>
+                    <ServiceGraph nodes={graphNodes} edges={graphEdges} focusNode={service} direction="RIGHT" />
+                  </div>
+                </div>
+              )}
 
               {/* Connected services (inbound/outbound) */}
               {connected && (connected.inbound.length > 0 || connected.outbound.length > 0) && (
@@ -622,12 +645,6 @@ function ServiceOverview() {
           {visitedTabs.has('logs') && (
             <div style={{ display: activeTab === 'logs' ? undefined : 'none' }}>
               <LogsTab service={service} namespace={namespace} logsUid={ds.logsUid} />
-            </div>
-          )}
-
-          {visitedTabs.has('service-map') && (
-            <div style={{ display: activeTab === 'service-map' ? undefined : 'none' }}>
-              <ServiceMapTab service={service} namespace={namespace} fromMs={fromMs} toMs={toMs} />
             </div>
           )}
         </div>
