@@ -14,7 +14,7 @@ describe('Components/AppConfig', () => {
       plugin: {
         meta: {
           id: 'nais-applicationobservability-app',
-          name: 'Application Observability',
+          name: 'Nais APM',
           type: PluginType.app,
           enabled: true,
           jsonData: {

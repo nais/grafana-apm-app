@@ -1,4 +1,4 @@
-# Application Observability for Grafana
+# Nais APM
 
 A Grafana app plugin that provides Application Performance Monitoring (APM) using
 OpenTelemetry data from Mimir, Loki, and Tempo. It discovers instrumented services

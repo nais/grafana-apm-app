@@ -22,7 +22,7 @@ var (
 	_ backend.CheckHealthHandler    = (*App)(nil)
 )
 
-// App is the Application Observability plugin backend.
+// App is the Nais APM plugin backend.
 type App struct {
 	backend.CallResourceHandler
 
