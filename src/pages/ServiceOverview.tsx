@@ -383,7 +383,6 @@ function ServiceOverview() {
               variant="secondary"
               size="sm"
               icon="arrow-left"
-              fill="text"
               onClick={() => appNavigate('services')}
             >
               Services
@@ -752,6 +751,7 @@ const getStyles = (theme: GrafanaTheme2) => ({
     display: flex;
     align-items: center;
     gap: ${theme.spacing(1.5)};
+    flex-wrap: wrap;
   `,
   title: css`
     margin: 0;
