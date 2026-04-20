@@ -7,15 +7,15 @@ describe('getMetricNames', () => {
     expect(result.callsMetric).toBe('traces_span_metrics_calls_total');
     expect(result.durationBucket).toBe('traces_span_metrics_duration_milliseconds_bucket');
     expect(result.durationUnit).toBe('ms');
-    expect(result.namespace).toBe('traces_span_metrics');
   });
 
-  it('uses detected span metrics', () => {
+  it('uses detected span metrics with durationMetric', () => {
     const caps: Capabilities = {
       spanMetrics: {
         detected: true,
         namespace: 'my_app_metrics',
         callsMetric: 'my_app_metrics_calls_total',
+        durationMetric: 'my_app_metrics_duration_seconds_bucket',
         durationUnit: 's',
       },
       serviceGraph: { detected: false },
@@ -28,16 +28,16 @@ describe('getMetricNames', () => {
     expect(result.callsMetric).toBe('my_app_metrics_calls_total');
     expect(result.durationBucket).toBe('my_app_metrics_duration_seconds_bucket');
     expect(result.durationUnit).toBe('s');
-    expect(result.namespace).toBe('my_app_metrics');
   });
 
-  it('uses ms bucket for ms duration unit', () => {
+  it('uses Tempo latency naming when detected', () => {
     const caps: Capabilities = {
       spanMetrics: {
         detected: true,
-        namespace: 'spans',
-        callsMetric: 'spans_calls_total',
-        durationUnit: 'ms',
+        namespace: 'traces_spanmetrics',
+        callsMetric: 'traces_spanmetrics_calls_total',
+        durationMetric: 'traces_spanmetrics_latency_bucket',
+        durationUnit: 's',
       },
       serviceGraph: { detected: true },
       tempo: { available: true },
@@ -46,7 +46,7 @@ describe('getMetricNames', () => {
     };
 
     const result = getMetricNames(caps);
-    expect(result.durationBucket).toBe('spans_duration_milliseconds_bucket');
+    expect(result.durationBucket).toBe('traces_spanmetrics_latency_bucket');
   });
 
   it('falls back to defaults for partial capabilities', () => {
