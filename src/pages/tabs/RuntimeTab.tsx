@@ -195,9 +195,7 @@ function JVMCard({ jvm }: { jvm: JVMRuntime }) {
       </div>
 
       {/* Memory Pools (expandable detail) */}
-      {jvm.memoryPools && jvm.memoryPools.length > 0 && (
-        <MemoryPoolTable pools={jvm.memoryPools} />
-      )}
+      {jvm.memoryPools && jvm.memoryPools.length > 0 && <MemoryPoolTable pools={jvm.memoryPools} />}
     </div>
   );
 }
@@ -409,7 +407,9 @@ function KafkaCard({ kafka }: { kafka: KafkaRuntime }) {
               </td>
               <td className={styles.numCell}>{topic.partitions}</td>
               <td className={styles.numCell}>{topic.consumeRate.toFixed(1)} rec/s</td>
-              <td className={styles.numCell}>{topic.produceRate > 0 ? `${topic.produceRate.toFixed(1)} rec/s` : '—'}</td>
+              <td className={styles.numCell}>
+                {topic.produceRate > 0 ? `${topic.produceRate.toFixed(1)} rec/s` : '—'}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -440,7 +440,10 @@ function ContainerCard({ container }: { container: ContainerRuntime }) {
           <Badge text={`desired: ${container.desiredReplicas}`} color="orange" />
         )}
         {container.restarts > 0 && (
-          <Badge text={`${Math.round(container.restarts)} restart${container.restarts !== 1 ? 's' : ''} (24h)`} color="red" />
+          <Badge
+            text={`${Math.round(container.restarts)} restart${container.restarts !== 1 ? 's' : ''} (24h)`}
+            color="red"
+          />
         )}
       </div>
 
@@ -464,7 +467,9 @@ function ContainerCard({ container }: { container: ContainerRuntime }) {
           {container.cpuLimits > 0 && (
             <div className={styles.metricRow}>
               <span className={styles.metricLabel}>Limits</span>
-              <span className={styles.metricValue}>{formatCores(container.cpuLimits)} ({formatPct(cpuPctLim)})</span>
+              <span className={styles.metricValue}>
+                {formatCores(container.cpuLimits)} ({formatPct(cpuPctLim)})
+              </span>
             </div>
           )}
           {container.cpuThrottled > 0 && (
@@ -636,9 +641,7 @@ function MemoryPoolTable({ pools }: { pools: MemoryPool[] }) {
                 </td>
                 <td className={styles.numCell}>{formatBytes(pool.used)}</td>
                 <td className={styles.numCell}>{pool.max > 0 ? formatBytes(pool.max) : '∞'}</td>
-                <td className={styles.numCell}>
-                  {pool.max > 0 ? <UtilizationBar value={pct} inline /> : '—'}
-                </td>
+                <td className={styles.numCell}>{pool.max > 0 ? <UtilizationBar value={pct} inline /> : '—'}</td>
               </tr>
             );
           })}

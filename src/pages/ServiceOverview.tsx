@@ -653,13 +653,26 @@ function ServiceOverview() {
                 minHeight: 0,
               }}
             >
-              <TracesTab key={`${traceSpan}|${traceStatus}`} service={service} namespace={namespace} tracesUid={ds.tracesUid} initialSpan={traceSpan} initialStatus={traceStatus} />
+              <TracesTab
+                key={`${traceSpan}|${traceStatus}`}
+                service={service}
+                namespace={namespace}
+                tracesUid={ds.tracesUid}
+                initialSpan={traceSpan}
+                initialStatus={traceStatus}
+              />
             </div>
           )}
 
           {visitedTabs.has('server') && (
             <div style={{ display: activeTab === 'server' ? undefined : 'none' }}>
-              <ServerTab service={service} namespace={namespace} fromMs={fromMs} toMs={toMs} onViewTraces={onViewTraces} />
+              <ServerTab
+                service={service}
+                namespace={namespace}
+                fromMs={fromMs}
+                toMs={toMs}
+                onViewTraces={onViewTraces}
+              />
             </div>
           )}
 
