@@ -244,7 +244,7 @@ function ServiceOverview() {
         direction: 'row',
         children: [
           new SceneFlexItem({
-            height: 250,
+            height: 300,
             body: PanelBuilders.timeseries()
               .setTitle('Duration')
               .setData(durationQuery)
@@ -256,7 +256,7 @@ function ServiceOverview() {
               .build(),
           }),
           new SceneFlexItem({
-            height: 250,
+            height: 300,
             body: PanelBuilders.timeseries()
               .setTitle('Errors')
               .setData(errorQuery)
@@ -268,7 +268,7 @@ function ServiceOverview() {
               .build(),
           }),
           new SceneFlexItem({
-            height: 250,
+            height: 300,
             body: PanelBuilders.timeseries()
               .setTitle('Rate')
               .setData(rateQuery)
@@ -309,7 +309,7 @@ function ServiceOverview() {
         direction: 'row',
         children: [
           new SceneFlexItem({
-            height: 280,
+            height: 320,
             body: PanelBuilders.heatmap()
               .setTitle('Duration Distribution')
               .setData(heatmapQuery)
@@ -364,7 +364,8 @@ function ServiceOverview() {
               Services
             </LinkButton>
             <h2 className={styles.title}>
-              {namespace ? `${namespace}/` : ''}{service}
+              {namespace ? `${namespace}/` : ''}
+              {service}
             </h2>
             {framework && FRAMEWORK_BADGES[framework] && (
               <span className={styles.sdkBadge} style={{ backgroundColor: FRAMEWORK_BADGES[framework].bg }}>
@@ -453,12 +454,12 @@ function ServiceOverview() {
           <div style={{ display: activeTab === 'overview' ? undefined : 'none' }}>
             <>
               {/* RED panels */}
-              <div style={{ height: 250, overflow: 'hidden' }}>
+              <div style={{ height: 300, overflow: 'hidden' }}>
                 <scene.Component model={scene} />
               </div>
 
               {/* Duration distribution */}
-              <div style={{ height: 280, marginTop: 8, overflow: 'hidden' }}>
+              <div style={{ height: 320, marginTop: 8, overflow: 'hidden' }}>
                 <durationDistScene.Component model={durationDistScene} />
               </div>
 
@@ -619,7 +620,14 @@ function ServiceOverview() {
           </div>
 
           {visitedTabs.has('traces') && (
-            <div style={{ display: activeTab === 'traces' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+            <div
+              style={{
+                display: activeTab === 'traces' ? 'flex' : 'none',
+                flexDirection: 'column',
+                flex: 1,
+                minHeight: 0,
+              }}
+            >
               <TracesTab service={service} namespace={namespace} tracesUid={ds.tracesUid} />
             </div>
           )}
@@ -649,7 +657,14 @@ function ServiceOverview() {
           )}
 
           {visitedTabs.has('logs') && (
-            <div style={{ display: activeTab === 'logs' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+            <div
+              style={{
+                display: activeTab === 'logs' ? 'flex' : 'none',
+                flexDirection: 'column',
+                flex: 1,
+                minHeight: 0,
+              }}
+            >
               <LogsTab service={service} namespace={namespace} logsUid={ds.logsUid} />
             </div>
           )}
