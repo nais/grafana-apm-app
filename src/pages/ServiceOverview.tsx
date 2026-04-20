@@ -591,22 +591,21 @@ function ServiceOverview() {
             </>
           </div>
 
-          {visitedTabs.has('traces') && (
-            <div style={{ display: activeTab === 'traces' ? undefined : 'none' }}>
-              <TracesTab service={service} namespace={namespace} tracesUid={ds.tracesUid} />
-            </div>
+          {/* Scenes-based tabs: must conditional-render (Scenes measures container on mount) */}
+          {activeTab === 'traces' && (
+            <TracesTab service={service} namespace={namespace} tracesUid={ds.tracesUid} />
           )}
 
+          {/* Non-Scenes tabs: keep mounted once visited for instant tab switching */}
           {visitedTabs.has('server') && (
             <div style={{ display: activeTab === 'server' ? undefined : 'none' }}>
               <ServerTab service={service} namespace={namespace} fromMs={fromMs} toMs={toMs} />
             </div>
           )}
 
-          {visitedTabs.has('frontend') && (
-            <div style={{ display: activeTab === 'frontend' ? undefined : 'none' }}>
-              <FrontendTab service={service} namespace={namespace} environment={envFilter} />
-            </div>
+          {/* Scenes-based: conditional render */}
+          {activeTab === 'frontend' && (
+            <FrontendTab service={service} namespace={namespace} environment={envFilter} />
           )}
 
           {visitedTabs.has('runtime') && (
@@ -621,10 +620,9 @@ function ServiceOverview() {
             </div>
           )}
 
-          {visitedTabs.has('logs') && (
-            <div style={{ display: activeTab === 'logs' ? undefined : 'none' }}>
-              <LogsTab service={service} namespace={namespace} logsUid={ds.logsUid} />
-            </div>
+          {/* Scenes-based: conditional render */}
+          {activeTab === 'logs' && (
+            <LogsTab service={service} namespace={namespace} logsUid={ds.logsUid} />
           )}
 
           {visitedTabs.has('service-map') && (
