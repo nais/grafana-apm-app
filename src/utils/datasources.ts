@@ -114,5 +114,3 @@ export function usePluginDatasources(env?: string): PluginDatasources {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   return useMemo(() => getPluginDatasources(env), [env, rev]);
 }
-
-

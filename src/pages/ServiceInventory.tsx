@@ -264,7 +264,9 @@ function ServiceInventory() {
                     <td className={styles.typeCell}>
                       <FrameworkBadge framework={svc.framework} />
                       {svc.hasFrontend && (
-                        <span className={styles.faroBadge} title="Faro Web SDK">🌐</span>
+                        <span className={styles.faroBadge} title="Faro Web SDK">
+                          🌐
+                        </span>
                       )}
                     </td>
                     <td>
@@ -275,7 +277,10 @@ function ServiceInventory() {
                     <td>
                       <div className={styles.metricCell}>
                         <span className={styles.metricValue}>{formatDuration(svc.p95Duration, svc.durationUnit)}</span>
-                        <AreaSparkline data={sparklineMap.get(`${svc.namespace}/${svc.name}`)?.durationSeries?.map((p) => p.v)} color="#E0B400" />
+                        <AreaSparkline
+                          data={sparklineMap.get(`${svc.namespace}/${svc.name}`)?.durationSeries?.map((p) => p.v)}
+                          color="#E0B400"
+                        />
                       </div>
                     </td>
                     <td>
@@ -290,7 +295,10 @@ function ServiceInventory() {
                     <td>
                       <div className={styles.metricCell}>
                         <span className={styles.metricValue}>{svc.rate.toFixed(1)} req/s</span>
-                        <AreaSparkline data={sparklineMap.get(`${svc.namespace}/${svc.name}`)?.rateSeries?.map((p) => p.v)} color="#73BF69" />
+                        <AreaSparkline
+                          data={sparklineMap.get(`${svc.namespace}/${svc.name}`)?.rateSeries?.map((p) => p.v)}
+                          color="#73BF69"
+                        />
                       </div>
                     </td>
                   </tr>

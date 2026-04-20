@@ -451,11 +451,7 @@ function UtilizationBar({ value, inline }: { value: number; inline?: boolean }) 
   const styles = useStyles2(getStyles);
   const theme = useTheme2();
   const fillColor =
-    value > 90
-      ? theme.colors.error.main
-      : value > 70
-        ? theme.colors.warning.main
-        : theme.colors.success.main;
+    value > 90 ? theme.colors.error.main : value > 70 ? theme.colors.warning.main : theme.colors.success.main;
 
   if (inline) {
     return (
@@ -474,10 +470,7 @@ function UtilizationBar({ value, inline }: { value: number; inline?: boolean }) 
   return (
     <div className={styles.utilBar}>
       <div className={styles.utilBarBg}>
-        <div
-          className={styles.utilBarFill}
-          style={{ width: `${Math.min(value, 100)}%`, backgroundColor: fillColor }}
-        />
+        <div className={styles.utilBarFill} style={{ width: `${Math.min(value, 100)}%`, backgroundColor: fillColor }} />
       </div>
       <span className={styles.utilLabel}>{formatPct(value)}</span>
     </div>
