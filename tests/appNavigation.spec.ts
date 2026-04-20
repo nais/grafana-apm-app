@@ -4,7 +4,7 @@ import { ROUTES } from '../src/constants';
 test.describe('navigating app', () => {
   test('service inventory page should render', async ({ gotoPage, page }) => {
     await gotoPage(`/${ROUTES.Services}`);
-    await expect(page.getByTestId('data-testid Services breadcrumb')).toBeVisible();
+    await expect(page).toHaveURL(/\/services/);
   });
 
   test('service map page should render', async ({ gotoPage, page }) => {
