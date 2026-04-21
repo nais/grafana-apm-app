@@ -62,7 +62,7 @@ function ServiceInventory() {
     if (!sparklineResult) {
       return new Map<string, ServiceSummary>();
     }
-    return new Map(sparklineResult.map((s) => [`${s.namespace}/${s.name}`, s]));
+    return new Map(sparklineResult.map((s) => [`${s.namespace}/${s.name}/${s.environment ?? ''}`, s]));
   }, [sparklineResult]);
   const caps = fetchResult?.caps ?? null;
 
@@ -284,11 +284,12 @@ function ServiceInventory() {
               <tbody>
                 {paginated.map((svc) => (
                   <tr
-                    key={`${svc.namespace}/${svc.name}`}
+                    key={`${svc.namespace}/${svc.name}/${svc.environment ?? ''}`}
                     className={styles.row}
                     onClick={() => {
                       const ns = svc.namespace || '_';
-                      appNavigate(`services/${encodeURIComponent(ns)}/${encodeURIComponent(svc.name)}`);
+                      const envParam = svc.environment ? `?environment=${encodeURIComponent(svc.environment)}` : '';
+                      appNavigate(`services/${encodeURIComponent(ns)}/${encodeURIComponent(svc.name)}${envParam}`);
                     }}
                   >
                     <td className={styles.typeCell}>
@@ -310,7 +311,9 @@ function ServiceInventory() {
                       <div className={styles.metricCell}>
                         <span className={styles.metricValue}>{formatDuration(svc.p95Duration, svc.durationUnit)}</span>
                         <AreaSparkline
-                          data={sparklineMap.get(`${svc.namespace}/${svc.name}`)?.durationSeries?.map((p) => p.v)}
+                          data={sparklineMap
+                            .get(`${svc.namespace}/${svc.name}/${svc.environment ?? ''}`)
+                            ?.durationSeries?.map((p) => p.v)}
                           color="#E0B400"
                         />
                       </div>
@@ -328,7 +331,9 @@ function ServiceInventory() {
                       <div className={styles.metricCell}>
                         <span className={styles.metricValue}>{svc.rate.toFixed(1)} req/s</span>
                         <AreaSparkline
-                          data={sparklineMap.get(`${svc.namespace}/${svc.name}`)?.rateSeries?.map((p) => p.v)}
+                          data={sparklineMap
+                            .get(`${svc.namespace}/${svc.name}/${svc.environment ?? ''}`)
+                            ?.rateSeries?.map((p) => p.v)}
                           color="#73BF69"
                         />
                       </div>
