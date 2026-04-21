@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { config } from '@grafana/runtime';
 import pluginJson from '../plugin.json';
 
 interface PluginDatasources {
@@ -24,19 +23,14 @@ function resolveUid(ds: EnvAwareDs | undefined, env: string | undefined, fallbac
 }
 
 // Cached jsonData fetched from the plugin settings API.
-// Grafana's frontend config (config.apps) does NOT include jsonData for
-// provisioned app plugins, so we fetch it once from the REST API.
+// Grafana's frontend config does NOT include jsonData for app plugins,
+// so we always fetch it from the REST API.
 let _jsonDataCache: Record<string, any> | null = null;
 let _jsonDataPromise: Promise<Record<string, any>> | null = null;
 let _listeners: Array<() => void> = [];
 
 function notifyListeners() {
   _listeners.forEach((fn) => fn());
-}
-
-function getJsonDataFromConfig(): Record<string, any> {
-  const meta = config.apps?.[pluginJson.id];
-  return (meta as any)?.jsonData ?? {};
 }
 
 async function fetchJsonData(): Promise<Record<string, any>> {
@@ -54,12 +48,9 @@ async function fetchJsonData(): Promise<Record<string, any>> {
 
 /** Initialize the jsonData cache. Call early (e.g. in module.tsx). */
 export function initDatasourceConfig(): void {
-  const fromConfig = getJsonDataFromConfig();
-  if (fromConfig.metricsDataSource?.uid) {
-    _jsonDataCache = fromConfig;
+  if (_jsonDataCache) {
     return;
   }
-  // jsonData missing from frontend config — fetch from API
   if (!_jsonDataPromise) {
     _jsonDataPromise = fetchJsonData().then((jd) => {
       _jsonDataCache = jd;
@@ -70,15 +61,7 @@ export function initDatasourceConfig(): void {
 }
 
 function getJsonData(): Record<string, any> {
-  if (_jsonDataCache) {
-    return _jsonDataCache;
-  }
-  const fromConfig = getJsonDataFromConfig();
-  if (fromConfig.metricsDataSource?.uid) {
-    _jsonDataCache = fromConfig;
-    return fromConfig;
-  }
-  return fromConfig;
+  return _jsonDataCache ?? {};
 }
 
 /** Read datasource UIDs from plugin config, optionally resolved for an environment */
