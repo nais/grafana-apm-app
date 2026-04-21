@@ -32,6 +32,13 @@ mise run frontend:dev         # Frontend watch mode
 mise run backend:check        # go vet + golangci-lint
 mise run backend:test         # Go tests with -race
 mise run backend:build        # mage buildAll (all platforms)
+mise run deploy                # Build all + restart Grafana
+mise run deploy:up             # Start full local stack
+mise run deploy:down           # Stop local stack
+mise run deploy:restart        # Restart Grafana (pick up new dist/)
+mise run deploy:logs           # Tail Grafana logs
+mise run deploy:status         # Show containers + health check
+mise run deploy:demo           # Start stack with OTel Demo traffic
 mise run dev                  # Docker stack + frontend watch
 mise run clean                # Remove dist/ and coverage/
 pnpm run e2e                  # Playwright E2E (needs running stack)

@@ -64,6 +64,40 @@ run = "go test -race -count=1 ./pkg/..."
 description = "Build Go backend for all platforms"
 run = "go run github.com/magefile/mage -v buildAll"
 
+# --- Local deployment tasks ---
+
+[tasks.deploy]
+description = "Build and (re)deploy to local Grafana"
+depends = ["build"]
+run = "docker compose restart grafana"
+
+[tasks."deploy:up"]
+description = "Start the full local stack (Grafana + Mimir + Tempo + Loki)"
+run = "docker compose up -d"
+
+[tasks."deploy:down"]
+description = "Stop and remove the local stack"
+run = "docker compose down"
+
+[tasks."deploy:restart"]
+description = "Restart Grafana container (pick up new dist/)"
+run = "docker compose restart grafana"
+
+[tasks."deploy:logs"]
+description = "Tail Grafana container logs"
+run = "docker compose logs -f grafana"
+
+[tasks."deploy:status"]
+description = "Show running containers and Grafana health"
+run = [
+  "docker compose ps",
+  "curl -sf http://localhost:3000/api/health | python3 -m json.tool || echo 'Grafana not reachable'",
+]
+
+[tasks."deploy:demo"]
+description = "Start stack with OTel Demo traffic generator"
+run = "docker compose -f docker-compose.yaml -f docker-compose.demo.yaml up -d"
+
 # --- Utility tasks ---
 
 [tasks.dev]
