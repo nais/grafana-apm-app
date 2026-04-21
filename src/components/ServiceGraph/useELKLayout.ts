@@ -21,6 +21,8 @@ const DEFAULT_NODE_WIDTH = 160;
 const DEFAULT_NODE_HEIGHT = 42;
 const GROUP_PADDING = 40;
 
+const MAX_LAYOUT_NODES = 300;
+
 export function useELKLayout({ nodes, edges, groups, direction = 'RIGHT' }: GraphInput): LayoutResult {
   const [layouted, setLayouted] = useState<{ nodes: Node[]; edges: Edge[] }>({ nodes: [], edges: [] });
   const [loading, setLoading] = useState(true);
@@ -28,6 +30,18 @@ export function useELKLayout({ nodes, edges, groups, direction = 'RIGHT' }: Grap
   const runLayout = useCallback(async () => {
     if (nodes.length === 0) {
       setLayouted({ nodes: [], edges: [] });
+      setLoading(false);
+      return;
+    }
+
+    // Guard against extremely large graphs that would block the main thread
+    if (nodes.length > MAX_LAYOUT_NODES) {
+      console.warn(`ELK layout skipped: ${nodes.length} nodes exceeds limit of ${MAX_LAYOUT_NODES}`);
+      const fallback = nodes.map((n, i) => ({
+        ...n,
+        position: { x: (i % 10) * 200, y: Math.floor(i / 10) * 100 },
+      }));
+      setLayouted({ nodes: fallback, edges });
       setLoading(false);
       return;
     }

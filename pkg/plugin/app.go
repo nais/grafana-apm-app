@@ -29,10 +29,11 @@ var (
 type App struct {
 	backend.CallResourceHandler
 
-	otelCfg    otelconfig.Config
-	settings   queries.PluginSettings
-	promClient *queries.PrometheusClient
-	grafanaURL string // base URL for datasource proxy resolution
+	otelCfg      otelconfig.Config
+	settings     queries.PluginSettings
+	promClient   *queries.PrometheusClient
+	healthClient *http.Client // shared client for health checks
+	grafanaURL   string       // base URL for datasource proxy resolution
 
 	capMu    sync.RWMutex
 	capCache *cachedCapabilities
@@ -47,6 +48,7 @@ func NewApp(_ context.Context, settings backend.AppInstanceSettings) (instancemg
 	var app App
 	app.otelCfg = otelconfig.Default()
 	app.respCache = newResponseCache(30*time.Second, 200)
+	app.healthClient = &http.Client{Timeout: 10 * time.Second}
 
 	// Parse plugin settings from jsonData
 	if len(settings.JSONData) > 0 {

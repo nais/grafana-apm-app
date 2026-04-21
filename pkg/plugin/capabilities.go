@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"sync"
 	"time"
@@ -92,9 +93,9 @@ func (a *App) handleCapabilities(w http.ResponseWriter, req *http.Request) {
 	}
 
 	authClient := a.promClientForRequest(req)
-	// Use a detached context with generous timeout so slow health checks
-	// don't get canceled by the HTTP request's shorter deadline.
-	detachedCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	// Use a bounded context: inherit parent cancellation but extend deadline
+	// so slow health checks aren't cut short by the HTTP request's deadline.
+	detachedCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	detachedCtx = withAuthContext(detachedCtx, authClient)
 
@@ -282,12 +283,14 @@ func (a *App) checkHTTPHealth(ctx context.Context, baseURL, path string, headers
 		}
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := a.healthClient.Do(req)
 	if err != nil {
 		return queries.DataSourceStatus{Available: false, Error: err.Error()}
 	}
-	defer resp.Body.Close() //nolint:errcheck
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close() //nolint:errcheck
+	}()
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return queries.DataSourceStatus{Available: true}

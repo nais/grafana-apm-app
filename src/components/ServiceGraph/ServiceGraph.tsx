@@ -287,8 +287,10 @@ function ServiceGraphInner({
   // Fit view after layout completes
   React.useEffect(() => {
     if (!loading && layoutedNodes.length > 0) {
-      setTimeout(() => fitView({ padding: 0.1, duration: 400 }), 100);
+      const timer = setTimeout(() => fitView({ padding: 0.1, duration: 400 }), 100);
+      return () => clearTimeout(timer);
     }
+    return undefined;
   }, [loading, layoutedNodes.length, fitView]);
 
   if (loading) {

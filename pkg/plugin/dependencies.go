@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -1097,7 +1097,7 @@ func (a *App) queryConnectedServices(ctx context.Context, to time.Time, service 
 	// server_address or http_host matches this service name.
 	// Pattern: server_address=~"appname[.:].*" catches both
 	// "appname.namespace.svc" and "appname:8080" style addresses.
-	escapedSvc := url.PathEscape(service) // safe for regex literal
+	escapedSvc := regexp.QuoteMeta(service) // proper regex escaping (dots, etc.)
 	smInRateQ := fmt.Sprintf(
 		`sum by (%s, %s) (rate(%s{%s="%s", %s=~"%s[.:].*"}%s)) or sum by (%s, %s) (rate(%s{%s="%s", %s=~"%s[.:].*"}%s))`,
 		cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,

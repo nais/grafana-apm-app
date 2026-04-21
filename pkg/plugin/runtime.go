@@ -71,11 +71,17 @@ func (a *App) queryRuntimeMetrics(ctx context.Context, namespace, service string
 	var resp queries.RuntimeResponse
 	var mu sync.Mutex
 	var wg sync.WaitGroup
+	// Limit concurrent runtime categories to avoid overwhelming Mimir.
+	// Each category fires 4-22 parallel queries internally; capping at 3
+	// concurrent categories keeps peak query concurrency around 30.
+	catSem := make(chan struct{}, 3)
 
 	// JVM
 	if discovered[rt.JVM.MemoryUsed] || discovered[rt.JVM.ThreadsLive] || discovered[rt.JVM.Info] {
 		wg.Add(1)
 		go func() {
+			catSem <- struct{}{}
+			defer func() { <-catSem }()
 			defer wg.Done()
 			jvm := a.queryJVMRuntime(ctx, client, svcFilter, at, logger)
 			mu.Lock()
@@ -88,6 +94,8 @@ func (a *App) queryRuntimeMetrics(ctx context.Context, namespace, service string
 	if discovered[rt.NodeJS.HeapUsed] || discovered[rt.NodeJS.EventLoopP99] || discovered[rt.NodeJS.VersionInfo] {
 		wg.Add(1)
 		go func() {
+			catSem <- struct{}{}
+			defer func() { <-catSem }()
 			defer wg.Done()
 			nodejs := a.queryNodeJSRuntime(ctx, client, svcFilter, at, logger)
 			mu.Lock()
@@ -100,6 +108,8 @@ func (a *App) queryRuntimeMetrics(ctx context.Context, namespace, service string
 	if discovered[rt.DBPool.HikariActive] || discovered[rt.DBPool.OtelDBActive] {
 		wg.Add(1)
 		go func() {
+			catSem <- struct{}{}
+			defer func() { <-catSem }()
 			defer wg.Done()
 			dbPool := a.queryDBPoolRuntime(ctx, client, svcFilter, at, logger)
 			mu.Lock()
@@ -112,6 +122,8 @@ func (a *App) queryRuntimeMetrics(ctx context.Context, namespace, service string
 	if discovered[rt.Kafka.ConsumerLagMax] || discovered[rt.Kafka.ConsumerConsumed] || discovered[rt.Kafka.ProducerSent] {
 		wg.Add(1)
 		go func() {
+			catSem <- struct{}{}
+			defer func() { <-catSem }()
 			defer wg.Done()
 			kafka := a.queryKafkaRuntime(ctx, client, svcFilter, at, logger)
 			mu.Lock()
@@ -124,6 +136,8 @@ func (a *App) queryRuntimeMetrics(ctx context.Context, namespace, service string
 	if discovered[rt.Go.Goroutines] || discovered[rt.Go.MemAlloc] {
 		wg.Add(1)
 		go func() {
+			catSem <- struct{}{}
+			defer func() { <-catSem }()
 			defer wg.Done()
 			goRt := a.queryGoRuntime(ctx, client, svcFilter, at, logger)
 			mu.Lock()
@@ -136,6 +150,8 @@ func (a *App) queryRuntimeMetrics(ctx context.Context, namespace, service string
 	ctrFilter := a.otelCfg.ContainerFilter(service, namespace)
 	wg.Add(1)
 	go func() {
+		catSem <- struct{}{}
+		defer func() { <-catSem }()
 		defer wg.Done()
 		ctr := a.queryContainerRuntime(ctx, client, ctrFilter, service, namespace, at, logger)
 		if ctr != nil {

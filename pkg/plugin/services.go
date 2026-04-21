@@ -35,14 +35,15 @@ func (a *App) handleServices(w http.ResponseWriter, req *http.Request) {
 	filterNamespace := queries.MustSanitizeLabel(req.URL.Query().Get("namespace"))
 	filterEnvironment := queries.MustSanitizeLabel(req.URL.Query().Get("environment"))
 
-	// Check response cache (keyed on time range rounded to 30s + filters)
+	// Check response cache (keyed on time range rounded to 30s + filters + org)
 	roundedFrom := fmt.Sprintf("%d", from.Unix()/30*30)
 	roundedTo := fmt.Sprintf("%d", to.Unix()/30*30)
 	seriesStr := "false"
 	if withSeries {
 		seriesStr = "true"
 	}
-	ck := cacheKey("services", roundedFrom, roundedTo, seriesStr, filterNamespace, filterEnvironment)
+	orgID := req.Header.Get("X-Grafana-Org-Id")
+	ck := cacheKey("services", orgID, roundedFrom, roundedTo, seriesStr, filterNamespace, filterEnvironment)
 	if cached, ok := a.respCache.get(ck); ok {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-Cache", "HIT")

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/nais/grafana-otel-plugin/pkg/plugin/queries"
@@ -79,19 +80,37 @@ func (a *App) queryFrontendFromMimir(ctx context.Context, namespace, service str
 		"ttfb": a.otelCfg.BrowserMetrics.TTFB,
 	}
 
+	// Query all vitals + error rate in parallel
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
 	for key, metric := range vitalMetrics {
-		q := fmt.Sprintf(`avg(%s{%s})`, metric, filter)
-		r, err := a.prom(ctx).InstantQuery(ctx, q, at)
-		if err == nil && len(r) > 0 {
-			resp.Vitals[key] = roundTo(r[0].Value.Float(), 2)
-		}
+		wg.Add(1)
+		go func(k, m string) {
+			defer wg.Done()
+			q := fmt.Sprintf(`avg(%s{%s})`, m, filter)
+			r, err := a.prom(ctx).InstantQuery(ctx, q, at)
+			if err == nil && len(r) > 0 {
+				mu.Lock()
+				resp.Vitals[k] = roundTo(r[0].Value.Float(), 2)
+				mu.Unlock()
+			}
+		}(key, metric)
 	}
 
-	errQ := fmt.Sprintf(`sum(rate(%s{%s}[5m]))`, a.otelCfg.BrowserMetrics.Errors, filter)
-	r, err := a.prom(ctx).InstantQuery(ctx, errQ, at)
-	if err == nil && len(r) > 0 {
-		resp.ErrorRate = roundTo(r[0].Value.Float(), 4)
-	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		errQ := fmt.Sprintf(`sum(rate(%s{%s}[5m]))`, a.otelCfg.BrowserMetrics.Errors, filter)
+		r, err := a.prom(ctx).InstantQuery(ctx, errQ, at)
+		if err == nil && len(r) > 0 {
+			mu.Lock()
+			resp.ErrorRate = roundTo(r[0].Value.Float(), 4)
+			mu.Unlock()
+		}
+	}()
+
+	wg.Wait()
 
 	return resp
 }

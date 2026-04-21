@@ -48,7 +48,16 @@ func (c *responseCache) get(key string) ([]byte, bool) {
 	entry, ok := c.entries[key]
 	c.mu.RUnlock()
 
-	if !ok || time.Since(entry.createdAt) > c.ttl {
+	if !ok {
+		return nil, false
+	}
+	if time.Since(entry.createdAt) > c.ttl {
+		// Lazy cleanup of expired entry
+		c.mu.Lock()
+		if e, exists := c.entries[key]; exists && time.Since(e.createdAt) > c.ttl {
+			delete(c.entries, key)
+		}
+		c.mu.Unlock()
 		return nil, false
 	}
 	return entry.data, true
@@ -67,6 +76,11 @@ func (c *responseCache) set(key string, data []byte) {
 				delete(c.entries, k)
 			}
 		}
+	}
+
+	// Hard limit: drop the write if still at capacity after eviction
+	if len(c.entries) >= c.maxSize {
+		return
 	}
 
 	c.entries[key] = &cacheEntry{data: data, createdAt: time.Now()}
