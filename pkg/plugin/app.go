@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -57,12 +58,11 @@ func NewApp(_ context.Context, settings backend.AppInstanceSettings) (instancemg
 		}
 	}
 
-	// Resolve datasource URLs via Grafana datasource proxy.
-	// GF_APP_URL is set by Grafana; fall back to localhost for development.
-	app.grafanaURL = strings.TrimRight(os.Getenv("GF_APP_URL"), "/")
-	if app.grafanaURL == "" {
-		app.grafanaURL = "http://localhost:3000"
-	}
+	// Build internal Grafana URL for datasource proxy calls.
+	// The plugin runs in the same process/pod as Grafana, so always use localhost
+	// for API callbacks. GF_APP_URL is the external URL and may not be reachable
+	// from inside the pod (ingress, network policies, OAuth2 proxy, etc.).
+	app.grafanaURL = resolveInternalGrafanaURL(logger)
 
 	if uid := app.settings.MetricsDataSource.UID; uid != "" {
 		proxyURL := fmt.Sprintf("%s/api/datasources/proxy/uid/%s", app.grafanaURL, uid)
@@ -90,6 +90,30 @@ func NewApp(_ context.Context, settings backend.AppInstanceSettings) (instancemg
 
 // Dispose is called when the plugin instance is shut down.
 func (a *App) Dispose() {}
+
+// resolveInternalGrafanaURL builds the localhost URL for internal API calls.
+// The plugin runs in the same process/pod as Grafana, so we always use localhost
+// to avoid going through external ingress/load balancers/OAuth2 proxies.
+// We preserve any sub-path from GF_APP_URL (for sub-path deployments).
+func resolveInternalGrafanaURL(logger log.Logger) string {
+	port := os.Getenv("GF_SERVER_HTTP_PORT")
+	if port == "" {
+		port = "3000"
+	}
+	base := "http://localhost:" + port
+
+	// Preserve sub-path from GF_APP_URL if present (e.g., /grafana)
+	if appURL := os.Getenv("GF_APP_URL"); appURL != "" {
+		if u, err := url.Parse(appURL); err == nil && u.Path != "" && u.Path != "/" {
+			base += strings.TrimRight(u.Path, "/")
+		}
+		logger.Info("Resolved internal Grafana URL", "internalURL", base, "GF_APP_URL", appURL)
+	} else {
+		logger.Info("Resolved internal Grafana URL", "internalURL", base, "GF_APP_URL", "(unset)")
+	}
+
+	return base
+}
 
 // proxyURL builds a Grafana datasource proxy URL for the given UID.
 func (a *App) proxyURL(uid string) string {
@@ -136,6 +160,16 @@ func (a *App) promClientForRequest(r *http.Request) *queries.PrometheusClient {
 		return nil
 	}
 	return a.promClient.WithAuthHeaders(r.Header)
+}
+
+// requestContext builds a context with both auth-enhanced PrometheusClient and raw HTTP
+// headers stored. This ensures that downstream code (capability detection, health checks)
+// can access both the prom client and the user's auth headers.
+func (a *App) requestContext(req *http.Request) context.Context {
+	ctx := req.Context()
+	ctx = withAuthContext(ctx, a.promClientForRequest(req))
+	ctx = context.WithValue(ctx, httpHeadersCtxKey{}, req.Header.Clone())
+	return ctx
 }
 
 // Context key for per-request PrometheusClient with forwarded auth.

@@ -121,7 +121,7 @@ func (a *App) detectCapabilities(ctx context.Context, headers http.Header) queri
 	for _, c := range spanMetricsCandidates {
 		exists, err := a.prom(ctx).SeriesExists(ctx, c.calls)
 		if err != nil {
-			logger.Debug("Probe failed", "metric", c.calls, "error", err)
+			logger.Warn("Span metrics probe failed", "metric", c.calls, "error", err, "baseURL", a.grafanaURL)
 			continue
 		}
 		if exists {
@@ -163,7 +163,7 @@ func (a *App) detectCapabilities(ctx context.Context, headers http.Header) queri
 		for _, sg := range serviceGraphCandidates {
 			sgExists, err := a.prom(ctx).SeriesExists(ctx, sg.probe)
 			if err != nil {
-				logger.Debug("Service graph probe failed", "metric", sg.probe, "error", err)
+				logger.Warn("Service graph probe failed", "metric", sg.probe, "error", err)
 				continue
 			}
 			if sgExists {

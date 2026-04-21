@@ -16,8 +16,7 @@ func (a *App) handleOperations(w http.ResponseWriter, req *http.Request) {
 	if !requireGET(w, req) {
 		return
 	}
-	ctx := req.Context()
-	ctx = withAuthContext(ctx, a.promClientForRequest(req))
+	ctx := a.requestContext(req)
 	namespace := queries.MustSanitizeLabel(req.PathValue("namespace"))
 	service := queries.MustSanitizeLabel(req.PathValue("service"))
 

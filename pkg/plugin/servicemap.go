@@ -44,8 +44,7 @@ func (a *App) handleServiceMap(w http.ResponseWriter, req *http.Request) {
 	if !requireGET(w, req) {
 		return
 	}
-	ctx := req.Context()
-	ctx = withAuthContext(ctx, a.promClientForRequest(req))
+	ctx := a.requestContext(req)
 
 	caps := a.cachedOrDetectCapabilities(ctx)
 	if !caps.ServiceGraph.Detected {

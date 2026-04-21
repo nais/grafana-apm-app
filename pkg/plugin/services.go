@@ -23,8 +23,7 @@ func (a *App) handleServices(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	ctx := req.Context()
-	ctx = withAuthContext(ctx, a.promClientForRequest(req))
+	ctx := a.requestContext(req)
 
 	// Parse time range from query params (defaults: last 1h)
 	now := time.Now()

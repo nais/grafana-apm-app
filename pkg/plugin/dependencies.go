@@ -65,8 +65,7 @@ func (a *App) handleServiceDependencies(w http.ResponseWriter, req *http.Request
 	if !requireGET(w, req) {
 		return
 	}
-	ctx := req.Context()
-	ctx = withAuthContext(ctx, a.promClientForRequest(req))
+	ctx := a.requestContext(req)
 	service := queries.MustSanitizeLabel(req.PathValue("service"))
 	namespace := queries.MustSanitizeLabel(req.PathValue("namespace"))
 
@@ -93,8 +92,7 @@ func (a *App) handleGlobalDependencies(w http.ResponseWriter, req *http.Request)
 	if !requireGET(w, req) {
 		return
 	}
-	ctx := req.Context()
-	ctx = withAuthContext(ctx, a.promClientForRequest(req))
+	ctx := a.requestContext(req)
 
 	caps := a.cachedOrDetectCapabilities(ctx)
 	if !caps.ServiceGraph.Detected {
@@ -115,8 +113,7 @@ func (a *App) handleDependencyDetail(w http.ResponseWriter, req *http.Request) {
 	if !requireGET(w, req) {
 		return
 	}
-	ctx := req.Context()
-	ctx = withAuthContext(ctx, a.promClientForRequest(req))
+	ctx := a.requestContext(req)
 	depName := queries.MustSanitizeLabel(req.PathValue("name"))
 
 	if depName == "" {
@@ -1022,8 +1019,7 @@ func (a *App) handleConnectedServices(w http.ResponseWriter, req *http.Request) 
 	if !requireGET(w, req) {
 		return
 	}
-	ctx := req.Context()
-	ctx = withAuthContext(ctx, a.promClientForRequest(req))
+	ctx := a.requestContext(req)
 	service := queries.MustSanitizeLabel(req.PathValue("service"))
 
 	if !requireServiceParam(w, service) {
