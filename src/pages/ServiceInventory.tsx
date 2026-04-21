@@ -25,10 +25,20 @@ const PAGE_SIZE_OPTIONS: Array<SelectableValue<number>> = [
   { label: '50', value: 50 },
 ];
 
+const TIME_RANGE_OPTIONS: Array<SelectableValue<string>> = [
+  { label: 'Last 15 minutes', value: 'now-15m' },
+  { label: 'Last 30 minutes', value: 'now-30m' },
+  { label: 'Last 1 hour', value: 'now-1h' },
+  { label: 'Last 3 hours', value: 'now-3h' },
+  { label: 'Last 6 hours', value: 'now-6h' },
+  { label: 'Last 12 hours', value: 'now-12h' },
+  { label: 'Last 24 hours', value: 'now-24h' },
+];
+
 function ServiceInventory() {
   const styles = useStyles2(getStyles);
   const appNavigate = useAppNavigate();
-  const { fromMs, toMs } = useTimeRange();
+  const { from, fromMs, toMs, setTimeRange } = useTimeRange();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const {
@@ -226,6 +236,14 @@ function ServiceInventory() {
                   isClearable
                 />
               )}
+              <div className={styles.toolbarSpacer} />
+              <Select
+                options={TIME_RANGE_OPTIONS}
+                value={from}
+                onChange={(v) => setTimeRange(v?.value ?? 'now-1h', 'now')}
+                width={22}
+                prefix={<Icon name="clock-nine" />}
+              />
             </div>
 
             <table className={styles.table}>
@@ -403,6 +421,9 @@ const getStyles = (theme: GrafanaTheme2) => ({
     gap: ${theme.spacing(1)};
     align-items: center;
     margin-bottom: ${theme.spacing(2)};
+  `,
+  toolbarSpacer: css`
+    flex: 1;
   `,
   table: css`
     width: 100%;
