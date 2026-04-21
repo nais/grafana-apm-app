@@ -274,11 +274,20 @@ func (a *App) checkHTTPHealth(ctx context.Context, baseURL, path string, headers
 		return queries.DataSourceStatus{Available: false, Error: err.Error()}
 	}
 
-	// Forward auth headers from the incoming user request
-	for _, key := range []string{"Cookie", "Authorization", "X-Grafana-Org-Id"} {
-		if vals := headers.Values(key); len(vals) > 0 {
+	// Apply auth: service account token when available, else forward user headers
+	if a.serviceToken != "" {
+		req.Header.Set("Authorization", "Bearer "+a.serviceToken)
+		if vals := headers.Values("X-Grafana-Org-Id"); len(vals) > 0 {
 			for _, v := range vals {
-				req.Header.Add(key, v)
+				req.Header.Add("X-Grafana-Org-Id", v)
+			}
+		}
+	} else {
+		for _, key := range []string{"Cookie", "Authorization", "X-Grafana-Org-Id"} {
+			if vals := headers.Values(key); len(vals) > 0 {
+				for _, v := range vals {
+					req.Header.Add(key, v)
+				}
 			}
 		}
 	}

@@ -16,16 +16,18 @@ import (
 
 // PrometheusClient queries a Prometheus-compatible API (Mimir).
 type PrometheusClient struct {
-	baseURL    string
-	httpClient *http.Client
-	logger     log.Logger
-	authHeaders http.Header // forwarded from incoming request
+	baseURL      string
+	httpClient   *http.Client
+	logger       log.Logger
+	serviceToken string      // Grafana service account token for internal API calls
+	authHeaders  http.Header // forwarded from incoming request (fallback when no serviceToken)
 }
 
 // NewPrometheusClient creates a client that talks to a Prometheus-compatible endpoint.
-func NewPrometheusClient(baseURL string) *PrometheusClient {
+func NewPrometheusClient(baseURL string, serviceToken string) *PrometheusClient {
 	return &PrometheusClient{
-		baseURL: strings.TrimRight(baseURL, "/"),
+		baseURL:      strings.TrimRight(baseURL, "/"),
+		serviceToken: serviceToken,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -36,9 +38,10 @@ func NewPrometheusClient(baseURL string) *PrometheusClient {
 // NewLokiMetricClient creates a client for Loki's Prometheus-compatible metric query API.
 // Loki exposes /loki/api/v1/query and /loki/api/v1/query_range with the same response
 // format as Prometheus, so we reuse PrometheusClient with a /loki path prefix.
-func NewLokiMetricClient(proxyURL string) *PrometheusClient {
+func NewLokiMetricClient(proxyURL string, serviceToken string) *PrometheusClient {
 	return &PrometheusClient{
-		baseURL: strings.TrimRight(proxyURL, "/") + "/loki",
+		baseURL:      strings.TrimRight(proxyURL, "/") + "/loki",
+		serviceToken: serviceToken,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -52,6 +55,35 @@ func (c *PrometheusClient) WithAuthHeaders(h http.Header) *PrometheusClient {
 	clone := *c
 	clone.authHeaders = h
 	return &clone
+}
+
+// ServiceToken returns the configured Grafana service account token, if any.
+func (c *PrometheusClient) ServiceToken() string {
+	return c.serviceToken
+}
+
+// applyAuth sets auth headers on an outgoing HTTP request.
+// When a service account token is configured, it uses that for Authorization
+// while preserving X-Grafana-Org-Id from the user request.
+// Without a token, it forwards Cookie, Authorization, and X-Grafana-Org-Id
+// from the incoming request (works with anonymous auth / local dev).
+func (c *PrometheusClient) applyAuth(req *http.Request) {
+	if c.serviceToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.serviceToken)
+		if vals := c.authHeaders.Values("X-Grafana-Org-Id"); len(vals) > 0 {
+			for _, v := range vals {
+				req.Header.Add("X-Grafana-Org-Id", v)
+			}
+		}
+		return
+	}
+	for _, key := range []string{"Cookie", "Authorization", "X-Grafana-Org-Id"} {
+		if vals := c.authHeaders.Values(key); len(vals) > 0 {
+			for _, v := range vals {
+				req.Header.Add(key, v)
+			}
+		}
+	}
 }
 
 // PromResponse models the Prometheus HTTP API JSON envelope.
@@ -140,13 +172,7 @@ func (c *PrometheusClient) LabelValues(ctx context.Context, labelName string) ([
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
-	for _, key := range []string{"Cookie", "Authorization", "X-Grafana-Org-Id"} {
-		if vals := c.authHeaders.Values(key); len(vals) > 0 {
-			for _, v := range vals {
-				req.Header.Add(key, v)
-			}
-		}
-	}
+	c.applyAuth(req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -179,15 +205,7 @@ func (c *PrometheusClient) doQuery(ctx context.Context, path string, params url.
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
-
-	// Forward auth headers from the incoming user request
-	for _, key := range []string{"Cookie", "Authorization", "X-Grafana-Org-Id"} {
-		if vals := c.authHeaders.Values(key); len(vals) > 0 {
-			for _, v := range vals {
-				req.Header.Add(key, v)
-			}
-		}
-	}
+	c.applyAuth(req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

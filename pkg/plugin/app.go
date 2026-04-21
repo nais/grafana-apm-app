@@ -35,6 +35,7 @@ type App struct {
 	promClient   *queries.PrometheusClient
 	healthClient *http.Client // shared client for health checks
 	grafanaURL   string       // base URL for datasource proxy resolution
+	serviceToken string       // Grafana service account token for internal API calls
 
 	capMu    sync.RWMutex
 	capCache *cachedCapabilities
@@ -58,6 +59,16 @@ func NewApp(_ context.Context, settings backend.AppInstanceSettings) (instancemg
 		}
 	}
 
+	// Read Grafana service account token from secureJsonData.
+	// When deployed behind an OAuth2 proxy (e.g., Wonderwall/Nais), the browser's
+	// session cookies are for the proxy, not for Grafana. Since the plugin backend
+	// calls Grafana's datasource proxy API on localhost (bypassing the proxy),
+	// we need a service account token to authenticate those internal API calls.
+	if token, ok := settings.DecryptedSecureJSONData["serviceAccountToken"]; ok && token != "" {
+		app.serviceToken = token
+		logger.Info("Service account token configured for internal API calls")
+	}
+
 	// Build internal Grafana URL for datasource proxy calls.
 	// The plugin runs in the same process/pod as Grafana, so always use localhost
 	// for API callbacks. GF_APP_URL is the external URL and may not be reachable
@@ -66,7 +77,7 @@ func NewApp(_ context.Context, settings backend.AppInstanceSettings) (instancemg
 
 	if uid := app.settings.MetricsDataSource.UID; uid != "" {
 		proxyURL := fmt.Sprintf("%s/api/datasources/proxy/uid/%s", app.grafanaURL, uid)
-		app.promClient = queries.NewPrometheusClient(proxyURL)
+		app.promClient = queries.NewPrometheusClient(proxyURL, app.serviceToken)
 		logger.Info("Metrics datasource configured via proxy", "uid", uid)
 	} else {
 		// Fallback for unconfigured plugin (e.g., first install before config is saved)

@@ -121,7 +121,7 @@ func (a *App) queryFrontendFromLoki(ctx context.Context, service, env string, at
 		return FrontendMetricsResponse{Available: false}
 	}
 
-	lokiClient := queries.NewLokiMetricClient(lokiURL)
+	lokiClient := queries.NewLokiMetricClient(lokiURL, a.serviceToken)
 	if headers != nil {
 		lokiClient = lokiClient.WithAuthHeaders(headers)
 	}

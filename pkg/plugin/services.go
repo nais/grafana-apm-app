@@ -147,7 +147,7 @@ func (a *App) fetchServiceSummaries( //nolint:gocyclo // complex due to parallel
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			lokiClient := queries.NewLokiMetricClient(lokiURL)
+			lokiClient := queries.NewLokiMetricClient(lokiURL, a.serviceToken)
 			if headers != nil {
 				lokiClient = lokiClient.WithAuthHeaders(headers)
 			}

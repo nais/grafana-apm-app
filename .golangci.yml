@@ -32,3 +32,5 @@ linters:
       - linters: [revive]
         path: _test\.go
         text: "var-naming: avoid package names"
+      - linters: [revive]
+        text: "var-naming: avoid package names that conflict with Go standard library"
