@@ -80,9 +80,16 @@ function DependencyDetail() {
     });
   }, [data, sortField, sortDir]);
 
-  // Build Scenes RED panels for the dependency using service graph metrics
+  // Build Scenes RED panels for the dependency.
+  // Uses service graph metrics with an OR fallback to spanmetrics, since the
+  // dependency may only appear in one source (e.g. external APIs often only
+  // exist in spanmetrics via server_address / http_host).
   const redScene = useMemo(() => {
     const sgPrefix = caps?.serviceGraph?.prefix || 'traces_service_graph';
+    const callsMetric = caps?.spanMetrics?.callsMetric || 'traces_span_metrics_calls_total';
+    const durationBucket = caps?.spanMetrics?.durationMetric || 'traces_span_metrics_duration_milliseconds_bucket';
+    const smDurationUnit = caps?.spanMetrics?.durationUnit || 'ms';
+
     if (!ds.metricsUid || !name) {
       return null;
     }
@@ -90,6 +97,9 @@ function DependencyDetail() {
     const timeRange = new SceneTimeRange({ from, to });
     const safeName = name.replace(/"/g, '\\"');
     const serverFilter = `${otel.labels.server}="${safeName}"`;
+    // Spanmetrics fallback: server_address exact OR http_host with optional :443
+    const smAddrFilter = `${otel.labels.serverAddress}="${safeName}", ${otel.labels.spanKind}="${otel.spanKinds.client}"`;
+    const smHostFilter = `${otel.labels.httpHost}=~"${safeName}(:443)?", ${otel.labels.spanKind}="${otel.spanKinds.client}"`;
 
     const rateQuery = new SceneQueryRunner({
       datasource: { uid: ds.metricsUid, type: 'prometheus' },
@@ -97,7 +107,7 @@ function DependencyDetail() {
       queries: [
         {
           refId: 'A',
-          expr: `sum(rate(${sgPrefix}_request_total{${serverFilter}}[$__rate_interval]))`,
+          expr: `sum(rate(${sgPrefix}_request_total{${serverFilter}}[$__rate_interval])) or sum(rate(${callsMetric}{${smAddrFilter}}[$__rate_interval])) or sum(rate(${callsMetric}{${smHostFilter}}[$__rate_interval]))`,
           legendFormat: 'Request Rate',
         },
       ],
@@ -109,11 +119,17 @@ function DependencyDetail() {
       queries: [
         {
           refId: 'A',
-          expr: `sum(rate(${sgPrefix}_request_failed_total{${serverFilter}}[$__rate_interval])) / sum(rate(${sgPrefix}_request_total{${serverFilter}}[$__rate_interval])) * 100`,
+          expr: [
+            `sum(rate(${sgPrefix}_request_failed_total{${serverFilter}}[$__rate_interval])) / sum(rate(${sgPrefix}_request_total{${serverFilter}}[$__rate_interval])) * 100`,
+            `sum(rate(${callsMetric}{${smAddrFilter}, ${otel.labels.statusCode}="${otel.statusCodes.error}"}[$__rate_interval])) / sum(rate(${callsMetric}{${smAddrFilter}}[$__rate_interval])) * 100`,
+          ].join(' or '),
           legendFormat: 'Error %',
         },
       ],
     });
+
+    // Service graph duration is always in seconds; spanmetrics may be ms or s.
+    const smDurationDiv = smDurationUnit === 'ms' ? ' / 1000' : '';
 
     const durationQuery = new SceneQueryRunner({
       datasource: { uid: ds.metricsUid, type: 'prometheus' },
@@ -121,12 +137,12 @@ function DependencyDetail() {
       queries: [
         {
           refId: 'A',
-          expr: `histogram_quantile(0.95, sum by (le) (rate(${sgPrefix}_request_server_seconds_bucket{${serverFilter}}[$__rate_interval])))`,
+          expr: `histogram_quantile(0.95, sum by (le) (rate(${sgPrefix}_request_server_seconds_bucket{${serverFilter}}[$__rate_interval]))) or histogram_quantile(0.95, sum by (le) (rate(${durationBucket}{${smAddrFilter}}[$__rate_interval])))${smDurationDiv}`,
           legendFormat: 'P95',
         },
         {
           refId: 'B',
-          expr: `histogram_quantile(0.50, sum by (le) (rate(${sgPrefix}_request_server_seconds_bucket{${serverFilter}}[$__rate_interval])))`,
+          expr: `histogram_quantile(0.50, sum by (le) (rate(${sgPrefix}_request_server_seconds_bucket{${serverFilter}}[$__rate_interval]))) or histogram_quantile(0.50, sum by (le) (rate(${durationBucket}{${smAddrFilter}}[$__rate_interval])))${smDurationDiv}`,
           legendFormat: 'P50',
         },
       ],

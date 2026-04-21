@@ -30,6 +30,9 @@ export const otel = {
     client: 'client',
     server: 'server',
     connectionType: 'connection_type',
+    // Spanmetrics dependency labels
+    serverAddress: 'server_address',
+    httpHost: 'http_host',
   },
 
   spanKinds: {

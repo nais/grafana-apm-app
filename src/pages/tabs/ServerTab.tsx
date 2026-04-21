@@ -295,6 +295,14 @@ function EndpointSection({
             </div>
           )}
           <table className={styles.table}>
+            <colgroup>
+              <col style={{ width: 'auto' }} />
+              <col style={{ width: '100px' }} />
+              <col style={{ width: '80px' }} />
+              <col style={{ width: '80px' }} />
+              <col style={{ width: '80px' }} />
+              <col style={{ width: '80px' }} />
+            </colgroup>
             <thead>
               <tr>
                 <SortableHeader
@@ -357,8 +365,10 @@ function EndpointSection({
                     onClick={clickable ? () => onViewTraces(spanName, ep.errorRate > 0 ? 'error' : '') : undefined}
                     title={clickable ? `View traces for ${spanName}` : undefined}
                   >
-                    <td className={styles.nameCell} title={spanName}>
-                      {renderName(ep)}
+                    <td className={styles.nameCell}>
+                      <div className={styles.nameCellInner} title={spanName}>
+                        {renderName(ep)}
+                      </div>
                     </td>
                     <td className={styles.numCell}>{ep.rate.toFixed(2)} req/s</td>
                     <td className={ep.errorRate > 0 ? styles.errorCell : styles.numCell}>{ep.errorRate.toFixed(1)}%</td>
@@ -677,8 +687,6 @@ const getStyles = (theme: GrafanaTheme2) => ({
       padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
       border-bottom: 1px solid ${theme.colors.border.weak};
       vertical-align: middle;
-      overflow: hidden;
-      text-overflow: ellipsis;
     }
     tr:hover {
       background: ${theme.colors.background.secondary};
@@ -703,9 +711,14 @@ const getStyles = (theme: GrafanaTheme2) => ({
   `,
   nameCell: css`
     font-weight: ${theme.typography.fontWeightMedium};
+  `,
+  nameCellInner: css`
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow-wrap: anywhere;
   `,
   numCell: css`
     text-align: right;

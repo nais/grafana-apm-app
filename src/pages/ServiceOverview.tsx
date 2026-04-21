@@ -261,63 +261,9 @@ function ServiceOverview() {
       `sum(rate(${metrics.callsMetric}{${otel.labels.serviceName}="${service}", ${otel.labels.serviceNamespace}="${namespace}", ${otel.labels.spanKind}="${otel.spanKinds.server}"}[5m]))`
     );
 
-    return new EmbeddedScene({
-      $timeRange: timeRange,
-      $behaviors: [new behaviors.CursorSync({ sync: DashboardCursorSync.Crosshair })],
-      controls: [new SceneTimePicker({}), new SceneRefreshPicker({})],
-      body: new SceneFlexLayout({
-        direction: 'row',
-        children: [
-          new SceneFlexItem({
-            height: 300,
-            body: PanelBuilders.timeseries()
-              .setTitle('Duration')
-              .setData(durationQuery)
-              .setUnit(durationUnit)
-              .setLinks([
-                { title: 'Traces', url: tempoUrl, targetBlank: false },
-                { title: 'Logs', url: lokiUrl, targetBlank: false },
-              ])
-              .build(),
-          }),
-          new SceneFlexItem({
-            height: 300,
-            body: PanelBuilders.timeseries()
-              .setTitle('Errors')
-              .setData(errorQuery)
-              .setUnit('percent')
-              .setLinks([
-                { title: 'Traces', url: tempoUrl, targetBlank: false },
-                { title: 'Logs', url: lokiUrl, targetBlank: false },
-              ])
-              .build(),
-          }),
-          new SceneFlexItem({
-            height: 300,
-            body: PanelBuilders.timeseries()
-              .setTitle('Rate')
-              .setData(rateQuery)
-              .setUnit('reqps')
-              .setLinks([{ title: 'Explore', url: mimirUrl, targetBlank: false }])
-              .build(),
-          }),
-        ],
-      }),
-    });
-  }, [service, namespace, envFilter, percentile, percentileLabel, from, to, ds, metrics]);
-
-  // Duration distribution — heatmap over time shows latency density more intuitively
-  // than a static histogram. Users see where most requests land (dark bands) and
-  // whether latency is shifting over time.
-  const durationDistScene = useMemo(() => {
-    const timeRange = new SceneTimeRange({ from, to });
-    let svcFilter = `${otel.labels.serviceName}="${sanitizeLabelValue(service)}", ${otel.labels.serviceNamespace}="${sanitizeLabelValue(namespace)}"`;
-    if (envFilter) {
-      svcFilter += `, ${otel.labels.deploymentEnv}="${sanitizeLabelValue(envFilter)}"`;
-    }
-
     const heatmapQuery = new SceneQueryRunner({
       datasource: { uid: ds.metricsUid, type: 'prometheus' },
+      minInterval: '5m',
       queries: [
         {
           refId: 'A',
@@ -330,9 +276,51 @@ function ServiceOverview() {
 
     return new EmbeddedScene({
       $timeRange: timeRange,
+      $behaviors: [new behaviors.CursorSync({ sync: DashboardCursorSync.Crosshair })],
+      controls: [new SceneTimePicker({}), new SceneRefreshPicker({})],
       body: new SceneFlexLayout({
-        direction: 'row',
+        direction: 'column',
         children: [
+          new SceneFlexItem({
+            body: new SceneFlexLayout({
+              direction: 'row',
+              children: [
+                new SceneFlexItem({
+                  height: 300,
+                  body: PanelBuilders.timeseries()
+                    .setTitle('Duration')
+                    .setData(durationQuery)
+                    .setUnit(durationUnit)
+                    .setLinks([
+                      { title: 'Traces', url: tempoUrl, targetBlank: false },
+                      { title: 'Logs', url: lokiUrl, targetBlank: false },
+                    ])
+                    .build(),
+                }),
+                new SceneFlexItem({
+                  height: 300,
+                  body: PanelBuilders.timeseries()
+                    .setTitle('Errors')
+                    .setData(errorQuery)
+                    .setUnit('percent')
+                    .setLinks([
+                      { title: 'Traces', url: tempoUrl, targetBlank: false },
+                      { title: 'Logs', url: lokiUrl, targetBlank: false },
+                    ])
+                    .build(),
+                }),
+                new SceneFlexItem({
+                  height: 300,
+                  body: PanelBuilders.timeseries()
+                    .setTitle('Rate')
+                    .setData(rateQuery)
+                    .setUnit('reqps')
+                    .setLinks([{ title: 'Explore', url: mimirUrl, targetBlank: false }])
+                    .build(),
+                }),
+              ],
+            }),
+          }),
           new SceneFlexItem({
             height: 320,
             body: PanelBuilders.heatmap()
@@ -354,7 +342,7 @@ function ServiceOverview() {
         ],
       }),
     });
-  }, [service, namespace, envFilter, from, to, ds, metrics]);
+  }, [service, namespace, envFilter, percentile, percentileLabel, from, to, ds, metrics]);
 
   const MAX_OVERVIEW_OPS = 5;
 
@@ -472,14 +460,9 @@ function ServiceOverview() {
         <div className={styles.tabContent}>
           <div style={{ display: activeTab === 'overview' ? undefined : 'none' }}>
             <>
-              {/* RED panels */}
+              {/* RED panels + Duration distribution (single scene for shared time range) */}
               <div style={{ marginBottom: 16 }}>
                 <scene.Component model={scene} />
-              </div>
-
-              {/* Duration distribution */}
-              <div style={{ marginBottom: 16 }}>
-                <durationDistScene.Component model={durationDistScene} />
               </div>
 
               {/* Operations table */}
@@ -652,6 +635,8 @@ function ServiceOverview() {
                 service={service}
                 namespace={namespace}
                 tracesUid={ds.tracesUid}
+                from={from}
+                to={to}
                 initialSpan={traceSpan}
                 initialStatus={traceStatus}
               />

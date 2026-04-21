@@ -19,11 +19,13 @@ interface TracesTabProps {
   service: string;
   namespace: string;
   tracesUid: string;
+  from: string;
+  to: string;
   initialSpan?: string;
   initialStatus?: string;
 }
 
-export function TracesTab({ service, namespace, tracesUid, initialSpan, initialStatus }: TracesTabProps) {
+export function TracesTab({ service, namespace, tracesUid, from, to, initialSpan, initialStatus }: TracesTabProps) {
   const [statusFilter, setStatusFilter] = useState<string>(initialStatus ?? '');
   const [durationMin, setDurationMin] = useState<string>('');
   const [durationMax, setDurationMax] = useState<string>('');
@@ -32,7 +34,7 @@ export function TracesTab({ service, namespace, tracesUid, initialSpan, initialS
   const styles = useStyles2(getStyles);
 
   const scene = useMemo(() => {
-    const timeRange = new SceneTimeRange({ from: 'now-1h', to: 'now' });
+    const timeRange = new SceneTimeRange({ from, to });
 
     // Note: resource.service.namespace may differ between signals (e.g., span metrics
     // report "opentelemetry-demo" while traces/logs report "demo"). Only filter by
@@ -80,7 +82,7 @@ export function TracesTab({ service, namespace, tracesUid, initialSpan, initialS
         ],
       }),
     });
-  }, [service, tracesUid, statusFilter, durationMin, durationMax, debouncedSearch]);
+  }, [service, tracesUid, from, to, statusFilter, durationMin, durationMax, debouncedSearch]);
 
   const statusOptions: Array<SelectableValue<string>> = [
     { label: 'All', value: '' },
