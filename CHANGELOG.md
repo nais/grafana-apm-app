@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.1.2 (2026-04-21)
+
+### Bug Fixes
+
+- **Endpoint Table**: Fix truncated endpoint names showing identical text via colgroup column widths and 2-line clamp
+- **Heatmap**: Duration distribution now syncs with page time picker by merging into shared EmbeddedScene
+- **Heatmap**: Add minInterval to prevent sparse data in short time windows
+- **Dependencies**: Dependency detail charts fall back to spanmetrics (`server_address`, `http_host`) when service graph metrics are unavailable
+- **Traces**: Traces tab now uses shared page time range instead of hardcoded 1-hour window
+- **Dependencies**: Fix impact column bar+label alignment in dependencies tab
+- **Backend**: Use localhost for internal API calls and propagate auth headers for production proxy
+
+### Features
+
+- **Service Inventory**: Add time range picker dropdown to toolbar
+- **Config**: Datasource configuration uses dropdown selectors populated from Grafana API, with auto-detection of default/sole datasources and environment override patterns
+- **Tooling**: Convert Makefile to mise task runner with hierarchical tasks (`frontend:*`, `backend:*`, `deploy:*`)
+- **Tooling**: Add local deployment tasks (`deploy`, `deploy:up`, `deploy:down`, `deploy:restart`, `deploy:logs`, `deploy:status`, `deploy:demo`)
+- **Tooling**: Pre-commit hook runs full check+test+build pipeline via `mise run all`
+
+### CI
+
+- Fix workflow file issue: use `env` context instead of `secrets` in step-level `if:` condition
+- Add gitleaks secrets scan and plugin.json validation to mise check pipeline
+- Backend tests now enforce Go coverage ≥ 10% threshold (matching CI)
+
 ## 0.1.1 (2026-04-21)
 
 ### Bug Fixes

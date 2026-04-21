@@ -11,33 +11,24 @@ on:
       - main
 
 jobs:
-  build:
-    name: Build, lint and unit tests
+  frontend:
+    name: Frontend (check, test, build)
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    outputs:
-      plugin-id: ${{ steps.metadata.outputs.plugin-id }}
-      plugin-version: ${{ steps.metadata.outputs.plugin-version }}
-      has-e2e: ${{ steps.check-for-e2e.outputs.has-e2e }}
-      has-backend: ${{ steps.check-for-backend.outputs.has-backend }}
-    env:
-      GRAFANA_ACCESS_POLICY_TOKEN: ${{ secrets.GRAFANA_ACCESS_POLICY_TOKEN }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
         with:
           persist-credentials: false
       - name: Enable corepack
         run: corepack enable
-      - name: Setup Node.js environment
+      - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # ratchet:actions/setup-node@v6
         with:
           node-version: '22'
           cache: 'pnpm'
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
       - name: Check types
         run: pnpm run typecheck
       - name: Lint
@@ -46,39 +37,34 @@ jobs:
         run: pnpm exec prettier --check "src/**/*.{ts,tsx}" "tests/**/*.ts"
       - name: Unit tests
         run: pnpm run test:ci
-      - name: Build frontend
+      - name: Build
         run: pnpm run build
+      - name: Upload frontend dist
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # ratchet:actions/upload-artifact@v7
+        with:
+          name: frontend-dist
+          path: dist/
+          retention-days: 1
 
-      - name: Check for backend
-        id: check-for-backend
-        run: |
-          if [ -f "Magefile.go" ]
-          then
-            echo "has-backend=true" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Setup Go environment
-        if: steps.check-for-backend.outputs.has-backend == 'true'
+  backend:
+    name: Backend (check, test, build)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Setup Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # ratchet:actions/setup-go@v6
         with:
           go-version-file: go.mod
-
-      - name: Lint backend
-        if: steps.check-for-backend.outputs.has-backend == 'true'
+      - name: Lint
         uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
         with:
           version: latest
           args: ./...
-
-      - name: Build backend
-        if: steps.check-for-backend.outputs.has-backend == 'true'
-        uses: magefile/mage-action@a662bd8c29d8106879588cfff83b2faf6e6f59db # v4.0.0
-        with:
-          version: latest
-          args: buildAll
-
-      - name: Test backend
-        if: steps.check-for-backend.outputs.has-backend == 'true'
+      - name: Test
         run: |
           go test -race -coverprofile=coverage.out -count=1 ./pkg/...
           total=$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $NF}' | tr -d '%')
@@ -88,14 +74,43 @@ jobs:
             echo "::error::Go coverage ${total}% is below threshold ${threshold}%"
             exit 1
           fi
+      - name: Build
+        uses: magefile/mage-action@a662bd8c29d8106879588cfff83b2faf6e6f59db # v4.0.0
+        with:
+          version: latest
+          args: buildAll
+      - name: Upload backend binaries
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # ratchet:actions/upload-artifact@v7
+        with:
+          name: backend-dist
+          path: dist/gpx_*
+          retention-days: 1
 
-      - name: Check for E2E
-        id: check-for-e2e
-        run: |
-          if [ -f "playwright.config.ts" ]
-          then
-            echo "has-e2e=true" >> $GITHUB_OUTPUT
-          fi
+  package:
+    name: Package and validate
+    needs: [frontend, backend]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      plugin-id: ${{ steps.metadata.outputs.plugin-id }}
+      plugin-version: ${{ steps.metadata.outputs.plugin-version }}
+    env:
+      GRAFANA_ACCESS_POLICY_TOKEN: ${{ secrets.GRAFANA_ACCESS_POLICY_TOKEN }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Download frontend dist
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # ratchet:actions/download-artifact@v8
+        with:
+          name: frontend-dist
+          path: dist/
+      - name: Download backend binaries
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # ratchet:actions/download-artifact@v8
+        with:
+          name: backend-dist
+          path: dist/
 
       - name: Sign plugin
         run: npx --yes @grafana/sign-plugin@latest --rootUrls "$GRAFANA_PLUGIN_ROOT_URLS"
@@ -107,18 +122,14 @@ jobs:
       - name: Get plugin metadata
         id: metadata
         run: |
-          sudo apt-get install jq
-
-          export GRAFANA_PLUGIN_ID=$(cat dist/plugin.json | jq -r .id)
-          export GRAFANA_PLUGIN_VERSION=$(cat dist/plugin.json | jq -r .info.version)
+          export GRAFANA_PLUGIN_ID=$(jq -r .id dist/plugin.json)
+          export GRAFANA_PLUGIN_VERSION=$(jq -r .info.version dist/plugin.json)
           export GRAFANA_PLUGIN_ARTIFACT=${GRAFANA_PLUGIN_ID}-${GRAFANA_PLUGIN_VERSION}.zip
-
           echo "plugin-id=${GRAFANA_PLUGIN_ID}" >> $GITHUB_OUTPUT
           echo "plugin-version=${GRAFANA_PLUGIN_VERSION}" >> $GITHUB_OUTPUT
           echo "archive=${GRAFANA_PLUGIN_ARTIFACT}" >> $GITHUB_OUTPUT
 
       - name: Package plugin
-        id: package-plugin
         run: |
           mv dist ${PLUGIN_ID}
           zip ${ARCHIVE} ${PLUGIN_ID} -r
@@ -126,7 +137,7 @@ jobs:
           ARCHIVE: ${{ steps.metadata.outputs.archive }}
           PLUGIN_ID: ${{ steps.metadata.outputs.plugin-id }}
 
-      - name: Check plugin.json
+      - name: Validate plugin
         run: |
           docker run --pull=always \
             -v $PWD/${ARCHIVE}:/archive.zip \
@@ -134,7 +145,7 @@ jobs:
         env:
           ARCHIVE: ${{ steps.metadata.outputs.archive }}
 
-      - name: Archive Build
+      - name: Upload plugin archive
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # ratchet:actions/upload-artifact@v7
         with:
           name: ${{ steps.metadata.outputs.plugin-id }}-${{ steps.metadata.outputs.plugin-version }}
@@ -147,22 +158,18 @@ jobs:
     permissions:
       contents: read
     timeout-minutes: 3
-    needs: build
-    if: ${{ needs.build.outputs.has-e2e == 'true' }}
     outputs:
       matrix: ${{ steps.resolve-versions.outputs.matrix }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
         with:
           persist-credentials: false
-
       - name: Resolve Grafana E2E versions
         id: resolve-versions
         uses: grafana/plugin-actions/e2e-version@698612a13f3253e7dcd5b3c66823acc73321a5ed # ratchet:grafana/plugin-actions/e2e-version@e2e-version/v1.1.2
 
   playwright-tests:
-    needs: [resolve-versions, build]
+    needs: [resolve-versions, package]
     timeout-minutes: 15
     permissions:
       contents: read
@@ -172,7 +179,7 @@ jobs:
       fail-fast: false
       matrix:
         GRAFANA_IMAGE: ${{fromJson(needs.resolve-versions.outputs.matrix)}}
-    name: e2e test ${{ matrix.GRAFANA_IMAGE.name }}@${{ matrix.GRAFANA_IMAGE.VERSION }}
+    name: e2e ${{ matrix.GRAFANA_IMAGE.name }}@${{ matrix.GRAFANA_IMAGE.VERSION }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
@@ -183,16 +190,14 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # ratchet:actions/download-artifact@v8
         with:
           path: dist
-          name: ${{ needs.build.outputs.plugin-id }}-${{ needs.build.outputs.plugin-version }}
+          name: ${{ needs.package.outputs.plugin-id }}-${{ needs.package.outputs.plugin-version }}
 
       - name: Execute permissions on binary
-        if: needs.build.outputs.has-backend == 'true'
-        run: |
-          chmod +x ./dist/gpx_*
+        run: chmod +x ./dist/gpx_*
 
       - name: Enable corepack
         run: corepack enable
-      - name: Setup Node.js environment
+      - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # ratchet:actions/setup-node@v6
         with:
           node-version: '22'
@@ -209,7 +214,7 @@ jobs:
       - name: Wait for grafana server
         uses: grafana/plugin-actions/wait-for-grafana@a66a1c96cdbb176f9cccf10cf23593e250db7cce # ratchet:grafana/plugin-actions/wait-for-grafana@wait-for-grafana/v1.1.0
         with:
-          url: http://localhost:3000/login
+          url: http://127.0.0.1:3000/login
 
       - name: Install Playwright Browsers
         run: pnpm exec playwright install chromium --with-deps
@@ -228,8 +233,7 @@ jobs:
 
       - name: Docker logs
         if: ${{ always() && steps.run-tests.outcome == 'failure' }}
-        run: |
-          docker logs nais-apm-app >& grafana-server.log
+        run: docker logs nais-apm-app >& grafana-server.log
 
       - name: Upload server log
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # ratchet:actions/upload-artifact@v7
@@ -253,8 +257,6 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
         with:
-          # persist-credentials: false avoids duplicate Authorization header
-          # with checkout@v6; the deploy action uses github-token directly
           persist-credentials: false
       - name: Publish report
         uses: grafana/plugin-actions/playwright-gh-pages/deploy-report-pages@a66a1c96cdbb176f9cccf10cf23593e250db7cce # ratchet:grafana/plugin-actions/playwright-gh-pages/deploy-report-pages@deploy-report-pages/v1.1.0
