@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Pre-commit hook: runs the full check+test+build pipeline via mise.
+# Install with: git config core.hooksPath .githooks
+set -euo pipefail
+
+echo "🔍 Running mise run all (check + test + build)..."
+mise run all

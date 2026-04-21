@@ -10,8 +10,8 @@ description = "Run check, test, and build"
 depends = ["check", "test", "build"]
 
 [tasks.check]
-description = "Lint, typecheck, and format-check frontend and backend"
-depends = ["frontend:check", "backend:check"]
+description = "Lint, typecheck, format-check, secrets scan, and validate plugin"
+depends = ["frontend:check", "backend:check", "check:secrets", "check:plugin"]
 
 [tasks.test]
 description = "Run all tests"
@@ -24,6 +24,14 @@ depends = ["frontend:build", "backend:build"]
 [tasks.ls]
 description = "List all available tasks"
 run = "mise tasks"
+
+[tasks."check:secrets"]
+description = "Scan for leaked secrets with gitleaks"
+run = "gitleaks git --staged --verbose"
+
+[tasks."check:plugin"]
+description = "Validate plugin.json metadata"
+run = "pnpm run validate"
 
 # --- Frontend tasks ---
 
@@ -57,8 +65,18 @@ run = [
 ]
 
 [tasks."backend:test"]
-description = "Run Go tests with race detection"
-run = "go test -race -count=1 ./pkg/..."
+description = "Run Go tests with race detection and coverage threshold"
+run = """
+go test -race -coverprofile=coverage.out -count=1 ./pkg/...
+total=$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $NF}' | tr -d '%')
+echo "Go coverage: ${total}%"
+threshold=10
+if [ "$(echo "$total < $threshold" | bc)" -eq 1 ]; then
+  echo "ERROR: Go coverage ${total}% is below threshold ${threshold}%"
+  exit 1
+fi
+rm -f coverage.out
+"""
 
 [tasks."backend:build"]
 description = "Build Go backend for all platforms"
