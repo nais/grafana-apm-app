@@ -221,29 +221,51 @@ export async function getServiceDependencies(
   namespace: string,
   service: string,
   from: number,
-  to: number
+  to: number,
+  environment?: string
 ): Promise<DependenciesResponse> {
+  const params: Record<string, string> = {
+    from: String(Math.floor(from / 1000)),
+    to: String(Math.floor(to / 1000)),
+  };
+  if (environment) {
+    params.environment = environment;
+  }
   return fetchResource<DependenciesResponse>(
     `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(service)}/dependencies`,
-    {
-      from: String(Math.floor(from / 1000)),
-      to: String(Math.floor(to / 1000)),
-    }
+    params
   );
 }
 
-export async function getGlobalDependencies(from: number, to: number): Promise<DependenciesResponse> {
-  return fetchResource<DependenciesResponse>('/dependencies', {
+export async function getGlobalDependencies(
+  from: number,
+  to: number,
+  environment?: string
+): Promise<DependenciesResponse> {
+  const params: Record<string, string> = {
     from: String(Math.floor(from / 1000)),
     to: String(Math.floor(to / 1000)),
-  });
+  };
+  if (environment) {
+    params.environment = environment;
+  }
+  return fetchResource<DependenciesResponse>('/dependencies', params);
 }
 
-export async function getDependencyDetail(name: string, from: number, to: number): Promise<DependencyDetailResponse> {
-  return fetchResource<DependencyDetailResponse>(`/dependencies/${encodeURIComponent(name)}`, {
+export async function getDependencyDetail(
+  name: string,
+  from: number,
+  to: number,
+  environment?: string
+): Promise<DependencyDetailResponse> {
+  const params: Record<string, string> = {
     from: String(Math.floor(from / 1000)),
     to: String(Math.floor(to / 1000)),
-  });
+  };
+  if (environment) {
+    params.environment = environment;
+  }
+  return fetchResource<DependencyDetailResponse>(`/dependencies/${encodeURIComponent(name)}`, params);
 }
 
 // ---- Endpoints (Server tab) ----

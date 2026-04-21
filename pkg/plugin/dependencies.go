@@ -60,7 +60,7 @@ type DependenciesResponse struct {
 }
 
 // handleServiceDependencies returns downstream dependencies for a specific service.
-// GET /services/{namespace}/{service}/dependencies?from=&to=
+// GET /services/{namespace}/{service}/dependencies?from=&to=&environment=
 func (a *App) handleServiceDependencies(w http.ResponseWriter, req *http.Request) {
 	if !requireGET(w, req) {
 		return
@@ -68,6 +68,7 @@ func (a *App) handleServiceDependencies(w http.ResponseWriter, req *http.Request
 	ctx := a.requestContext(req)
 	service := queries.MustSanitizeLabel(req.PathValue("service"))
 	namespace := queries.MustSanitizeLabel(req.PathValue("namespace"))
+	filterEnv := queries.MustSanitizeLabel(req.URL.Query().Get("environment"))
 
 	if !requireServiceParam(w, service) {
 		return
@@ -82,17 +83,18 @@ func (a *App) handleServiceDependencies(w http.ResponseWriter, req *http.Request
 	now := time.Now()
 	to := parseUnixParam(req, "to", now)
 
-	deps := a.queryDependencies(ctx, to, service, "", namespace)
+	deps := a.queryDependencies(ctx, to, service, "", namespace, filterEnv)
 	writeJSON(w, DependenciesResponse{Dependencies: deps})
 }
 
 // handleGlobalDependencies returns all external dependencies across all services.
-// GET /dependencies?from=&to=
+// GET /dependencies?from=&to=&environment=
 func (a *App) handleGlobalDependencies(w http.ResponseWriter, req *http.Request) {
 	if !requireGET(w, req) {
 		return
 	}
 	ctx := a.requestContext(req)
+	filterEnv := queries.MustSanitizeLabel(req.URL.Query().Get("environment"))
 
 	caps := a.cachedOrDetectCapabilities(ctx)
 	if !caps.ServiceGraph.Detected {
@@ -103,18 +105,19 @@ func (a *App) handleGlobalDependencies(w http.ResponseWriter, req *http.Request)
 	now := time.Now()
 	to := parseUnixParam(req, "to", now)
 
-	deps := a.queryDependencies(ctx, to, "", "", "")
+	deps := a.queryDependencies(ctx, to, "", "", "", filterEnv)
 	writeJSON(w, DependenciesResponse{Dependencies: deps})
 }
 
 // handleDependencyDetail returns RED metrics and upstream services for a specific dependency.
-// GET /dependencies/{name}?from=&to=
+// GET /dependencies/{name}?from=&to=&environment=
 func (a *App) handleDependencyDetail(w http.ResponseWriter, req *http.Request) {
 	if !requireGET(w, req) {
 		return
 	}
 	ctx := a.requestContext(req)
 	depName := queries.MustSanitizeLabel(req.PathValue("name"))
+	filterEnv := queries.MustSanitizeLabel(req.URL.Query().Get("environment"))
 
 	if depName == "" {
 		http.Error(w, `{"error":"missing or invalid dependency name"}`, http.StatusBadRequest)
@@ -134,7 +137,7 @@ func (a *App) handleDependencyDetail(w http.ResponseWriter, req *http.Request) {
 	now := time.Now()
 	to := parseUnixParam(req, "to", now)
 
-	detail := a.queryDependencyDetail(ctx, caps, to, depName)
+	detail := a.queryDependencyDetail(ctx, caps, to, depName, filterEnv)
 	writeJSON(w, detail)
 }
 
@@ -155,12 +158,16 @@ type depKey struct {
 // supplemented by spanmetrics for richer type information and to catch
 // dependencies that the service graph connector may miss (e.g. external
 // APIs identified by server_address / http_host).
+// Note: environment filtering is applied to spanmetrics queries only.
+// Service graph metrics may not carry the environment label depending
+// on the collector pipeline configuration.
 func (a *App) queryDependencies(
 	ctx context.Context,
 	to time.Time,
 	filterClient string,
 	filterServer string,
 	_ string,
+	filterEnvironment string,
 ) []DependencySummary {
 	logger := log.DefaultLogger.With("handler", "dependencies")
 	rangeStr := "[5m]"
@@ -203,17 +210,22 @@ func (a *App) queryDependencies(
 
 	// Enrichment: query spanmetrics for specific db_system per server_address.
 	// Only fetches for database-type dependencies to resolve postgresql vs oracle etc.
+	envFilterStr := ""
+	if filterEnvironment != "" {
+		envFilterStr = fmt.Sprintf(`, %s="%s"`, a.otelCfg.Labels.DeploymentEnv, filterEnvironment)
+	}
 	dbEnrichQuery := fmt.Sprintf(
-		`count by (%s, %s) (rate(%s{%s!="", %s="%s"}%s))`,
+		`count by (%s, %s) (rate(%s{%s!="", %s="%s"%s}%s))`,
 		a.otelCfg.Labels.ServerAddress, a.otelCfg.Labels.DBSystem,
 		a.callsMetric(ctx), a.otelCfg.Labels.DBSystem, a.otelCfg.Labels.SpanKind, a.otelCfg.SpanKinds.Client,
+		envFilterStr,
 		rangeStr,
 	)
 
 	// Spanmetrics supplement: discover downstream dependencies from CLIENT/CONSUMER
 	// spans using server_address, http_host, db_system, messaging_system attributes.
 	// This catches external APIs and dependencies that the service graph connector misses.
-	smQueries := a.buildSpanmetricsDepsQueries(ctx, filterClient, rangeStr)
+	smQueries := a.buildSpanmetricsDepsQueries(ctx, filterClient, filterEnvironment, rangeStr)
 
 	type queryResult struct {
 		name    string
@@ -381,7 +393,7 @@ type spanmetricsQuery struct {
 
 // buildSpanmetricsDepsQueries builds spanmetrics queries to supplement service graph
 // dependency discovery. Returns rate and error queries using CLIENT/CONSUMER spans.
-func (a *App) buildSpanmetricsDepsQueries(ctx context.Context, filterClient string, rangeStr string) []spanmetricsQuery {
+func (a *App) buildSpanmetricsDepsQueries(ctx context.Context, filterClient, filterEnvironment, rangeStr string) []spanmetricsQuery {
 	cfg := a.otelCfg
 	kindFilter := fmt.Sprintf(
 		`%s=~"%s|%s|%s"`,
@@ -395,22 +407,28 @@ func (a *App) buildSpanmetricsDepsQueries(ctx context.Context, filterClient stri
 		serviceFilter = fmt.Sprintf(`, %s="%s"`, cfg.Labels.ServiceName, filterClient)
 	}
 
+	// Environment filter on spanmetrics (these carry k8s_cluster_name from resource_to_telemetry_conversion).
+	envFilter := ""
+	if filterEnvironment != "" {
+		envFilter = fmt.Sprintf(`, %s="%s"`, cfg.Labels.DeploymentEnv, filterEnvironment)
+	}
+
 	// Rate by (server_address, http_host, db_system, messaging_system)
 	smRateQ := fmt.Sprintf(
-		`sum by (%s, %s, %s, %s) (rate(%s{%s%s}%s))`,
+		`sum by (%s, %s, %s, %s) (rate(%s{%s%s%s}%s))`,
 		cfg.Labels.ServerAddress, cfg.Labels.HTTPHost,
 		cfg.Labels.DBSystem, cfg.Labels.MessagingSystem,
 		a.callsMetric(ctx),
-		kindFilter, serviceFilter,
+		kindFilter, serviceFilter, envFilter,
 		rangeStr,
 	)
 	// Error rate
 	smErrQ := fmt.Sprintf(
-		`sum by (%s, %s, %s, %s) (rate(%s{%s%s, %s="%s"}%s))`,
+		`sum by (%s, %s, %s, %s) (rate(%s{%s%s%s, %s="%s"}%s))`,
 		cfg.Labels.ServerAddress, cfg.Labels.HTTPHost,
 		cfg.Labels.DBSystem, cfg.Labels.MessagingSystem,
 		a.callsMetric(ctx),
-		kindFilter, serviceFilter,
+		kindFilter, serviceFilter, envFilter,
 		cfg.Labels.StatusCode, cfg.StatusCodes.Error,
 		rangeStr,
 	)
@@ -511,6 +529,7 @@ func (a *App) queryDependencyDetail(
 	caps queries.Capabilities,
 	to time.Time,
 	depName string,
+	filterEnvironment string,
 ) DependencyDetailResponse {
 	logger := log.DefaultLogger.With("handler", "dependency-detail", "dep", depName)
 	rangeStr := "[5m]"
@@ -535,13 +554,18 @@ func (a *App) queryDependencyDetail(
 		sgp, cfg.ServiceGraph.RequestServerBucket, labelFilter, rangeStr,
 	)
 	// Enrichment for specific DB type
+	envFilter := ""
+	if filterEnvironment != "" {
+		envFilter = fmt.Sprintf(`, %s="%s"`, cfg.Labels.DeploymentEnv, filterEnvironment)
+	}
 	dbEnrichQuery := fmt.Sprintf(
-		`count by (%s, %s) (rate(%s{%s="%s", %s!="", %s="%s"}%s))`,
+		`count by (%s, %s) (rate(%s{%s="%s", %s!="", %s="%s"%s}%s))`,
 		cfg.Labels.ServerAddress, cfg.Labels.DBSystem,
 		a.callsMetric(ctx),
 		cfg.Labels.ServerAddress, depName,
 		cfg.Labels.DBSystem,
 		cfg.Labels.SpanKind, cfg.SpanKinds.Client,
+		envFilter,
 		rangeStr,
 	)
 
@@ -549,24 +573,24 @@ func (a *App) queryDependencyDetail(
 	// via server_address or http_host. This catches external API callers that
 	// the service graph connector may not see.
 	smUpRateQ := fmt.Sprintf(
-		`sum by (%s, %s) (rate(%s{%s="%s", %s="%s"}%s)) or sum by (%s, %s) (rate(%s{%s="%s", %s=~"%s(:%s)?"}%s))`,
+		`sum by (%s, %s) (rate(%s{%s="%s", %s="%s"%s}%s)) or sum by (%s, %s) (rate(%s{%s="%s", %s=~"%s(:%s)?"%s}%s))`,
 		cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
 		a.callsMetric(ctx), cfg.Labels.SpanKind, cfg.SpanKinds.Client,
-		cfg.Labels.ServerAddress, depName, rangeStr,
+		cfg.Labels.ServerAddress, depName, envFilter, rangeStr,
 		cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
 		a.callsMetric(ctx), cfg.Labels.SpanKind, cfg.SpanKinds.Client,
-		cfg.Labels.HTTPHost, depName, "443", rangeStr,
+		cfg.Labels.HTTPHost, depName, "443", envFilter, rangeStr,
 	)
 	smUpErrQ := fmt.Sprintf(
-		`sum by (%s, %s) (rate(%s{%s="%s", %s="%s", %s="%s"}%s)) or sum by (%s, %s) (rate(%s{%s="%s", %s="%s", %s=~"%s(:%s)?"}%s))`,
+		`sum by (%s, %s) (rate(%s{%s="%s", %s="%s", %s="%s"%s}%s)) or sum by (%s, %s) (rate(%s{%s="%s", %s="%s", %s=~"%s(:%s)?"%s}%s))`,
 		cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
 		a.callsMetric(ctx), cfg.Labels.SpanKind, cfg.SpanKinds.Client,
 		cfg.Labels.StatusCode, cfg.StatusCodes.Error,
-		cfg.Labels.ServerAddress, depName, rangeStr,
+		cfg.Labels.ServerAddress, depName, envFilter, rangeStr,
 		cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
 		a.callsMetric(ctx), cfg.Labels.SpanKind, cfg.SpanKinds.Client,
 		cfg.Labels.StatusCode, cfg.StatusCodes.Error,
-		cfg.Labels.HTTPHost, depName, "443", rangeStr,
+		cfg.Labels.HTTPHost, depName, "443", envFilter, rangeStr,
 	)
 
 	type queryResult struct {
@@ -751,7 +775,7 @@ func (a *App) queryDependencyDetail(
 	}
 
 	// Query operations that target this dependency via spanmetrics peer_service dimension
-	operations := a.queryDependencyOperations(ctx, caps, to, depName)
+	operations := a.queryDependencyOperations(ctx, caps, to, depName, filterEnvironment)
 
 	return DependencyDetailResponse{
 		Dependency: DependencySummary{
@@ -774,6 +798,7 @@ func (a *App) queryDependencyOperations(
 	caps queries.Capabilities,
 	to time.Time,
 	depName string,
+	filterEnvironment string,
 ) []queries.DependencyOperation {
 	logger := log.DefaultLogger.With("handler", "dependency-operations", "dep", depName)
 	cfg := a.otelCfg
@@ -782,12 +807,18 @@ func (a *App) queryDependencyOperations(
 	durationBucket := caps.SpanMetrics.DurationMetric
 
 	rangeStr := "[5m]"
+
+	envFilter := ""
+	if filterEnvironment != "" {
+		envFilter = fmt.Sprintf(`, %s="%s"`, cfg.Labels.DeploymentEnv, filterEnvironment)
+	}
+
 	// Primary filter: peer_service (from spanmetrics connector dimensions)
-	peerFilter := fmt.Sprintf(`peer_service="%s", %s="%s"`, depName, cfg.Labels.SpanKind, cfg.SpanKinds.Client)
+	peerFilter := fmt.Sprintf(`peer_service="%s", %s="%s"%s`, depName, cfg.Labels.SpanKind, cfg.SpanKinds.Client, envFilter)
 	// Fallback filter: server_address (from span attributes promoted to metrics)
-	addrFilter := fmt.Sprintf(`%s="%s", %s="%s"`, cfg.Labels.ServerAddress, depName, cfg.Labels.SpanKind, cfg.SpanKinds.Client)
+	addrFilter := fmt.Sprintf(`%s="%s", %s="%s"%s`, cfg.Labels.ServerAddress, depName, cfg.Labels.SpanKind, cfg.SpanKinds.Client, envFilter)
 	// Second fallback: http_host with optional :443 suffix
-	hostFilter := fmt.Sprintf(`%s=~"%s(:443)?", %s="%s"`, cfg.Labels.HTTPHost, depName, cfg.Labels.SpanKind, cfg.SpanKinds.Client)
+	hostFilter := fmt.Sprintf(`%s=~"%s(:443)?", %s="%s"%s`, cfg.Labels.HTTPHost, depName, cfg.Labels.SpanKind, cfg.SpanKinds.Client, envFilter)
 
 	// Build queries using OR across all three filter strategies
 	rateQuery := fmt.Sprintf(

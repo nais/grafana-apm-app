@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { PluginPage } from '@grafana/runtime';
-import { useStyles2, Icon, LoadingPlaceholder, Alert, Input, RadioButtonGroup } from '@grafana/ui';
-import { GrafanaTheme2, PageLayoutType } from '@grafana/data';
+import { useStyles2, Icon, LoadingPlaceholder, Alert, Input, RadioButtonGroup, Select } from '@grafana/ui';
+import { GrafanaTheme2, PageLayoutType, SelectableValue } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getGlobalDependencies, DependencySummary, DependenciesResponse } from '../api/client';
 import { formatDuration } from '../utils/format';
@@ -9,16 +9,48 @@ import { useTimeRange } from '../utils/timeRange';
 import { useAppNavigate } from '../utils/navigation';
 import { DepTypeIcon, formatDepType } from '../components/DepTypeIcon';
 import { useFetch } from '../utils/useFetch';
+import { useConfiguredEnvironments } from '../utils/datasources';
+import { useSearchParams } from 'react-router-dom';
 
 function Dependencies() {
   const styles = useStyles2(getStyles);
   const appNavigate = useAppNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const envFilter = searchParams.get('environment') ?? '';
   const { fromMs, toMs } = useTimeRange();
+
+  // Read configured environment names from plugin datasource config
+  const configuredEnvs = useConfiguredEnvironments();
+  const envOptions = useMemo<Array<SelectableValue<string>>>(() => {
+    return configuredEnvs.map((e) => ({ label: e, value: e }));
+  }, [configuredEnvs]);
+
+  const setEnvFilter = useCallback(
+    (env: string) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (env) {
+            next.set('environment', env);
+          } else {
+            next.delete('environment');
+          }
+          return next;
+        },
+        { replace: true }
+      );
+    },
+    [setSearchParams]
+  );
+
   const {
     data: depsResp,
     loading,
     error,
-  } = useFetch<DependenciesResponse>(() => getGlobalDependencies(fromMs, toMs), [fromMs, toMs]);
+  } = useFetch<DependenciesResponse>(
+    () => getGlobalDependencies(fromMs, toMs, envFilter || undefined),
+    [fromMs, toMs, envFilter]
+  );
   const deps = useMemo(() => depsResp?.dependencies ?? [], [depsResp]);
 
   const [sortField, setSortField] = useState<keyof DependencySummary>('impact');
@@ -94,6 +126,15 @@ function Dependencies() {
               value={search}
               onChange={(e) => setSearch(e.currentTarget.value)}
             />
+            {envOptions.length > 0 && (
+              <Select
+                options={[{ label: 'All environments', value: '' }, ...envOptions]}
+                value={envFilter}
+                onChange={(v) => setEnvFilter(v?.value ?? '')}
+                width={22}
+                placeholder="Environment"
+              />
+            )}
             <RadioButtonGroup
               options={typeOptions}
               value={typeFilter}
@@ -185,7 +226,10 @@ function Dependencies() {
                       <tr
                         key={dep.name}
                         className={styles.clickableRow}
-                        onClick={() => appNavigate(`dependencies/${encodeURIComponent(dep.name)}`)}
+                        onClick={() => {
+                          const envParam = envFilter ? `?environment=${encodeURIComponent(envFilter)}` : '';
+                          appNavigate(`dependencies/${encodeURIComponent(dep.name)}${envParam}`);
+                        }}
                       >
                         <td className={styles.nameCell} title={dep.name}>
                           <DepTypeIcon type={dep.type} />

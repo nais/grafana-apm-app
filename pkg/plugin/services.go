@@ -140,9 +140,10 @@ func (a *App) fetchServiceSummaries( //nolint:gocyclo // complex due to parallel
 	ch := make(chan queryResult, 10)
 
 	// Faro frontend detection: query Loki for app_name label values (parallel, ~100ms)
+	// Use environment-specific Loki when filtered to improve detection accuracy.
 	var faroApps map[string]bool
 	var faroMu sync.Mutex
-	lokiURL := a.lokiURL("")
+	lokiURL := a.lokiURL(filterEnvironment)
 	if lokiURL != "" {
 		wg.Add(1)
 		go func() {

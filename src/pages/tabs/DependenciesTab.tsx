@@ -13,9 +13,10 @@ interface DependenciesTabProps {
   namespace: string;
   fromMs: number;
   toMs: number;
+  environment?: string;
 }
 
-export function DependenciesTab({ service, namespace, fromMs, toMs }: DependenciesTabProps) {
+export function DependenciesTab({ service, namespace, fromMs, toMs, environment }: DependenciesTabProps) {
   const styles = useStyles2(getStyles);
   const appNavigate = useAppNavigate();
   const {
@@ -23,8 +24,8 @@ export function DependenciesTab({ service, namespace, fromMs, toMs }: Dependenci
     loading,
     error,
   } = useFetch<DependenciesResponse>(
-    () => getServiceDependencies(namespace, service, fromMs, toMs),
-    [service, namespace, fromMs, toMs]
+    () => getServiceDependencies(namespace, service, fromMs, toMs, environment),
+    [service, namespace, fromMs, toMs, environment]
   );
   const deps = useMemo(() => depsResp?.dependencies ?? [], [depsResp]);
   const [sortField, setSortField] = useState<keyof DependencySummary>('impact');
@@ -97,7 +98,10 @@ export function DependenciesTab({ service, namespace, fromMs, toMs }: Dependenci
             <tr
               key={dep.name}
               className={styles.clickableRow}
-              onClick={() => appNavigate(`dependencies/${encodeURIComponent(dep.name)}`)}
+              onClick={() => {
+                const envParam = environment ? `?environment=${encodeURIComponent(environment)}` : '';
+                appNavigate(`dependencies/${encodeURIComponent(dep.name)}${envParam}`);
+              }}
             >
               <td className={styles.nameCell} title={dep.name}>
                 <DepTypeIcon type={dep.type} />

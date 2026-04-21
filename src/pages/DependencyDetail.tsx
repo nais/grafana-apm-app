@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { PluginPage } from '@grafana/runtime';
 import { useStyles2, Icon, LoadingPlaceholder, Alert, LinkButton } from '@grafana/ui';
 import { GrafanaTheme2, PageLayoutType } from '@grafana/data';
@@ -35,12 +35,14 @@ function DependencyDetail() {
   const { name = '' } = useParams<{ name: string }>();
   const styles = useStyles2(getStyles);
   const appNavigate = useAppNavigate();
+  const [searchParams] = useSearchParams();
+  const envFilter = searchParams.get('environment') ?? '';
   const { fromMs, toMs, from, to } = useTimeRange();
-  const ds = usePluginDatasources();
+  const ds = usePluginDatasources(envFilter || undefined);
   const { caps } = useCapabilities();
   const { data, loading, error } = useFetch<DependencyDetailResponse>(
-    () => getDependencyDetail(name, fromMs, toMs),
-    [name, fromMs, toMs]
+    () => getDependencyDetail(name, fromMs, toMs, envFilter || undefined),
+    [name, fromMs, toMs, envFilter]
   );
 
   // Resolve namespaces for upstream services (they're internal and should link to service overview)
@@ -184,7 +186,10 @@ function DependencyDetail() {
             size="sm"
             icon="arrow-left"
             fill="text"
-            onClick={() => appNavigate('dependencies')}
+            onClick={() => {
+              const envParam = envFilter ? `?environment=${encodeURIComponent(envFilter)}` : '';
+              appNavigate(`dependencies${envParam}`);
+            }}
           >
             Dependencies
           </LinkButton>
@@ -291,7 +296,10 @@ function DependencyDetail() {
                       onClick={() => {
                         const ns = serviceNsMap.get(upstream.name);
                         if (ns) {
-                          appNavigate(`services/${encodeURIComponent(ns)}/${encodeURIComponent(upstream.name)}`);
+                          const envParam = envFilter ? `?environment=${encodeURIComponent(envFilter)}` : '';
+                          appNavigate(
+                            `services/${encodeURIComponent(ns)}/${encodeURIComponent(upstream.name)}${envParam}`
+                          );
                         }
                       }}
                     >

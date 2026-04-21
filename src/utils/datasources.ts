@@ -97,3 +97,29 @@ export function usePluginDatasources(env?: string): PluginDatasources {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   return useMemo(() => getPluginDatasources(env), [env, rev]);
 }
+
+/** Returns the configured environment names from byEnvironment config (union of traces + logs). */
+export function useConfiguredEnvironments(): string[] {
+  const [rev, setRev] = useState(0);
+  useEffect(() => {
+    const listener = () => setRev((r) => r + 1);
+    _listeners.push(listener);
+    return () => {
+      _listeners = _listeners.filter((l) => l !== listener);
+    };
+  }, []);
+  return useMemo(() => {
+    const jsonData = getJsonData();
+    const tracesDs: EnvAwareDs = jsonData.tracesDataSource ?? {};
+    const logsDs: EnvAwareDs = jsonData.logsDataSource ?? {};
+    const envs = new Set([...Object.keys(tracesDs.byEnvironment ?? {}), ...Object.keys(logsDs.byEnvironment ?? {})]);
+    return [...envs].sort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rev]);
+}
+
+/** Returns true if the plugin has per-environment datasource overrides configured. */
+export function useHasEnvironmentOverrides(): boolean {
+  const envs = useConfiguredEnvironments();
+  return envs.length > 0;
+}

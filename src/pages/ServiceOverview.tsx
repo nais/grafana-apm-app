@@ -20,7 +20,7 @@ import { HeatmapColorMode } from '@grafana/schema/dist/esm/raw/composable/heatma
 import { buildTempoExploreUrl, buildLokiExploreUrl, buildMimirExploreUrl } from '../utils/explore';
 import { getOperations, getServices, getServiceMap, OperationSummary, ServiceMapResponse } from '../api/client';
 import { formatDuration } from '../utils/format';
-import { usePluginDatasources } from '../utils/datasources';
+import { usePluginDatasources, useHasEnvironmentOverrides } from '../utils/datasources';
 import { useTimeRange } from '../utils/timeRange';
 import { useCapabilities, getMetricNames } from '../utils/capabilities';
 import { useAppNavigate } from '../utils/navigation';
@@ -60,6 +60,7 @@ function ServiceOverview() {
   const styles = useStyles2(getStyles);
   const envFilter = searchParams.get('environment') ?? '';
   const ds = usePluginDatasources(envFilter || undefined);
+  const hasEnvOverrides = useHasEnvironmentOverrides();
   const { from, to, fromMs, toMs } = useTimeRange();
   const { caps } = useCapabilities();
   const metrics = getMetricNames(caps);
@@ -456,6 +457,14 @@ function ServiceOverview() {
           )}
         </TabsBar>
 
+        {/* Info banner when viewing without environment filter and env overrides are configured */}
+        {!envFilter && hasEnvOverrides && (activeTab === 'traces' || activeTab === 'logs') && (
+          <Alert severity="info" title="Default datasource" style={{ marginTop: 8, marginBottom: 0 }}>
+            Traces and logs are shown from the default datasource. Select an environment to view data from the
+            environment-specific datasource.
+          </Alert>
+        )}
+
         {/* Tab content — keep visited tabs mounted to avoid re-fetching */}
         <div className={styles.tabContent}>
           <div style={{ display: activeTab === 'overview' ? undefined : 'none' }}>
@@ -556,7 +565,12 @@ function ServiceOverview() {
                                 onClick={
                                   s.connectionType
                                     ? undefined
-                                    : () => appNavigate(`dependencies/${encodeURIComponent(s.name)}`)
+                                    : () => {
+                                        const envParam = envFilter
+                                          ? `?environment=${encodeURIComponent(envFilter)}`
+                                          : '';
+                                        appNavigate(`dependencies/${encodeURIComponent(s.name)}${envParam}`);
+                                      }
                                 }
                               >
                                 <td className={s.connectionType ? undefined : styles.linkCell}>{s.name}</td>
@@ -597,7 +611,12 @@ function ServiceOverview() {
                                 onClick={
                                   s.connectionType
                                     ? undefined
-                                    : () => appNavigate(`dependencies/${encodeURIComponent(s.name)}`)
+                                    : () => {
+                                        const envParam = envFilter
+                                          ? `?environment=${encodeURIComponent(envFilter)}`
+                                          : '';
+                                        appNavigate(`dependencies/${encodeURIComponent(s.name)}${envParam}`);
+                                      }
                                 }
                               >
                                 <td className={s.connectionType ? undefined : styles.linkCell}>{s.name}</td>
@@ -669,7 +688,13 @@ function ServiceOverview() {
 
           {visitedTabs.has('dependencies') && (
             <div style={{ display: activeTab === 'dependencies' ? undefined : 'none' }}>
-              <DependenciesTab service={service} namespace={namespace} fromMs={fromMs} toMs={toMs} />
+              <DependenciesTab
+                service={service}
+                namespace={namespace}
+                fromMs={fromMs}
+                toMs={toMs}
+                environment={envFilter || undefined}
+              />
             </div>
           )}
 

@@ -8,6 +8,15 @@
 - **Auth**: 3-tier auth fallback: auto-managed token → manual service account token → forwarded user headers
 - **Auth**: Added IAM permissions (`datasources:query`) to `plugin.json` for zero-config auth
 - **Config Page**: Updated authentication section to document both auto-managed and manual token options
+- **Environment**: Dependencies page now respects the selected environment filter — spanmetrics queries filter by `k8s_cluster_name` for accurate per-environment dependency data
+- **Environment**: Added environment dropdown to the global Dependencies page
+- **Environment**: Environment selection is preserved through dependency navigation (list → detail → upstream services → back)
+- **Environment**: Faro frontend detection now uses environment-specific Loki when an environment filter is active
+- **Environment**: Info banner on Traces/Logs tabs when no environment is selected and per-environment datasources are configured
+
+### Utilities
+
+- **Datasources**: New `useConfiguredEnvironments()` and `useHasEnvironmentOverrides()` hooks for reading plugin environment config
 
 ## 0.2.0 (2026-04-21)
 
