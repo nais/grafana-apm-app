@@ -72,7 +72,7 @@ jobs:
 
       - name: Build backend
         if: steps.check-for-backend.outputs.has-backend == 'true'
-        uses: magefile/mage-action@6f50bbb8ea47d56e62dee92392788acbc8192d0b # v3.1.0
+        uses: magefile/mage-action@a662bd8c29d8106879588cfff83b2faf6e6f59db # v4.0.0
         with:
           version: latest
           args: buildAll
@@ -160,7 +160,7 @@ jobs:
 
       - name: Resolve Grafana E2E versions
         id: resolve-versions
-        uses: grafana/plugin-actions/e2e-version@698612a13f3253e7dcd5b3c66823acc73321a5ed # ratchet:grafana/plugin-actions/e2e-version@e2e-version/v1.1.2
+        uses: grafana/plugin-actions/e2e-version@a66a1c96cdbb176f9cccf10cf23593e250db7cce # ratchet:grafana/plugin-actions/e2e-version@e2e-version/v1.1.0
 
   playwright-tests:
     needs: [resolve-versions, build]
@@ -208,7 +208,7 @@ jobs:
           ANONYMOUS_AUTH_ENABLED=false DEVELOPMENT=false GRAFANA_VERSION=${{ matrix.GRAFANA_IMAGE.VERSION }} GRAFANA_IMAGE=${{ matrix.GRAFANA_IMAGE.NAME }} docker compose up -d
 
       - name: Wait for grafana server
-        uses: grafana/plugin-actions/wait-for-grafana@c8ad89b7d81f8cb9967bb65e444d85f5b3d7c674 # ratchet:grafana/plugin-actions/wait-for-grafana@wait-for-grafana/v1.0.2
+        uses: grafana/plugin-actions/wait-for-grafana@a66a1c96cdbb176f9cccf10cf23593e250db7cce # ratchet:grafana/plugin-actions/wait-for-grafana@wait-for-grafana/v1.1.0
         with:
           url: http://localhost:3000/login
 
@@ -220,7 +220,7 @@ jobs:
         run: pnpm run e2e
 
       - name: Upload e2e test summary
-        uses: grafana/plugin-actions/playwright-gh-pages/upload-report-artifacts@fa3356df288e68f5e900ab466e98b0bf9bad3118 # ratchet:grafana/plugin-actions/playwright-gh-pages/upload-report-artifacts@upload-report-artifacts/v1.0.1
+        uses: grafana/plugin-actions/playwright-gh-pages/upload-report-artifacts@a66a1c96cdbb176f9cccf10cf23593e250db7cce # ratchet:grafana/plugin-actions/playwright-gh-pages/upload-report-artifacts@upload-report-artifacts/v1.1.0
         if: ${{ always() && !cancelled() }}
         with:
           upload-report: false
@@ -258,6 +258,6 @@ jobs:
           # with checkout@v6; the deploy action uses github-token directly
           persist-credentials: false
       - name: Publish report
-        uses: grafana/plugin-actions/playwright-gh-pages/deploy-report-pages@5da62466881cdba091672353cf3c72ca348d01b1 # ratchet:grafana/plugin-actions/playwright-gh-pages/deploy-report-pages@deploy-report-pages/v1.1.0
+        uses: grafana/plugin-actions/playwright-gh-pages/deploy-report-pages@a66a1c96cdbb176f9cccf10cf23593e250db7cce # ratchet:grafana/plugin-actions/playwright-gh-pages/deploy-report-pages@deploy-report-pages/v1.1.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
