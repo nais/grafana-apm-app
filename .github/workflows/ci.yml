@@ -208,13 +208,13 @@ jobs:
 
       - name: Start Grafana
         run: |
-          docker compose pull
-          ANONYMOUS_AUTH_ENABLED=false DEVELOPMENT=false GRAFANA_VERSION=${{ matrix.GRAFANA_IMAGE.VERSION }} GRAFANA_IMAGE=${{ matrix.GRAFANA_IMAGE.NAME }} docker compose up -d
+          ANONYMOUS_AUTH_ENABLED=false DEVELOPMENT=false GRAFANA_VERSION=${{ matrix.GRAFANA_IMAGE.VERSION }} GRAFANA_IMAGE=${{ matrix.GRAFANA_IMAGE.NAME }} docker compose up --no-deps --build -d grafana
 
       - name: Wait for grafana server
         uses: grafana/plugin-actions/wait-for-grafana@c8ad89b7d81f8cb9967bb65e444d85f5b3d7c674 # ratchet:grafana/plugin-actions/wait-for-grafana@wait-for-grafana/v1.0.2
         with:
           url: http://127.0.0.1:3000/login
+          timeout: 120
 
       - name: Install Playwright Browsers
         run: pnpm exec playwright install chromium --with-deps
@@ -232,12 +232,12 @@ jobs:
           test-outcome: ${{ steps.run-tests.outcome }}
 
       - name: Docker logs
-        if: ${{ always() && steps.run-tests.outcome == 'failure' }}
+        if: ${{ failure() }}
         run: docker logs nais-apm-app >& grafana-server.log
 
       - name: Upload server log
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # ratchet:actions/upload-artifact@v7
-        if: ${{ always() && steps.run-tests.outcome == 'failure' }}
+        if: ${{ failure() }}
         with:
           name: ${{ matrix.GRAFANA_IMAGE.NAME }}-v${{ matrix.GRAFANA_IMAGE.VERSION }}-${{github.run_id}}-server-log
           path: grafana-server.log
