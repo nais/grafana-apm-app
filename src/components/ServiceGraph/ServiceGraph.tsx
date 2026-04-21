@@ -287,7 +287,7 @@ function ServiceGraphInner({
   // Fit view after layout completes
   React.useEffect(() => {
     if (!loading && layoutedNodes.length > 0) {
-      const timer = setTimeout(() => fitView({ padding: 0.1, duration: 400 }), 100);
+      const timer = setTimeout(() => fitView({ padding: 0.3, duration: 400 }), 200);
       return () => clearTimeout(timer);
     }
     return undefined;
@@ -306,7 +306,7 @@ function ServiceGraphInner({
         defaultEdgeOptions={defaultEdgeOptions}
         onNodeClick={handleNodeClick}
         fitView
-        fitViewOptions={{ padding: 0.2 }}
+        fitViewOptions={{ padding: 0.3 }}
         minZoom={0.1}
         maxZoom={2}
         proOptions={{ hideAttribution: true }}

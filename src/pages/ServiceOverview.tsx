@@ -322,7 +322,7 @@ function ServiceOverview() {
             }),
           }),
           new SceneFlexItem({
-            height: 320,
+            height: 220,
             body: PanelBuilders.heatmap()
               .setTitle('Duration Distribution')
               .setData(heatmapQuery)
@@ -522,7 +522,7 @@ function ServiceOverview() {
               {graphNodes.length > 0 && (
                 <div className={styles.operationsSection}>
                   <h3 className={styles.sectionTitle}>Service Topology</h3>
-                  <div style={{ height: 320, borderRadius: 4, overflow: 'hidden' }}>
+                  <div style={{ height: 350, borderRadius: 4, overflow: 'hidden' }}>
                     <ServiceGraph nodes={graphNodes} edges={graphEdges} focusNode={service} direction="RIGHT" />
                   </div>
                 </div>
