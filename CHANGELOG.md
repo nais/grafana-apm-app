@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.2.0 (2026-04-21)
+
+### Features
+
+- **Auth**: Service account token support for deployments behind OAuth2 proxies (Wonderwall/Nais). The plugin backend now authenticates internal datasource proxy calls using a Grafana service account token stored in `secureJsonData`, fixing 401 errors when Grafana runs behind an OAuth2 sidecar.
+- **Config Page**: Prerequisites alert with links to OTel Collector spanmetrics and servicegraph connector documentation
+- **Config Page**: Detailed descriptions for all configuration sections — datasource purposes, environment overrides, authentication, and auto-detection behavior
+- **Config Page**: Warning alert when auto-detect finds no span metrics, with troubleshooting guidance
+- **Config Page**: Detection results now show Tempo, Loki, and service graph connectivity status
+
+### Bug Fixes
+
+- **Auth**: Centralized `applyAuth()` on PrometheusClient ensures consistent auth across all internal API calls (queries, label lookups, health checks)
+- **Auth**: Preserve `X-Grafana-Org-Id` header when using service account token to maintain correct org context
+
+### CI
+
+- Remove invalid `publish: true` input from release workflow
+- Update e2e action versions (e2e-version v1.2.1, wait-for-grafana v1.0.2, upload-report-artifacts v1.0.1)
+- Remove deprecated `config.apps` usage from datasource config resolution
+- Fix golangci-lint revive false positive for standard `plugin` package name
+
 ## 0.1.2 (2026-04-21)
 
 ### Bug Fixes
