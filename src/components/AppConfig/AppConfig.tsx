@@ -1,11 +1,18 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { lastValueFrom } from 'rxjs';
 import { css } from '@emotion/css';
-import { AppPluginMeta, GrafanaTheme2, PluginConfigPageProps, PluginMeta } from '@grafana/data';
+import { AppPluginMeta, GrafanaTheme2, PluginConfigPageProps, PluginMeta, SelectableValue } from '@grafana/data';
 import { getBackendSrv } from '@grafana/runtime';
-import { Alert, Button, Field, FieldSet, IconButton, Input, useStyles2 } from '@grafana/ui';
+import { Alert, Button, Field, FieldSet, IconButton, Input, Select, useStyles2 } from '@grafana/ui';
 import { testIds } from '../testIds';
 import { Capabilities, getCapabilities } from '../../api/client';
+
+interface GrafanaDataSource {
+  uid: string;
+  name: string;
+  type: string;
+  isDefault: boolean;
+}
 
 interface DsRef {
   uid?: string;
@@ -68,6 +75,84 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
   });
   const [caps, setCaps] = useState<Capabilities | null>(null);
   const [detecting, setDetecting] = useState(false);
+
+  // Datasource options fetched from Grafana API
+  const [promOptions, setPromOptions] = useState<Array<SelectableValue<string>>>([]);
+  const [tempoOptions, setTempoOptions] = useState<Array<SelectableValue<string>>>([]);
+  const [lokiOptions, setLokiOptions] = useState<Array<SelectableValue<string>>>([]);
+  const [dsLoaded, setDsLoaded] = useState(false);
+
+  useEffect(() => {
+    getBackendSrv()
+      .get('/api/datasources')
+      .then((datasources: GrafanaDataSource[]) => {
+        const toOption = (ds: GrafanaDataSource): SelectableValue<string> => ({
+          label: `${ds.name}${ds.isDefault ? ' (default)' : ''}`,
+          value: ds.uid,
+          description: ds.uid,
+        });
+
+        const prom = datasources.filter((ds) => ds.type === 'prometheus').map(toOption);
+        const tempo = datasources.filter((ds) => ds.type === 'tempo').map(toOption);
+        const loki = datasources.filter((ds) => ds.type === 'loki').map(toOption);
+
+        setPromOptions(prom);
+        setTempoOptions(tempo);
+        setLokiOptions(loki);
+        setDsLoaded(true);
+
+        // Auto-fill empty fields: prefer isDefault, then sole datasource
+        setState((prev) => {
+          const updates: Partial<State> = {};
+          if (!prev.metricsUid) {
+            const def = datasources.find((d) => d.type === 'prometheus' && d.isDefault);
+            updates.metricsUid = def?.uid || (prom.length === 1 ? prom[0].value! : '');
+          }
+          if (!prev.tracesUid) {
+            const def = datasources.find((d) => d.type === 'tempo' && d.isDefault);
+            updates.tracesUid = def?.uid || (tempo.length === 1 ? tempo[0].value! : '');
+          }
+          if (!prev.logsUid) {
+            const def = datasources.find((d) => d.type === 'loki' && d.isDefault);
+            updates.logsUid = def?.uid || (loki.length === 1 ? loki[0].value! : '');
+          }
+
+          // Auto-detect environment overrides from naming patterns
+          if (prev.envOverrides.length === 0 && (tempo.length > 1 || loki.length > 1)) {
+            const envMap = new Map<string, { tempoUid: string; lokiUid: string }>();
+            const envPattern = /^(.+?)[-_](tempo|loki)$/i;
+            for (const ds of datasources) {
+              if (ds.type !== 'tempo' && ds.type !== 'loki') {
+                continue;
+              }
+              const match = ds.name.match(envPattern) || ds.uid.match(envPattern);
+              if (match) {
+                const env = match[1];
+                const entry = envMap.get(env) || { tempoUid: '', lokiUid: '' };
+                if (ds.type === 'tempo') {
+                  entry.tempoUid = ds.uid;
+                } else {
+                  entry.lokiUid = ds.uid;
+                }
+                envMap.set(env, entry);
+              }
+            }
+            if (envMap.size > 0) {
+              updates.envOverrides = [...envMap.entries()].sort().map(([env, ds]) => ({
+                env,
+                tempoUid: ds.tempoUid,
+                lokiUid: ds.lokiUid,
+              }));
+            }
+          }
+
+          return Object.keys(updates).length > 0 ? { ...prev, ...updates } : prev;
+        });
+      })
+      .catch(() => {
+        setDsLoaded(true);
+      });
+  }, []);
 
   const onAutoDetect = async () => {
     setDetecting(true);
@@ -158,20 +243,54 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
       }}
     >
       <FieldSet label="Data Sources">
-        <Field label="Metrics (Prometheus/Mimir) UID">
-          <Input
-            width={40}
-            data-testid={testIds.appConfig.apiUrl}
-            value={state.metricsUid}
-            placeholder="e.g., mimir"
-            onChange={onChange('metricsUid')}
-          />
+        <Field label="Metrics (Prometheus/Mimir)">
+          {dsLoaded && promOptions.length > 0 ? (
+            <Select
+              options={promOptions}
+              value={state.metricsUid || null}
+              onChange={(v) => setState((prev) => ({ ...prev, metricsUid: v?.value ?? '' }))}
+              width={40}
+              placeholder="Select Prometheus datasource..."
+              isClearable
+              data-testid={testIds.appConfig.apiUrl}
+            />
+          ) : (
+            <Input
+              width={40}
+              data-testid={testIds.appConfig.apiUrl}
+              value={state.metricsUid}
+              placeholder="e.g., mimir"
+              onChange={onChange('metricsUid')}
+            />
+          )}
         </Field>
-        <Field label="Traces (Tempo) UID" description="Default Tempo datasource">
-          <Input width={40} value={state.tracesUid} placeholder="e.g., tempo" onChange={onChange('tracesUid')} />
+        <Field label="Traces (Tempo)" description="Default Tempo datasource">
+          {dsLoaded && tempoOptions.length > 0 ? (
+            <Select
+              options={tempoOptions}
+              value={state.tracesUid || null}
+              onChange={(v) => setState((prev) => ({ ...prev, tracesUid: v?.value ?? '' }))}
+              width={40}
+              placeholder="Select Tempo datasource..."
+              isClearable
+            />
+          ) : (
+            <Input width={40} value={state.tracesUid} placeholder="e.g., tempo" onChange={onChange('tracesUid')} />
+          )}
         </Field>
-        <Field label="Logs (Loki) UID" description="Default Loki datasource">
-          <Input width={40} value={state.logsUid} placeholder="e.g., loki" onChange={onChange('logsUid')} />
+        <Field label="Logs (Loki)" description="Default Loki datasource">
+          {dsLoaded && lokiOptions.length > 0 ? (
+            <Select
+              options={lokiOptions}
+              value={state.logsUid || null}
+              onChange={(v) => setState((prev) => ({ ...prev, logsUid: v?.value ?? '' }))}
+              width={40}
+              placeholder="Select Loki datasource..."
+              isClearable
+            />
+          ) : (
+            <Input width={40} value={state.logsUid} placeholder="e.g., loki" onChange={onChange('logsUid')} />
+          )}
         </Field>
       </FieldSet>
 
@@ -185,21 +304,55 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
             <Field label="Environment">
               <Input width={20} value={ov.env} placeholder="e.g., dev-gcp" onChange={onEnvChange(idx, 'env')} />
             </Field>
-            <Field label="Tempo UID">
-              <Input
-                width={25}
-                value={ov.tempoUid}
-                placeholder="e.g., dev-gcp-tempo"
-                onChange={onEnvChange(idx, 'tempoUid')}
-              />
+            <Field label="Tempo">
+              {dsLoaded && tempoOptions.length > 0 ? (
+                <Select
+                  options={tempoOptions}
+                  value={ov.tempoUid || null}
+                  onChange={(v) =>
+                    setState((prev) => {
+                      const overrides = [...prev.envOverrides];
+                      overrides[idx] = { ...overrides[idx], tempoUid: v?.value ?? '' };
+                      return { ...prev, envOverrides: overrides };
+                    })
+                  }
+                  width={25}
+                  placeholder="Select Tempo..."
+                  isClearable
+                />
+              ) : (
+                <Input
+                  width={25}
+                  value={ov.tempoUid}
+                  placeholder="e.g., dev-gcp-tempo"
+                  onChange={onEnvChange(idx, 'tempoUid')}
+                />
+              )}
             </Field>
-            <Field label="Loki UID">
-              <Input
-                width={25}
-                value={ov.lokiUid}
-                placeholder="e.g., dev-gcp-loki"
-                onChange={onEnvChange(idx, 'lokiUid')}
-              />
+            <Field label="Loki">
+              {dsLoaded && lokiOptions.length > 0 ? (
+                <Select
+                  options={lokiOptions}
+                  value={ov.lokiUid || null}
+                  onChange={(v) =>
+                    setState((prev) => {
+                      const overrides = [...prev.envOverrides];
+                      overrides[idx] = { ...overrides[idx], lokiUid: v?.value ?? '' };
+                      return { ...prev, envOverrides: overrides };
+                    })
+                  }
+                  width={25}
+                  placeholder="Select Loki..."
+                  isClearable
+                />
+              ) : (
+                <Input
+                  width={25}
+                  value={ov.lokiUid}
+                  placeholder="e.g., dev-gcp-loki"
+                  onChange={onEnvChange(idx, 'lokiUid')}
+                />
+              )}
             </Field>
             <IconButton name="trash-alt" tooltip="Remove" onClick={() => removeEnvOverride(idx)} />
           </div>
