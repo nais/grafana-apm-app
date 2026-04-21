@@ -102,6 +102,8 @@ func TestInferFromName(t *testing.T) {
 		{"aiven redis", "my-app-redis-01.aivencloud.com", "redis"},
 		{"aiven non-redis", "other-thing.aivencloud.com", "redis"},
 		{"regular service", "my-other-app", "service"},
+		{"external domain", "idporten.no", "external"},
+		{"external domain with subdomain", "graph.microsoft.com", "external"},
 		{"case insensitive redis", "REDIS", "redis"},
 		{"case insensitive kafka", "Kafka", "kafka"},
 	}

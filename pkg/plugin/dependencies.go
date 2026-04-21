@@ -382,31 +382,35 @@ type spanmetricsQuery struct {
 // buildSpanmetricsDepsQueries builds spanmetrics queries to supplement service graph
 // dependency discovery. Returns rate and error queries using CLIENT/CONSUMER spans.
 func (a *App) buildSpanmetricsDepsQueries(ctx context.Context, filterClient string, rangeStr string) []spanmetricsQuery {
-	if filterClient == "" {
-		return nil // only supplement when scoped to a specific service
-	}
 	cfg := a.otelCfg
 	kindFilter := fmt.Sprintf(
 		`%s=~"%s|%s|%s"`,
 		cfg.Labels.SpanKind, cfg.SpanKinds.Client, cfg.SpanKinds.Consumer, cfg.SpanKinds.Producer,
 	)
 
+	// When scoped to a specific service, filter by service name.
+	// When global (no filterClient), query all CLIENT/CONSUMER spans.
+	serviceFilter := ""
+	if filterClient != "" {
+		serviceFilter = fmt.Sprintf(`, %s="%s"`, cfg.Labels.ServiceName, filterClient)
+	}
+
 	// Rate by (server_address, http_host, db_system, messaging_system)
 	smRateQ := fmt.Sprintf(
-		`sum by (%s, %s, %s, %s) (rate(%s{%s, %s="%s"}%s))`,
+		`sum by (%s, %s, %s, %s) (rate(%s{%s%s}%s))`,
 		cfg.Labels.ServerAddress, cfg.Labels.HTTPHost,
 		cfg.Labels.DBSystem, cfg.Labels.MessagingSystem,
 		a.callsMetric(ctx),
-		kindFilter, cfg.Labels.ServiceName, filterClient,
+		kindFilter, serviceFilter,
 		rangeStr,
 	)
 	// Error rate
 	smErrQ := fmt.Sprintf(
-		`sum by (%s, %s, %s, %s) (rate(%s{%s, %s="%s", %s="%s"}%s))`,
+		`sum by (%s, %s, %s, %s) (rate(%s{%s%s, %s="%s"}%s))`,
 		cfg.Labels.ServerAddress, cfg.Labels.HTTPHost,
 		cfg.Labels.DBSystem, cfg.Labels.MessagingSystem,
 		a.callsMetric(ctx),
-		kindFilter, cfg.Labels.ServiceName, filterClient,
+		kindFilter, serviceFilter,
 		cfg.Labels.StatusCode, cfg.StatusCodes.Error,
 		rangeStr,
 	)
