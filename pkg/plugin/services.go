@@ -404,7 +404,13 @@ func (a *App) cachedOrDetectCapabilities(ctx context.Context) queries.Capabiliti
 		}
 	}
 
-	caps := a.detectCapabilities(ctx, httpHeaders(ctx))
+	// Resolve the service token from the prom client in context (already resolved per-request)
+	token := ""
+	if c := a.prom(ctx); c != nil {
+		token = c.ServiceToken()
+	}
+
+	caps := a.detectCapabilities(ctx, httpHeaders(ctx), token)
 	a.capMu.Lock()
 	a.capCache = &cachedCapabilities{caps: caps, fetchedAt: time.Now()}
 	a.capMu.Unlock()

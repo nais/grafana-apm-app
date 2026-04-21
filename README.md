@@ -110,15 +110,24 @@ When Grafana runs behind an OAuth2 proxy (e.g., Wonderwall on Nais), the
 plugin backend cannot use forwarded browser cookies for internal API calls
 because the cookies belong to the proxy, not to Grafana itself.
 
-Configure a **Grafana service account token** on the plugin configuration page:
+**Option 1 — Auto-managed (recommended, Grafana 10.3+):**
+
+Enable Grafana's `externalServiceAccounts` feature toggle and set
+`auth.managed_service_accounts_enabled = true` in `grafana.ini`. The plugin
+will automatically receive a managed service account token — no manual
+configuration needed.
+
+**Option 2 — Manual service account token:**
 
 1. Go to **Administration > Service accounts** and create a new account
 2. Assign **Viewer** role (only read access to datasources is needed)
 3. Generate a token (starts with `glsa_`)
 4. Paste it into the **Grafana Service Account Token** field on the plugin configuration page
 
-This is **not needed** for local development with anonymous auth or when
+**Auth is not needed** for local development with anonymous auth or when
 Grafana handles authentication directly (no OAuth2 proxy in front).
+
+The plugin uses a 3-tier fallback: auto-managed token → manual token → forwarded user headers.
 
 ## Development
 

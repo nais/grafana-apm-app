@@ -416,12 +416,28 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
         <p className={s.description}>
           The plugin backend queries datasources through Grafana&apos;s internal API on <code>localhost</code>. When
           Grafana runs behind an OAuth2 proxy (e.g., Wonderwall on Nais), the browser&apos;s session cookie belongs to
-          the proxy — not to Grafana — so the backend cannot authenticate using forwarded headers alone. A Grafana
-          service account token solves this by giving the backend its own credentials for internal API calls.
+          the proxy — not to Grafana — so the backend cannot authenticate using forwarded headers alone.
         </p>
         <p className={s.description}>
-          <strong>Not needed</strong> for local development with anonymous auth or when Grafana handles authentication
-          directly (no OAuth2 proxy in front).
+          <strong>Recommended:</strong> Enable Grafana&apos;s <code>externalServiceAccounts</code> feature toggle and
+          set <code>auth.managed_service_accounts_enabled = true</code>. The plugin will then authenticate automatically
+          with zero configuration. See the{' '}
+          <a
+            href="https://grafana.com/developers/plugin-tools/how-to-guides/app-plugins/use-a-service-account"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Grafana docs
+          </a>
+          .
+        </p>
+        <p className={s.description}>
+          <strong>Fallback:</strong> If the feature toggle is not available, manually create a{' '}
+          <a href="/org/serviceaccounts" target="_blank" rel="noreferrer">
+            service account
+          </a>{' '}
+          and paste its token below. <strong>Not needed</strong> for local development with anonymous auth or when
+          Grafana handles authentication directly.
         </p>
         <Field
           label="Grafana Service Account Token"

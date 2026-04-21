@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1 (2026-04-22)
+
+### Features
+
+- **Auth**: Auto-managed service account via Grafana's `externalServiceAccounts` feature (Grafana 10.3+). When enabled, the plugin authenticates automatically with zero configuration — no manual token needed.
+- **Auth**: 3-tier auth fallback: auto-managed token → manual service account token → forwarded user headers
+- **Auth**: Added IAM permissions (`datasources:query`) to `plugin.json` for zero-config auth
+- **Config Page**: Updated authentication section to document both auto-managed and manual token options
+
 ## 0.2.0 (2026-04-21)
 
 ### Features

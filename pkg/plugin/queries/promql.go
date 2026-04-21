@@ -57,6 +57,14 @@ func (c *PrometheusClient) WithAuthHeaders(h http.Header) *PrometheusClient {
 	return &clone
 }
 
+// WithServiceToken returns a shallow copy of the client with the given service
+// account token, overriding any token set at construction time.
+func (c *PrometheusClient) WithServiceToken(token string) *PrometheusClient {
+	clone := *c
+	clone.serviceToken = token
+	return &clone
+}
+
 // ServiceToken returns the configured Grafana service account token, if any.
 func (c *PrometheusClient) ServiceToken() string {
 	return c.serviceToken

@@ -165,12 +165,34 @@ func (a *App) callsMetric(ctx context.Context) string {
 	return "traces_spanmetrics_calls_total"
 }
 
-// promClientForRequest returns a PrometheusClient with the incoming user's auth headers.
+// promClientForRequest returns a PrometheusClient with auth resolved for the request.
+// Auth priority: 1) auto-managed SA token (via IAM/externalServiceAccounts),
+// 2) manual SA token (from secureJsonData), 3) forwarded user headers.
 func (a *App) promClientForRequest(r *http.Request) *queries.PrometheusClient {
 	if a.promClient == nil {
 		return nil
 	}
+
+	// Try auto-managed service account token from Grafana (zero-config)
+	if token := a.resolveServiceToken(r.Context()); token != "" {
+		return a.promClient.WithServiceToken(token).WithAuthHeaders(r.Header)
+	}
+
 	return a.promClient.WithAuthHeaders(r.Header)
+}
+
+// resolveServiceToken returns the best available service account token.
+// Prefers the auto-managed token from Grafana's externalServiceAccounts
+// feature (PluginAppClientSecret), then falls back to the manual token
+// from secureJsonData.
+func (a *App) resolveServiceToken(ctx context.Context) string {
+	cfg := backend.GrafanaConfigFromContext(ctx)
+	if cfg != nil {
+		if token, err := cfg.PluginAppClientSecret(); err == nil && token != "" {
+			return token
+		}
+	}
+	return a.serviceToken
 }
 
 // requestContext builds a context with both auth-enhanced PrometheusClient and raw HTTP
@@ -217,11 +239,19 @@ func (a *App) CheckHealth(ctx context.Context, req *backend.CheckHealthRequest) 
 	for k, v := range req.Headers {
 		h.Set(k, v)
 	}
+
+	// Resolve the best available service token
+	token := a.resolveServiceToken(ctx)
+
 	if a.promClient != nil {
-		ctx = withAuthContext(ctx, a.promClient.WithAuthHeaders(h))
+		client := a.promClient.WithAuthHeaders(h)
+		if token != "" {
+			client = client.WithServiceToken(token)
+		}
+		ctx = withAuthContext(ctx, client)
 	}
 
-	caps := a.detectCapabilities(ctx, h)
+	caps := a.detectCapabilities(ctx, h, token)
 
 	if !caps.SpanMetrics.Detected {
 		return &backend.CheckHealthResult{

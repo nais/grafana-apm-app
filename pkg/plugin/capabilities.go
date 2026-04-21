@@ -93,13 +93,15 @@ func (a *App) handleCapabilities(w http.ResponseWriter, req *http.Request) {
 	}
 
 	authClient := a.promClientForRequest(req)
+	resolvedToken := a.resolveServiceToken(req.Context())
+
 	// Use a bounded context: inherit parent cancellation but extend deadline
 	// so slow health checks aren't cut short by the HTTP request's deadline.
 	detachedCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	detachedCtx = withAuthContext(detachedCtx, authClient)
 
-	caps := a.detectCapabilities(detachedCtx, req.Header)
+	caps := a.detectCapabilities(detachedCtx, req.Header, resolvedToken)
 
 	a.capMu.Lock()
 	a.capCache = &cachedCapabilities{caps: caps, fetchedAt: time.Now()}
@@ -108,7 +110,7 @@ func (a *App) handleCapabilities(w http.ResponseWriter, req *http.Request) {
 	writeJSON(w, caps)
 }
 
-func (a *App) detectCapabilities(ctx context.Context, headers http.Header) queries.Capabilities {
+func (a *App) detectCapabilities(ctx context.Context, headers http.Header, serviceToken string) queries.Capabilities {
 	logger := log.DefaultLogger.With("handler", "capabilities")
 	caps := queries.Capabilities{}
 
@@ -189,11 +191,11 @@ func (a *App) detectCapabilities(ctx context.Context, headers http.Header) queri
 		}()
 	}
 
-	// Tempo + Loki health checks (with auth headers forwarded)
+	// Tempo + Loki health checks (with auth)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		result := a.checkHTTPHealth(ctx, a.tempoURL(""), "/api/status/buildinfo", headers)
+		result := a.checkHTTPHealth(ctx, a.tempoURL(""), "/api/status/buildinfo", headers, serviceToken)
 		mu.Lock()
 		caps.Tempo = result
 		mu.Unlock()
@@ -202,7 +204,7 @@ func (a *App) detectCapabilities(ctx context.Context, headers http.Header) queri
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		result := a.checkHTTPHealth(ctx, a.lokiURL(""), "/loki/api/v1/labels", headers)
+		result := a.checkHTTPHealth(ctx, a.lokiURL(""), "/loki/api/v1/labels", headers, serviceToken)
 		mu.Lock()
 		caps.Loki = result
 		mu.Unlock()
@@ -214,7 +216,7 @@ func (a *App) detectCapabilities(ctx context.Context, headers http.Header) queri
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			result := a.checkHTTPHealth(ctx, a.tempoURL(env), "/api/status/buildinfo", headers)
+			result := a.checkHTTPHealth(ctx, a.tempoURL(env), "/api/status/buildinfo", headers, serviceToken)
 			mu.Lock()
 			if caps.TempoByEnv == nil {
 				caps.TempoByEnv = make(map[string]queries.DataSourceStatus)
@@ -229,7 +231,7 @@ func (a *App) detectCapabilities(ctx context.Context, headers http.Header) queri
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			result := a.checkHTTPHealth(ctx, a.lokiURL(env), "/loki/api/v1/labels", headers)
+			result := a.checkHTTPHealth(ctx, a.lokiURL(env), "/loki/api/v1/labels", headers, serviceToken)
 			mu.Lock()
 			if caps.LokiByEnv == nil {
 				caps.LokiByEnv = make(map[string]queries.DataSourceStatus)
@@ -261,7 +263,7 @@ func (a *App) detectServices(ctx context.Context, callsMetric string) []string {
 	return services
 }
 
-func (a *App) checkHTTPHealth(ctx context.Context, baseURL, path string, headers http.Header) queries.DataSourceStatus {
+func (a *App) checkHTTPHealth(ctx context.Context, baseURL, path string, headers http.Header, serviceToken string) queries.DataSourceStatus {
 	if baseURL == "" {
 		return queries.DataSourceStatus{Available: false, Error: "not configured"}
 	}
@@ -275,8 +277,8 @@ func (a *App) checkHTTPHealth(ctx context.Context, baseURL, path string, headers
 	}
 
 	// Apply auth: service account token when available, else forward user headers
-	if a.serviceToken != "" {
-		req.Header.Set("Authorization", "Bearer "+a.serviceToken)
+	if serviceToken != "" {
+		req.Header.Set("Authorization", "Bearer "+serviceToken)
 		if vals := headers.Values("X-Grafana-Org-Id"); len(vals) > 0 {
 			for _, v := range vals {
 				req.Header.Add("X-Grafana-Org-Id", v)
