@@ -144,7 +144,9 @@ function ImpactBar({ impact }: { impact: number }) {
   const pct = Math.round(impact * 100);
   return (
     <div className={styles.impactBarContainer}>
-      <div className={styles.impactBarFill} style={{ width: `${pct}%` }} />
+      <div className={styles.impactBarTrack}>
+        <div className={styles.impactBarFill} style={{ width: `${pct}%` }} />
+      </div>
       <span className={styles.impactBarLabel}>{pct}%</span>
     </div>
   );
@@ -218,11 +220,18 @@ const getStyles = (theme: GrafanaTheme2) => ({
   impactBarContainer: css`
     display: flex;
     align-items: center;
+    justify-content: flex-end;
     gap: ${theme.spacing(1)};
-    min-width: 100px;
+  `,
+  impactBarTrack: css`
+    width: 60px;
+    height: 8px;
+    background: ${theme.colors.background.canvas};
+    border-radius: 4px;
+    overflow: hidden;
   `,
   impactBarFill: css`
-    height: 8px;
+    height: 100%;
     background: ${theme.colors.primary.main};
     border-radius: 4px;
     transition: width 0.3s ease;
