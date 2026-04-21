@@ -344,14 +344,12 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
           For multi-cluster setups where each environment (e.g., dev-gcp, prod-gcp) has its own Tempo and Loki
           instances. When a user filters by environment, traces and logs route to the matching datasource automatically.
           Metrics are always read from the single Mimir instance above since span metrics are typically aggregated
-          across environments.
+          across environments. The environment name must match the <code>service_namespace</code> label in your OTel
+          data.
         </p>
         {state.envOverrides.map((ov, idx) => (
           <div key={idx} className={s.envRow}>
-            <Field
-              label="Environment"
-              description={idx === 0 ? 'Must match the service_namespace label in your OTel data' : undefined}
-            >
+            <Field label="Environment">
               <Input width={20} value={ov.env} placeholder="e.g., dev-gcp" onChange={onEnvChange(idx, 'env')} />
             </Field>
             <Field label="Tempo">
