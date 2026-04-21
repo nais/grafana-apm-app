@@ -29,3 +29,8 @@ jobs:
           policy_token: ${{ secrets.GRAFANA_ACCESS_POLICY_TOKEN }}
           sign_root_urls: ${{ secrets.GRAFANA_PLUGIN_ROOT_URLS }}
           attestation: true
+
+      - name: Publish release
+        run: gh release edit "${{ github.ref_name }}" --draft=false
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
