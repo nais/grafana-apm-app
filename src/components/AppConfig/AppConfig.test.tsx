@@ -4,6 +4,18 @@ import { PluginType } from '@grafana/data';
 import AppConfig, { AppConfigProps } from './AppConfig';
 import { testIds } from 'components/testIds';
 
+jest.mock('@grafana/runtime', () => ({
+  ...jest.requireActual('@grafana/runtime'),
+  getBackendSrv: () => ({
+    get: jest.fn().mockResolvedValue([
+      { uid: 'mimir', name: 'Mimir', type: 'prometheus', isDefault: true },
+      { uid: 'tempo', name: 'Tempo', type: 'tempo', isDefault: true },
+      { uid: 'loki', name: 'Loki', type: 'loki', isDefault: true },
+    ]),
+    fetch: jest.fn(),
+  }),
+}));
+
 describe('Components/AppConfig', () => {
   let props: AppConfigProps;
 

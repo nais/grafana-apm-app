@@ -20,14 +20,21 @@ tests/         → Playwright E2E tests
 ## Commands
 
 ```bash
-pnpm install                  # Install frontend deps
-pnpm run dev                  # Frontend watch mode
-pnpm run build                # Production build
-pnpm run test:ci              # Jest unit tests
-pnpm run typecheck            # TypeScript check
-pnpm run lint                 # ESLint
+mise run ls                   # List all tasks
+mise run all                  # Full check + test + build
+mise run check                # Lint + typecheck + format (frontend & backend)
+mise run test                 # All tests (Jest + Go)
+mise run build                # Production build (frontend + backend)
+mise run frontend:check       # Typecheck, ESLint, Prettier
+mise run frontend:test        # Jest unit tests
+mise run frontend:build       # Webpack production build
+mise run frontend:dev         # Frontend watch mode
+mise run backend:check        # go vet + golangci-lint
+mise run backend:test         # Go tests with -race
+mise run backend:build        # mage buildAll (all platforms)
+mise run dev                  # Docker stack + frontend watch
+mise run clean                # Remove dist/ and coverage/
 pnpm run e2e                  # Playwright E2E (needs running stack)
-mage -v build:linux           # Build Go backend
 docker compose up             # Full LGTM dev stack
 docker compose -f docker-compose.demo.yaml up  # With OTel Demo traffic
 ```
@@ -44,6 +51,7 @@ docker compose -f docker-compose.demo.yaml up  # With OTel Demo traffic
 
 - **Do not push** — git credential helper (`osxkeychain`) is unavailable in agent sessions. Stage and commit freely; the user will push.
 - **No co-author trailers** — do not add `Co-authored-by` lines to commit messages.
+- **Always run `mise run all` after every coding session** — before committing or marking a task complete, run the full check+test+build pipeline to catch regressions.
 
 ## Testing
 

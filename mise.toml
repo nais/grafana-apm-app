@@ -1,0 +1,75 @@
+[tools]
+node = "22"
+go = "1.25"
+"golangci-lint" = "latest"
+
+# --- Top-level tasks ---
+
+[tasks.all]
+description = "Run check, test, and build"
+depends = ["check", "test", "build"]
+
+[tasks.check]
+description = "Lint, typecheck, and format-check frontend and backend"
+depends = ["frontend:check", "backend:check"]
+
+[tasks.test]
+description = "Run all tests"
+depends = ["frontend:test", "backend:test"]
+
+[tasks.build]
+description = "Build frontend and backend"
+depends = ["frontend:build", "backend:build"]
+
+[tasks.ls]
+description = "List all available tasks"
+run = "mise tasks"
+
+# --- Frontend tasks ---
+
+[tasks."frontend:check"]
+description = "Typecheck, lint, and format-check frontend"
+run = [
+  "pnpm run typecheck",
+  "pnpm run lint",
+  'pnpm exec prettier --check "src/**/*.{ts,tsx}" "tests/**/*.ts"',
+]
+
+[tasks."frontend:test"]
+description = "Run Jest unit tests"
+run = "pnpm run test:ci"
+
+[tasks."frontend:build"]
+description = "Build frontend for production"
+run = "pnpm run build"
+
+[tasks."frontend:dev"]
+description = "Start frontend in watch mode"
+run = "pnpm run dev"
+
+# --- Backend tasks ---
+
+[tasks."backend:check"]
+description = "Vet and lint Go code"
+run = [
+  "go vet ./pkg/...",
+  "golangci-lint run ./...",
+]
+
+[tasks."backend:test"]
+description = "Run Go tests with race detection"
+run = "go test -race -count=1 ./pkg/..."
+
+[tasks."backend:build"]
+description = "Build Go backend for all platforms"
+run = "go run github.com/magefile/mage -v buildAll"
+
+# --- Utility tasks ---
+
+[tasks.dev]
+description = "Start dev stack and frontend watch"
+run = ["docker compose up -d", "pnpm run dev"]
+
+[tasks.clean]
+description = "Remove build artifacts"
+run = "rm -rf dist/ coverage/"
