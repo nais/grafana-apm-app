@@ -21,7 +21,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: grafana/plugin-actions/build-plugin@a66a1c96cdbb176f9cccf10cf23593e250db7cce # ratchet:grafana/plugin-actions/build-plugin@build-plugin/v1.1.0
+      - uses: grafana/plugin-actions/build-plugin@8b12a2d6fa5fc0939a6bf75905453d4b505ef29a # ratchet:grafana/plugin-actions/build-plugin@build-plugin/v1.2.0
         # To enable plugin signing, add GRAFANA_ACCESS_POLICY_TOKEN to repository secrets.
         # For private signing, also add GRAFANA_PLUGIN_ROOT_URLS (comma-separated Grafana instance URLs).
         # See: https://grafana.com/developers/plugin-tools/publish-a-plugin/sign-a-plugin#generate-an-access-policy-token

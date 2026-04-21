@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.1.1 (2026-04-21)
+
+### Bug Fixes
+
+- **Cache**: Hard limit prevents unbounded memory growth past maxSize
+- **Cache**: Add org ID to cache keys to prevent cross-tenant data leaks
+- **Cache**: Lazy cleanup of expired entries on read
+- **PromQL**: Use `regexp.QuoteMeta` instead of `url.PathEscape` for regex escaping
+
+### Performance
+
+- **Runtime**: Limit query fan-out to 3 concurrent categories (~30 peak queries)
+- **Frontend**: Vitals queries run in parallel instead of sequentially
+- **Service Graph**: ELK layout skipped for graphs over 300 nodes (grid fallback)
+- **Service Graph**: Proper `setTimeout` cleanup in useEffect
+- **Health Checks**: Shared HTTP client for connection reuse
+- **Health Checks**: Drain response body to prevent connection pool leaks
+- **Capabilities**: Reduce detached context timeout from 60s to 30s
+
+### CI
+
+- Bump grafana/plugin-actions to v1.1.0
+- Bump magefile/mage-action to v4.0.0
+- Bump actions/setup-node to v6.4.0
+
 ## 0.1.0 (2026-04-20)
 
 First public release of Nais APM — a self-hosted APM plugin
