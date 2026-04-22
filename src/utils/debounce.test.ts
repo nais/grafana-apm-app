@@ -1,4 +1,4 @@
-import { escapeRegex } from './debounce';
+import { escapeRegex, escapePromQLRegex } from './debounce';
 
 describe('escapeRegex', () => {
   it('escapes special regex characters', () => {
@@ -15,5 +15,19 @@ describe('escapeRegex', () => {
   it('escapes pipe and brackets', () => {
     expect(escapeRegex('a|b')).toBe('a\\|b');
     expect(escapeRegex('[foo]')).toBe('\\[foo\\]');
+  });
+});
+
+describe('escapePromQLRegex', () => {
+  it('double-escapes dots for PromQL string parsing', () => {
+    expect(escapePromQLRegex('dmv18-scan.adeo.no')).toBe('dmv18-scan\\\\.adeo\\\\.no');
+  });
+
+  it('leaves plain strings unchanged', () => {
+    expect(escapePromQLRegex('simple-name')).toBe('simple-name');
+  });
+
+  it('double-escapes all regex special characters', () => {
+    expect(escapePromQLRegex('a.b*c')).toBe('a\\\\.b\\\\*c');
   });
 });

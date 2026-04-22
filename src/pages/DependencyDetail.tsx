@@ -30,7 +30,7 @@ import { SortHeader, ImpactBar, useTableSort, getTableStyles } from '../componen
 import { useFetch } from '../utils/useFetch';
 import { usePluginDatasources } from '../utils/datasources';
 import { useCapabilities } from '../utils/capabilities';
-import { escapeRegex } from '../utils/debounce';
+import { escapePromQLRegex } from '../utils/debounce';
 import { otel } from '../otelconfig';
 
 /**
@@ -41,9 +41,9 @@ import { otel } from '../otelconfig';
 function addressRegex(normalized: string): string {
   const idx = normalized.indexOf(':');
   if (idx >= 0) {
-    return escapeRegex(normalized);
+    return escapePromQLRegex(normalized);
   }
-  return `${escapeRegex(normalized)}(:(443|80))?`;
+  return `${escapePromQLRegex(normalized)}(:(443|80))?`;
 }
 
 function DependencyDetail() {
