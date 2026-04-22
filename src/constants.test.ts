@@ -9,7 +9,6 @@ describe('constants', () => {
     expect(ROUTES.Services).toBe('services');
     expect(ROUTES.ServiceOverview).toContain(':namespace');
     expect(ROUTES.ServiceOverview).toContain(':service');
-    expect(ROUTES.ServiceMap).toBe('service-map');
     expect(ROUTES.Dependencies).toBe('dependencies');
     expect(ROUTES.DependencyDetail).toContain(':name');
   });

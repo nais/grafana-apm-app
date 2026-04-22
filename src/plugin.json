@@ -53,13 +53,6 @@
     },
     {
       "type": "page",
-      "name": "Service Map",
-      "path": "/a/%PLUGIN_ID%/service-map",
-      "addToNav": true,
-      "role": "Viewer"
-    },
-    {
-      "type": "page",
       "name": "Dependencies",
       "path": "/a/%PLUGIN_ID%/dependencies",
       "addToNav": true,
