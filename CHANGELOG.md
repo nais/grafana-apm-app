@@ -5,7 +5,7 @@
 ### Features
 
 - **Sidecar Filtering**: Sidecars (wonderwall, texas) are identified and hidden by default in the service inventory with a toggle to show them. Sidecar badges and visual de-emphasis in connected services and service map views.
-- **Framework Detection**: Improved detection for Go (`go_info`) and Spring Boot (`application_started_time_seconds`). Node.js correctly takes priority over Go when both metrics are present (Go-based exporters alongside Node.js apps).
+- **Framework Detection**: Improved detection for Go (`go_info`) and Spring Boot (`application_started_time_seconds`). Node.js correctly takes priority over Go when both metrics are present. Sidecar containers (wonderwall, texas) are excluded from Go detection — they share the pod's `app` label, which falsely marked Node.js apps as Go.
 - **Environment Grouping**: When filtering by namespace, services are automatically grouped by environment with visual section headers — helps teams see their apps across prod/dev/staging.
 - **Namespace Column**: Namespace column is automatically hidden when a namespace filter is active to reduce redundancy.
 - **Percentile Help**: Added tooltip on the Server tab explaining how histogram bucket boundaries affect P95/P99 accuracy, with link to configuration docs.

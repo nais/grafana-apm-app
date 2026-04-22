@@ -128,9 +128,10 @@ func (a *App) fetchServiceSummaries( //nolint:gocyclo // complex due to parallel
 	if filterNamespace != "" {
 		fwExtraFilters += fmt.Sprintf(`, %s="%s"`, a.otelCfg.Runtime.Labels.Namespace, filterNamespace)
 	}
+	containerLabel := a.otelCfg.Runtime.Container.ContainerLabel
 	frameworkQuery := fmt.Sprintf(
-		`group by (%s, %s, __name__) ({__name__=~"ktor_http_server_requests_seconds_count|application_started_time_seconds|spring_security_filterchains_access_exceptions_after_total|nodejs_version_info|go_info", %s!=""%s})`,
-		a.otelCfg.Runtime.Labels.App, a.otelCfg.Runtime.Labels.Namespace,
+		`group by (%s, %s, %s, __name__) ({__name__=~"ktor_http_server_requests_seconds_count|application_started_time_seconds|spring_security_filterchains_access_exceptions_after_total|nodejs_version_info|go_info", %s!=""%s})`,
+		a.otelCfg.Runtime.Labels.App, a.otelCfg.Runtime.Labels.Namespace, containerLabel,
 		a.otelCfg.Runtime.Labels.App, fwExtraFilters,
 	)
 
@@ -297,6 +298,7 @@ func (a *App) fetchServiceSummaries( //nolint:gocyclo // complex due to parallel
 		app := r.Metric[a.otelCfg.Runtime.Labels.App]
 		ns := r.Metric[a.otelCfg.Runtime.Labels.Namespace]
 		metricName := r.Metric["__name__"]
+		container := r.Metric[containerLabel]
 		k := appKey{name: app, namespace: ns}
 		existing := frameworkMap[k]
 		switch metricName {
@@ -315,6 +317,11 @@ func (a *App) fetchServiceSummaries( //nolint:gocyclo // complex due to parallel
 				frameworkMap[k] = "Node.js"
 			}
 		case "go_info":
+			// Skip go_info from sidecar containers — sidecars like wonderwall
+			// emit go_info with the pod's app label, falsely marking Node.js apps as Go.
+			if isSidecar(container) {
+				continue
+			}
 			if existing == "" {
 				frameworkMap[k] = "Go"
 			}
