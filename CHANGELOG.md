@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.1 (2026-04-22)
+
+### Bug Fixes
+
+- **Dependency Detail**: Fix query parse error for dependency names containing dots (e.g., `dmv18-scan.adeo.no`) — PromQL regex matchers now correctly double-escape special characters.
+
+### CI
+
+- Strip plugin signature in E2E tests so Grafana loads the plugin on localhost.
+- Generate release notes from CHANGELOG.md instead of Grafana boilerplate.
+
 ## 0.3.0 (2026-04-22)
 
 ### Features
