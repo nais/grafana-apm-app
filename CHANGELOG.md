@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 (2026-04-22)
 
 ### Features
 
@@ -11,7 +11,7 @@
 
 ### Bug Fixes
 
-- **Service Inventory**: Services with only CLIENT, PRODUCER, or CONSUMER spans (Kafka consumers, batch jobs, event-driven workers) now appear in the inventory. Previously, only services with SERVER spans were discovered. Services without inbound requests show "—" for RED metrics.
+- **Service Inventory**: Services with only CLIENT, PRODUCER, or CONSUMER spans (Kafka consumers, batch jobs, event-driven workers) now appear in the inventory with full RED metrics and sparklines. Previously, only services with SERVER spans were discovered. Server-based services are unchanged — they continue using SERVER-only metrics for clean inbound request data.
 
 ## 0.3.1 (2026-04-22)
 
