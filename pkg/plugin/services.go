@@ -62,7 +62,7 @@ func (a *App) handleServices(w http.ResponseWriter, req *http.Request) {
 	writeJSON(w, services)
 }
 
-func (a *App) fetchServiceSummaries( //nolint:gocyclo // complex due to parallel metric aggregation
+func (a *App) fetchServiceSummaries(
 	ctx context.Context,
 	caps queries.Capabilities,
 	from, to time.Time,
@@ -246,6 +246,25 @@ func (a *App) fetchServiceSummaries( //nolint:gocyclo // complex due to parallel
 		resultMap[qr.name] = qr.results
 	}
 
+	// Mark services that have Faro frontend data
+	faroMu.Lock()
+	localFaroApps := faroApps
+	faroMu.Unlock()
+
+	return a.aggregateServiceResults(resultMap, withSeries, durationUnit, envLabel, containerLabel, localFaroApps)
+}
+
+// aggregateServiceResults builds ServiceSummary entries from parallel query results.
+// It processes SDK discovery, RED metrics (with SERVER-span fallbacks), framework
+// detection, sparkline series, and Faro frontend flags.
+func (a *App) aggregateServiceResults( //nolint:gocyclo // complexity from many metric result types
+	resultMap map[string][]queries.PromResult,
+	withSeries bool,
+	durationUnit string,
+	envLabel string,
+	containerLabel string,
+	faroApps map[string]bool,
+) []queries.ServiceSummary {
 	// Build service map keyed by "namespace/name/environment"
 	type serviceKey struct {
 		name        string
@@ -451,7 +470,6 @@ func (a *App) fetchServiceSummaries( //nolint:gocyclo // complex due to parallel
 	}
 
 	// Mark services that have Faro frontend data
-	faroMu.Lock()
 	if faroApps != nil {
 		for _, s := range serviceMap {
 			if faroApps[s.Name] {
@@ -459,7 +477,6 @@ func (a *App) fetchServiceSummaries( //nolint:gocyclo // complex due to parallel
 			}
 		}
 	}
-	faroMu.Unlock()
 
 	// Convert map to slice
 	result := make([]queries.ServiceSummary, 0, len(serviceMap))
