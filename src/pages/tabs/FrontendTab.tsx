@@ -20,7 +20,7 @@ import { usePluginDatasources } from '../../utils/datasources';
 import { useTimeRange } from '../../utils/timeRange';
 import { sanitizeLabelValue } from '../../utils/sanitize';
 import { otel } from '../../otelconfig';
-import { buildLokiExploreUrl } from '../../utils/explore';
+import { buildExploreUrl } from '../../utils/explore';
 
 interface FrontendTabProps {
   service: string;
@@ -274,11 +274,6 @@ function LokiWebVitalsPanels({ service, environment }: { service: string; enviro
             .setDescription('TTFB → FCP → LCP loading sequence over time')
             .setData(pageLoadVitalsQ)
             .setUnit('ms')
-            .setCustomFieldConfig('thresholdsStyle', { mode: GraphThresholdsStyleMode.Area })
-            .setThresholds({
-              mode: ThresholdsMode.Absolute,
-              steps: VITAL_THRESHOLDS.lcp,
-            })
             .build(),
         }),
         new SceneFlexItem({
@@ -370,8 +365,22 @@ function LokiWebVitalsPanels({ service, environment }: { service: string; enviro
           instant: true,
         },
         {
+          refId: 'inp',
+          expr: lokiVitalByGroupExpr(service, otel.faroLoki.inp, pageUrl, '[$__range]'),
+          legendFormat: '__auto',
+          format: 'table',
+          instant: true,
+        },
+        {
+          refId: 'ttfb',
+          expr: lokiVitalByGroupExpr(service, otel.faroLoki.ttfb, pageUrl, '[$__range]'),
+          legendFormat: '__auto',
+          format: 'table',
+          instant: true,
+        },
+        {
           refId: 'count',
-          expr: `sum by (${pageUrl}) (count_over_time(${lokiVitalPipeline(service, otel.faroLoki.lcp, pageUrl)} [$__range]))`,
+          expr: `sum by (${pageUrl}) (count_over_time({${otel.faroLoki.serviceName}="${sanitizeLabelValue(service)}", ${otel.faroLoki.kind}="${otel.faroLoki.kindMeasurement}"} | logfmt | ${otel.faroLoki.typeField}="${otel.faroLoki.typeWebVitals}" | ${pageUrl}!="" | keep ${pageUrl} [$__range]))`,
           legendFormat: '__auto',
           format: 'table',
           instant: true,
@@ -406,6 +415,16 @@ function LokiWebVitalsPanels({ service, environment }: { service: string; enviro
             .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.cls })
             .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
             .overrideDecimals(3);
+          b.matchFieldsWithName('Value #inp')
+            .overrideDisplayName('INP (ms)')
+            .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.inp })
+            .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
+            .overrideDecimals(0);
+          b.matchFieldsWithName('Value #ttfb')
+            .overrideDisplayName('TTFB (ms)')
+            .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.ttfb })
+            .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
+            .overrideDecimals(0);
           b.matchFieldsWithName('Value #count').overrideDisplayName('Measurements').overrideDecimals(0);
           b.matchFieldsWithName('Time').overrideCustomFieldConfig('hidden' as any, true);
         })
@@ -492,7 +511,7 @@ function LokiWebVitalsPanels({ service, environment }: { service: string; enviro
           id: 'organize',
           options: {
             excludeByName: { Field: true },
-            renameByName: { 'Sum': '' },
+            renameByName: { Sum: '' },
           },
         },
       ],
@@ -552,20 +571,22 @@ function LokiWebVitalsPanels({ service, environment }: { service: string; enviro
           b.matchFieldsWithName('Value #count').overrideDisplayName('Occurrences');
           b.matchFieldsWithName('Value #sessions').overrideDisplayName('Sessions Affected');
           b.matchFieldsWithName('Time').overrideCustomFieldConfig('hidden' as any, true);
-          b.matchFieldsWithName('value')
-            .overrideLinks([
-              {
-                title: 'Explore in Loki',
-                url: buildLokiExploreUrl(ds.logsUid, service, { from: '${__from:date:iso}', to: '${__to:date:iso}' })
-                  + '&left=' + encodeURIComponent(JSON.stringify({
-                    queries: [{
-                      refId: 'A',
-                      expr: `{${otel.faroLoki.serviceName}="${sanitizeLabelValue(service)}", ${otel.faroLoki.kind}="${otel.faroLoki.kindException}"} | logfmt | value=\`\${__data.fields.value}\``,
-                    }],
-                  })),
-                targetBlank: true,
-              } as any,
-            ]);
+          b.matchFieldsWithName('value').overrideLinks([
+            {
+              title: 'Explore in Loki',
+              url: buildExploreUrl({
+                datasourceUid: ds.logsUid,
+                queries: [
+                  {
+                    refId: 'A',
+                    expr: `{${otel.faroLoki.serviceName}="${sanitizeLabelValue(service)}", ${otel.faroLoki.kind}="${otel.faroLoki.kindException}"} | logfmt | value=\`\${__data.fields.value}\``,
+                  },
+                ],
+                range: { from: '${__from:date:iso}', to: '${__to:date:iso}' },
+              }),
+              targetBlank: true,
+            } as any,
+          ]);
         })
         .build(),
     });
@@ -619,7 +640,15 @@ function LokiWebVitalsPanels({ service, environment }: { service: string; enviro
       controls: [new SceneTimePicker({}), new SceneRefreshPicker({})],
       body: new SceneFlexLayout({
         direction: 'column',
-        children: [vitalsRow, trendsRow, trafficRow, perPageTable, bottomRow, sessionsAndExceptionsRow, consoleErrorsRow],
+        children: [
+          vitalsRow,
+          trendsRow,
+          trafficRow,
+          perPageTable,
+          bottomRow,
+          sessionsAndExceptionsRow,
+          consoleErrorsRow,
+        ],
       }),
     });
   }, [from, to, ds, service]);
@@ -696,11 +725,6 @@ function MimirWebVitalsPanels({ service, namespace }: { service: string; namespa
             .setDescription('TTFB → FCP → LCP loading sequence over time')
             .setData(pageLoadVitalsQ)
             .setUnit('ms')
-            .setCustomFieldConfig('thresholdsStyle', { mode: GraphThresholdsStyleMode.Area })
-            .setThresholds({
-              mode: ThresholdsMode.Absolute,
-              steps: VITAL_THRESHOLDS.lcp,
-            })
             .build(),
         }),
         new SceneFlexItem({
