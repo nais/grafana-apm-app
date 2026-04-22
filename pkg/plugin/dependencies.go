@@ -153,9 +153,9 @@ type depKey struct {
 // supplemented by spanmetrics for richer type information and to catch
 // dependencies that the service graph connector may miss (e.g. external
 // APIs identified by server_address / http_host).
-// Note: environment filtering is applied to spanmetrics queries only.
-// Service graph metrics may not carry the environment label depending
-// on the collector pipeline configuration.
+// Note: environment filtering is applied to both service graph and
+// spanmetrics queries. Service graph metrics carry the environment label
+// as an external label from Mimir (set per-cluster by the collector).
 func (a *App) queryDependencies(
 	ctx context.Context,
 	to time.Time,
@@ -176,6 +176,9 @@ func (a *App) queryDependencies(
 	}
 	if filterServer != "" {
 		filters = append(filters, fmt.Sprintf(`%s="%s"`, a.otelCfg.Labels.Server, filterServer))
+	}
+	if filterEnvironment != "" {
+		filters = append(filters, fmt.Sprintf(`%s="%s"`, a.otelCfg.Labels.DeploymentEnv, filterEnvironment))
 	}
 
 	labelFilter := ""
@@ -489,6 +492,9 @@ func (a *App) queryDependencyDetail(
 	sgp := a.serviceGraphPrefix()
 	cfg := a.otelCfg
 	labelFilter := fmt.Sprintf(`%s=~"%s"`, cfg.Labels.Server, addressMatchRegex(depName))
+	if filterEnvironment != "" {
+		labelFilter += fmt.Sprintf(`, %s="%s"`, cfg.Labels.DeploymentEnv, filterEnvironment)
+	}
 
 	// Query upstream services (by client) — service graph
 	rateQuery := fmt.Sprintf(
@@ -977,13 +983,14 @@ func looksLikeHostname(name string) bool {
 // ConnectedService, ConnectedServicesResponse → models.go
 
 // handleConnectedServices returns inbound and outbound service connections.
-// GET /services/{namespace}/{service}/connected?from=&to=
+// GET /services/{namespace}/{service}/connected?from=&to=&environment=
 func (a *App) handleConnectedServices(w http.ResponseWriter, req *http.Request) {
 	if !requireGET(w, req) {
 		return
 	}
 	ctx := a.requestContext(req)
 	service := queries.MustSanitizeLabel(req.PathValue("service"))
+	filterEnv := queries.MustSanitizeLabel(req.URL.Query().Get("environment"))
 
 	if !requireServiceParam(w, service) {
 		return
@@ -1001,55 +1008,59 @@ func (a *App) handleConnectedServices(w http.ResponseWriter, req *http.Request) 
 	now := time.Now()
 	to := parseUnixParam(req, "to", now)
 
-	resp := a.queryConnectedServices(ctx, to, service)
+	resp := a.queryConnectedServices(ctx, to, service, filterEnv)
 	writeJSON(w, resp)
 }
 
-func (a *App) queryConnectedServices(ctx context.Context, to time.Time, service string) ConnectedServicesResponse {
+func (a *App) queryConnectedServices(ctx context.Context, to time.Time, service, filterEnvironment string) ConnectedServicesResponse {
 	logger := log.DefaultLogger.With("handler", "connected-services")
 	rangeStr := "[5m]"
 	sgp := a.serviceGraphPrefix()
 	cfg := a.otelCfg
 
+	envLabelFilter := ""
+	if filterEnvironment != "" {
+		envLabelFilter = fmt.Sprintf(`, %s="%s"`, cfg.Labels.DeploymentEnv, filterEnvironment)
+	}
+
 	// Outbound: where service is the client
-	// Include connection_type to distinguish database, messaging, and service connections.
 	outRateQ := fmt.Sprintf(
-		`sum by (%s, %s) (rate(%s%s{%s="%s"}%s))`,
+		`sum by (%s, %s) (rate(%s%s{%s="%s"%s}%s))`,
 		cfg.Labels.Server, cfg.Labels.ConnectionType,
 		sgp, cfg.ServiceGraph.RequestTotal,
-		cfg.Labels.Client, service, rangeStr,
+		cfg.Labels.Client, service, envLabelFilter, rangeStr,
 	)
 	outErrQ := fmt.Sprintf(
-		`sum by (%s, %s) (rate(%s%s{%s="%s"}%s))`,
+		`sum by (%s, %s) (rate(%s%s{%s="%s"%s}%s))`,
 		cfg.Labels.Server, cfg.Labels.ConnectionType,
 		sgp, cfg.ServiceGraph.RequestFailedTotal,
-		cfg.Labels.Client, service, rangeStr,
+		cfg.Labels.Client, service, envLabelFilter, rangeStr,
 	)
 	outP95Q := fmt.Sprintf(
-		`histogram_quantile(0.95, sum by (%s, %s, %s) (rate(%s%s{%s="%s"}%s)))`,
+		`histogram_quantile(0.95, sum by (%s, %s, %s) (rate(%s%s{%s="%s"%s}%s)))`,
 		cfg.Labels.Server, cfg.Labels.ConnectionType, cfg.Labels.Le,
 		sgp, cfg.ServiceGraph.RequestServerBucket,
-		cfg.Labels.Client, service, rangeStr,
+		cfg.Labels.Client, service, envLabelFilter, rangeStr,
 	)
 
 	// Inbound: where service is the server (service graph)
 	inRateQ := fmt.Sprintf(
-		`sum by (%s) (rate(%s%s{%s="%s"}%s))`,
+		`sum by (%s) (rate(%s%s{%s="%s"%s}%s))`,
 		cfg.Labels.Client,
 		sgp, cfg.ServiceGraph.RequestTotal,
-		cfg.Labels.Server, service, rangeStr,
+		cfg.Labels.Server, service, envLabelFilter, rangeStr,
 	)
 	inErrQ := fmt.Sprintf(
-		`sum by (%s) (rate(%s%s{%s="%s"}%s))`,
+		`sum by (%s) (rate(%s%s{%s="%s"%s}%s))`,
 		cfg.Labels.Client,
 		sgp, cfg.ServiceGraph.RequestFailedTotal,
-		cfg.Labels.Server, service, rangeStr,
+		cfg.Labels.Server, service, envLabelFilter, rangeStr,
 	)
 	inP95Q := fmt.Sprintf(
-		`histogram_quantile(0.95, sum by (%s, %s) (rate(%s%s{%s="%s"}%s)))`,
+		`histogram_quantile(0.95, sum by (%s, %s) (rate(%s%s{%s="%s"%s}%s)))`,
 		cfg.Labels.Client, cfg.Labels.Le,
 		sgp, cfg.ServiceGraph.RequestServerBucket,
-		cfg.Labels.Server, service, rangeStr,
+		cfg.Labels.Server, service, envLabelFilter, rangeStr,
 	)
 
 	// Spanmetrics supplement: find upstream callers via CLIENT spans whose
@@ -1058,24 +1069,24 @@ func (a *App) queryConnectedServices(ctx context.Context, to time.Time, service 
 	// "appname.namespace.svc" and "appname:8080" style addresses.
 	escapedSvc := regexp.QuoteMeta(service) // proper regex escaping (dots, etc.)
 	smInRateQ := fmt.Sprintf(
-		`sum by (%s, %s) (rate(%s{%s="%s", %s=~"%s[.:].*"}%s)) or sum by (%s, %s) (rate(%s{%s="%s", %s=~"%s[.:].*"}%s))`,
+		`sum by (%s, %s) (rate(%s{%s="%s", %s=~"%s[.:].*"%s}%s)) or sum by (%s, %s) (rate(%s{%s="%s", %s=~"%s[.:].*"%s}%s))`,
 		cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
 		a.callsMetric(ctx), cfg.Labels.SpanKind, cfg.SpanKinds.Client,
-		cfg.Labels.ServerAddress, escapedSvc, rangeStr,
+		cfg.Labels.ServerAddress, escapedSvc, envLabelFilter, rangeStr,
 		cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
 		a.callsMetric(ctx), cfg.Labels.SpanKind, cfg.SpanKinds.Client,
-		cfg.Labels.HTTPHost, escapedSvc, rangeStr,
+		cfg.Labels.HTTPHost, escapedSvc, envLabelFilter, rangeStr,
 	)
 	smInErrQ := fmt.Sprintf(
-		`sum by (%s, %s) (rate(%s{%s="%s", %s="%s", %s=~"%s[.:].*"}%s)) or sum by (%s, %s) (rate(%s{%s="%s", %s="%s", %s=~"%s[.:].*"}%s))`,
+		`sum by (%s, %s) (rate(%s{%s="%s", %s="%s", %s=~"%s[.:].*"%s}%s)) or sum by (%s, %s) (rate(%s{%s="%s", %s="%s", %s=~"%s[.:].*"%s}%s))`,
 		cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
 		a.callsMetric(ctx), cfg.Labels.SpanKind, cfg.SpanKinds.Client,
 		cfg.Labels.StatusCode, cfg.StatusCodes.Error,
-		cfg.Labels.ServerAddress, escapedSvc, rangeStr,
+		cfg.Labels.ServerAddress, escapedSvc, envLabelFilter, rangeStr,
 		cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
 		a.callsMetric(ctx), cfg.Labels.SpanKind, cfg.SpanKinds.Client,
 		cfg.Labels.StatusCode, cfg.StatusCodes.Error,
-		cfg.Labels.HTTPHost, escapedSvc, rangeStr,
+		cfg.Labels.HTTPHost, escapedSvc, envLabelFilter, rangeStr,
 	)
 
 	type queryResult struct {

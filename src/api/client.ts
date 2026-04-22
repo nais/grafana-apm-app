@@ -185,11 +185,18 @@ export async function getConnectedServices(
   namespace: string,
   service: string,
   from: number,
-  to: number
+  to: number,
+  environment?: string
 ): Promise<ConnectedServicesResponse> {
+  const params: Record<string, string> = {
+    ...timeParams(from, to),
+  };
+  if (environment) {
+    params.environment = environment;
+  }
   return fetchResource<ConnectedServicesResponse>(
     `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/connected`,
-    timeParams(from, to)
+    params
   );
 }
 

@@ -183,8 +183,8 @@ function ServiceOverview() {
 
   // Fetch connected services (inbound/outbound)
   const { data: connected } = useFetch<ConnectedServicesResponse>(
-    () => getConnectedServices(namespace, service, fromMs, toMs),
-    [service, namespace, fromMs, toMs]
+    () => getConnectedServices(namespace, service, fromMs, toMs, envFilter || undefined),
+    [service, namespace, fromMs, toMs, envFilter]
   );
 
   const percentileLabel = PERCENTILE_OPTIONS.find((o) => o.value === percentile)?.label ?? 'P95';

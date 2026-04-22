@@ -126,6 +126,18 @@ describe('getConnectedServices', () => {
     const url = lastURL();
     expect(url.pathname).toContain('/services/demo/frontend/connected');
   });
+
+  it('adds environment filter when provided', async () => {
+    await getConnectedServices('demo', 'frontend', 60000, 120000, 'prod-fss');
+    const url = lastURL();
+    expect(url.searchParams.get('environment')).toBe('prod-fss');
+  });
+
+  it('omits environment when not provided', async () => {
+    await getConnectedServices('demo', 'frontend', 60000, 120000);
+    const url = lastURL();
+    expect(url.searchParams.has('environment')).toBe(false);
+  });
 });
 
 describe('getServiceDependencies', () => {
