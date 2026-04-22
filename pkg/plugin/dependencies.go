@@ -67,7 +67,7 @@ func (a *App) handleServiceDependencies(w http.ResponseWriter, req *http.Request
 	}
 	ctx := a.requestContext(req)
 	service := queries.MustSanitizeLabel(req.PathValue("service"))
-	namespace := queries.MustSanitizeLabel(req.PathValue("namespace"))
+	namespace := queries.ParseNamespace(req.PathValue("namespace"))
 	filterEnv := queries.MustSanitizeLabel(req.URL.Query().Get("environment"))
 
 	if !requireServiceParam(w, service) {

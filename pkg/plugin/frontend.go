@@ -16,7 +16,7 @@ func (a *App) handleFrontendMetrics(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	ctx := a.requestContext(req)
-	namespace := queries.MustSanitizeLabel(req.PathValue("namespace"))
+	namespace := queries.ParseNamespace(req.PathValue("namespace"))
 	service := queries.MustSanitizeLabel(req.PathValue("service"))
 	env := queries.MustSanitizeLabel(req.URL.Query().Get("environment"))
 

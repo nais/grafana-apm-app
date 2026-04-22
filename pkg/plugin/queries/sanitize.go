@@ -32,3 +32,13 @@ func MustSanitizeLabel(s string) string {
 	}
 	return v
 }
+
+// ParseNamespace sanitizes a namespace path parameter, treating "_" as a
+// wildcard placeholder (returns empty string). The frontend uses "_" in URLs
+// when the real namespace is unknown, so the backend must treat it as "any".
+func ParseNamespace(raw string) string {
+	if raw == "_" {
+		return ""
+	}
+	return MustSanitizeLabel(raw)
+}

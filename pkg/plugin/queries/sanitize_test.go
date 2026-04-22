@@ -63,3 +63,23 @@ func TestMustSanitizeLabel(t *testing.T) {
 		t.Errorf("MustSanitizeLabel(bad) = %q, want empty", v)
 	}
 }
+
+func TestParseNamespace(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"wildcard underscore", "_", ""},
+		{"empty", "", ""},
+		{"normal namespace", "my-namespace", "my-namespace"},
+		{"injection blocked", `bad"value`, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ParseNamespace(tt.input); got != tt.want {
+				t.Errorf("ParseNamespace(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}

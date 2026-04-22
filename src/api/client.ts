@@ -55,6 +55,11 @@ export interface ServiceSummary {
   durationSeries?: DataPoint[];
 }
 
+/** Encode namespace for URL path segments, using '_' as placeholder for empty. */
+function nsParam(namespace: string): string {
+  return encodeURIComponent(namespace || '_');
+}
+
 async function fetchResource<T>(path: string, params?: Record<string, string>): Promise<T> {
   const url = params ? `${BASE_URL}${path}?${new URLSearchParams(params).toString()}` : `${BASE_URL}${path}`;
 
@@ -110,7 +115,7 @@ export async function getOperations(
   to: number
 ): Promise<OperationSummary[]> {
   return fetchResource<OperationSummary[]>(
-    `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(service)}/operations`,
+    `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/operations`,
     timeParams(from, to)
   );
 }
@@ -183,7 +188,7 @@ export async function getConnectedServices(
   to: number
 ): Promise<ConnectedServicesResponse> {
   return fetchResource<ConnectedServicesResponse>(
-    `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(service)}/connected`,
+    `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/connected`,
     timeParams(from, to)
   );
 }
@@ -236,7 +241,7 @@ export async function getServiceDependencies(
     params.environment = environment;
   }
   return fetchResource<DependenciesResponse>(
-    `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(service)}/dependencies`,
+    `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/dependencies`,
     params
   );
 }
@@ -304,7 +309,7 @@ export async function getEndpoints(
   to: number
 ): Promise<EndpointGroups> {
   return fetchResource<EndpointGroups>(
-    `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(service)}/endpoints`,
+    `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/endpoints`,
     timeParams(from, to)
   );
 }
@@ -328,7 +333,7 @@ export async function getFrontendMetrics(
     params.environment = environment;
   }
   return fetchResource<FrontendMetricsResponse>(
-    `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(service)}/frontend`,
+    `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/frontend`,
     Object.keys(params).length > 0 ? params : undefined
   );
 }
@@ -356,7 +361,7 @@ export async function getGraphQLMetrics(
   to: number
 ): Promise<GraphQLMetricsResponse> {
   return fetchResource<GraphQLMetricsResponse>(
-    `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(service)}/graphql`,
+    `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/graphql`,
     timeParams(from, to)
   );
 }
@@ -505,7 +510,7 @@ export async function getRuntimeMetrics(
   to: number
 ): Promise<RuntimeResponse> {
   return fetchResource<RuntimeResponse>(
-    `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(service)}/runtime`,
+    `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/runtime`,
     timeParams(from, to)
   );
 }
