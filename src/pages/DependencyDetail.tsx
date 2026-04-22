@@ -97,9 +97,7 @@ function DependencyDetail() {
     }
 
     const timeRange = new SceneTimeRange({ from, to });
-    const safeName = name.replace(/"/g, '\\"');
-    const serverFilter = `${otel.labels.server}="${safeName}"`;
-    // Spanmetrics: use regex to match both normalized and raw addresses (e.g., idporten.no and idporten.no:443)
+    const serverFilter = `${otel.labels.server}=~"${addressRegex(name)}"`; // Spanmetrics: use regex to match both normalized and raw addresses (e.g., idporten.no and idporten.no:443)
     const addrRegex = addressRegex(name);
     const envLabel = envFilter ? `, ${otel.labels.deploymentEnv}="${envFilter}"` : '';
     const smAddrFilter = `${otel.labels.serverAddress}=~"${addrRegex}", ${otel.labels.spanKind}="${otel.spanKinds.client}"${envLabel}`;

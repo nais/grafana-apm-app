@@ -488,7 +488,7 @@ func (a *App) queryDependencyDetail(
 	rangeStr := "[5m]"
 	sgp := a.serviceGraphPrefix()
 	cfg := a.otelCfg
-	labelFilter := fmt.Sprintf(`%s="%s"`, cfg.Labels.Server, depName)
+	labelFilter := fmt.Sprintf(`%s=~"%s"`, cfg.Labels.Server, addressMatchRegex(depName))
 
 	// Query upstream services (by client) — service graph
 	rateQuery := fmt.Sprintf(
