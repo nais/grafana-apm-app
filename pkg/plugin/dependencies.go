@@ -7,7 +7,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
@@ -1116,45 +1115,13 @@ func (a *App) queryConnectedServices(ctx context.Context, to time.Time, service,
 		cfg.Labels.HTTPHost, escapedSvc, envLabelFilter, rangeStr,
 	)
 
-	type queryResult struct {
-		name    string
-		results []queries.PromResult
-		err     error
-	}
-
-	var wg sync.WaitGroup
-	allQueries := []struct {
-		name  string
-		query string
-	}{
+	jobs := []QueryJob{
 		{"outRate", outRateQ}, {"outErr", outErrQ}, {"outP95", outP95Q},
 		{"inRate", inRateQ}, {"inErr", inErrQ}, {"inP95", inP95Q},
 		{"smInRate", smInRateQ}, {"smInErr", smInErrQ},
 	}
-	ch := make(chan queryResult, len(allQueries))
 
-	for _, q := range allQueries {
-		wg.Add(1)
-		go func(n, query string) {
-			defer wg.Done()
-			results, err := a.prom(ctx).InstantQuery(ctx, query, to)
-			ch <- queryResult{name: n, results: results, err: err}
-		}(q.name, q.query)
-	}
-
-	go func() {
-		wg.Wait()
-		close(ch)
-	}()
-
-	resultMap := make(map[string][]queries.PromResult)
-	for r := range ch {
-		if r.err != nil {
-			logger.Warn("Connected services query failed", "query", r.name, "error", r.err)
-			continue
-		}
-		resultMap[r.name] = r.results
-	}
+	resultMap := a.runInstantQueries(ctx, to, jobs, logger)
 
 	buildList := func(rateKey, errKey, p95Key, peerLabel string) []ConnectedService {
 		type connKey struct {
