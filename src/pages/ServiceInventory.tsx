@@ -198,8 +198,15 @@ function ServiceInventory() {
 
   // When grouping by environment, ensure rows are grouped by env while
   // preserving the user's chosen sort order within each group (stable sort).
+  // Order: prod, prod-*, dev, dev-* (production environments first).
   if (groupByEnv) {
     filtered = [...filtered].sort((a, b) => {
+      const ka = envSortKey(a.environment ?? '');
+      const kb = envSortKey(b.environment ?? '');
+      if (ka !== kb) {
+        return ka - kb;
+      }
+      // Within the same tier, sort alphabetically by environment name
       return (a.environment ?? '').localeCompare(b.environment ?? '');
     });
   }
@@ -443,6 +450,24 @@ function ServiceInventory() {
       </div>
     </PluginPage>
   );
+}
+
+/** Sort key for environment grouping: prod first, then dev, alphabetical within tier. */
+function envSortKey(env: string): number {
+  const lower = env.toLowerCase();
+  if (lower === 'prod') {
+    return 0;
+  }
+  if (lower.startsWith('prod-')) {
+    return 1;
+  }
+  if (lower === 'dev') {
+    return 2;
+  }
+  if (lower.startsWith('dev-')) {
+    return 3;
+  }
+  return 4; // unknown environments last
 }
 
 function FrameworkBadge({ framework }: { framework?: string }) {
