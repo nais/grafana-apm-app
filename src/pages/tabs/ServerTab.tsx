@@ -23,6 +23,12 @@ interface ServerTabProps {
 
 type SortField = 'spanName' | 'rate' | 'errorRate' | 'p50Duration' | 'p95Duration' | 'p99Duration';
 
+const PERCENTILE_HELP =
+  'Percentiles (P50/P95/P99) are estimated from span metric histograms using histogram_quantile(). ' +
+  'Accuracy depends on histogram bucket granularity configured in your OTel Collector or Tempo metrics-generator. ' +
+  'If many endpoints show identical values (e.g. 30ms/50ms), the histogram buckets are likely too coarse — ' +
+  'add finer sub-50ms boundaries (e.g. 1ms, 2ms, 5ms, 10ms, 25ms) to improve resolution.';
+
 interface ServerData {
   endpoints: EndpointGroups;
   graphql: GraphQLMetricsResponse | null;
@@ -256,6 +262,9 @@ function EndpointSection({
         <span>{title}</span>
         {subtitle && <span className={styles.sectionSubtitle}>({subtitle})</span>}
         <span className={styles.countBadge}>{endpoints.length}</span>
+        <span className={styles.helpIcon} title={PERCENTILE_HELP} onClick={(e) => e.stopPropagation()}>
+          <Icon name="info-circle" size="sm" />
+        </span>
       </h4>
       {!collapsed && (
         <>
@@ -666,6 +675,14 @@ const getStyles = (theme: GrafanaTheme2) => ({
     color: ${theme.colors.text.secondary};
     font-size: 11px;
     font-weight: ${theme.typography.fontWeightMedium};
+  `,
+  helpIcon: css`
+    color: ${theme.colors.text.secondary};
+    cursor: help;
+    opacity: 0.6;
+    &:hover {
+      opacity: 1;
+    }
   `,
   table: css`
     width: 100%;
