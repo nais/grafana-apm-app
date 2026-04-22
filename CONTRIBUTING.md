@@ -54,25 +54,26 @@ mage -v build:linux
 
 Restart the Docker Compose stack to pick up backend changes.
 
-## Makefile
+## Task runner
 
-A unified `Makefile` wraps common tasks:
+The project uses [mise](https://mise.jdx.dev/) as task runner:
 
-| Command       | What it does                              |
-|---------------|-------------------------------------------|
-| `make check`  | Lint + typecheck + test (both Go and TS)  |
-| `make lint`   | golangci-lint + ESLint + tsc --noEmit     |
-| `make test`   | Go tests (with race detector) + Jest      |
-| `make build`  | Frontend webpack build + Mage buildAll    |
-| `make dev`    | Start Docker stack + frontend watch       |
-| `make clean`  | Remove dist/ and coverage/                |
+| Command             | What it does                              |
+|---------------------|-------------------------------------------|
+| `mise run all`      | Full check + test + build pipeline        |
+| `mise run check`    | Lint + typecheck + format (frontend & backend) |
+| `mise run test`     | Go tests (with race detector) + Jest      |
+| `mise run build`    | Frontend webpack build + Mage buildAll    |
+| `mise run dev`      | Start Docker stack + frontend watch       |
+| `mise run clean`    | Remove dist/ and coverage/                |
 
 ## Code structure
 
 | Directory | Contents |
 |-----------|----------|
-| `src/pages/` | Main page components (ServiceInventory, ServiceOverview, ServiceMap) |
-| `src/components/` | Shared React components and plugin config page |
+| `src/pages/` | Main page components (ServiceInventory, ServiceOverview, ServiceMap, Dependencies, DependencyDetail) |
+| `src/pages/tabs/` | Tab components (Server, Runtime, Frontend, Dependencies, Traces, Logs) |
+| `src/components/` | Shared React components, plugin config page, service graph |
 | `src/api/` | TypeScript API client for the Go backend |
 | `src/utils/` | Query builders, formatting helpers, constants |
 | `pkg/` | Go backend plugin (data proxying, service discovery, capability detection) |
@@ -94,7 +95,7 @@ go test -race ./pkg/...                # Go tests with race detector
 golangci-lint run ./...                # Go linting
 
 # All at once
-make check
+mise run all
 ```
 
 ## Quality gates
@@ -119,7 +120,7 @@ make check
 ## Pull requests
 
 - Create a feature branch from `main`
-- Run `make check` before pushing
+- Run `mise run all` before pushing
 - Write tests for new functionality
 - Keep PRs focused — one feature or fix per PR
 

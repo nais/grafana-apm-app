@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+- **Dependency Detail**: Database dependencies now show target database and operation (`db_name · db_operation`) in a dedicated "Target" column in the operations table.
+- **Dependency Detail**: Messaging dependencies now show topic names (`messaging.destination.name`) in a dedicated "Topic" column in the operations table.
+- **Exemplars**: RED panels on ServiceOverview and DependencyDetail pages now display exemplar data points — click to jump directly to the originating trace.
+- **Service Map**: Explicit handling of `virtual_node` connection type for external dependency classification.
+
 ## 0.3.1 (2026-04-22)
 
 ### Bug Fixes

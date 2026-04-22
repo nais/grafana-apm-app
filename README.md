@@ -12,12 +12,21 @@ already operate.
 
 ## Features
 
-- **Service Inventory** — auto-discovers all instrumented services with health sparklines, SDK language icons, and sort/filter
-- **RED Dashboards** — per-service Rate, Errors, and Duration panels with percentile selectors and exemplar overlays
-- **Operations Breakdown** — top operations table and duration distribution histogram
-- **Service Map** — topology graph showing how your services call each other
-- **Cross-Signal Navigation** — click a spike on any chart to jump straight to the relevant traces or logs
-- **Trace & Log Exploration** — search and browse traces and logs scoped to a service
+- **Service Inventory** — auto-discovers all instrumented services with health sparklines, SDK language icons, framework badges, sidecar filtering, and sort/filter/search
+- **RED Dashboards** — per-service Rate, Errors, and Duration panels with configurable percentile selectors (P50–P99) and exemplar overlays linking to traces
+- **Operations Breakdown** — top operations table and duration distribution heatmap
+- **Dependencies** — downstream dependency inventory with impact scoring, per-dependency RED panels, and operation-level detail including database target (`db_name · db_operation`) and messaging topic breakdowns
+- **Connected Services** — inbound/outbound service tables on service detail pages with direct navigation to service or dependency detail
+- **Service Map** — topology graph with ELK.js auto-layout showing database, messaging, and external dependency types with error highlighting
+- **Server Tab** — HTTP, gRPC, and database endpoint breakdowns with protocol-specific metadata
+- **Runtime Tab** — container resource utilization, JVM memory pools and GC, Go runtime metrics, Node.js event loop and heap
+- **Frontend Tab** — Core Web Vitals (LCP, FCP, CLS, INP, TTFB), per-page performance table, and browser breakdown for Faro-instrumented services
+- **Cross-Signal Navigation** — click a spike on any chart to jump straight to the relevant traces or logs in Grafana Explore
+- **Trace & Log Exploration** — search and browse traces and logs scoped to a service, with severity and text filters
+- **Environment Filtering** — filter all views by deployment environment (`k8s.cluster.name`), with per-environment Tempo/Loki datasource overrides
+- **Framework Detection** — automatic badges for Ktor, Spring Boot, Node.js, and Go based on runtime metrics
+- **Sidecar Filtering** — known sidecars (wonderwall, texas) hidden by default with a toggle to show them
+- **GraphQL Metrics** — auto-detected per-operation rate, latency, and error breakdowns for DGS, MicroProfile, and custom frameworks
 - **Zero Config** — auto-detects span metric names, duration units, and available capabilities from your data
 
 ![Service Overview](https://raw.githubusercontent.com/nais/grafana-apm-app/main/src/img/screenshot-service-overview.png)
@@ -531,7 +540,7 @@ Open `http://localhost:3000/a/nais-apm-app/services`.
 To build the backend:
 
 ```bash
-mage -v build:linux
+mise run backend:build
 ```
 
 ### Demo environment
@@ -545,17 +554,21 @@ docker compose -f docker-compose.demo.yaml up
 
 ### Commands
 
+The project uses [mise](https://mise.jdx.dev/) as task runner:
+
 | Command | Description |
 |---------|-------------|
-| `pnpm run dev` | Frontend watch mode |
-| `pnpm run build` | Production frontend build |
-| `pnpm run test` | Unit tests (watch mode) |
-| `pnpm run test:ci` | Unit tests (CI) |
-| `pnpm run typecheck` | TypeScript type checking |
-| `pnpm run lint` | ESLint |
-| `pnpm run lint:fix` | Auto-fix lint and format |
+| `mise run all` | Full check + test + build pipeline |
+| `mise run check` | Lint + typecheck + format (frontend & backend) |
+| `mise run test` | All tests (Jest + Go with race detector) |
+| `mise run build` | Production build (frontend + backend) |
+| `mise run dev` | Docker stack + frontend watch mode |
+| `mise run deploy` | Build all + restart Grafana |
+| `mise run deploy:up` | Start full local stack |
+| `mise run deploy:down` | Stop local stack |
+| `mise run deploy:demo` | Start stack with OTel Demo traffic |
+| `mise run clean` | Remove dist/ and coverage/ |
 | `pnpm run e2e` | Playwright end-to-end tests |
-| `mage -v build:linux` | Backend build (Go) |
 
 ### Requirements
 
@@ -579,9 +592,19 @@ src/
 ├── pages/
 │   ├── ServiceInventory.tsx    # Service list with sparklines and health indicators
 │   ├── ServiceOverview.tsx     # Per-service RED panels, traces, logs, operations
-│   └── ServiceMap.tsx          # Topology graph
+│   ├── ServiceMap.tsx          # Topology graph
+│   ├── Dependencies.tsx        # Downstream dependency inventory
+│   ├── DependencyDetail.tsx    # Per-dependency RED panels and operation breakdown
+│   └── tabs/                   # Tab components for service detail
+│       ├── ServerTab.tsx       # HTTP/gRPC/DB endpoint breakdown
+│       ├── RuntimeTab.tsx      # Container, JVM, Go, Node.js runtime metrics
+│       ├── FrontendTab.tsx     # Web Vitals, page performance, browser breakdown
+│       ├── DependenciesTab.tsx # Per-service dependency list
+│       ├── TracesTab.tsx       # Trace search and exploration
+│       └── LogsTab.tsx         # Log viewer with severity filtering
 ├── components/
-│   └── AppConfig/              # Plugin configuration page
+│   ├── AppConfig/              # Plugin configuration page
+│   └── ServiceGraph/           # React Flow service map with ELK.js layout
 ├── api/
 │   └── client.ts               # TypeScript API client for the Go backend
 └── utils/                      # Query builders, formatters, constants
