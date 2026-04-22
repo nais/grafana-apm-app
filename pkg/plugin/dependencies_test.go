@@ -27,8 +27,13 @@ func TestClassifyDependency(t *testing.T) {
 		{"opensearch in hostname", "logs-opensearch-01", "database", nil, "opensearch"},
 		{"unknown db host", "some-random-host", "database", nil, "database"},
 
-		// messaging system
-		{"kafka messaging", "my-topic", "messaging_system", nil, "kafka"},
+		// messaging system — service names are consumers, not dependencies
+		{"kafka consumer as service", "veilarbportefolje", "messaging_system", nil, "service"},
+		{"kafka consumer service", "vergemaal", "messaging_system", nil, "service"},
+		// messaging system — broker hostnames remain as kafka dependencies
+		{"kafka broker hostname", "kafka-brokers.nav.no", "messaging_system", nil, "kafka"},
+		{"kafka broker name", "kafka", "messaging_system", nil, "kafka"},
+		{"rabbitmq broker", "rabbitmq", "messaging_system", nil, "kafka"},
 
 		// virtual node
 		{"external virtual node", "api.example.com", "virtual_node", nil, "external"},

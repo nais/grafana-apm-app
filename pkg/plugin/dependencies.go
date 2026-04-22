@@ -896,7 +896,15 @@ func classifyDependency(name, connType string, dbSystemMap map[string]string) st
 		return inferDBFromHostname(name)
 
 	case "messaging_system":
-		return "kafka" // dominant messaging system; refined below if needed
+		// If the server is a plain service name (not a broker hostname), this
+		// represents a producer→consumer edge: the consumer is not a dependency
+		// of the producer but rather a downstream subscriber. Classify these as
+		// "service" so they are excluded from the dependencies list and appear
+		// only in connected services.
+		if !looksLikeHostname(name) && !isKnownBrokerName(name) {
+			return "service"
+		}
+		return "kafka"
 
 	case "virtual_node":
 		return "external"
@@ -978,6 +986,17 @@ func inferFromName(name string) string {
 // indicating an external hostname rather than an internal service name.
 func looksLikeHostname(name string) bool {
 	return strings.Contains(name, ".") || strings.Contains(name, ":")
+}
+
+// isKnownBrokerName returns true if the name matches a well-known message broker
+// name that should appear as a dependency (e.g., "kafka", "rabbitmq").
+func isKnownBrokerName(name string) bool {
+	lower := strings.ToLower(name)
+	switch lower {
+	case "kafka", "rabbitmq", "nats", "pulsar", "activemq", "redis":
+		return true
+	}
+	return false
 }
 
 // ConnectedService, ConnectedServicesResponse → models.go
