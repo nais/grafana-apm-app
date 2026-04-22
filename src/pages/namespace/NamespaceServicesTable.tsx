@@ -97,8 +97,8 @@ export function NamespaceServicesTable({
                 onClick={() => onServiceClick(svc.namespace, svc.name, svc.environment)}
               >
                 <td className={tableStyles.nameCell}>
+                  <FrameworkBadge framework={svc.framework} className={styles.badgeBefore} />
                   {svc.name}
-                  <FrameworkBadge framework={svc.framework} className={styles.badge} />
                 </td>
                 {showEnvironment && <td className={tableStyles.numCell}>{svc.environment ?? '—'}</td>}
                 <td className={tableStyles.numCell}>{svc.rate.toFixed(2)} req/s</td>
@@ -123,8 +123,8 @@ export function NamespaceServicesTable({
 }
 
 const getLocalStyles = (theme: GrafanaTheme2) => ({
-  badge: css`
-    margin-left: ${theme.spacing(0.75)};
+  badgeBefore: css`
+    margin-right: ${theme.spacing(0.75)};
     vertical-align: middle;
   `,
   sparkContainer: css`
