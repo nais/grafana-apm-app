@@ -203,6 +203,12 @@ function ServiceOverview() {
     const spanKindFilter = hasServerSpans ? `, ${otel.labels.spanKind}="${otel.spanKinds.server}"` : '';
     const durationUnit = metrics.durationUnit === 's' ? 's' : 'ms';
 
+    const panelScope = hasServerSpans ? 'inbound (SERVER)' : 'all';
+    const durationDesc = `${percentileLabel} response time for ${panelScope} requests`;
+    const errorDesc = `Percentage of ${panelScope} requests resulting in an error status`;
+    const rateDesc = `Throughput of ${panelScope} requests per second`;
+    const heatmapDesc = `Distribution of ${panelScope} request durations over time`;
+
     const durationQuery = new SceneQueryRunner({
       datasource: { uid: ds.metricsUid, type: 'prometheus' },
       minInterval: '5m',
@@ -277,6 +283,7 @@ function ServiceOverview() {
                   height: 300,
                   body: PanelBuilders.timeseries()
                     .setTitle('Duration')
+                    .setDescription(durationDesc)
                     .setData(durationQuery)
                     .setUnit(durationUnit)
                     .setLinks([
@@ -289,6 +296,7 @@ function ServiceOverview() {
                   height: 300,
                   body: PanelBuilders.timeseries()
                     .setTitle('Errors')
+                    .setDescription(errorDesc)
                     .setData(errorQuery)
                     .setUnit('percent')
                     .setLinks([
@@ -301,6 +309,7 @@ function ServiceOverview() {
                   height: 300,
                   body: PanelBuilders.timeseries()
                     .setTitle('Rate')
+                    .setDescription(rateDesc)
                     .setData(rateQuery)
                     .setUnit('reqps')
                     .setLinks([{ title: 'Explore', url: mimirUrl, targetBlank: false }])
@@ -313,6 +322,7 @@ function ServiceOverview() {
             height: 220,
             body: PanelBuilders.heatmap()
               .setTitle('Duration Distribution')
+              .setDescription(heatmapDesc)
               .setData(heatmapQuery)
               .setOption('calculate', false)
               .setOption('yAxis', {
@@ -464,6 +474,7 @@ function ServiceOverview() {
               {/* Operations table */}
               <div className={styles.operationsSection}>
                 <h3 className={styles.sectionTitle}>Operations</h3>
+                <p className={styles.sectionSubtitle}>Top operations across all span kinds, sorted by throughput.</p>
                 {opsError && (
                   <Alert severity="error" title="Error">
                     {opsError}
@@ -799,8 +810,13 @@ const getStyles = (theme: GrafanaTheme2) => ({
     }
   `,
   sectionTitle: css`
-    margin-bottom: ${theme.spacing(1.5)};
+    margin-bottom: ${theme.spacing(0.5)};
     font-size: ${theme.typography.h4.fontSize};
+  `,
+  sectionSubtitle: css`
+    margin: 0 0 ${theme.spacing(1.5)} 0;
+    color: ${theme.colors.text.secondary};
+    font-size: ${theme.typography.bodySmall.fontSize};
   `,
   connectedGrid: css`
     display: grid;
