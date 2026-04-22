@@ -88,6 +88,7 @@ type ServiceSummary struct {
 	Framework       string       `json:"framework,omitempty"`
 	HasFrontend     bool         `json:"hasFrontend,omitempty"`
 	IsSidecar       bool         `json:"isSidecar,omitempty"`
+	HasServerSpans  bool         `json:"hasServerSpans,omitempty"`
 	Rate            float64      `json:"rate"`
 	ErrorRate       float64      `json:"errorRate"`
 	P95Duration     float64      `json:"p95Duration"`

@@ -109,12 +109,13 @@ func (a *App) fetchServiceSummaries( //nolint:gocyclo // complex due to parallel
 		a.otelCfg.Labels.ServiceName, a.otelCfg.Labels.ServiceNamespace, envLabel, a.otelCfg.Labels.Le,
 		durationBucket, a.otelCfg.Labels.SpanKind, a.otelCfg.SpanKinds.Server, extraFilters, rangeStr,
 	)
-	// SDK language and environment from labels on span metrics
+	// SDK/discovery query: no span_kind filter — discovers ALL services regardless of span type.
+	// This ensures services with only CLIENT/PRODUCER/CONSUMER spans appear in the inventory.
 	sdkQuery := fmt.Sprintf(
-		`group by (%s, %s, %s, %s) (%s{%s="%s"%s})`,
+		`group by (%s, %s, %s, %s) (%s{%s!=""%s})`,
 		a.otelCfg.Labels.ServiceName, a.otelCfg.Labels.ServiceNamespace,
 		a.otelCfg.Labels.SDKLanguage, a.otelCfg.Labels.DeploymentEnv,
-		callsMetric, a.otelCfg.Labels.SpanKind, a.otelCfg.SpanKinds.Server, extraFilters,
+		callsMetric, a.otelCfg.Labels.ServiceName, extraFilters,
 	)
 
 	// Framework detection from app-emitted metrics (uses app/namespace labels).
@@ -251,10 +252,23 @@ func (a *App) fetchServiceSummaries( //nolint:gocyclo // complex due to parallel
 		return s
 	}
 
-	// Fill rate
+	// Fill SDK language and environment from broadened discovery query (all span kinds).
+	// Process sdk results FIRST so all services are created, then overlay SERVER-only RED metrics.
+	for _, r := range resultMap["sdk"] {
+		s := getOrCreate(r)
+		if lang, ok := r.Metric[a.otelCfg.Labels.SDKLanguage]; ok && lang != "" && s.SDKLanguage == "" {
+			s.SDKLanguage = lang
+		}
+		if env, ok := r.Metric[a.otelCfg.Labels.DeploymentEnv]; ok && env != "" && s.Environment == "" {
+			s.Environment = env
+		}
+	}
+
+	// Fill rate (SERVER spans only) — mark services that have server spans
 	for _, r := range resultMap["rate"] {
 		s := getOrCreate(r)
 		s.Rate = roundTo(r.Value.Float(), 3)
+		s.HasServerSpans = true
 	}
 
 	// Fill error rate as percentage
@@ -269,17 +283,6 @@ func (a *App) fetchServiceSummaries( //nolint:gocyclo // complex due to parallel
 		v := r.Value.Float()
 		if isValidMetricValue(v) {
 			s.P95Duration = roundTo(v, 2)
-		}
-	}
-
-	// Fill SDK language and environment
-	for _, r := range resultMap["sdk"] {
-		s := getOrCreate(r)
-		if lang, ok := r.Metric[a.otelCfg.Labels.SDKLanguage]; ok && lang != "" && s.SDKLanguage == "" {
-			s.SDKLanguage = lang
-		}
-		if env, ok := r.Metric[a.otelCfg.Labels.DeploymentEnv]; ok && env != "" && s.Environment == "" {
-			s.Environment = env
 		}
 	}
 

@@ -45,6 +45,7 @@ export interface ServiceSummary {
   framework?: string;
   hasFrontend?: boolean;
   isSidecar?: boolean;
+  hasServerSpans?: boolean;
   rate: number;
   errorRate: number;
   p95Duration: number;

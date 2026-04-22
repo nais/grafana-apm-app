@@ -384,38 +384,46 @@ function ServiceInventory() {
                         <td>
                           <div className={styles.metricCell}>
                             <span className={styles.metricValue}>
-                              {formatDuration(svc.p95Duration, svc.durationUnit)}
+                              {svc.hasServerSpans !== false ? formatDuration(svc.p95Duration, svc.durationUnit) : '—'}
                             </span>
-                            <AreaSparkline
-                              data={sparklineMap
-                                .get(`${svc.namespace}/${svc.name}/${svc.environment ?? ''}`)
-                                ?.durationSeries?.map((p) => p.v)}
-                              color="#E0B400"
-                            />
+                            {svc.hasServerSpans !== false && (
+                              <AreaSparkline
+                                data={sparklineMap
+                                  .get(`${svc.namespace}/${svc.name}/${svc.environment ?? ''}`)
+                                  ?.durationSeries?.map((p) => p.v)}
+                                color="#E0B400"
+                              />
+                            )}
                           </div>
                         </td>
                         <td>
                           <div className={styles.metricCell}>
                             <span className={svc.errorRate > 0 ? styles.errorValue : styles.metricValue}>
-                              {svc.errorRate.toFixed(1)}%
+                              {svc.hasServerSpans !== false ? `${svc.errorRate.toFixed(1)}%` : '—'}
                             </span>
-                            <AreaSparkline
-                              data={sparklineMap
-                                .get(`${svc.namespace}/${svc.name}/${svc.environment ?? ''}`)
-                                ?.errorSeries?.map((p) => p.v)}
-                              color={svc.errorRate > 0 ? '#F2495C' : '#44444480'}
-                            />
+                            {svc.hasServerSpans !== false && (
+                              <AreaSparkline
+                                data={sparklineMap
+                                  .get(`${svc.namespace}/${svc.name}/${svc.environment ?? ''}`)
+                                  ?.errorSeries?.map((p) => p.v)}
+                                color={svc.errorRate > 0 ? '#F2495C' : '#44444480'}
+                              />
+                            )}
                           </div>
                         </td>
                         <td>
                           <div className={styles.metricCell}>
-                            <span className={styles.metricValue}>{svc.rate.toFixed(1)} req/s</span>
-                            <AreaSparkline
-                              data={sparklineMap
-                                .get(`${svc.namespace}/${svc.name}/${svc.environment ?? ''}`)
-                                ?.rateSeries?.map((p) => p.v)}
-                              color="#73BF69"
-                            />
+                            <span className={styles.metricValue}>
+                              {svc.hasServerSpans !== false ? `${svc.rate.toFixed(1)} req/s` : '—'}
+                            </span>
+                            {svc.hasServerSpans !== false && (
+                              <AreaSparkline
+                                data={sparklineMap
+                                  .get(`${svc.namespace}/${svc.name}/${svc.environment ?? ''}`)
+                                  ?.rateSeries?.map((p) => p.v)}
+                                color="#73BF69"
+                              />
+                            )}
                           </div>
                         </td>
                       </tr>
