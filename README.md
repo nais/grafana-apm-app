@@ -128,27 +128,183 @@ for the first matching metric name in this order:
 
 Service graph detection probes: `traces_service_graph_request_total` → `service_graph_request_total`.
 
-### Additional metrics (optional)
+### Runtime and framework metrics (optional)
 
 The plugin also reads **runtime and framework metrics** when available. These
 come from application-level instrumentation (OTel SDK or Prometheus client
 libraries) and are scraped via Prometheus, not derived from traces.
 
-| Metric family | Labels used | Source | Plugin feature |
-|--------------|------------|--------|---------------|
-| `jvm_memory_used_bytes`, `jvm_gc_duration_seconds`, `jvm_threads_*` | `app`, `namespace` | OTel SDK / Micrometer | Runtime tab (JVM) |
-| `nodejs_eventloop_delay_*`, `nodejs_heap_size_*` | `app`, `namespace` | OTel SDK / prom-client | Runtime tab (Node.js) |
-| `go_goroutines`, `go_memstats_*` | `app`, `namespace` | Go runtime | Runtime tab (Go) |
-| `hikaricp_connections_*`, `db_client_connections_*` | `app`, `namespace` | OTel SDK / Micrometer | Runtime tab (DB pools) |
-| `kafka_consumer_records_lag_max`, `kafka_producer_*` | `app`, `namespace` | OTel SDK / JMX | Runtime tab (Kafka) |
-| `container_cpu_usage_seconds_total`, `kube_pod_*` | `namespace`, `pod` | kubelet / kube-state-metrics | Runtime tab (Container) |
-| `ktor_http_server_requests_seconds_count` | `app`, `namespace` | Micrometer | Framework detection (badge) |
-| `spring_security_filterchains_*` | `app`, `namespace` | Micrometer | Framework detection (badge) |
-| `nodejs_version_info` | `app`, `namespace` | prom-client | Framework detection (badge) |
-
 > **Note:** Runtime metrics use `app`/`namespace` labels (from Prometheus scraping),
 > while span metrics use `service_name`/`service_namespace` (from OTel). The plugin
 > matches them by name.
+
+**JVM** (source: OTel Java agent auto-instrumentation / Micrometer)
+
+| Metric | Type | Purpose |
+|--------|------|---------|
+| `jvm_memory_used_bytes` | gauge | Heap / non-heap memory usage (label: `area`) |
+| `jvm_memory_max_bytes` | gauge | Max memory per area |
+| `jvm_memory_committed_bytes` | gauge | Committed memory per area |
+| `jvm_gc_duration_seconds` | histogram | GC pause duration (label: `gc`) |
+| `jvm_gc_overhead` | gauge | GC overhead ratio (0–1) |
+| `jvm_threads_live_threads` | gauge | Current live threads |
+| `jvm_threads_daemon_threads` | gauge | Daemon thread count |
+| `jvm_threads_peak_threads` | gauge | Peak thread count |
+| `jvm_threads_states_threads` | gauge | Threads by state (label: `state`) |
+| `jvm_classes_loaded_classes` | gauge | Loaded class count |
+| `jvm_cpu_recent_utilization_ratio` | gauge | CPU utilization (0–1) |
+| `jvm_cpu_count` | gauge | Available processors |
+| `jvm_buffer_memory_used_bytes` | gauge | Buffer pool usage |
+| `jvm_buffer_total_capacity_bytes` | gauge | Buffer pool capacity |
+| `jvm_info` | info | JVM runtime and version |
+| `process_uptime_seconds` | gauge | Process uptime |
+
+**Node.js** (source: OTel Node.js SDK auto-instrumentation / prom-client)
+
+| Metric | Type | Purpose |
+|--------|------|---------|
+| `nodejs_eventloop_delay_p99_seconds` | gauge | Event loop P99 latency |
+| `nodejs_eventloop_delay_p90_seconds` | gauge | Event loop P90 latency |
+| `nodejs_eventloop_delay_p50_seconds` | gauge | Event loop P50 latency |
+| `nodejs_eventloop_delay_mean_seconds` | gauge | Event loop mean latency |
+| `nodejs_eventloop_utilization_ratio` | gauge | Event loop utilization (0–1) |
+| `nodejs_heap_size_used_bytes` | gauge | V8 heap usage |
+| `nodejs_heap_size_total_bytes` | gauge | V8 heap total |
+| `nodejs_external_memory_bytes` | gauge | External memory (C++ objects) |
+| `nodejs_gc_duration_seconds` | histogram | GC pause duration (label: `kind`) |
+| `nodejs_active_handles` | gauge | Active libuv handles |
+| `nodejs_active_requests` | gauge | Active libuv requests |
+| `process_resident_memory_bytes` | gauge | RSS memory |
+| `process_cpu_seconds_total` | counter | CPU time consumed |
+| `process_open_fds` | gauge | Open file descriptors |
+| `process_max_fds` | gauge | Max file descriptors |
+| `nodejs_version_info` | info | Node.js version (also used for framework detection) |
+
+**Go** (source: `prometheus/client_golang` default collectors)
+
+| Metric | Type | Purpose |
+|--------|------|---------|
+| `go_goroutines` | gauge | Active goroutine count |
+| `go_threads` | gauge | OS thread count |
+| `go_memstats_alloc_bytes` | gauge | Allocated heap bytes |
+| `go_memstats_sys_bytes` | gauge | Total memory from OS |
+| `go_gc_duration_seconds` | summary | GC pause duration |
+| `go_info` | info | Go version |
+| `process_cpu_seconds_total` | counter | CPU time consumed |
+| `process_open_fds` | gauge | Open file descriptors |
+| `process_max_fds` | gauge | Max file descriptors |
+
+**Database connection pools** (source: Micrometer HikariCP / OTel DB client instrumentation)
+
+| Metric | Type | Purpose |
+|--------|------|---------|
+| `hikaricp_connections_active` | gauge | Active connections per pool |
+| `hikaricp_connections_idle` | gauge | Idle connections per pool |
+| `hikaricp_connections_max` | gauge | Max pool size |
+| `hikaricp_connections_pending` | gauge | Threads waiting for a connection |
+| `hikaricp_connections_timeout_total` | counter | Connection timeout count |
+| `hikaricp_connections_usage_seconds` | histogram | Connection usage duration |
+| `db_client_connections_usage` | gauge | OTel DB active connections |
+| `db_client_connections_idle_min` | gauge | OTel DB min idle connections |
+| `db_client_connections_max` | gauge | OTel DB max connections |
+
+**Kafka** (source: OTel Java agent auto-instrumentation / JMX Kafka client metrics)
+
+| Metric | Type | Purpose |
+|--------|------|---------|
+| `kafka_consumer_records_lag_max` | gauge | Max consumer lag per topic/partition |
+| `kafka_consumer_records_consumed_total` | counter | Records consumed |
+| `kafka_producer_records_sent_total` | counter | Records produced |
+
+Labels: `topic`, `partition`, `client_id`, `consumer_group`
+
+**Container / Kubernetes** (source: kubelet cAdvisor / kube-state-metrics)
+
+| Metric | Type | Purpose |
+|--------|------|---------|
+| `container_cpu_usage_seconds_total` | counter | CPU time consumed |
+| `container_cpu_cfs_throttled_seconds_total` | counter | CPU throttling |
+| `container_memory_usage_bytes` | gauge | Memory usage |
+| `kube_pod_container_resource_requests` | gauge | Resource requests (label: `resource`) |
+| `kube_pod_container_resource_limits` | gauge | Resource limits (label: `resource`) |
+| `kube_pod_container_status_restarts_total` | counter | Container restarts |
+| `kube_deployment_spec_replicas` | gauge | Desired replica count |
+
+Labels: `container`, `namespace`, `pod`, `resource`
+
+**Framework detection** (used for badges in the service inventory)
+
+| Metric | Source | Detected framework |
+|--------|--------|--------------------|
+| `ktor_http_server_requests_seconds_count` | Micrometer (Ktor plugin) | Ktor |
+| `spring_security_filterchains_*` | Micrometer (Spring Security) | Spring Boot |
+| `nodejs_version_info` | prom-client | Node.js |
+| `jvm_info` | OTel SDK / Micrometer | JVM (with runtime version) |
+| `go_info` | prometheus/client_golang | Go (with version) |
+
+### Browser / Faro Web Vitals (optional)
+
+The plugin supports **frontend observability** via [Grafana Faro](https://grafana.com/oss/faro/).
+When Faro is instrumented in a web application, the plugin displays Core Web
+Vitals (LCP, FCP, CLS, INP, TTFB), page load counts, and JavaScript error rates.
+
+The plugin tries two data paths and uses the first that has data:
+
+**Path 1 — Mimir (Faro metrics):** When Faro telemetry is exported as Prometheus
+metrics (via the Faro receiver or OTel Collector), the plugin reads:
+
+| Metric | Type | Origin |
+|--------|------|--------|
+| `browser_web_vitals_lcp_milliseconds` | gauge | Faro Web SDK |
+| `browser_web_vitals_fcp_milliseconds` | gauge | Faro Web SDK |
+| `browser_web_vitals_cls` | gauge | Faro Web SDK |
+| `browser_web_vitals_inp_milliseconds` | gauge | Faro Web SDK |
+| `browser_web_vitals_ttfb_milliseconds` | gauge | Faro Web SDK |
+| `browser_page_loads_total` | counter | Faro Web SDK |
+| `browser_errors_total` | counter | Faro Web SDK |
+| `browser_page_load_duration_milliseconds_bucket` | histogram | Faro Web SDK |
+
+Labels: `service_name`, `page_route`, `browser_name`
+
+**Path 2 — Loki (Faro structured logs):** When Faro telemetry is stored as
+logfmt-formatted log lines in Loki (e.g., via the OTel Collector Loki exporter),
+the plugin extracts Web Vitals from log fields using LogQL:
+
+```logql
+{service_name="my-app", kind="measurement"} | logfmt | type="web-vitals" | keep lcp | unwrap lcp [$__auto]
+```
+
+| Stream label | Values | Purpose |
+|-------------|--------|---------|
+| `service_name` | app name | Filter by service |
+| `kind` | `measurement`, `exception`, `event`, `log` | Telemetry type |
+
+| Logfmt field | Purpose |
+|-------------|---------|
+| `type` | Event type (`web-vitals`) |
+| `fcp`, `lcp`, `cls`, `inp`, `ttfb` | Vital values |
+| `context_rating` | Performance rating (`good`, `needs-improvement`, `poor`) |
+| `browser_name` | Browser identifier |
+| `page_url` | Page URL |
+
+### GraphQL metrics (optional)
+
+The plugin auto-detects GraphQL metrics for services that use GraphQL frameworks.
+It probes for known metric naming patterns and displays per-operation rate,
+latency, and error breakdowns.
+
+Supported frameworks (auto-detected, first match wins):
+
+| Framework | Count metric | Sum metric | Origin |
+|-----------|-------------|------------|--------|
+| Netflix DGS | `graphql_request_seconds_count` | `graphql_request_seconds_sum` | Micrometer (DGS Spring Boot) |
+| DGS Resolvers | `graphql_datafetcher_seconds_count` | `graphql_datafetcher_seconds_sum` | Micrometer (DGS datafetchers) |
+| MicroProfile GraphQL | `mp_graphql_seconds_count` | `mp_graphql_seconds_sum` | Eclipse MicroProfile |
+| Custom (per-query) | `graphql_{QueryName}_seconds_count` | `graphql_{QueryName}_seconds_sum` | App-specific Prometheus client |
+
+These metrics are **not** from OTel auto-instrumentation — they come from
+framework-level Prometheus client libraries (Micrometer, MicroProfile, or
+custom app instrumentation). Labels used: `app`, `namespace`.
 
 ### Recommended resource attributes
 
@@ -185,6 +341,58 @@ For service graph metrics, these peer attributes enable dependency detection:
 | `db.name` | Database dependency naming |
 | `db.system` | Database type classification |
 | `messaging.destination.name` | Messaging dependency naming |
+
+### Traces (Tempo)
+
+The plugin builds **TraceQL** queries against Tempo to let users search and
+browse traces scoped to a specific service. Trace queries are constructed on
+the frontend using Grafana Scenes and link directly to Tempo Explore.
+
+**Resource attributes used in TraceQL filters:**
+
+| Attribute path | Purpose |
+|---------------|---------|
+| `resource.service.name` | Filter traces to a specific service |
+| `resource.service.namespace` | Filter traces to a namespace |
+
+**Span attributes used in TraceQL filters:**
+
+| Attribute | Purpose | Origin |
+|-----------|---------|--------|
+| `name` | Span operation name | OTel SDK (all languages) |
+| `status` | Span status (`error`, `ok`) | OTel SDK (all languages) |
+| `duration` | Span duration | OTel SDK (all languages) |
+| `span.http.route` | HTTP route pattern | OTel HTTP auto-instrumentation |
+
+Example generated TraceQL query:
+
+```
+{resource.service.name="my-service" && resource.service.namespace="my-namespace" && status=error && duration >= 500ms}
+```
+
+### Logs (Loki)
+
+The plugin builds **LogQL** queries against Loki to display structured logs
+scoped to a service. Log panels support severity filtering and text search.
+
+**Stream selectors:**
+
+| Label | Purpose | Origin |
+|-------|---------|--------|
+| `service_name` | Filter logs to a service | OTel resource attribute (mapped by Loki exporter) |
+| `service_namespace` | Filter logs to a namespace | OTel resource attribute |
+| `level` | Log severity (error, warn, info, debug) | OTel severity / structured log field |
+
+**Log extraction pipeline:**
+
+The plugin auto-parses JSON-formatted logs and extracts the message field:
+
+```logql
+{service_name="my-service"} | level=~"error|warn" | json | line_format `{{ if .message }}{{ .message }}{{ else if .msg }}{{ .msg }}{{ else }}{{ __line__ }}{{ end }}` | drop __error__, __error_details__
+```
+
+This supports both `.message` (standard) and `.msg` (common alternative) field
+names, falling back to the raw log line.
 
 ## Installation
 
