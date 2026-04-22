@@ -16,17 +16,26 @@ import (
 
 // addressMatchRegex returns a PromQL regex pattern that matches both the
 // normalized address form (as shown in the UI) and the raw metric label value.
-// e.g., "idporten.no" → `idporten\.no(:(443|80))?` (matches idporten.no, idporten.no:443, idporten.no:80)
+// e.g., "idporten.no" → `idporten\\.no(:(443|80))?` (matches idporten.no, idporten.no:443, idporten.no:80)
 // e.g., "db:5432" → `db:5432` (non-standard port, exact match)
+//
+// The result is double-escaped: regexp.QuoteMeta produces \. but PromQL
+// double-quoted strings require \\\\ to represent a literal backslash.
+// Without double-escaping, Prometheus rejects the query with
+// "unknown escape sequence U+002E '.'".
 func addressMatchRegex(normalized string) string {
 	host, port, hasPort := strings.Cut(normalized, ":")
-	escaped := regexp.QuoteMeta(host)
+	escaped := promQLEscape(host)
 	if hasPort {
-		// Name retains a non-standard port → exact match
-		return escaped + ":" + regexp.QuoteMeta(port)
+		return escaped + ":" + promQLEscape(port)
 	}
-	// Name was normalized (standard port stripped) → match with optional :443 or :80
 	return escaped + "(:(443|80))?"
+}
+
+// promQLEscape escapes a string for use in a PromQL regex inside double quotes.
+// First escapes regex metacharacters, then doubles backslashes for PromQL string syntax.
+func promQLEscape(s string) string {
+	return strings.ReplaceAll(regexp.QuoteMeta(s), `\`, `\\`)
 }
 
 // normalizeAddress cleans up a server address / http_host value for display.
@@ -1086,7 +1095,7 @@ func (a *App) queryConnectedServices(ctx context.Context, to time.Time, service,
 	// server_address or http_host matches this service name.
 	// Pattern: server_address=~"appname[.:].*" catches both
 	// "appname.namespace.svc" and "appname:8080" style addresses.
-	escapedSvc := regexp.QuoteMeta(service) // proper regex escaping (dots, etc.)
+	escapedSvc := promQLEscape(service)
 	smInRateQ := fmt.Sprintf(
 		`sum by (%s, %s) (rate(%s{%s="%s", %s=~"%s[.:].*"%s}%s)) or sum by (%s, %s) (rate(%s{%s="%s", %s=~"%s[.:].*"%s}%s))`,
 		cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,

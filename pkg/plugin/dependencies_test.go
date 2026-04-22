@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -259,16 +260,19 @@ func TestAddressMatchRegexRoundTrip(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			normalized := normalizeAddress(tc.rawLabel)
-			pattern := "^" + addressMatchRegex(normalized) + "$"
-			re := regexp.MustCompile(pattern)
+			promQLPattern := addressMatchRegex(normalized)
+			// addressMatchRegex returns a PromQL-escaped pattern (double backslashes).
+			// Simulate PromQL string un-escaping to get a raw regex for Go's regexp.
+			goPattern := strings.ReplaceAll(promQLPattern, `\\`, `\`)
+			re := regexp.MustCompile("^" + goPattern + "$")
 			for _, hit := range tc.shouldHit {
 				if !re.MatchString(hit) {
-					t.Errorf("addressMatchRegex(%q) pattern %q should match %q", normalized, pattern, hit)
+					t.Errorf("addressMatchRegex(%q) pattern %q should match %q", normalized, promQLPattern, hit)
 				}
 			}
 			for _, mis := range tc.shouldMis {
 				if re.MatchString(mis) {
-					t.Errorf("addressMatchRegex(%q) pattern %q should NOT match %q", normalized, pattern, mis)
+					t.Errorf("addressMatchRegex(%q) pattern %q should NOT match %q", normalized, promQLPattern, mis)
 				}
 			}
 		})
