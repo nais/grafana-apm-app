@@ -150,7 +150,8 @@ export async function getServiceMap(
   from: number,
   to: number,
   service?: string,
-  namespace?: string
+  namespace?: string,
+  environment?: string
 ): Promise<ServiceMapResponse> {
   const params: Record<string, string> = {
     ...timeParams(from, to),
@@ -160,6 +161,9 @@ export async function getServiceMap(
   }
   if (namespace) {
     params.namespace = namespace;
+  }
+  if (environment) {
+    params.environment = environment;
   }
   return fetchResource<ServiceMapResponse>('/service-map', params);
 }
@@ -528,10 +532,15 @@ export async function getRuntimeMetrics(
   namespace: string,
   service: string,
   from: number,
-  to: number
+  to: number,
+  environment?: string
 ): Promise<RuntimeResponse> {
+  const params: Record<string, string> = timeParams(from, to);
+  if (environment) {
+    params.environment = environment;
+  }
   return fetchResource<RuntimeResponse>(
     `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/runtime`,
-    timeParams(from, to)
+    params
   );
 }

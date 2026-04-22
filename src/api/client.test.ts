@@ -118,6 +118,12 @@ describe('getServiceMap', () => {
     expect(url.searchParams.get('service')).toBe('frontend');
     expect(url.searchParams.get('namespace')).toBe('demo');
   });
+
+  it('adds environment filter when provided', async () => {
+    await getServiceMap(60000, 120000, 'frontend', 'demo', 'prod-gcp');
+    const url = lastURL();
+    expect(url.searchParams.get('environment')).toBe('prod-gcp');
+  });
 });
 
 describe('getConnectedServices', () => {
@@ -223,5 +229,11 @@ describe('getRuntimeMetrics', () => {
     expect(url.pathname).toContain('/runtime');
     expect(url.searchParams.get('from')).toBe('60');
     expect(url.searchParams.get('to')).toBe('120');
+  });
+
+  it('adds environment filter when provided', async () => {
+    await getRuntimeMetrics('ns', 'svc', 60000, 120000, 'prod-fss');
+    const url = lastURL();
+    expect(url.searchParams.get('environment')).toBe('prod-fss');
   });
 });

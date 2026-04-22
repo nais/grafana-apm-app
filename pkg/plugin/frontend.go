@@ -34,7 +34,7 @@ func (a *App) handleFrontendMetrics(w http.ResponseWriter, req *http.Request) {
 func (a *App) queryFrontendMetrics(ctx context.Context, namespace, service, env string, at time.Time, headers http.Header) FrontendMetricsResponse {
 	// 1. Try Mimir first
 	if a.promClient != nil {
-		resp := a.queryFrontendFromMimir(ctx, namespace, service, at)
+		resp := a.queryFrontendFromMimir(ctx, namespace, service, env, at)
 		if resp.Available {
 			return resp
 		}
@@ -50,8 +50,11 @@ func (a *App) queryFrontendMetrics(ctx context.Context, namespace, service, env 
 }
 
 // queryFrontendFromMimir checks Prometheus/Mimir for browser metrics.
-func (a *App) queryFrontendFromMimir(ctx context.Context, namespace, service string, at time.Time) FrontendMetricsResponse {
+func (a *App) queryFrontendFromMimir(ctx context.Context, namespace, service, environment string, at time.Time) FrontendMetricsResponse {
 	filter := a.otelCfg.ServiceFilter(service, namespace)
+	if environment != "" {
+		filter += fmt.Sprintf(`, %s="%s"`, a.otelCfg.Labels.DeploymentEnv, environment)
+	}
 
 	checkQ := fmt.Sprintf(`count(%s{%s})`, a.otelCfg.BrowserMetrics.LCP, filter)
 	results, err := a.prom(ctx).InstantQuery(ctx, checkQ, at)

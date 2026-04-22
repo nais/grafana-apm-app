@@ -18,15 +18,16 @@ import { useFetch } from '../../utils/useFetch';
 interface RuntimeTabProps {
   service: string;
   namespace: string;
+  environment?: string;
   fromMs: number;
   toMs: number;
 }
 
-export function RuntimeTab({ service, namespace, fromMs, toMs }: RuntimeTabProps) {
+export function RuntimeTab({ service, namespace, environment, fromMs, toMs }: RuntimeTabProps) {
   const styles = useStyles2(getStyles);
   const { data, loading, error } = useFetch<RuntimeResponse>(
-    () => getRuntimeMetrics(namespace, service, fromMs, toMs),
-    [service, namespace, fromMs, toMs]
+    () => getRuntimeMetrics(namespace, service, fromMs, toMs, environment),
+    [service, namespace, environment, fromMs, toMs]
   );
 
   if (loading) {

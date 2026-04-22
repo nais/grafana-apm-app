@@ -176,8 +176,8 @@ function ServiceOverview() {
 
   // Fetch service map for overview graph
   const { data: mapData } = useFetch<ServiceMapResponse>(
-    () => getServiceMap(fromMs, toMs, service, namespace),
-    [service, namespace, fromMs, toMs]
+    () => getServiceMap(fromMs, toMs, service, namespace, envFilter),
+    [service, namespace, envFilter, fromMs, toMs]
   );
   const { graphNodes, graphEdges } = useMemo(() => toGraphData(mapData), [mapData]);
 
@@ -732,7 +732,7 @@ function ServiceOverview() {
 
           {visitedTabs.has('runtime') && (
             <div style={{ display: activeTab === 'runtime' ? undefined : 'none' }}>
-              <RuntimeTab service={service} namespace={namespace} fromMs={fromMs} toMs={toMs} />
+              <RuntimeTab service={service} namespace={namespace} environment={envFilter} fromMs={fromMs} toMs={toMs} />
             </div>
           )}
 

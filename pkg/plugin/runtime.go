@@ -20,6 +20,7 @@ func (a *App) handleRuntime(w http.ResponseWriter, req *http.Request) {
 
 	namespace := queries.ParseNamespace(req.PathValue("namespace"))
 	service := queries.MustSanitizeLabel(req.PathValue("service"))
+	environment := queries.MustSanitizeLabel(req.URL.Query().Get("environment"))
 	if !requireServiceParam(w, service) {
 		return
 	}
@@ -28,13 +29,13 @@ func (a *App) handleRuntime(w http.ResponseWriter, req *http.Request) {
 	_ = parseUnixParam(req, "from", now.Add(-1*time.Hour))
 	to := parseUnixParam(req, "to", now)
 
-	result := a.queryRuntimeMetrics(ctx, namespace, service, to)
+	result := a.queryRuntimeMetrics(ctx, namespace, service, environment, to)
 	writeJSON(w, result)
 }
 
 // queryRuntimeMetrics runs a single discovery query to find available runtime
 // metrics, then fans out parallel queries for each detected category.
-func (a *App) queryRuntimeMetrics(ctx context.Context, namespace, service string, at time.Time) queries.RuntimeResponse {
+func (a *App) queryRuntimeMetrics(ctx context.Context, namespace, service, environment string, at time.Time) queries.RuntimeResponse {
 	logger := log.DefaultLogger.With("handler", "runtime")
 	client := a.prom(ctx)
 	if client == nil {
@@ -43,6 +44,9 @@ func (a *App) queryRuntimeMetrics(ctx context.Context, namespace, service string
 
 	rt := a.otelCfg.Runtime
 	svcFilter := a.otelCfg.RuntimeFilter(service, namespace)
+	if environment != "" {
+		svcFilter += fmt.Sprintf(`, %s="%s"`, a.otelCfg.Labels.DeploymentEnv, environment)
+	}
 
 	// Single discovery query: find all runtime metric families for this service.
 	discoveryQuery := fmt.Sprintf(

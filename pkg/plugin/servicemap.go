@@ -32,12 +32,13 @@ func (a *App) handleServiceMap(w http.ResponseWriter, req *http.Request) {
 	// Optional: filter to a specific service's neighborhood
 	filterService := queries.MustSanitizeLabel(req.URL.Query().Get("service"))
 	filterNamespace := queries.MustSanitizeLabel(req.URL.Query().Get("namespace"))
+	filterEnvironment := queries.MustSanitizeLabel(req.URL.Query().Get("environment"))
 
 	// Check response cache
 	roundedFrom := fmt.Sprintf("%d", from.Unix()/30*30)
 	roundedTo := fmt.Sprintf("%d", to.Unix()/30*30)
 	orgID := req.Header.Get("X-Grafana-Org-Id")
-	ck := cacheKey("servicemap", orgID, roundedFrom, roundedTo, filterService, filterNamespace)
+	ck := cacheKey("servicemap", orgID, roundedFrom, roundedTo, filterService, filterNamespace, filterEnvironment)
 	if cached, ok := a.respCache.get(ck); ok {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-Cache", "HIT")
@@ -45,7 +46,7 @@ func (a *App) handleServiceMap(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	graph := a.queryServiceMap(ctx, from, to, filterService, filterNamespace)
+	graph := a.queryServiceMap(ctx, from, to, filterService, filterNamespace, filterEnvironment)
 
 	a.respCache.setJSON(ck, graph)
 	writeJSON(w, graph)
@@ -54,7 +55,7 @@ func (a *App) handleServiceMap(w http.ResponseWriter, req *http.Request) {
 func (a *App) queryServiceMap( //nolint:gocyclo // complex due to parallel queries + node/edge assembly
 	ctx context.Context,
 	_, to time.Time,
-	filterService, _ string,
+	filterService, _, filterEnvironment string,
 ) ServiceMapResponse {
 	logger := log.DefaultLogger.With("handler", "servicemap")
 	rangeStr := "[5m]"
@@ -63,6 +64,9 @@ func (a *App) queryServiceMap( //nolint:gocyclo // complex due to parallel queri
 	// (only client, server, connection_type, client_db_system).
 	// Per-service filtering is done post-query on filterService.
 	labelFilter := ""
+	if filterEnvironment != "" {
+		labelFilter = fmt.Sprintf(`%s="%s"`, a.otelCfg.Labels.DeploymentEnv, filterEnvironment)
+	}
 
 	sgp := a.serviceGraphPrefix()
 
