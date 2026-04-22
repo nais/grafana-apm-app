@@ -31,25 +31,160 @@ already operate.
 - **Tempo** for distributed traces
 - **Loki** for logs *(optional — needed for log correlation)*
 
-### OpenTelemetry Collector
+## Metrics pipeline
 
-The plugin reads span metrics and service graph metrics produced by an OpenTelemetry
-Collector (or Grafana Alloy). You need two connectors configured:
+The plugin does **not** query traces directly for dashboards. Instead, it reads
+pre-aggregated **span metrics** and **service graph metrics** stored in Mimir
+(or Prometheus). These metrics can be generated in two ways:
 
-1. **spanmetrics** — converts traces into per-service request/error/duration metrics
-2. **servicegraph** — converts traces into inter-service dependency metrics *(optional — needed for service map)*
+### Option A: Tempo metrics-generator (recommended)
 
-See [`otel-collector-config.yaml`](https://github.com/nais/grafana-apm-app/blob/main/otel-collector-config.yaml) for a working example.
+Tempo has a built-in [metrics-generator](https://grafana.com/docs/tempo/latest/metrics-generator/)
+that derives metrics from ingested traces and remote-writes them to Mimir.
+This is the approach used in production at Nav.
+
+**Required Tempo config:**
+
+```yaml
+metricsGenerator:
+  enabled: true
+  config:
+    processor:
+      # Span metrics — produces per-service RED metrics
+      span_metrics:
+        dimensions:
+          - service.name
+          - service.namespace
+          - k8s.cluster.name       # environment filtering
+          - server.address          # external dependency detection
+          - http.status_code        # error breakdown
+          - http.response.status_code
+          - db.system               # database dependency detection
+          - db.name
+          - messaging.system        # Kafka/messaging detection
+          - messaging.destination.name
+        histogram_buckets: [0.05, 0.1, 0.25, 0.5, 1, 2, 5]
+        filter_policies:
+          - include:
+              match_type: regex
+              attributes:
+                - key: kind
+                  value: SPAN_KIND_(CLIENT|SERVER|CONSUMER|PRODUCER)
+
+      # Service graphs — produces inter-service dependency metrics
+      service_graphs:
+        histogram_buckets: [0.1, 0.2, 0.5, 1, 2, 5]
+        dimensions:
+          - service.name
+          - service.namespace
+        peer_attributes:
+          - peer.service
+          - db.name
+          - db.system
+          - messaging.destination.name
+        enable_virtual_node_label: true
+
+    storage:
+      remote_write:
+        - url: https://your-mimir/api/v1/push
+          headers:
+            X-Scope-OrgID: your-tenant
+```
+
+This produces metrics with the `traces_spanmetrics_` prefix:
+- `traces_spanmetrics_calls_total` — request counter
+- `traces_spanmetrics_latency_bucket` — duration histogram (seconds)
+- `traces_service_graph_request_total` — service-to-service call counter
+- `traces_service_graph_request_failed_total` — failed calls
+- `traces_service_graph_request_server_seconds_bucket` — inter-service latency
+
+### Option B: OTel Collector connectors
+
+The OTel Collector (or Grafana Alloy) can generate equivalent metrics using
+the [spanmetrics](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/connector/spanmetricsconnector)
+and [servicegraph](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/connector/servicegraphconnector)
+connectors. This is the approach used in the local dev setup.
+
+See [`otel-collector-config.yaml`](https://github.com/nais/grafana-apm-app/blob/main/otel-collector-config.yaml)
+for a working example. The key differences from Tempo:
+- Metric namespace is configurable (e.g., `traces.span.metrics` → `traces_span_metrics_calls_total`)
+- Duration unit can be milliseconds or seconds depending on histogram bucket config
+- More histogram buckets for finer-grained latency percentiles
+
+The plugin auto-detects which metric names and duration units are present,
+so both approaches work without manual configuration.
+
+### What the plugin auto-detects
+
+On the Configuration page, clicking **Auto-detect capabilities** probes Mimir
+for the first matching metric name in this order:
+
+| Probe order | Calls metric | Duration metric | Source |
+|-------------|-------------|-----------------|--------|
+| 1 | `traces_span_metrics_calls_total` | `*_duration_milliseconds_bucket` or `*_duration_seconds_bucket` | OTel Collector (dotted namespace) |
+| 2 | `traces_spanmetrics_calls_total` | `*_latency_bucket` (seconds) | Tempo metrics-generator |
+| 3 | `spanmetrics_calls_total` | `*_duration_*_bucket` | OTel Collector (default namespace) |
+| 4 | `calls_total` | `*_duration_*_bucket` | OTel Collector (no namespace) |
+
+Service graph detection probes: `traces_service_graph_request_total` → `service_graph_request_total`.
+
+### Additional metrics (optional)
+
+The plugin also reads **runtime and framework metrics** when available. These
+come from application-level instrumentation (OTel SDK or Prometheus client
+libraries) and are scraped via Prometheus, not derived from traces.
+
+| Metric family | Labels used | Source | Plugin feature |
+|--------------|------------|--------|---------------|
+| `jvm_memory_used_bytes`, `jvm_gc_duration_seconds`, `jvm_threads_*` | `app`, `namespace` | OTel SDK / Micrometer | Runtime tab (JVM) |
+| `nodejs_eventloop_delay_*`, `nodejs_heap_size_*` | `app`, `namespace` | OTel SDK / prom-client | Runtime tab (Node.js) |
+| `go_goroutines`, `go_memstats_*` | `app`, `namespace` | Go runtime | Runtime tab (Go) |
+| `hikaricp_connections_*`, `db_client_connections_*` | `app`, `namespace` | OTel SDK / Micrometer | Runtime tab (DB pools) |
+| `kafka_consumer_records_lag_max`, `kafka_producer_*` | `app`, `namespace` | OTel SDK / JMX | Runtime tab (Kafka) |
+| `container_cpu_usage_seconds_total`, `kube_pod_*` | `namespace`, `pod` | kubelet / kube-state-metrics | Runtime tab (Container) |
+| `ktor_http_server_requests_seconds_count` | `app`, `namespace` | Micrometer | Framework detection (badge) |
+| `spring_security_filterchains_*` | `app`, `namespace` | Micrometer | Framework detection (badge) |
+| `nodejs_version_info` | `app`, `namespace` | prom-client | Framework detection (badge) |
+
+> **Note:** Runtime metrics use `app`/`namespace` labels (from Prometheus scraping),
+> while span metrics use `service_name`/`service_namespace` (from OTel). The plugin
+> matches them by name.
 
 ### Recommended resource attributes
 
-| Attribute | Purpose |
+| Attribute | Purpose | Required |
+|-----------|---------|----------|
+| `service.name` | Identifies each service | **Yes** |
+| `service.namespace` | Groups services by team/domain (maps to k8s namespace) | Recommended |
+| `k8s.cluster.name` | Enables environment filtering | Recommended |
+| `telemetry.sdk.language` | Shows SDK language icon next to service names | Optional |
+| `http.route` | Produces clean operation names instead of raw URLs | Optional |
+
+### Span metric dimensions
+
+For full functionality, span metrics need these dimensions configured
+(applies to both Tempo metrics-generator and OTel Collector spanmetrics connector):
+
+| Dimension | Purpose |
 |-----------|---------|
-| `service.name` | **Required.** Identifies each service |
-| `service.namespace` | Groups services by team/domain |
-| `deployment.environment` | Enables environment filtering |
-| `telemetry.sdk.language` | Shows SDK language icon next to service names |
-| `http.route` | Produces clean operation names instead of raw URLs |
+| `service.name` | **Required.** Service identification |
+| `service.namespace` | **Required.** Namespace/team grouping |
+| `k8s.cluster.name` | Environment filtering |
+| `server.address` | External dependency detection (databases, APIs) |
+| `http.status_code` or `http.response.status_code` | Error breakdown |
+| `db.system` | Database type detection (postgres, redis, etc.) |
+| `db.name` | Database name in dependency view |
+| `messaging.system` | Messaging system detection (kafka, rabbitmq) |
+| `messaging.destination.name` | Topic/queue names |
+
+For service graph metrics, these peer attributes enable dependency detection:
+
+| Peer attribute | Purpose |
+|----------------|---------|
+| `peer.service` | Identifies called service |
+| `db.name` | Database dependency naming |
+| `db.system` | Database type classification |
+| `messaging.destination.name` | Messaging dependency naming |
 
 ## Installation
 
