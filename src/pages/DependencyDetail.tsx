@@ -30,7 +30,21 @@ import { SortHeader, ImpactBar, useTableSort, getTableStyles } from '../componen
 import { useFetch } from '../utils/useFetch';
 import { usePluginDatasources } from '../utils/datasources';
 import { useCapabilities } from '../utils/capabilities';
+import { escapeRegex } from '../utils/debounce';
 import { otel } from '../otelconfig';
+
+/**
+ * Build a PromQL regex that matches the normalized address and its raw forms.
+ * e.g., "idporten.no" → "idporten\\.no(:(443|80))?" (matches idporten.no, idporten.no:443)
+ * e.g., "db:5432" → "db:5432" (non-standard port, exact match)
+ */
+function addressRegex(normalized: string): string {
+  const idx = normalized.indexOf(':');
+  if (idx >= 0) {
+    return escapeRegex(normalized);
+  }
+  return `${escapeRegex(normalized)}(:(443|80))?`;
+}
 
 function DependencyDetail() {
   const { name = '' } = useParams<{ name: string }>();
@@ -81,9 +95,11 @@ function DependencyDetail() {
     const timeRange = new SceneTimeRange({ from, to });
     const safeName = name.replace(/"/g, '\\"');
     const serverFilter = `${otel.labels.server}="${safeName}"`;
-    // Spanmetrics fallback: server_address exact OR http_host with optional :443
-    const smAddrFilter = `${otel.labels.serverAddress}="${safeName}", ${otel.labels.spanKind}="${otel.spanKinds.client}"`;
-    const smHostFilter = `${otel.labels.httpHost}=~"${safeName}(:443)?", ${otel.labels.spanKind}="${otel.spanKinds.client}"`;
+    // Spanmetrics: use regex to match both normalized and raw addresses (e.g., idporten.no and idporten.no:443)
+    const addrRegex = addressRegex(name);
+    const envLabel = envFilter ? `, ${otel.labels.deploymentEnv}="${envFilter}"` : '';
+    const smAddrFilter = `${otel.labels.serverAddress}=~"${addrRegex}", ${otel.labels.spanKind}="${otel.spanKinds.client}"${envLabel}`;
+    const smHostFilter = `${otel.labels.httpHost}=~"${addrRegex}", ${otel.labels.spanKind}="${otel.spanKinds.client}"${envLabel}`;
 
     const rateQuery = new SceneQueryRunner({
       datasource: { uid: ds.metricsUid, type: 'prometheus' },
@@ -106,6 +122,7 @@ function DependencyDetail() {
           expr: [
             `sum(rate(${sgPrefix}_request_failed_total{${serverFilter}}[$__rate_interval])) / sum(rate(${sgPrefix}_request_total{${serverFilter}}[$__rate_interval])) * 100`,
             `sum(rate(${callsMetric}{${smAddrFilter}, ${otel.labels.statusCode}="${otel.statusCodes.error}"}[$__rate_interval])) / sum(rate(${callsMetric}{${smAddrFilter}}[$__rate_interval])) * 100`,
+            `sum(rate(${callsMetric}{${smHostFilter}, ${otel.labels.statusCode}="${otel.statusCodes.error}"}[$__rate_interval])) / sum(rate(${callsMetric}{${smHostFilter}}[$__rate_interval])) * 100`,
           ].join(' or '),
           legendFormat: 'Error %',
         },
@@ -121,12 +138,12 @@ function DependencyDetail() {
       queries: [
         {
           refId: 'A',
-          expr: `histogram_quantile(0.95, sum by (le) (rate(${sgPrefix}_request_server_seconds_bucket{${serverFilter}}[$__rate_interval]))) or histogram_quantile(0.95, sum by (le) (rate(${durationBucket}{${smAddrFilter}}[$__rate_interval])))${smDurationDiv}`,
+          expr: `histogram_quantile(0.95, sum by (le) (rate(${sgPrefix}_request_server_seconds_bucket{${serverFilter}}[$__rate_interval]))) or histogram_quantile(0.95, sum by (le) (rate(${durationBucket}{${smAddrFilter}}[$__rate_interval])))${smDurationDiv} or histogram_quantile(0.95, sum by (le) (rate(${durationBucket}{${smHostFilter}}[$__rate_interval])))${smDurationDiv}`,
           legendFormat: 'P95',
         },
         {
           refId: 'B',
-          expr: `histogram_quantile(0.50, sum by (le) (rate(${sgPrefix}_request_server_seconds_bucket{${serverFilter}}[$__rate_interval]))) or histogram_quantile(0.50, sum by (le) (rate(${durationBucket}{${smAddrFilter}}[$__rate_interval])))${smDurationDiv}`,
+          expr: `histogram_quantile(0.50, sum by (le) (rate(${sgPrefix}_request_server_seconds_bucket{${serverFilter}}[$__rate_interval]))) or histogram_quantile(0.50, sum by (le) (rate(${durationBucket}{${smAddrFilter}}[$__rate_interval])))${smDurationDiv} or histogram_quantile(0.50, sum by (le) (rate(${durationBucket}{${smHostFilter}}[$__rate_interval])))${smDurationDiv}`,
           legendFormat: 'P50',
         },
       ],
@@ -157,7 +174,7 @@ function DependencyDetail() {
         ],
       }),
     });
-  }, [name, from, to, ds.metricsUid, caps]);
+  }, [name, from, to, ds.metricsUid, caps, envFilter]);
 
   return (
     <PluginPage layout={PageLayoutType.Canvas}>

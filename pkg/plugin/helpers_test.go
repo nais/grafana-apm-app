@@ -94,3 +94,26 @@ func TestParseUnixParam(t *testing.T) {
 		})
 	}
 }
+
+func TestAddressMatchRegex(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"bare domain", "idporten.no", `idporten\.no(:(443|80))?`},
+		{"domain with dot", "some.host.example.com", `some\.host\.example\.com(:(443|80))?`},
+		{"non-standard port preserved", "postgres-ha:5432", `postgres-ha:5432`},
+		{"ip address", "10.0.0.1", `10\.0\.0\.1(:(443|80))?`},
+		{"ip with port", "10.0.0.1:5432", `10\.0\.0\.1:5432`},
+		{"simple name", "kafka", `kafka(:(443|80))?`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := addressMatchRegex(tc.input)
+			if got != tc.expected {
+				t.Errorf("addressMatchRegex(%q) = %q, want %q", tc.input, got, tc.expected)
+			}
+		})
+	}
+}

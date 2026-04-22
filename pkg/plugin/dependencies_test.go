@@ -216,3 +216,56 @@ func TestCoalesceAddress(t *testing.T) {
 		})
 	}
 }
+
+// TestAddressMatchRegexRoundTrip verifies that addressMatchRegex produces a
+// pattern that matches both the normalized name and the original raw label value.
+func TestAddressMatchRegexRoundTrip(t *testing.T) {
+	tests := []struct {
+		name      string
+		rawLabel  string
+		shouldHit []string
+		shouldMis []string
+	}{
+		{
+			"443 port stripped",
+			"idporten.no:443",
+			[]string{"idporten.no", "idporten.no:443", "idporten.no:80"},
+			[]string{"idportenXno", "idporten.no:8080"},
+		},
+		{
+			"80 port stripped",
+			"api.example.com:80",
+			[]string{"api.example.com", "api.example.com:80", "api.example.com:443"},
+			[]string{"api.example.com:8080"},
+		},
+		{
+			"non-standard port preserved",
+			"db.host:5432",
+			[]string{"db.host:5432"},
+			[]string{"db.host", "db.host:443"},
+		},
+		{
+			"no port at all",
+			"kafka",
+			[]string{"kafka", "kafka:443", "kafka:80"},
+			[]string{"kafka:9092"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			normalized := normalizeAddress(tc.rawLabel)
+			pattern := "^" + addressMatchRegex(normalized) + "$"
+			re := regexp.MustCompile(pattern)
+			for _, hit := range tc.shouldHit {
+				if !re.MatchString(hit) {
+					t.Errorf("addressMatchRegex(%q) pattern %q should match %q", normalized, pattern, hit)
+				}
+			}
+			for _, mis := range tc.shouldMis {
+				if re.MatchString(mis) {
+					t.Errorf("addressMatchRegex(%q) pattern %q should NOT match %q", normalized, pattern, mis)
+				}
+			}
+		})
+	}
+}

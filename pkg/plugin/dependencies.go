@@ -14,6 +14,21 @@ import (
 	"github.com/nais/grafana-otel-plugin/pkg/plugin/queries"
 )
 
+// addressMatchRegex returns a PromQL regex pattern that matches both the
+// normalized address form (as shown in the UI) and the raw metric label value.
+// e.g., "idporten.no" → `idporten\.no(:(443|80))?` (matches idporten.no, idporten.no:443, idporten.no:80)
+// e.g., "db:5432" → `db:5432` (non-standard port, exact match)
+func addressMatchRegex(normalized string) string {
+	host, port, hasPort := strings.Cut(normalized, ":")
+	escaped := regexp.QuoteMeta(host)
+	if hasPort {
+		// Name retains a non-standard port → exact match
+		return escaped + ":" + regexp.QuoteMeta(port)
+	}
+	// Name was normalized (standard port stripped) → match with optional :443 or :80
+	return escaped + "(:(443|80))?"
+}
+
 // normalizeAddress cleans up a server address / http_host value for display.
 // It strips well-known ports (:443, :80) and trailing dots.
 func normalizeAddress(addr string) string {
@@ -500,10 +515,10 @@ func (a *App) queryDependencyDetail(
 		envFilter = fmt.Sprintf(`, %s="%s"`, cfg.Labels.DeploymentEnv, filterEnvironment)
 	}
 	dbEnrichQuery := fmt.Sprintf(
-		`count by (%s, %s) (rate(%s{%s="%s", %s!="", %s="%s"%s}%s))`,
+		`count by (%s, %s) (rate(%s{%s=~"%s", %s!="", %s="%s"%s}%s))`,
 		cfg.Labels.ServerAddress, cfg.Labels.DBSystem,
 		a.callsMetric(ctx),
-		cfg.Labels.ServerAddress, depName,
+		cfg.Labels.ServerAddress, addressMatchRegex(depName),
 		cfg.Labels.DBSystem,
 		cfg.Labels.SpanKind, cfg.SpanKinds.Client,
 		envFilter,
@@ -511,38 +526,52 @@ func (a *App) queryDependencyDetail(
 	)
 
 	// Spanmetrics supplement: find upstream callers that target this dependency
-	// via server_address or http_host. This catches external API callers that
-	// the service graph connector may not see.
-	escapedDepName := regexp.QuoteMeta(depName)
+	// via server_address or http_host. Uses regex matching to handle address
+	// normalization (e.g., "idporten.no" must match "idporten.no:443" in labels).
+	addrRegex := addressMatchRegex(depName)
+	smKindFilter := fmt.Sprintf(`%s="%s"`, cfg.Labels.SpanKind, cfg.SpanKinds.Client)
+	smAddrMatch := fmt.Sprintf(`%s=~"%s"`, cfg.Labels.ServerAddress, addrRegex)
+	smHostMatch := fmt.Sprintf(`%s=~"%s"`, cfg.Labels.HTTPHost, addrRegex)
+
 	smUpRateQ := fmt.Sprintf(
-		`sum by (%s, %s) (rate(%s{%s="%s", %s="%s"%s}%s)) or sum by (%s, %s) (rate(%s{%s="%s", %s=~"%s(:%s)?"%s}%s))`,
+		`sum by (%s, %s) (rate(%s{%s, %s%s}%s)) or sum by (%s, %s) (rate(%s{%s, %s%s}%s))`,
 		cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
-		a.callsMetric(ctx), cfg.Labels.SpanKind, cfg.SpanKinds.Client,
-		cfg.Labels.ServerAddress, depName, envFilter, rangeStr,
+		a.callsMetric(ctx), smKindFilter, smAddrMatch, envFilter, rangeStr,
 		cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
-		a.callsMetric(ctx), cfg.Labels.SpanKind, cfg.SpanKinds.Client,
-		cfg.Labels.HTTPHost, escapedDepName, "443", envFilter, rangeStr,
+		a.callsMetric(ctx), smKindFilter, smHostMatch, envFilter, rangeStr,
 	)
 	smUpErrQ := fmt.Sprintf(
-		`sum by (%s, %s) (rate(%s{%s="%s", %s="%s", %s="%s"%s}%s)) or sum by (%s, %s) (rate(%s{%s="%s", %s="%s", %s=~"%s(:%s)?"%s}%s))`,
+		`sum by (%s, %s) (rate(%s{%s, %s="%s", %s%s}%s)) or sum by (%s, %s) (rate(%s{%s, %s="%s", %s%s}%s))`,
 		cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
-		a.callsMetric(ctx), cfg.Labels.SpanKind, cfg.SpanKinds.Client,
-		cfg.Labels.StatusCode, cfg.StatusCodes.Error,
-		cfg.Labels.ServerAddress, depName, envFilter, rangeStr,
+		a.callsMetric(ctx), smKindFilter, cfg.Labels.StatusCode, cfg.StatusCodes.Error, smAddrMatch, envFilter, rangeStr,
 		cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
-		a.callsMetric(ctx), cfg.Labels.SpanKind, cfg.SpanKinds.Client,
-		cfg.Labels.StatusCode, cfg.StatusCodes.Error,
-		cfg.Labels.HTTPHost, escapedDepName, "443", envFilter, rangeStr,
+		a.callsMetric(ctx), smKindFilter, cfg.Labels.StatusCode, cfg.StatusCodes.Error, smHostMatch, envFilter, rangeStr,
 	)
+	// Spanmetric P95 for dependencies not in service graph (external APIs, etc.)
+	durationBucket := caps.SpanMetrics.DurationMetric
+	smUpP95Q := ""
+	if durationBucket != "" {
+		smUpP95Q = fmt.Sprintf(
+			`histogram_quantile(0.95, sum by (%s) (rate(%s{%s, %s%s}%s))) or histogram_quantile(0.95, sum by (%s) (rate(%s{%s, %s%s}%s)))`,
+			cfg.Labels.Le,
+			durationBucket, smKindFilter, smAddrMatch, envFilter, rangeStr,
+			cfg.Labels.Le,
+			durationBucket, smKindFilter, smHostMatch, envFilter, rangeStr,
+		)
+	}
 
-	resultMap := a.runInstantQueries(ctx, to, []QueryJob{
+	jobs := []QueryJob{
 		{"rate", rateQuery},
 		{"error", errorQuery},
 		{"p95", p95Query},
 		{"db_enrich", dbEnrichQuery},
 		{"smUpRate", smUpRateQ},
 		{"smUpErr", smUpErrQ},
-	}, logger)
+	}
+	if smUpP95Q != "" {
+		jobs = append(jobs, QueryJob{"smUpP95", smUpP95Q})
+	}
+	resultMap := a.runInstantQueries(ctx, to, jobs, logger)
 
 	// Build db_system map from enrichment
 	dbSystemMap := make(map[string]string)
@@ -563,114 +592,7 @@ func (a *App) queryDependencyDetail(
 		}
 	}
 
-	// Aggregate upstreams by client
-	type upstreamData struct {
-		rate      float64
-		errorRate float64
-		p95       float64
-	}
-	upstreams := make(map[string]*upstreamData)
-	totalRate := 0.0
-	totalError := 0.0
-	totalP95 := 0.0
-
-	for _, r := range resultMap["rate"] {
-		client := r.Metric[a.otelCfg.Labels.Client]
-		if client == "" {
-			continue
-		}
-		u, ok := upstreams[client]
-		if !ok {
-			u = &upstreamData{}
-			upstreams[client] = u
-		}
-		v := r.Value.Float()
-		u.rate += v
-		totalRate += v
-	}
-
-	for _, r := range resultMap["error"] {
-		client := r.Metric[a.otelCfg.Labels.Client]
-		if client == "" {
-			continue
-		}
-		if u, ok := upstreams[client]; ok {
-			v := r.Value.Float()
-			u.errorRate += v
-			totalError += v
-		}
-	}
-
-	for _, r := range resultMap["p95"] {
-		client := r.Metric[a.otelCfg.Labels.Client]
-		if client == "" {
-			continue
-		}
-		if u, ok := upstreams[client]; ok {
-			v := r.Value.Float()
-			if isValidMetricValue(v) {
-				u.p95 = v
-				if v > totalP95 {
-					totalP95 = v
-				}
-			}
-		}
-	}
-
-	// Merge spanmetrics upstream callers (services that call this dependency
-	// via server_address / http_host)
-	for _, r := range resultMap["smUpRate"] {
-		svc := r.Metric[cfg.Labels.ServiceName]
-		if svc == "" {
-			continue
-		}
-		u, ok := upstreams[svc]
-		if !ok {
-			u = &upstreamData{}
-			upstreams[svc] = u
-		}
-		v := r.Value.Float()
-		u.rate += v
-		totalRate += v
-	}
-	for _, r := range resultMap["smUpErr"] {
-		svc := r.Metric[cfg.Labels.ServiceName]
-		if svc == "" {
-			continue
-		}
-		if u, ok := upstreams[svc]; ok {
-			v := r.Value.Float()
-			u.errorRate += v
-			totalError += v
-		}
-	}
-
-	// Build upstreams list
-	totalImpact := 0.0
-	for _, u := range upstreams {
-		totalImpact += u.p95 * u.rate
-	}
-
-	upstreamList := make([]DependencySummary, 0, len(upstreams))
-	for name, u := range upstreams {
-		errPct := 0.0
-		if u.rate > 0 {
-			errPct = (u.errorRate / u.rate) * 100
-		}
-		impact := 0.0
-		if totalImpact > 0 {
-			impact = (u.p95 * u.rate) / totalImpact
-		}
-		upstreamList = append(upstreamList, DependencySummary{
-			Name:         name,
-			Type:         "service",
-			Rate:         roundTo(u.rate, 3),
-			ErrorRate:    roundTo(errPct, 2),
-			P95Duration:  roundTo(u.p95*1000, 2),
-			DurationUnit: "ms",
-			Impact:       roundTo(impact, 4),
-		})
-	}
+	upstreamList, totalRate, totalError, totalP95 := a.aggregateUpstreams(resultMap, caps)
 
 	sort.Slice(upstreamList, func(i, j int) bool {
 		return upstreamList[i].Impact > upstreamList[j].Impact
@@ -699,6 +621,147 @@ func (a *App) queryDependencyDetail(
 	}
 }
 
+// upstreamData tracks metrics for a single upstream caller.
+type upstreamData struct {
+	rate      float64
+	errorRate float64
+	p95       float64
+	fromSG    bool // present in service graph results (for dedup)
+}
+
+// aggregateUpstreams merges service graph and spanmetric upstream callers,
+// deduplicating services present in both sources. Returns the upstream list
+// and aggregate totals (rate, error, p95).
+func (a *App) aggregateUpstreams(
+	resultMap map[string][]queries.PromResult,
+	caps queries.Capabilities,
+) ([]DependencySummary, float64, float64, float64) {
+	cfg := a.otelCfg
+	upstreams := make(map[string]*upstreamData)
+	totalRate := 0.0
+	totalError := 0.0
+	totalP95 := 0.0
+
+	// Service graph: aggregate by client label
+	for _, r := range resultMap["rate"] {
+		client := r.Metric[cfg.Labels.Client]
+		if client == "" {
+			continue
+		}
+		u, ok := upstreams[client]
+		if !ok {
+			u = &upstreamData{fromSG: true}
+			upstreams[client] = u
+		}
+		v := r.Value.Float()
+		u.rate += v
+		totalRate += v
+	}
+	for _, r := range resultMap["error"] {
+		client := r.Metric[cfg.Labels.Client]
+		if client == "" {
+			continue
+		}
+		if u, ok := upstreams[client]; ok {
+			v := r.Value.Float()
+			u.errorRate += v
+			totalError += v
+		}
+	}
+	for _, r := range resultMap["p95"] {
+		client := r.Metric[cfg.Labels.Client]
+		if client == "" {
+			continue
+		}
+		if u, ok := upstreams[client]; ok {
+			v := r.Value.Float()
+			if isValidMetricValue(v) {
+				u.p95 = v
+				if v > totalP95 {
+					totalP95 = v
+				}
+			}
+		}
+	}
+
+	// Spanmetrics: merge upstream callers, skip services already in service graph
+	for _, r := range resultMap["smUpRate"] {
+		svc := r.Metric[cfg.Labels.ServiceName]
+		if svc == "" {
+			continue
+		}
+		if u, ok := upstreams[svc]; ok && u.fromSG {
+			continue
+		}
+		u, ok := upstreams[svc]
+		if !ok {
+			u = &upstreamData{}
+			upstreams[svc] = u
+		}
+		v := r.Value.Float()
+		u.rate += v
+		totalRate += v
+	}
+	for _, r := range resultMap["smUpErr"] {
+		svc := r.Metric[cfg.Labels.ServiceName]
+		if svc == "" {
+			continue
+		}
+		if u, ok := upstreams[svc]; ok && u.fromSG {
+			continue
+		}
+		if u, ok := upstreams[svc]; ok {
+			v := r.Value.Float()
+			u.errorRate += v
+			totalError += v
+		}
+	}
+
+	// Use spanmetric P95 when service graph P95 is absent
+	if totalP95 == 0 {
+		if smP95Results, ok := resultMap["smUpP95"]; ok {
+			for _, r := range smP95Results {
+				v := r.Value.Float()
+				if isValidMetricValue(v) && v > totalP95 {
+					if caps.SpanMetrics.DurationUnit == "ms" {
+						totalP95 = v / 1000
+					} else {
+						totalP95 = v
+					}
+				}
+			}
+		}
+	}
+
+	// Build sorted list with impact scores
+	totalImpact := 0.0
+	for _, u := range upstreams {
+		totalImpact += u.p95 * u.rate
+	}
+
+	list := make([]DependencySummary, 0, len(upstreams))
+	for name, u := range upstreams {
+		errPct := 0.0
+		if u.rate > 0 {
+			errPct = (u.errorRate / u.rate) * 100
+		}
+		impact := 0.0
+		if totalImpact > 0 {
+			impact = (u.p95 * u.rate) / totalImpact
+		}
+		list = append(list, DependencySummary{
+			Name:         name,
+			Type:         "service",
+			Rate:         roundTo(u.rate, 3),
+			ErrorRate:    roundTo(errPct, 2),
+			P95Duration:  roundTo(u.p95*1000, 2),
+			DurationUnit: "ms",
+			Impact:       roundTo(impact, 4),
+		})
+	}
+	return list, totalRate, totalError, totalP95
+}
+
 // queryDependencyOperations queries spanmetrics for operations calling this dependency.
 // Tries peer_service first, then falls back to server_address / http_host.
 func (a *App) queryDependencyOperations(
@@ -723,11 +786,11 @@ func (a *App) queryDependencyOperations(
 
 	// Primary filter: peer_service (from spanmetrics connector dimensions)
 	peerFilter := fmt.Sprintf(`peer_service="%s", %s="%s"%s`, depName, cfg.Labels.SpanKind, cfg.SpanKinds.Client, envFilter)
-	// Fallback filter: server_address (from span attributes promoted to metrics)
-	addrFilter := fmt.Sprintf(`%s="%s", %s="%s"%s`, cfg.Labels.ServerAddress, depName, cfg.Labels.SpanKind, cfg.SpanKinds.Client, envFilter)
-	// Second fallback: http_host with optional :443 suffix
-	escapedDep := regexp.QuoteMeta(depName)
-	hostFilter := fmt.Sprintf(`%s=~"%s(:443)?", %s="%s"%s`, cfg.Labels.HTTPHost, escapedDep, cfg.Labels.SpanKind, cfg.SpanKinds.Client, envFilter)
+	// Fallback filter: server_address with regex to match normalized addresses
+	addrRegex := addressMatchRegex(depName)
+	addrFilter := fmt.Sprintf(`%s=~"%s", %s="%s"%s`, cfg.Labels.ServerAddress, addrRegex, cfg.Labels.SpanKind, cfg.SpanKinds.Client, envFilter)
+	// Second fallback: http_host with same regex
+	hostFilter := fmt.Sprintf(`%s=~"%s", %s="%s"%s`, cfg.Labels.HTTPHost, addrRegex, cfg.Labels.SpanKind, cfg.SpanKinds.Client, envFilter)
 
 	// Build queries using OR across all three filter strategies
 	rateQuery := fmt.Sprintf(
