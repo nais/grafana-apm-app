@@ -23,7 +23,7 @@ import { formatDuration } from '../utils/format';
 import { usePluginDatasources, useHasEnvironmentOverrides } from '../utils/datasources';
 import { useTimeRange } from '../utils/timeRange';
 import { useCapabilities, getMetricNames } from '../utils/capabilities';
-import { useAppNavigate } from '../utils/navigation';
+import { useAppNavigate, sanitizeParam } from '../utils/navigation';
 import { sanitizeLabelValue } from '../utils/sanitize';
 import { useFetch } from '../utils/useFetch';
 import { otel } from '../otelconfig';
@@ -58,7 +58,7 @@ function ServiceOverview() {
   const appNavigate = useAppNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const styles = useStyles2(getStyles);
-  const envFilter = searchParams.get('environment') ?? '';
+  const envFilter = sanitizeParam(searchParams.get('environment') ?? '');
   const ds = usePluginDatasources(envFilter || undefined);
   const hasEnvOverrides = useHasEnvironmentOverrides();
   const { from, to, fromMs, toMs } = useTimeRange();

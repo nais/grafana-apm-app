@@ -6,6 +6,15 @@ import { PLUGIN_BASE_URL } from '../constants';
 const PRESERVED_PARAMS = ['from', 'to', 'namespace', 'environment', 'sort', 'dir', 'q', 'pageSize'];
 
 /**
+ * Sanitize a query param value that may have been corrupted by the old
+ * double-query-string bug (e.g., "prod-fss?sort=rate" → "prod-fss").
+ */
+export function sanitizeParam(value: string): string {
+  const idx = value.indexOf('?');
+  return idx >= 0 ? value.substring(0, idx) : value;
+}
+
+/**
  * Navigation hook that preserves time range and filter params across pages.
  * Carries: from, to, namespace, environment.
  */
@@ -17,11 +26,8 @@ export function useAppNavigate() {
     (path: string, extraParams?: Record<string, string>) => {
       const params = new URLSearchParams();
       for (const key of PRESERVED_PARAMS) {
-        let val = searchParams.get(key);
-        // Sanitize: strip corrupted values containing '?' (from old double-query-string bug)
-        if (val && val.includes('?')) {
-          val = val.split('?')[0];
-        }
+        const raw = searchParams.get(key);
+        const val = raw ? sanitizeParam(raw) : null;
         if (val) {
           params.set(key, val);
         }

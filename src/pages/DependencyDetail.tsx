@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { PluginPage } from '@grafana/runtime';
 import { useStyles2, Icon, LoadingPlaceholder, Alert, LinkButton } from '@grafana/ui';
@@ -22,10 +22,11 @@ import {
   DependencyOperation,
   ServiceSummary,
 } from '../api/client';
-import { formatDuration } from '../utils/format';
+import { formatDuration, formatRate, formatErrorRate } from '../utils/format';
 import { useTimeRange } from '../utils/timeRange';
-import { useAppNavigate } from '../utils/navigation';
+import { useAppNavigate, sanitizeParam } from '../utils/navigation';
 import { DepTypeIcon } from '../components/DepTypeIcon';
+import { SortHeader, ImpactBar, useTableSort, getTableStyles } from '../components/SortableTable';
 import { useFetch } from '../utils/useFetch';
 import { usePluginDatasources } from '../utils/datasources';
 import { useCapabilities } from '../utils/capabilities';
@@ -36,7 +37,7 @@ function DependencyDetail() {
   const styles = useStyles2(getStyles);
   const appNavigate = useAppNavigate();
   const [searchParams] = useSearchParams();
-  const envFilter = searchParams.get('environment') ?? '';
+  const envFilter = sanitizeParam(searchParams.get('environment') ?? '');
   const { fromMs, toMs, from, to } = useTimeRange();
   const ds = usePluginDatasources(envFilter || undefined);
   const { caps } = useCapabilities();
@@ -54,33 +55,14 @@ function DependencyDetail() {
     }
     return m;
   }, [services]);
-  const [sortField, setSortField] = useState<keyof DependencySummary>('impact');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-
-  const toggleSort = useCallback((field: keyof DependencySummary) => {
-    setSortField((prev) => {
-      if (prev === field) {
-        setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-        return prev;
-      }
-      setSortDir('desc');
-      return field;
-    });
-  }, []);
+  const { sortField, sortDir, toggleSort, comparator } = useTableSort<keyof DependencySummary>('impact');
 
   const sorted = useMemo(() => {
     if (!data) {
       return [];
     }
-    return [...data.upstreams].sort((a, b) => {
-      const aVal = a[sortField];
-      const bVal = b[sortField];
-      if (typeof aVal === 'number' && typeof bVal === 'number') {
-        return sortDir === 'asc' ? aVal - bVal : bVal - aVal;
-      }
-      return sortDir === 'asc' ? String(aVal).localeCompare(String(bVal)) : String(bVal).localeCompare(String(aVal));
-    });
-  }, [data, sortField, sortDir]);
+    return [...data.upstreams].sort(comparator);
+  }, [data, comparator]);
 
   // Build Scenes RED panels for the dependency.
   // Uses service graph metrics with an OR fallback to spanmetrics, since the
@@ -214,12 +196,12 @@ function DependencyDetail() {
               <div className={styles.summaryStats}>
                 <div className={styles.statItem}>
                   <span className={styles.statLabel}>Throughput</span>
-                  <span className={styles.statValue}>{data.dependency.rate.toFixed(2)} req/s</span>
+                  <span className={styles.statValue}>{formatRate(data.dependency.rate)}</span>
                 </div>
                 <div className={styles.statItem}>
                   <span className={styles.statLabel}>Error Rate</span>
                   <span className={data.dependency.errorRate > 0 ? styles.statValueError : styles.statValue}>
-                    {data.dependency.errorRate.toFixed(1)}%
+                    {formatErrorRate(data.dependency.errorRate)}
                   </span>
                 </div>
                 <div className={styles.statItem}>
@@ -303,9 +285,9 @@ function DependencyDetail() {
                         <Icon name="gf-layout-simple" size="sm" />
                         <span style={{ marginLeft: 8 }}>{upstream.name}</span>
                       </td>
-                      <td className={styles.numCell}>{upstream.rate.toFixed(2)} req/s</td>
+                      <td className={styles.numCell}>{formatRate(upstream.rate)}</td>
                       <td className={upstream.errorRate > 0 ? styles.errorCell : styles.numCell}>
-                        {upstream.errorRate.toFixed(1)}%
+                        {formatErrorRate(upstream.errorRate)}
                       </td>
                       <td className={styles.numCell}>{formatDuration(upstream.p95Duration, upstream.durationUnit)}</td>
                       <td className={styles.numCell}>
@@ -342,9 +324,9 @@ function DependencyDetail() {
                           {op.spanName}
                         </td>
                         <td title={op.callingService}>{op.callingService}</td>
-                        <td className={styles.numCell}>{op.rate.toFixed(2)} req/s</td>
+                        <td className={styles.numCell}>{formatRate(op.rate)}</td>
                         <td className={op.errorRate > 0 ? styles.errorCell : styles.numCell}>
-                          {op.errorRate.toFixed(1)}%
+                          {formatErrorRate(op.errorRate)}
                         </td>
                         <td className={styles.numCell}>{formatDuration(op.p95Duration, op.durationUnit)}</td>
                       </tr>
@@ -360,39 +342,8 @@ function DependencyDetail() {
   );
 }
 
-function SortHeader({
-  field,
-  label,
-  sortField,
-  sortDir,
-  onSort,
-}: {
-  field: keyof DependencySummary;
-  label: string;
-  sortField: keyof DependencySummary;
-  sortDir: 'asc' | 'desc';
-  onSort: (f: keyof DependencySummary) => void;
-}) {
-  const styles = useStyles2(getStyles);
-  return (
-    <th className={styles.sortableHeader} onClick={() => onSort(field)}>
-      {label} {sortField === field && <Icon name={sortDir === 'asc' ? 'arrow-up' : 'arrow-down'} size="sm" />}
-    </th>
-  );
-}
-
-function ImpactBar({ impact }: { impact: number }) {
-  const styles = useStyles2(getStyles);
-  const pct = Math.round(impact * 100);
-  return (
-    <div className={styles.impactBarContainer}>
-      <div className={styles.impactBarFill} style={{ width: `${pct}%` }} />
-      <span className={styles.impactBarLabel}>{pct}%</span>
-    </div>
-  );
-}
-
 const getStyles = (theme: GrafanaTheme2) => ({
+  ...getTableStyles(theme),
   container: css`
     display: flex;
     flex-direction: column;
@@ -469,88 +420,12 @@ const getStyles = (theme: GrafanaTheme2) => ({
     color: ${theme.colors.text.secondary};
     margin-bottom: ${theme.spacing(2)};
   `,
-  table: css`
-    width: 100%;
-    border-collapse: separate;
-    border-spacing: 0;
-    table-layout: fixed;
-    th {
-      text-align: left;
-      padding: ${theme.spacing(1)} ${theme.spacing(2)};
-      color: ${theme.colors.text.secondary};
-      font-size: ${theme.typography.bodySmall.fontSize};
-      font-weight: ${theme.typography.fontWeightMedium};
-      border-bottom: 1px solid ${theme.colors.border.medium};
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    td {
-      padding: ${theme.spacing(1)} ${theme.spacing(2)};
-      border-bottom: 1px solid ${theme.colors.border.weak};
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    tr:hover {
-      background: ${theme.colors.background.secondary};
-    }
-  `,
-  sortableHeader: css`
-    cursor: pointer;
-    user-select: none;
-    &:hover {
-      color: ${theme.colors.text.primary};
-    }
-  `,
-  clickableRow: css`
-    cursor: pointer;
-    &:hover {
-      background: ${theme.colors.background.secondary};
-    }
-  `,
-  nameCell: css`
-    font-weight: ${theme.typography.fontWeightMedium};
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  `,
   linkNameCell: css`
     font-weight: ${theme.typography.fontWeightMedium};
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     color: ${theme.colors.text.link};
-  `,
-  numCell: css`
-    text-align: right;
-    white-space: nowrap;
-    font-variant-numeric: tabular-nums;
-  `,
-  errorCell: css`
-    text-align: right;
-    white-space: nowrap;
-    font-variant-numeric: tabular-nums;
-    color: ${theme.colors.error.text};
-    font-weight: ${theme.typography.fontWeightMedium};
-  `,
-  impactBarContainer: css`
-    display: flex;
-    align-items: center;
-    gap: ${theme.spacing(1)};
-    min-width: 120px;
-  `,
-  impactBarFill: css`
-    height: 8px;
-    background: ${theme.colors.primary.main};
-    border-radius: 4px;
-    min-width: 2px;
-    flex-shrink: 0;
-  `,
-  impactBarLabel: css`
-    font-size: ${theme.typography.bodySmall.fontSize};
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-    color: ${theme.colors.text.secondary};
   `,
 });
 

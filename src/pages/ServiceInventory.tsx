@@ -6,7 +6,7 @@ import { GrafanaTheme2, SelectableValue } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getServices, getCapabilities, ServiceSummary, Capabilities } from '../api/client';
 import { useTimeRange } from '../utils/timeRange';
-import { useAppNavigate } from '../utils/navigation';
+import { useAppNavigate, sanitizeParam } from '../utils/navigation';
 import { formatDuration } from '../utils/format';
 import { useFetch } from '../utils/useFetch';
 
@@ -69,8 +69,7 @@ function ServiceInventory() {
   // Read all UI state from query params (persisted across navigation)
   const namespaceFilter = searchParams.get('namespace') ?? '';
   const rawEnvFilter = searchParams.get('environment') ?? '';
-  // Sanitize: strip corrupted values from old double-query-string bug (e.g., "prod-fss?sort=rate")
-  const envFilter = rawEnvFilter.includes('?') ? rawEnvFilter.split('?')[0] : rawEnvFilter;
+  const envFilter = sanitizeParam(rawEnvFilter);
   const search = searchParams.get('q') ?? '';
   const sortField: SortField = (searchParams.get('sort') as SortField) || 'name';
   const sortDir: SortDir = (searchParams.get('dir') as SortDir) || 'asc';

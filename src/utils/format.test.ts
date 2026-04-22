@@ -1,4 +1,21 @@
-import { formatDuration } from './format';
+import { formatDuration, formatRate, formatErrorRate } from './format';
+
+describe('formatRate', () => {
+  it('formats with 2 decimal places and req/s suffix', () => {
+    expect(formatRate(1.5)).toBe('1.50 req/s');
+    expect(formatRate(0)).toBe('0.00 req/s');
+    expect(formatRate(123.456)).toBe('123.46 req/s');
+  });
+});
+
+describe('formatErrorRate', () => {
+  it('formats with 1 decimal place and % suffix', () => {
+    expect(formatErrorRate(5.0)).toBe('5.0%');
+    expect(formatErrorRate(0)).toBe('0.0%');
+    expect(formatErrorRate(99.99)).toBe('100.0%');
+    expect(formatErrorRate(0.15)).toBe('0.1%');
+  });
+});
 
 describe('formatDuration', () => {
   describe('millisecond unit', () => {

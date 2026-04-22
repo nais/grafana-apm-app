@@ -6,6 +6,7 @@
  */
 
 import { PLUGIN_BASE_URL } from '../constants';
+import { sanitizeParam } from './navigation';
 
 /** Pure function mirroring the URL construction logic in useAppNavigate */
 function buildNavigationURL(
@@ -16,11 +17,8 @@ function buildNavigationURL(
   const PRESERVED_PARAMS = ['from', 'to', 'namespace', 'environment', 'sort', 'dir', 'q', 'pageSize'];
   const params = new URLSearchParams();
   for (const key of PRESERVED_PARAMS) {
-    let val = currentParams[key];
-    // Sanitize: strip corrupted values containing '?' (mirrors appNavigate logic)
-    if (val && val.includes('?')) {
-      val = val.split('?')[0];
-    }
+    const raw = currentParams[key];
+    const val = raw ? sanitizeParam(raw) : undefined;
     if (val) {
       params.set(key, val);
     }
@@ -86,5 +84,22 @@ describe('buildNavigationURL', () => {
     expect(url).toContain('environment=prod-fss');
     expect(url).not.toContain('sort=rate');
     expect(url.match(/\?/g)?.length).toBe(1);
+  });
+});
+
+describe('sanitizeParam', () => {
+  it('returns clean values unchanged', () => {
+    expect(sanitizeParam('prod-fss')).toBe('prod-fss');
+    expect(sanitizeParam('')).toBe('');
+    expect(sanitizeParam('dev-gcp')).toBe('dev-gcp');
+  });
+
+  it('strips corrupted query string from values', () => {
+    expect(sanitizeParam('prod-fss?sort=rate')).toBe('prod-fss');
+    expect(sanitizeParam('dev-gcp?dir=desc&page=2')).toBe('dev-gcp');
+  });
+
+  it('handles value that is just a question mark', () => {
+    expect(sanitizeParam('?')).toBe('');
   });
 });

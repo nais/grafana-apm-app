@@ -4,10 +4,11 @@ import { useStyles2, Icon, LoadingPlaceholder, Alert, Input, RadioButtonGroup, S
 import { GrafanaTheme2, PageLayoutType, SelectableValue } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getGlobalDependencies, DependencySummary, DependenciesResponse } from '../api/client';
-import { formatDuration } from '../utils/format';
+import { formatDuration, formatRate, formatErrorRate } from '../utils/format';
 import { useTimeRange } from '../utils/timeRange';
-import { useAppNavigate } from '../utils/navigation';
+import { useAppNavigate, sanitizeParam } from '../utils/navigation';
 import { DepTypeIcon, formatDepType } from '../components/DepTypeIcon';
+import { SortHeader, ImpactBar, useTableSort, getTableStyles } from '../components/SortableTable';
 import { useFetch } from '../utils/useFetch';
 import { useConfiguredEnvironments } from '../utils/datasources';
 import { useSearchParams } from 'react-router-dom';
@@ -16,7 +17,7 @@ function Dependencies() {
   const styles = useStyles2(getStyles);
   const appNavigate = useAppNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const envFilter = searchParams.get('environment') ?? '';
+  const envFilter = sanitizeParam(searchParams.get('environment') ?? '');
   const { fromMs, toMs } = useTimeRange();
 
   // Read configured environment names from plugin datasource config
@@ -53,8 +54,7 @@ function Dependencies() {
   );
   const deps = useMemo(() => depsResp?.dependencies ?? [], [depsResp]);
 
-  const [sortField, setSortField] = useState<keyof DependencySummary>('impact');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const { sortField, sortDir, toggleSort, comparator } = useTableSort<keyof DependencySummary>('impact');
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [errorsOnly, setErrorsOnly] = useState(false);
@@ -73,17 +73,6 @@ function Dependencies() {
     return opts;
   }, [deps]);
 
-  const toggleSort = useCallback((field: keyof DependencySummary) => {
-    setSortField((prev) => {
-      if (prev === field) {
-        setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-        return prev;
-      }
-      setSortDir('desc');
-      return field;
-    });
-  }, []);
-
   const sorted = useMemo(() => {
     const searchLower = search.toLowerCase();
     return [...deps]
@@ -99,15 +88,8 @@ function Dependencies() {
         }
         return true;
       })
-      .sort((a, b) => {
-        const aVal = a[sortField];
-        const bVal = b[sortField];
-        if (typeof aVal === 'number' && typeof bVal === 'number') {
-          return sortDir === 'asc' ? aVal - bVal : bVal - aVal;
-        }
-        return sortDir === 'asc' ? String(aVal).localeCompare(String(bVal)) : String(bVal).localeCompare(String(aVal));
-      });
-  }, [deps, sortField, sortDir, search, typeFilter, errorsOnly]);
+      .sort(comparator);
+  }, [deps, comparator, search, typeFilter, errorsOnly]);
 
   return (
     <PluginPage layout={PageLayoutType.Canvas}>
@@ -235,9 +217,9 @@ function Dependencies() {
                           <span style={{ marginLeft: 8 }}>{dep.name}</span>
                         </td>
                         <td className={styles.typeCell}>{formatDepType(dep.type)}</td>
-                        <td className={styles.numCell}>{dep.rate.toFixed(2)} req/s</td>
+                        <td className={styles.numCell}>{formatRate(dep.rate)}</td>
                         <td className={dep.errorRate > 0 ? styles.errorCell : styles.numCell}>
-                          {dep.errorRate.toFixed(1)}%
+                          {formatErrorRate(dep.errorRate)}
                         </td>
                         <td className={styles.numCell}>{formatDuration(dep.p95Duration, dep.durationUnit)}</td>
                         <td className={styles.numCell}>
@@ -256,39 +238,8 @@ function Dependencies() {
   );
 }
 
-function SortHeader({
-  field,
-  label,
-  sortField,
-  sortDir,
-  onSort,
-}: {
-  field: keyof DependencySummary;
-  label: string;
-  sortField: keyof DependencySummary;
-  sortDir: 'asc' | 'desc';
-  onSort: (f: keyof DependencySummary) => void;
-}) {
-  const styles = useStyles2(getStyles);
-  return (
-    <th className={styles.sortableHeader} onClick={() => onSort(field)}>
-      {label} {sortField === field && <Icon name={sortDir === 'asc' ? 'arrow-up' : 'arrow-down'} size="sm" />}
-    </th>
-  );
-}
-
-function ImpactBar({ impact }: { impact: number }) {
-  const styles = useStyles2(getStyles);
-  const pct = Math.round(impact * 100);
-  return (
-    <div className={styles.impactBarContainer}>
-      <div className={styles.impactBarFill} style={{ width: `${pct}%` }} />
-      <span className={styles.impactBarLabel}>{pct}%</span>
-    </div>
-  );
-}
-
 const getStyles = (theme: GrafanaTheme2) => ({
+  ...getTableStyles(theme),
   container: css`
     display: flex;
     flex-direction: column;
@@ -324,93 +275,12 @@ const getStyles = (theme: GrafanaTheme2) => ({
     color: ${theme.colors.text.secondary};
     margin-bottom: ${theme.spacing(1)};
   `,
-  table: css`
-    width: 100%;
-    border-collapse: separate;
-    border-spacing: 0;
-    table-layout: fixed;
-    th:nth-child(1) {
-      width: 28%;
-    }
-    th:nth-child(2) {
-      width: 10%;
-    }
-    th {
-      text-align: left;
-      padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
-      color: ${theme.colors.text.secondary};
-      font-size: ${theme.typography.bodySmall.fontSize};
-      font-weight: ${theme.typography.fontWeightMedium};
-      border-bottom: 1px solid ${theme.colors.border.medium};
-      white-space: nowrap;
-      user-select: none;
-    }
-    th:nth-child(n + 3) {
-      width: auto;
-      text-align: right;
-    }
-    td {
-      padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
-      border-bottom: 1px solid ${theme.colors.border.weak};
-      vertical-align: middle;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-  `,
-  sortableHeader: css`
-    cursor: pointer;
-    user-select: none;
-    &:hover {
-      color: ${theme.colors.text.primary};
-    }
-  `,
-  clickableRow: css`
-    cursor: pointer;
-  `,
-  nameCell: css`
-    font-weight: ${theme.typography.fontWeightMedium};
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    color: ${theme.colors.text.link};
-  `,
   depIcon: css`
     margin-right: ${theme.spacing(0.75)};
   `,
   typeCell: css`
     color: ${theme.colors.text.secondary};
     white-space: nowrap;
-  `,
-  numCell: css`
-    text-align: right;
-    white-space: nowrap;
-    font-variant-numeric: tabular-nums;
-  `,
-  errorCell: css`
-    text-align: right;
-    white-space: nowrap;
-    font-variant-numeric: tabular-nums;
-    color: ${theme.colors.error.text};
-    font-weight: ${theme.typography.fontWeightMedium};
-  `,
-  impactBarContainer: css`
-    display: flex;
-    align-items: center;
-    gap: ${theme.spacing(1)};
-    min-width: 120px;
-  `,
-  impactBarFill: css`
-    height: 8px;
-    background: ${theme.colors.primary.main};
-    border-radius: 4px;
-    min-width: 2px;
-    flex-shrink: 0;
-  `,
-  impactBarLabel: css`
-    font-size: ${theme.typography.bodySmall.fontSize};
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-    color: ${theme.colors.text.secondary};
   `,
 });
 

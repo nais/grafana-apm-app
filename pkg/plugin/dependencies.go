@@ -3,7 +3,6 @@ package plugin
 import (
 	"context"
 	"fmt"
-	"math"
 	"net/http"
 	"regexp"
 	"sort"
@@ -227,53 +226,17 @@ func (a *App) queryDependencies(
 	// This catches external APIs and dependencies that the service graph connector misses.
 	smQueries := a.buildSpanmetricsDepsQueries(ctx, filterClient, filterEnvironment, rangeStr)
 
-	type queryResult struct {
-		name    string
-		results []queries.PromResult
-		err     error
-	}
-
-	var wg sync.WaitGroup
-
-	allQueries := []struct {
-		name  string
-		query string
-	}{
+	allJobs := []QueryJob{
 		{"rate", rateQuery},
 		{"error", errorQuery},
 		{"p95", p95Query},
 		{"db_enrich", dbEnrichQuery},
 	}
 	for _, sq := range smQueries {
-		allQueries = append(allQueries, struct {
-			name  string
-			query string
-		}{sq.name, sq.query})
+		allJobs = append(allJobs, QueryJob{sq.name, sq.query})
 	}
 
-	ch := make(chan queryResult, len(allQueries))
-	for _, q := range allQueries {
-		wg.Add(1)
-		go func(n, query string) {
-			defer wg.Done()
-			results, err := a.prom(ctx).InstantQuery(ctx, query, to)
-			ch <- queryResult{name: n, results: results, err: err}
-		}(q.name, q.query)
-	}
-
-	go func() {
-		wg.Wait()
-		close(ch)
-	}()
-
-	resultMap := make(map[string][]queries.PromResult)
-	for r := range ch {
-		if r.err != nil {
-			logger.Warn("Dependencies query failed", "query", r.name, "error", r.err)
-			continue
-		}
-		resultMap[r.name] = r.results
-	}
+	resultMap := a.runInstantQueries(ctx, to, allJobs, logger)
 
 	// Build server_address → db_system mapping from enrichment query
 	dbSystemMap := make(map[string]string) // server_address → db_system
@@ -321,7 +284,7 @@ func (a *App) queryDependencies(
 		k := depKey{server: server, connType: r.Metric[ct]}
 		if d, ok := deps[k]; ok {
 			v := r.Value.Float()
-			if !math.IsNaN(v) && !math.IsInf(v, 0) {
+			if isValidMetricValue(v) {
 				d.p95 = v
 			}
 		}
@@ -594,48 +557,14 @@ func (a *App) queryDependencyDetail(
 		cfg.Labels.HTTPHost, escapedDepName, "443", envFilter, rangeStr,
 	)
 
-	type queryResult struct {
-		name    string
-		results []queries.PromResult
-		err     error
-	}
-
-	var wg sync.WaitGroup
-	allQueries := []struct {
-		name  string
-		query string
-	}{
+	resultMap := a.runInstantQueries(ctx, to, []QueryJob{
 		{"rate", rateQuery},
 		{"error", errorQuery},
 		{"p95", p95Query},
 		{"db_enrich", dbEnrichQuery},
 		{"smUpRate", smUpRateQ},
 		{"smUpErr", smUpErrQ},
-	}
-	ch := make(chan queryResult, len(allQueries))
-
-	for _, q := range allQueries {
-		wg.Add(1)
-		go func(n, query string) {
-			defer wg.Done()
-			results, err := a.prom(ctx).InstantQuery(ctx, query, to)
-			ch <- queryResult{name: n, results: results, err: err}
-		}(q.name, q.query)
-	}
-
-	go func() {
-		wg.Wait()
-		close(ch)
-	}()
-
-	resultMap := make(map[string][]queries.PromResult)
-	for r := range ch {
-		if r.err != nil {
-			logger.Warn("Dependency detail query failed", "query", r.name, "error", r.err)
-			continue
-		}
-		resultMap[r.name] = r.results
-	}
+	}, logger)
 
 	// Build db_system map from enrichment
 	dbSystemMap := make(map[string]string)
@@ -701,7 +630,7 @@ func (a *App) queryDependencyDetail(
 		}
 		if u, ok := upstreams[client]; ok {
 			v := r.Value.Float()
-			if !math.IsNaN(v) && !math.IsInf(v, 0) {
+			if isValidMetricValue(v) {
 				u.p95 = v
 				if v > totalP95 {
 					totalP95 = v
@@ -851,44 +780,11 @@ func (a *App) queryDependencyOperations(
 		durationBucket, hostFilter, rangeStr,
 	)
 
-	type queryResult struct {
-		name    string
-		results []queries.PromResult
-		err     error
-	}
-
-	var wg sync.WaitGroup
-	ch := make(chan queryResult, 3)
-
-	for _, q := range []struct {
-		name  string
-		query string
-	}{
+	resultMap := a.runInstantQueries(ctx, to, []QueryJob{
 		{"rate", rateQuery},
 		{"error", errorQuery},
 		{"p95", p95Query},
-	} {
-		wg.Add(1)
-		go func(n, query string) {
-			defer wg.Done()
-			results, err := a.prom(ctx).InstantQuery(ctx, query, to)
-			ch <- queryResult{name: n, results: results, err: err}
-		}(q.name, q.query)
-	}
-
-	go func() {
-		wg.Wait()
-		close(ch)
-	}()
-
-	resultMap := make(map[string][]queries.PromResult)
-	for r := range ch {
-		if r.err != nil {
-			logger.Warn("Dep operations query failed", "query", r.name, "error", r.err)
-			continue
-		}
-		resultMap[r.name] = r.results
-	}
+	}, logger)
 
 	type opKey struct {
 		spanName    string
@@ -918,14 +814,12 @@ func (a *App) queryDependencyOperations(
 	}
 	for _, r := range resultMap["error"] {
 		o := getOrCreate(r)
-		if o.Rate > 0 {
-			o.ErrorRate = math.Min(roundTo(r.Value.Float()/o.Rate*100, 2), 100)
-		}
+		o.ErrorRate = calculateErrorRate(r.Value.Float(), o.Rate)
 	}
 	for _, r := range resultMap["p95"] {
 		o := getOrCreate(r)
 		v := r.Value.Float()
-		if !math.IsNaN(v) && !math.IsInf(v, 0) {
+		if isValidMetricValue(v) {
 			o.P95Duration = roundTo(v, 2)
 		}
 	}
@@ -1231,7 +1125,7 @@ func (a *App) queryConnectedServices(ctx context.Context, to time.Time, service 
 				k := connKey{name: name, connectionType: ct}
 				if d, ok := m[k]; ok {
 					v := r.Value.Float()
-					if !math.IsNaN(v) && !math.IsInf(v, 0) {
+					if isValidMetricValue(v) {
 						d.p95 = v
 					}
 				}

@@ -2,9 +2,7 @@ package plugin
 
 import (
 	"context"
-	"math"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
@@ -61,46 +59,13 @@ func (a *App) queryOperations(
 	p95Query := otelconfig.Quantile(0.95, durationBucket, labelFilter, groupBy, a.otelCfg.Labels.Le, rangeStr)
 	p99Query := otelconfig.Quantile(0.99, durationBucket, labelFilter, groupBy, a.otelCfg.Labels.Le, rangeStr)
 
-	type queryResult struct {
-		name    string
-		results []queries.PromResult
-		err     error
-	}
-
-	var wg sync.WaitGroup
-	ch := make(chan queryResult, 5)
-
-	for _, q := range []struct {
-		name  string
-		query string
-	}{
+	resultMap := a.runInstantQueries(ctx, to, []QueryJob{
 		{"rate", rateQuery},
 		{"error", errorQuery},
 		{"p50", p50Query},
 		{"p95", p95Query},
 		{"p99", p99Query},
-	} {
-		wg.Add(1)
-		go func(n, query string) {
-			defer wg.Done()
-			results, err := a.prom(ctx).InstantQuery(ctx, query, to)
-			ch <- queryResult{name: n, results: results, err: err}
-		}(q.name, q.query)
-	}
-
-	go func() {
-		wg.Wait()
-		close(ch)
-	}()
-
-	resultMap := make(map[string][]queries.PromResult)
-	for r := range ch {
-		if r.err != nil {
-			logger.Warn("Query failed", "query", r.name, "error", r.err)
-			continue
-		}
-		resultMap[r.name] = r.results
-	}
+	}, logger)
 
 	type opKey struct {
 		spanName string
@@ -132,29 +97,27 @@ func (a *App) queryOperations(
 
 	for _, r := range resultMap["error"] {
 		o := getOrCreate(r)
-		if o.Rate > 0 {
-			o.ErrorRate = math.Min(roundTo(r.Value.Float()/o.Rate*100, 2), 100)
-		}
+		o.ErrorRate = calculateErrorRate(r.Value.Float(), o.Rate)
 	}
 
 	for _, r := range resultMap["p50"] {
 		o := getOrCreate(r)
 		v := r.Value.Float()
-		if !math.IsNaN(v) && !math.IsInf(v, 0) {
+		if isValidMetricValue(v) {
 			o.P50Duration = roundTo(v, 2)
 		}
 	}
 	for _, r := range resultMap["p95"] {
 		o := getOrCreate(r)
 		v := r.Value.Float()
-		if !math.IsNaN(v) && !math.IsInf(v, 0) {
+		if isValidMetricValue(v) {
 			o.P95Duration = roundTo(v, 2)
 		}
 	}
 	for _, r := range resultMap["p99"] {
 		o := getOrCreate(r)
 		v := r.Value.Float()
-		if !math.IsNaN(v) && !math.IsInf(v, 0) {
+		if isValidMetricValue(v) {
 			o.P99Duration = roundTo(v, 2)
 		}
 	}

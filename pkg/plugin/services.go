@@ -253,16 +253,14 @@ func (a *App) fetchServiceSummaries( //nolint:gocyclo // complex due to parallel
 	// Fill error rate as percentage
 	for _, r := range resultMap["error"] {
 		s := getOrCreate(r)
-		if s.Rate > 0 {
-			s.ErrorRate = math.Min(roundTo(r.Value.Float()/s.Rate*100, 2), 100)
-		}
+		s.ErrorRate = calculateErrorRate(r.Value.Float(), s.Rate)
 	}
 
 	// Fill P95 duration
 	for _, r := range resultMap["p95"] {
 		s := getOrCreate(r)
 		v := r.Value.Float()
-		if !math.IsNaN(v) && !math.IsInf(v, 0) {
+		if isValidMetricValue(v) {
 			s.P95Duration = roundTo(v, 2)
 		}
 	}
@@ -323,7 +321,7 @@ func (a *App) fetchServiceSummaries( //nolint:gocyclo // complex due to parallel
 			// Filter out NaN/Inf from histogram_quantile
 			filtered := make([]queries.DataPoint, 0, len(pts))
 			for _, p := range pts {
-				if !math.IsNaN(p.Value) && !math.IsInf(p.Value, 0) {
+				if isValidMetricValue(p.Value) {
 					filtered = append(filtered, p)
 				}
 			}

@@ -3,7 +3,6 @@ package plugin
 import (
 	"context"
 	"fmt"
-	"math"
 	"net/http"
 	"strings"
 	"sync"
@@ -172,7 +171,7 @@ func (a *App) queryEndpoints(
 		wg.Add(1)
 		go func(c endpointCategory) {
 			defer wg.Done()
-			eps := a.queryEndpointCategory(ctx, logger, c.name, c.filter, c.groupBy,
+			eps := a.queryEndpointCategory(ctx, logger, c.filter, c.groupBy,
 				callsMetric, durationBucket, rangeStr, durationUnit, to, c.keyExtract)
 			ch <- categoryResult{name: c.name, endpoints: eps}
 		}(cat)
@@ -204,7 +203,7 @@ func (a *App) queryEndpoints(
 func (a *App) queryEndpointCategory(
 	ctx context.Context,
 	logger log.Logger,
-	category, filter, groupBy,
+	filter, groupBy,
 	callsMetric, durationBucket, rangeStr, durationUnit string,
 	at time.Time,
 	keyExtract func(queries.PromResult) queries.EndpointSummary,
@@ -215,46 +214,13 @@ func (a *App) queryEndpointCategory(
 	p95Q := otelconfig.Quantile(0.95, durationBucket, filter, groupBy, a.otelCfg.Labels.Le, rangeStr)
 	p99Q := otelconfig.Quantile(0.99, durationBucket, filter, groupBy, a.otelCfg.Labels.Le, rangeStr)
 
-	type qr struct {
-		name    string
-		results []queries.PromResult
-		err     error
-	}
-
-	var wg sync.WaitGroup
-	qch := make(chan qr, 5)
-
-	for _, q := range []struct {
-		name  string
-		query string
-	}{
+	resultMap := a.runInstantQueries(ctx, at, []QueryJob{
 		{"rate", rateQ},
 		{"error", errorQ},
 		{"p50", p50Q},
 		{"p95", p95Q},
 		{"p99", p99Q},
-	} {
-		wg.Add(1)
-		go func(n, query string) {
-			defer wg.Done()
-			results, err := a.prom(ctx).InstantQuery(ctx, query, at)
-			qch <- qr{name: n, results: results, err: err}
-		}(q.name, q.query)
-	}
-
-	go func() {
-		wg.Wait()
-		close(qch)
-	}()
-
-	resultMap := make(map[string][]queries.PromResult)
-	for r := range qch {
-		if r.err != nil {
-			logger.Warn("Endpoint query failed", "category", category, "query", r.name, "error", r.err)
-			continue
-		}
-		resultMap[r.name] = r.results
-	}
+	}, logger)
 
 	// Build endpoint map keyed by span name
 	epsMap := make(map[string]*queries.EndpointSummary)
@@ -275,28 +241,26 @@ func (a *App) queryEndpointCategory(
 	}
 	for _, r := range resultMap["error"] {
 		ep := getOrCreate(r)
-		if ep.Rate > 0 {
-			ep.ErrorRate = math.Min(roundTo(r.Value.Float()/ep.Rate*100, 2), 100)
-		}
+		ep.ErrorRate = calculateErrorRate(r.Value.Float(), ep.Rate)
 	}
 	for _, r := range resultMap["p50"] {
 		ep := getOrCreate(r)
 		v := r.Value.Float()
-		if !math.IsNaN(v) && !math.IsInf(v, 0) {
+		if isValidMetricValue(v) {
 			ep.P50Duration = roundTo(v, 2)
 		}
 	}
 	for _, r := range resultMap["p95"] {
 		ep := getOrCreate(r)
 		v := r.Value.Float()
-		if !math.IsNaN(v) && !math.IsInf(v, 0) {
+		if isValidMetricValue(v) {
 			ep.P95Duration = roundTo(v, 2)
 		}
 	}
 	for _, r := range resultMap["p99"] {
 		ep := getOrCreate(r)
 		v := r.Value.Float()
-		if !math.IsNaN(v) && !math.IsInf(v, 0) {
+		if isValidMetricValue(v) {
 			ep.P99Duration = roundTo(v, 2)
 		}
 	}

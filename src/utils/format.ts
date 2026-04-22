@@ -1,3 +1,13 @@
+/** Format a request rate as "X.XX req/s" */
+export function formatRate(rate: number): string {
+  return `${rate.toFixed(2)} req/s`;
+}
+
+/** Format an error rate as "X.X%" */
+export function formatErrorRate(rate: number): string {
+  return `${rate.toFixed(1)}%`;
+}
+
 /** Format a duration value with appropriate units */
 export function formatDuration(value: number, unit: string): string {
   if (unit === 'ms') {
