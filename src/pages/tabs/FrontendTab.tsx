@@ -155,18 +155,18 @@ function lokiVitalPipeline(service: string, vital: string, extraKeep?: string): 
   const fl = otel.faroLoki;
   const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindMeasurement}"}`;
   const keepFields = extraKeep ? `${vital}, ${extraKeep}` : vital;
-  return `${stream} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" | ${vital}!="" | keep ${keepFields} | unwrap ${vital}`;
+  return `${stream} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" | ${vital}!="" | keep ${keepFields}`;
 }
 
-// Weighted mean: sum(values) / count(values) across all streams.
+// Weighted mean: sum(values) / count(lines) across all streams.
 function lokiVitalExpr(service: string, vital: string, window: string): string {
   const pipeline = lokiVitalPipeline(service, vital);
-  return `sum(sum_over_time(${pipeline} ${window})) / sum(count_over_time(${pipeline} ${window}))`;
+  return `sum(sum_over_time(${pipeline} | unwrap ${vital} ${window})) / sum(count_over_time(${pipeline} ${window}))`;
 }
 
 function lokiVitalByGroupExpr(service: string, vital: string, groupBy: string, window: string): string {
   const pipeline = lokiVitalPipeline(service, vital, groupBy);
-  return `sum by (${groupBy}) (sum_over_time(${pipeline} ${window})) / sum by (${groupBy}) (count_over_time(${pipeline} ${window}))`;
+  return `sum by (${groupBy}) (sum_over_time(${pipeline} | unwrap ${vital} ${window})) / sum by (${groupBy}) (count_over_time(${pipeline} ${window}))`;
 }
 
 function lokiExceptionExpr(service: string, window: string): string {
