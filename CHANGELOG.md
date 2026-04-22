@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+- **Combobox Migration**: Migrate all 15 deprecated `Select` components to `Combobox`/`MultiCombobox` from `@grafana/ui` v12.4.2.
+- **Release Script**: Add `mise run release` task for automated version bumping, CHANGELOG stamping, build verification, and git tagging.
+
+### Bug Fixes
+
+- **Exemplar Links**: Route trace exemplar links to the environment-resolved Tempo datasource instead of hardcoded dev Tempo.
+- **Dependency Environment Filter**: Filter service graph dependencies by selected environment — prevents pre-prod dependencies from appearing when a prod environment is selected.
+- **Kafka Consumer Dependencies**: Exclude Kafka consumer services (e.g., downstream subscribers) from the dependencies list — they are not dependencies of the producer and now only appear in Connected Services.
+- **Connected Services Environment**: Pass environment filter to connected services queries so inbound/outbound services are scoped to the selected cluster.
+
 ## 0.4.2 (2026-04-22)
 
 ### Features
