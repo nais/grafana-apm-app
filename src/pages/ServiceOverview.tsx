@@ -76,6 +76,15 @@ function ServiceOverview() {
   const { from, to, fromMs, toMs } = useTimeRange();
   const { caps } = useCapabilities();
   const metrics = getMetricNames(caps);
+  // Stable primitive refs for Scenes useMemo — avoids re-creating the entire
+  // EmbeddedScene (and flashing panels) when object references change but
+  // the underlying string values haven't.
+  const metricsUid = ds.metricsUid;
+  const tracesUid = ds.tracesUid;
+  const logsUid = ds.logsUid;
+  const callsMetric = metrics.callsMetric;
+  const durationBucket = metrics.durationBucket;
+  const durationUnit = metrics.durationUnit;
   const tabParam = searchParams.get('tab') ?? '';
   const activeTab: TabId = VALID_TABS.includes(tabParam as TabId) ? (tabParam as TabId) : 'overview';
   const setActiveTab = useCallback(
@@ -193,15 +202,18 @@ function ServiceOverview() {
     return matches.length === 0 || matches.some((s) => s.hasServerSpans);
   }, [serviceList, service, namespace, envFilter]);
 
-  // Scenes for RED panels — rebuild when percentile or capabilities change
+  // Scenes for RED panels — rebuild only when actual values change (not object refs)
   const scene = useMemo(() => {
+    if (!metricsUid) {
+      return null;
+    }
     const timeRange = new SceneTimeRange({ from, to });
     let svcFilter = `${otel.labels.serviceName}="${sanitizeLabelValue(service)}", ${otel.labels.serviceNamespace}="${sanitizeLabelValue(namespace)}"`;
     if (envFilter) {
       svcFilter += `, ${otel.labels.deploymentEnv}="${sanitizeLabelValue(envFilter)}"`;
     }
     const spanKindFilter = hasServerSpans ? `, ${otel.labels.spanKind}="${otel.spanKinds.server}"` : '';
-    const durationUnit = metrics.durationUnit === 's' ? 's' : 'ms';
+    const panelDurationUnit = durationUnit === 's' ? 's' : 'ms';
 
     const panelScope = hasServerSpans ? 'inbound (SERVER)' : 'all';
     const durationDesc = `${percentileLabel} response time for ${panelScope} requests`;
@@ -210,12 +222,12 @@ function ServiceOverview() {
     const heatmapDesc = `Distribution of ${panelScope} request durations over time`;
 
     const durationQuery = new SceneQueryRunner({
-      datasource: { uid: ds.metricsUid, type: 'prometheus' },
+      datasource: { uid: metricsUid, type: 'prometheus' },
       minInterval: '5m',
       queries: [
         {
           refId: 'A',
-          expr: `histogram_quantile(${percentile}, sum by (${otel.labels.le}) (rate(${metrics.durationBucket}{${svcFilter}${spanKindFilter}}[$__rate_interval])))`,
+          expr: `histogram_quantile(${percentile}, sum by (${otel.labels.le}) (rate(${durationBucket}{${svcFilter}${spanKindFilter}}[$__rate_interval])))`,
           legendFormat: percentileLabel,
           exemplar: true,
         },
@@ -223,12 +235,12 @@ function ServiceOverview() {
     });
 
     const errorQuery = new SceneQueryRunner({
-      datasource: { uid: ds.metricsUid, type: 'prometheus' },
+      datasource: { uid: metricsUid, type: 'prometheus' },
       minInterval: '5m',
       queries: [
         {
           refId: 'A',
-          expr: `sum(rate(${metrics.callsMetric}{${svcFilter}${spanKindFilter}, ${otel.labels.statusCode}="${otel.statusCodes.error}"}[$__rate_interval])) / sum(rate(${metrics.callsMetric}{${svcFilter}${spanKindFilter}}[$__rate_interval])) * 100`,
+          expr: `sum(rate(${callsMetric}{${svcFilter}${spanKindFilter}, ${otel.labels.statusCode}="${otel.statusCodes.error}"}[$__rate_interval])) / sum(rate(${callsMetric}{${svcFilter}${spanKindFilter}}[$__rate_interval])) * 100`,
           legendFormat: 'Error %',
           exemplar: true,
         },
@@ -236,32 +248,32 @@ function ServiceOverview() {
     });
 
     const rateQuery = new SceneQueryRunner({
-      datasource: { uid: ds.metricsUid, type: 'prometheus' },
+      datasource: { uid: metricsUid, type: 'prometheus' },
       minInterval: '5m',
       queries: [
         {
           refId: 'A',
-          expr: `sum(rate(${metrics.callsMetric}{${svcFilter}${spanKindFilter}}[$__rate_interval]))`,
+          expr: `sum(rate(${callsMetric}{${svcFilter}${spanKindFilter}}[$__rate_interval]))`,
           legendFormat: 'Rate',
           exemplar: true,
         },
       ],
     });
 
-    const tempoUrl = buildTempoExploreUrl(ds.tracesUid, service, { namespace });
-    const lokiUrl = buildLokiExploreUrl(ds.logsUid, service, { namespace });
+    const tempoUrl = buildTempoExploreUrl(tracesUid, service, { namespace });
+    const lokiUrl = buildLokiExploreUrl(logsUid, service, { namespace });
     const mimirUrl = buildMimirExploreUrl(
-      ds.metricsUid,
-      `sum(rate(${metrics.callsMetric}{${otel.labels.serviceName}="${service}", ${otel.labels.serviceNamespace}="${namespace}"${spanKindFilter}}[5m]))`
+      metricsUid,
+      `sum(rate(${callsMetric}{${otel.labels.serviceName}="${service}", ${otel.labels.serviceNamespace}="${namespace}"${spanKindFilter}}[5m]))`
     );
 
     const heatmapQuery = new SceneQueryRunner({
-      datasource: { uid: ds.metricsUid, type: 'prometheus' },
+      datasource: { uid: metricsUid, type: 'prometheus' },
       minInterval: '5m',
       queries: [
         {
           refId: 'A',
-          expr: `sum by (${otel.labels.le}) (increase(${metrics.durationBucket}{${svcFilter}${spanKindFilter}}[$__rate_interval]))`,
+          expr: `sum by (${otel.labels.le}) (increase(${durationBucket}{${svcFilter}${spanKindFilter}}[$__rate_interval]))`,
           format: 'heatmap',
           legendFormat: '{{le}}',
         },
@@ -285,7 +297,7 @@ function ServiceOverview() {
                     .setTitle('Duration')
                     .setDescription(durationDesc)
                     .setData(durationQuery)
-                    .setUnit(durationUnit)
+                    .setUnit(panelDurationUnit)
                     .setLinks([
                       { title: 'Traces', url: tempoUrl, targetBlank: false },
                       { title: 'Logs', url: lokiUrl, targetBlank: false },
@@ -326,7 +338,7 @@ function ServiceOverview() {
               .setData(heatmapQuery)
               .setOption('calculate', false)
               .setOption('yAxis', {
-                unit: metrics.durationUnit === 's' ? 's' : 'ms',
+                unit: durationUnit === 's' ? 's' : 'ms',
               })
               .setOption('color', {
                 mode: HeatmapColorMode.Scheme,
@@ -340,7 +352,22 @@ function ServiceOverview() {
         ],
       }),
     });
-  }, [service, namespace, envFilter, percentile, percentileLabel, from, to, ds, metrics, hasServerSpans]);
+  }, [
+    service,
+    namespace,
+    envFilter,
+    percentile,
+    percentileLabel,
+    from,
+    to,
+    metricsUid,
+    tracesUid,
+    logsUid,
+    callsMetric,
+    durationBucket,
+    durationUnit,
+    hasServerSpans,
+  ]);
 
   const MAX_OVERVIEW_OPS = 5;
 
@@ -467,9 +494,7 @@ function ServiceOverview() {
           <div style={{ display: activeTab === 'overview' ? undefined : 'none' }}>
             <>
               {/* RED panels + Duration distribution (single scene for shared time range) */}
-              <div style={{ marginBottom: 16 }}>
-                <scene.Component model={scene} />
-              </div>
+              <div style={{ marginBottom: 16 }}>{scene && <scene.Component model={scene} />}</div>
 
               {/* Operations table */}
               <div className={styles.operationsSection}>
