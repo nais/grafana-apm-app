@@ -195,6 +195,9 @@ jobs:
       - name: Execute permissions on binary
         run: chmod +x ./dist/gpx_*
 
+      - name: Strip plugin signature for local testing
+        run: rm -f ./dist/MANIFEST.txt
+
       - name: Enable corepack
         run: corepack enable
       - name: Setup Node.js
