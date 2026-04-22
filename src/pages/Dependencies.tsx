@@ -227,8 +227,7 @@ function Dependencies() {
                         key={dep.name}
                         className={styles.clickableRow}
                         onClick={() => {
-                          const envParam = envFilter ? `?environment=${encodeURIComponent(envFilter)}` : '';
-                          appNavigate(`dependencies/${encodeURIComponent(dep.name)}${envParam}`);
+                          appNavigate(`dependencies/${encodeURIComponent(dep.name)}`);
                         }}
                       >
                         <td className={styles.nameCell} title={dep.name}>

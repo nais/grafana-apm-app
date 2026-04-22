@@ -572,6 +572,7 @@ func (a *App) queryDependencyDetail(
 	// Spanmetrics supplement: find upstream callers that target this dependency
 	// via server_address or http_host. This catches external API callers that
 	// the service graph connector may not see.
+	escapedDepName := regexp.QuoteMeta(depName)
 	smUpRateQ := fmt.Sprintf(
 		`sum by (%s, %s) (rate(%s{%s="%s", %s="%s"%s}%s)) or sum by (%s, %s) (rate(%s{%s="%s", %s=~"%s(:%s)?"%s}%s))`,
 		cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
@@ -579,7 +580,7 @@ func (a *App) queryDependencyDetail(
 		cfg.Labels.ServerAddress, depName, envFilter, rangeStr,
 		cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
 		a.callsMetric(ctx), cfg.Labels.SpanKind, cfg.SpanKinds.Client,
-		cfg.Labels.HTTPHost, depName, "443", envFilter, rangeStr,
+		cfg.Labels.HTTPHost, escapedDepName, "443", envFilter, rangeStr,
 	)
 	smUpErrQ := fmt.Sprintf(
 		`sum by (%s, %s) (rate(%s{%s="%s", %s="%s", %s="%s"%s}%s)) or sum by (%s, %s) (rate(%s{%s="%s", %s="%s", %s=~"%s(:%s)?"%s}%s))`,
@@ -590,7 +591,7 @@ func (a *App) queryDependencyDetail(
 		cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
 		a.callsMetric(ctx), cfg.Labels.SpanKind, cfg.SpanKinds.Client,
 		cfg.Labels.StatusCode, cfg.StatusCodes.Error,
-		cfg.Labels.HTTPHost, depName, "443", envFilter, rangeStr,
+		cfg.Labels.HTTPHost, escapedDepName, "443", envFilter, rangeStr,
 	)
 
 	type queryResult struct {
@@ -818,7 +819,8 @@ func (a *App) queryDependencyOperations(
 	// Fallback filter: server_address (from span attributes promoted to metrics)
 	addrFilter := fmt.Sprintf(`%s="%s", %s="%s"%s`, cfg.Labels.ServerAddress, depName, cfg.Labels.SpanKind, cfg.SpanKinds.Client, envFilter)
 	// Second fallback: http_host with optional :443 suffix
-	hostFilter := fmt.Sprintf(`%s=~"%s(:443)?", %s="%s"%s`, cfg.Labels.HTTPHost, depName, cfg.Labels.SpanKind, cfg.SpanKinds.Client, envFilter)
+	escapedDep := regexp.QuoteMeta(depName)
+	hostFilter := fmt.Sprintf(`%s=~"%s(:443)?", %s="%s"%s`, cfg.Labels.HTTPHost, escapedDep, cfg.Labels.SpanKind, cfg.SpanKinds.Client, envFilter)
 
 	// Build queries using OR across all three filter strategies
 	rateQuery := fmt.Sprintf(

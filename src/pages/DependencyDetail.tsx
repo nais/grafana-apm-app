@@ -187,8 +187,7 @@ function DependencyDetail() {
             icon="arrow-left"
             fill="text"
             onClick={() => {
-              const envParam = envFilter ? `?environment=${encodeURIComponent(envFilter)}` : '';
-              appNavigate(`dependencies${envParam}`);
+              appNavigate('dependencies');
             }}
           >
             Dependencies
@@ -296,10 +295,7 @@ function DependencyDetail() {
                       onClick={() => {
                         const ns = serviceNsMap.get(upstream.name);
                         if (ns) {
-                          const envParam = envFilter ? `?environment=${encodeURIComponent(envFilter)}` : '';
-                          appNavigate(
-                            `services/${encodeURIComponent(ns)}/${encodeURIComponent(upstream.name)}${envParam}`
-                          );
+                          appNavigate(`services/${encodeURIComponent(ns)}/${encodeURIComponent(upstream.name)}`);
                         }
                       }}
                     >

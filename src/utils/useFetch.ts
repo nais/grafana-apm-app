@@ -36,18 +36,16 @@ export function useFetch<T>(
 
   // Keep fetcher in a ref so it's always current without being a dependency
   const fetcherRef = useRef(fetcher);
-  const skipRef = useRef(skip);
 
   useEffect(() => {
     fetcherRef.current = fetcher;
-    skipRef.current = skip;
   });
 
   // Refetch trigger — increment to force a new fetch
   const [fetchTrigger, setFetchTrigger] = useState(0);
 
   useEffect(() => {
-    if (skipRef.current) {
+    if (skip) {
       setState((s) => (s.loading ? { ...s, loading: false } : s));
       return;
     }
@@ -85,7 +83,7 @@ export function useFetch<T>(
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [...deps, fetchTrigger]);
+  }, [...deps, fetchTrigger, skip]);
 
   const refetch = () => setFetchTrigger((t) => t + 1);
 

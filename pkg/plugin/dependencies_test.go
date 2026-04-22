@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"regexp"
 	"testing"
 )
 
@@ -140,6 +141,52 @@ func TestNormalizeAddress(t *testing.T) {
 			got := normalizeAddress(tc.input)
 			if got != tc.expected {
 				t.Errorf("normalizeAddress(%q) = %q, want %q", tc.input, got, tc.expected)
+			}
+		})
+	}
+}
+
+func TestRegexQuoteMetaForHostnames(t *testing.T) {
+	// Verify that regexp.QuoteMeta properly escapes dots in hostnames
+	// to prevent overmatching in PromQL =~ regex matchers.
+	// Before the fix, "api.example.com" would match "apiXexampleYcom".
+	tests := []struct {
+		name     string
+		hostname string
+		match    string
+		noMatch  string
+	}{
+		{
+			name:     "dots are escaped",
+			hostname: "api.example.com",
+			match:    "api.example.com",
+			noMatch:  "apiXexampleYcom",
+		},
+		{
+			name:     "hostname with port suffix pattern",
+			hostname: "idporten.no",
+			match:    "idporten.no:443",
+			noMatch:  "idportenXno:443",
+		},
+		{
+			name:     "simple hostname",
+			hostname: "redis-cluster",
+			match:    "redis-cluster",
+			noMatch:  "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			escaped := regexp.QuoteMeta(tc.hostname)
+			pattern := "^" + escaped + "(:443)?$"
+			re := regexp.MustCompile(pattern)
+
+			if !re.MatchString(tc.match) {
+				t.Errorf("pattern %q should match %q", pattern, tc.match)
+			}
+			if tc.noMatch != "" && re.MatchString(tc.noMatch) {
+				t.Errorf("pattern %q should NOT match %q", pattern, tc.noMatch)
 			}
 		})
 	}

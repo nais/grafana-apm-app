@@ -566,10 +566,7 @@ function ServiceOverview() {
                                   s.connectionType
                                     ? undefined
                                     : () => {
-                                        const envParam = envFilter
-                                          ? `?environment=${encodeURIComponent(envFilter)}`
-                                          : '';
-                                        appNavigate(`dependencies/${encodeURIComponent(s.name)}${envParam}`);
+                                        appNavigate(`dependencies/${encodeURIComponent(s.name)}`);
                                       }
                                 }
                               >
@@ -612,10 +609,7 @@ function ServiceOverview() {
                                   s.connectionType
                                     ? undefined
                                     : () => {
-                                        const envParam = envFilter
-                                          ? `?environment=${encodeURIComponent(envFilter)}`
-                                          : '';
-                                        appNavigate(`dependencies/${encodeURIComponent(s.name)}${envParam}`);
+                                        appNavigate(`dependencies/${encodeURIComponent(s.name)}`);
                                       }
                                 }
                               >

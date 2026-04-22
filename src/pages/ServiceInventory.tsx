@@ -288,8 +288,10 @@ function ServiceInventory() {
                     className={styles.row}
                     onClick={() => {
                       const ns = svc.namespace || '_';
-                      const envParam = svc.environment ? `?environment=${encodeURIComponent(svc.environment)}` : '';
-                      appNavigate(`services/${encodeURIComponent(ns)}/${encodeURIComponent(svc.name)}${envParam}`);
+                      appNavigate(
+                        `services/${encodeURIComponent(ns)}/${encodeURIComponent(svc.name)}`,
+                        svc.environment ? { environment: svc.environment } : undefined
+                      );
                     }}
                   >
                     <td className={styles.typeCell}>

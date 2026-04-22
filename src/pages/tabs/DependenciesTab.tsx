@@ -99,8 +99,7 @@ export function DependenciesTab({ service, namespace, fromMs, toMs, environment 
               key={dep.name}
               className={styles.clickableRow}
               onClick={() => {
-                const envParam = environment ? `?environment=${encodeURIComponent(environment)}` : '';
-                appNavigate(`dependencies/${encodeURIComponent(dep.name)}${envParam}`);
+                appNavigate(`dependencies/${encodeURIComponent(dep.name)}`);
               }}
             >
               <td className={styles.nameCell} title={dep.name}>

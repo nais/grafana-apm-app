@@ -145,10 +145,11 @@ func (a *App) fetchServiceSummaries( //nolint:gocyclo // complex due to parallel
 	var faroMu sync.Mutex
 	lokiURL := a.lokiURL(filterEnvironment)
 	if lokiURL != "" {
+		resolvedToken := a.resolveServiceToken(ctx)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			lokiClient := queries.NewLokiMetricClient(lokiURL, a.serviceToken)
+			lokiClient := queries.NewLokiMetricClient(lokiURL, resolvedToken)
 			if headers != nil {
 				lokiClient = lokiClient.WithAuthHeaders(headers)
 			}
