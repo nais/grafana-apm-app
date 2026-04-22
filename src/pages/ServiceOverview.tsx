@@ -5,6 +5,7 @@ import { useStyles2, Tab, TabsBar, LinkButton, Combobox, Alert } from '@grafana/
 import { GrafanaTheme2, PageLayoutType } from '@grafana/data';
 import { css } from '@emotion/css';
 import { buildTempoExploreUrl, buildLokiExploreUrl } from '../utils/explore';
+import { FrameworkBadge } from '../components/FrameworkBadge';
 import {
   getOperations,
   getServices,
@@ -38,16 +39,6 @@ const PERCENTILE_OPTIONS: Array<{ label: string; value: string }> = [
   { label: 'P95', value: '0.95' },
   { label: 'P99', value: '0.99' },
 ];
-
-const FRAMEWORK_BADGES: Record<string, { label: string; bg: string }> = {
-  Ktor: { label: 'Ktor', bg: '#7B68EE' },
-  'Spring Boot': { label: 'Spring', bg: '#6DB33F' },
-  'Node.js': { label: 'Node.js', bg: '#68A063' },
-  Go: { label: 'Go', bg: '#00ADD8' },
-  Java: { label: 'Java', bg: '#5382A1' },
-  Python: { label: 'Python', bg: '#3776AB' },
-  '.NET': { label: '.NET', bg: '#512BD4' },
-};
 
 function ServiceOverview() {
   const { namespace: rawNamespace = '', service = '' } = useParams<{ namespace: string; service: string }>();
@@ -246,11 +237,7 @@ function ServiceOverview() {
               {namespace ? `${namespace}/` : ''}
               {service}
             </h2>
-            {framework && FRAMEWORK_BADGES[framework] && (
-              <span className={styles.sdkBadge} style={{ backgroundColor: FRAMEWORK_BADGES[framework].bg }}>
-                {FRAMEWORK_BADGES[framework].label}
-              </span>
-            )}
+            {framework && <FrameworkBadge framework={framework} />}
           </div>
           <div className={styles.headerLinks}>
             {activeTab === 'overview' && (
@@ -455,16 +442,6 @@ const getStyles = (theme: GrafanaTheme2) => ({
   title: css`
     margin: 0;
     font-size: ${theme.typography.h2.fontSize};
-  `,
-  sdkBadge: css`
-    display: inline-flex;
-    align-items: center;
-    padding: 2px 10px;
-    border-radius: 12px;
-    font-size: 12px;
-    font-weight: ${theme.typography.fontWeightBold};
-    color: white;
-    letter-spacing: 0.5px;
   `,
   headerLinks: css`
     display: flex;

@@ -20,16 +20,8 @@ import { useTimeRange } from '../utils/timeRange';
 import { useAppNavigate, sanitizeParam } from '../utils/navigation';
 import { formatDuration } from '../utils/format';
 import { useFetch } from '../utils/useFetch';
-
-const FRAMEWORK_BADGES: Record<string, { text: string; color: 'blue' | 'green' | 'orange' | 'red' | 'purple' }> = {
-  Ktor: { text: 'Ktor', color: 'purple' },
-  'Spring Boot': { text: 'Spring', color: 'green' },
-  'Node.js': { text: 'Node.js', color: 'orange' },
-  Go: { text: 'Go', color: 'blue' },
-  Java: { text: 'Java', color: 'green' },
-  Python: { text: 'Python', color: 'blue' },
-  '.NET': { text: '.NET', color: 'purple' },
-};
+import { FrameworkBadge } from '../components/FrameworkBadge';
+import { Sparkline } from '../components/Sparkline';
 
 type SortField = 'name' | 'namespace' | 'environment' | 'p95Duration' | 'errorRate' | 'rate';
 type SortDir = 'asc' | 'desc';
@@ -377,14 +369,26 @@ function ServiceInventory() {
                         <td>
                           <span className={styles.nameCell}>{svc.name}</span>
                         </td>
-                        {showNsColumn && <td className={styles.nsCell}>{svc.namespace}</td>}
+                        {showNsColumn && (
+                          <td className={styles.nsCell}>
+                            <button
+                              className={styles.nsLink}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                appNavigate(`namespaces/${encodeURIComponent(svc.namespace)}`);
+                              }}
+                            >
+                              {svc.namespace}
+                            </button>
+                          </td>
+                        )}
                         {showEnvColumn && <td className={styles.nsCell}>{svc.environment}</td>}
                         <td>
                           <div className={styles.metricCell}>
                             <span className={styles.metricValue}>
                               {formatDuration(svc.p95Duration, svc.durationUnit)}
                             </span>
-                            <AreaSparkline
+                            <Sparkline
                               data={sparklineMap
                                 .get(`${svc.namespace}/${svc.name}/${svc.environment ?? ''}`)
                                 ?.durationSeries?.map((p) => p.v)}
@@ -397,7 +401,7 @@ function ServiceInventory() {
                             <span className={svc.errorRate > 0 ? styles.errorValue : styles.metricValue}>
                               {svc.errorRate.toFixed(1)}%
                             </span>
-                            <AreaSparkline
+                            <Sparkline
                               data={sparklineMap
                                 .get(`${svc.namespace}/${svc.name}/${svc.environment ?? ''}`)
                                 ?.errorSeries?.map((p) => p.v)}
@@ -408,7 +412,7 @@ function ServiceInventory() {
                         <td>
                           <div className={styles.metricCell}>
                             <span className={styles.metricValue}>{svc.rate.toFixed(1)} req/s</span>
-                            <AreaSparkline
+                            <Sparkline
                               data={sparklineMap
                                 .get(`${svc.namespace}/${svc.name}/${svc.environment ?? ''}`)
                                 ?.rateSeries?.map((p) => p.v)}
@@ -466,49 +470,6 @@ function envSortKey(env: string): number {
     return 3;
   }
   return 4; // unknown environments last
-}
-
-function FrameworkBadge({ framework }: { framework?: string }) {
-  if (!framework) {
-    return null;
-  }
-  const info = FRAMEWORK_BADGES[framework];
-  if (!info) {
-    return <Badge text={framework} color="blue" />;
-  }
-  return <Badge text={info.text} color={info.color} />;
-}
-
-function AreaSparkline({ data, color }: { data?: number[]; color: string }) {
-  if (!data || data.length < 2) {
-    return <div style={{ width: '100%', maxWidth: 120, height: 28, flexShrink: 1 }} />;
-  }
-  const max = Math.max(...data);
-  const min = Math.min(...data);
-  const range = max - min || 1;
-  const w = 120;
-  const h = 28;
-  const pad = 1;
-
-  const points = data.map((v, i) => {
-    const x = pad + (i / (data.length - 1)) * (w - 2 * pad);
-    const y = pad + (1 - (v - min) / range) * (h - 2 * pad);
-    return `${x},${y}`;
-  });
-
-  const linePoints = points.join(' ');
-  const areaPoints = `${pad},${h} ${linePoints} ${w - pad},${h}`;
-
-  return (
-    <svg
-      viewBox={`0 0 ${w} ${h}`}
-      style={{ width: '100%', maxWidth: 120, height: 28, flexShrink: 1, display: 'block' }}
-      preserveAspectRatio="none"
-    >
-      <polygon fill={color} fillOpacity="0.25" points={areaPoints} />
-      <polyline fill="none" stroke={color} strokeWidth="1.5" points={linePoints} />
-    </svg>
-  );
 }
 
 const getStyles = (theme: GrafanaTheme2) => ({
@@ -610,6 +571,17 @@ const getStyles = (theme: GrafanaTheme2) => ({
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  `,
+  nsLink: css`
+    background: none;
+    border: none;
+    padding: 0;
+    color: ${theme.colors.text.link};
+    cursor: pointer;
+    font-size: inherit;
+    &:hover {
+      text-decoration: underline;
+    }
   `,
   metricCell: css`
     display: flex;
