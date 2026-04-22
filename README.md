@@ -17,10 +17,10 @@ already operate.
 - **Operations Breakdown** — top operations table and duration distribution heatmap
 - **Dependencies** — downstream dependency inventory with impact scoring, per-dependency RED panels, and operation-level detail including database target (`db_name · db_operation`) and messaging topic breakdowns
 - **Connected Services** — inbound/outbound service tables on service detail pages with direct navigation to service or dependency detail
-- **Service Map** — topology graph with ELK.js auto-layout showing database, messaging, and external dependency types with error highlighting
+- **Service Map** — topology graph with ELK.js auto-layout showing database, messaging, and external dependency types with error highlighting (per-service and per-namespace scoped)
 - **Server Tab** — HTTP, gRPC, and database endpoint breakdowns with protocol-specific metadata
 - **Runtime Tab** — container resource utilization, JVM memory pools and GC, Go runtime metrics, Node.js event loop and heap
-- **Frontend Tab** — Core Web Vitals (LCP, FCP, CLS, INP, TTFB), per-page performance table, and browser breakdown for Faro-instrumented services
+- **Frontend Tab** — Core Web Vitals (LCP, FCP, CLS, INP, TTFB) with threshold bands, per-page performance table, console errors, enhanced exception drill-down with Explore links, and browser breakdown for Faro-instrumented services
 - **Cross-Signal Navigation** — click a spike on any chart to jump straight to the relevant traces or logs in Grafana Explore
 - **Trace & Log Exploration** — search and browse traces and logs scoped to a service, with severity and text filters
 - **Environment Filtering** — filter all views by deployment environment, with per-environment Tempo/Loki datasource overrides
@@ -115,7 +115,6 @@ src/
 ├── pages/
 │   ├── ServiceInventory.tsx    # Service list with sparklines and health indicators
 │   ├── ServiceOverview.tsx     # Per-service RED panels, traces, logs, operations
-│   ├── ServiceMap.tsx          # Topology graph
 │   ├── Dependencies.tsx        # Downstream dependency inventory
 │   ├── DependencyDetail.tsx    # Per-dependency RED panels and operation breakdown
 │   └── tabs/                   # Tab components for service detail

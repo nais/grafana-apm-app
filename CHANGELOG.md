@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+- **Frontend Tab: Per-Page Performance** — New table grouping all five Core Web Vitals (LCP, FCP, CLS, INP, TTFB) by page URL with threshold-colored cells and measurement counts.
+- **Frontend Tab: Console Errors** — New panel showing most frequent `console.error` messages from Faro logs, replacing the noisy Top Events panel.
+- **Frontend Tab: Enhanced Exceptions** — Top Exceptions expanded to top 20 with full error messages, "Sessions Affected" column, and click-through Explore links to Loki.
+- **Frontend Tab: Threshold Bands** — Green/yellow/red Web Vitals reference zones on INP and CLS time series panels (both Loki and Mimir paths).
+
+### Bug Fixes
+
+- **Frontend Tab: Loki Aggregation** — Fix incorrect averages: `avg(avg_over_time(...))` computed average-per-stream then averaged those (wrong when streams have unequal sample counts). Now uses weighted mean via `sum(sum_over_time(...))/sum(count_over_time(...))`.
+- **Frontend Tab: Rating Pie Chart** — Fix "Value #A" labels on the Web Vitals rating distribution pie chart. Now correctly shows "good", "needs-improvement", "poor".
+- **Frontend Tab: Loki Query Parse Error** — Fix `count_over_time` failing with `unwrap` operator. The `unwrap` stage is now only applied to `sum_over_time`.
+- **Frontend Tab: Explore Links** — Fix broken "Explore in Loki" links on exceptions table that produced duplicate `left=` URL parameters.
+
+### Removed
+
+- **Global Service Map** — Removed the global Service Map page which crashed browsers by loading all ~4000 services into a single graph. Per-service and per-namespace service maps remain functional. See [#22](https://github.com/nais/grafana-apm-app/issues/22) for the planned clustered replacement.
+
+### Chores
+
+- Add `.DS_Store` and `.vscode` to `.gitignore`.
+
 ## 0.4.4 (2026-04-22)
 
 ### Improvements
