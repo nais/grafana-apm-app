@@ -1,9 +1,11 @@
-# Metrics, Labels & Configuration Reference
+# Metrics Reference
 
-This document describes the metrics, labels, and OpenTelemetry configuration
-that the Nais APM app expects from your environment. Use it to verify that
-your collector pipelines, SDK instrumentation, and Grafana datasources are set
-up correctly.
+Complete reference for all metrics, labels, dimensions, and query patterns
+that the Nais APM app reads. Use this to verify your collector pipelines and
+SDK instrumentation.
+
+For datasource setup, authentication, and environment overrides, see
+[configuration.md](configuration.md).
 
 ---
 
@@ -14,7 +16,6 @@ up correctly.
   - [Span Metrics Connector](#span-metrics-connector)
   - [Service Graph Connector](#service-graph-connector)
   - [Pipeline Wiring](#pipeline-wiring)
-- [Datasource Configuration](#datasource-configuration)
 - [Auto-Detection & Capabilities](#auto-detection--capabilities)
 - [Span Metrics](#span-metrics)
   - [Metric Names](#metric-names)
@@ -24,15 +25,21 @@ up correctly.
   - [Dimensions (Collector)](#dimensions-collector)
 - [Service Graph Metrics](#service-graph-metrics)
 - [Endpoint Classification](#endpoint-classification)
+- [Resource Attributes](#resource-attributes)
 - [Browser / Faro Metrics](#browser--faro-metrics)
   - [Prometheus Source](#prometheus-source)
   - [Loki Source (Structured Logs)](#loki-source-structured-logs)
 - [Runtime Metrics](#runtime-metrics)
   - [JVM (Java / Kotlin)](#jvm-java--kotlin)
   - [Node.js](#nodejs)
+  - [Go](#go)
+  - [Container / Kubernetes](#container--kubernetes)
   - [Database Connection Pools](#database-connection-pools)
   - [Kafka Client](#kafka-client)
 - [GraphQL Metrics](#graphql-metrics)
+- [Framework Detection](#framework-detection)
+- [Traces (Tempo)](#traces-tempo)
+- [Logs (Loki)](#logs-loki)
 - [PromQL Query Patterns](#promql-query-patterns)
 
 ---
@@ -173,47 +180,6 @@ exporters:
     resource_to_telemetry_conversion:
       enabled: true
 ```
-
----
-
-## Datasource Configuration
-
-The plugin needs three Grafana datasources:
-
-| Signal  | Type         | Default UID | Purpose |
-|---------|-------------|-------------|---------|
-| Metrics | Prometheus  | `mimir`     | Span metrics, service graph, browser metrics, runtime metrics |
-| Traces  | Tempo       | `tempo`     | Trace detail, exemplar links |
-| Logs    | Loki        | `loki`      | Faro browser telemetry, application logs |
-
-### Per-Environment Overrides
-
-Tempo and Loki support environment-specific datasource overrides. This is
-useful when traces and logs are stored in separate clusters per environment:
-
-```json
-{
-  "tracesDataSource": {
-    "uid": "tempo",
-    "type": "tempo",
-    "byEnvironment": {
-      "dev-gcp": { "uid": "dev-gcp-tempo", "type": "tempo" },
-      "prod-gcp": { "uid": "prod-gcp-tempo", "type": "tempo" }
-    }
-  },
-  "logsDataSource": {
-    "uid": "loki",
-    "type": "loki",
-    "byEnvironment": {
-      "dev-gcp": { "uid": "dev-gcp-loki", "type": "loki" },
-      "prod-gcp": { "uid": "prod-gcp-loki", "type": "loki" }
-    }
-  }
-}
-```
-
-When a user selects an environment filter, the app resolves the matching
-datasource UID. If no override exists, the default datasource is used.
 
 ---
 
@@ -366,6 +332,44 @@ Each group shows rate, error rate, and p50/p95/p99 duration per operation.
 
 ---
 
+## Resource Attributes
+
+| Attribute | Purpose | Required |
+|-----------|---------|----------|
+| `service.name` | Identifies each service | **Yes** |
+| `service.namespace` | Groups services by team/domain (maps to k8s namespace) | Recommended |
+| `deployment.environment` | Enables environment filtering | Recommended |
+| `telemetry.sdk.language` | Shows SDK language icon next to service names | Optional |
+| `http.route` | Produces clean operation names instead of raw URLs | Optional |
+
+### Span Metric Dimensions
+
+For full functionality, span metrics need these dimensions configured
+(applies to both Tempo metrics-generator and OTel Collector spanmetrics connector):
+
+| Dimension | Required For |
+|-----------|-------------|
+| `service.name` | Service identification |
+| `service.namespace` | Namespace/team grouping |
+| `deployment.environment` | Environment filtering |
+| `server.address` | External dependency detection (databases, APIs) |
+| `http.status_code` or `http.response.status_code` | Error breakdown |
+| `db.system` | Database type detection (postgres, redis, etc.) |
+| `db.name` | Database name in dependency view |
+| `messaging.system` | Messaging system detection (kafka, rabbitmq) |
+| `messaging.destination.name` | Topic/queue names |
+
+### Service Graph Peer Attributes
+
+| Peer Attribute | Purpose |
+|----------------|---------|
+| `peer.service` | Identifies called service |
+| `db.name` | Database dependency naming |
+| `db.system` | Database type classification |
+| `messaging.destination.name` | Messaging dependency naming |
+
+---
+
 ## Browser / Faro Metrics
 
 The app supports two sources for browser telemetry, depending on your
@@ -473,6 +477,36 @@ endpoints, not from OTel span metrics. They use different labels:
 | `nodejs_version_info` | Info | Node.js version (label: `version`) |
 
 **Additional labels:** `kind` (GC type: scavenge, mark_sweep_compact)
+
+### Go
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `go_goroutines` | Gauge | Active goroutine count |
+| `go_threads` | Gauge | OS thread count |
+| `go_memstats_alloc_bytes` | Gauge | Allocated heap bytes |
+| `go_memstats_sys_bytes` | Gauge | Total memory from OS |
+| `go_gc_duration_seconds` | Summary | GC pause duration |
+| `go_info` | Info | Go version |
+| `process_cpu_seconds_total` | Counter | CPU time consumed |
+| `process_open_fds` | Gauge | Open file descriptors |
+| `process_max_fds` | Gauge | Max file descriptors |
+
+### Container / Kubernetes
+
+Source: kubelet cAdvisor / kube-state-metrics
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `container_cpu_usage_seconds_total` | Counter | CPU time consumed |
+| `container_cpu_cfs_throttled_seconds_total` | Counter | CPU throttling |
+| `container_memory_usage_bytes` | Gauge | Memory usage |
+| `kube_pod_container_resource_requests` | Gauge | Resource requests (label: `resource`) |
+| `kube_pod_container_resource_limits` | Gauge | Resource limits (label: `resource`) |
+| `kube_pod_container_status_restarts_total` | Counter | Container restarts |
+| `kube_deployment_spec_replicas` | Gauge | Desired replica count |
+
+**Additional labels:** `container`, `namespace`, `pod`, `resource`
 
 ### Database Connection Pools
 
@@ -594,13 +628,72 @@ avg by (area) (
 
 ## Framework Detection
 
-The app detects application frameworks for display badges:
+The app detects application frameworks for display badges in the service inventory:
 
-| Framework | Detection Metric |
-|-----------|-----------------|
-| **Ktor** | `ktor_http_server_requests_seconds_count` |
-| **Spring Boot** | `spring_security_filterchains_access_exceptions_after_total` |
-| **Node.js** | `nodejs_version_info` |
+| Framework | Badge | Detection Metric | When Present |
+|-----------|-------|-----------------|--------------|
+| **Ktor** | `Ktor` (purple) | `ktor_http_server_requests_seconds_count` | Ktor + Micrometer |
+| **Spring Boot** | `Spring` (green) | `application_started_time_seconds` | Spring Boot 3 + Micrometer |
+| | | `spring_security_filterchains_access_exceptions_after_total` | Spring Security |
+| **Node.js** | `Node.js` (orange) | `nodejs_version_info` | `prom-client` or OTel Node.js SDK |
+| **Go** | `Go` (blue) | `go_info` | Default Go Prometheus client |
+
+**Priority:** If multiple detection metrics match (e.g., a Ktor app also has
+Spring Boot metrics), the most specific framework wins:
+Ktor > Spring Boot > Go > Node.js.
 
 These metrics must be scraped by Prometheus and stored in Mimir for detection
-to work.
+to work. The `app` label on your Prometheus metrics must match the
+`service_name` on your OTel span metrics.
+
+---
+
+## Traces (Tempo)
+
+The plugin builds **TraceQL** queries against Tempo to let users search and
+browse traces scoped to a specific service.
+
+**Resource attributes used in TraceQL filters:**
+
+| Attribute Path | Purpose |
+|---------------|---------|
+| `resource.service.name` | Filter traces to a specific service |
+| `resource.service.namespace` | Filter traces to a namespace |
+
+**Span attributes used in TraceQL filters:**
+
+| Attribute | Purpose |
+|-----------|---------|
+| `name` | Span operation name |
+| `status` | Span status (`error`, `ok`) |
+| `duration` | Span duration |
+| `span.http.route` | HTTP route pattern |
+
+Example generated TraceQL:
+
+```
+{resource.service.name="my-service" && resource.service.namespace="my-namespace" && status=error && duration >= 500ms}
+```
+
+---
+
+## Logs (Loki)
+
+The plugin builds **LogQL** queries against Loki to display structured logs
+scoped to a service.
+
+**Stream selectors:**
+
+| Label | Purpose |
+|-------|---------|
+| `service_name` | Filter logs to a service |
+| `service_namespace` | Filter logs to a namespace |
+| `level` | Log severity (error, warn, info, debug) |
+
+**Log extraction pipeline:**
+
+```logql
+{service_name="my-service"} | level=~"error|warn" | json | line_format `{{ if .message }}{{ .message }}{{ else if .msg }}{{ .msg }}{{ else }}{{ __line__ }}{{ end }}` | drop __error__, __error_details__
+```
+
+---
