@@ -21,8 +21,6 @@ import { NamespaceStats } from './namespace/NamespaceStats';
 import { NamespaceServicesTable } from './namespace/NamespaceServicesTable';
 import { NamespaceDependencies } from './namespace/NamespaceDependencies';
 
-const TOPOLOGY_SERVICE_CAP = 20;
-
 function NamespaceOverview() {
   const { namespace = '' } = useParams<{ namespace: string }>();
   const decodedNs = decodeURIComponent(namespace);
@@ -70,7 +68,7 @@ function NamespaceOverview() {
     [fromMs, toMs, decodedNs, envFilter]
   );
 
-  const services = useMemo(() => fetchResult ?? [], [fetchResult]);
+  const services = useMemo(() => (fetchResult ?? []).filter((s) => !s.isSidecar), [fetchResult]);
 
   const sparklineMap = useMemo(() => {
     if (!sparklineResult) {
@@ -78,9 +76,6 @@ function NamespaceOverview() {
     }
     return new Map(sparklineResult.map((s) => [`${s.namespace}/${s.name}/${s.environment ?? ''}`, s]));
   }, [sparklineResult]);
-
-  // Set of service names in this namespace (for topology cap check)
-  const namespaceServiceNames = useMemo(() => new Set(services.map((s) => s.name)), [services]);
 
   // Compute unique environments for dropdown (from unfiltered data to prevent dropdown disappearing)
   const envOptions = useMemo<Array<{ label: string; value: string }>>(() => {
@@ -95,9 +90,6 @@ function NamespaceOverview() {
     }
     return toGraphData(mapData);
   }, [mapData]);
-
-  const showTopology =
-    namespaceServiceNames.size > 0 && namespaceServiceNames.size <= TOPOLOGY_SERVICE_CAP && graphNodes.length > 0;
 
   const setEnvFilter = useCallback(
     (env: string) => {
@@ -195,27 +187,24 @@ function NamespaceOverview() {
             <NamespaceStats services={services} />
 
             {/* Topology graph */}
-            {showTopology && (
+            {graphNodes.length > 0 && (
               <div className={styles.section}>
                 <h3 className={styles.sectionTitle}>Service Topology</h3>
-                <ServiceGraph
-                  nodes={graphNodes}
-                  edges={graphEdges}
-                  direction="RIGHT"
-                  enableGrouping={false}
-                  onNodeClick={(nodeId) => {
-                    const svc = services.find((s) => s.name === nodeId);
-                    if (svc) {
-                      handleServiceClick(svc.namespace, svc.name);
-                    }
-                  }}
-                />
+                <div style={{ height: 500, borderRadius: 4, overflow: 'hidden' }}>
+                  <ServiceGraph
+                    nodes={graphNodes}
+                    edges={graphEdges}
+                    direction="RIGHT"
+                    enableGrouping={false}
+                    onNodeClick={(nodeId) => {
+                      const svc = services.find((s) => s.name === nodeId);
+                      if (svc) {
+                        handleServiceClick(svc.namespace, svc.name);
+                      }
+                    }}
+                  />
+                </div>
               </div>
-            )}
-            {namespaceServiceNames.size > TOPOLOGY_SERVICE_CAP && (
-              <Alert severity="info" title="Topology hidden">
-                Service topology is hidden for namespaces with more than {TOPOLOGY_SERVICE_CAP} services.
-              </Alert>
             )}
 
             {/* Services table */}
