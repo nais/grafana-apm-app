@@ -171,8 +171,8 @@ func (a *App) queryJVMRuntime( //nolint:gocyclo // many independent metric queri
 		// Buffer pools
 		{"bufferUsed", fmt.Sprintf(`sum(avg_over_time(%s{%s}%s))`, rt.BufferUsed, svcFilter, lookback)},
 		{"bufferCapacity", fmt.Sprintf(`sum(max_over_time(%s{%s}%s))`, rt.BufferCapacity, svcFilter, lookback)},
-		// Pod count (from any JVM metric)
-		{"podCount", fmt.Sprintf(`count(%s{%s, %s="heap"})`, rt.MemoryUsed, svcFilter, rt.AreaLabel)},
+		// Pod count — deduplicate by instance since heap metrics have multiple pool IDs per pod
+		{"podCount", fmt.Sprintf(`count(count by (instance) (%s{%s, %s="heap"}))`, rt.MemoryUsed, svcFilter, rt.AreaLabel)},
 		// Version info
 		{"info", fmt.Sprintf(`count by (runtime, version) (%s{%s})`, rt.Info, svcFilter)},
 		// Memory pool breakdown: group by area + pool id
@@ -432,8 +432,8 @@ func (a *App) queryNodeJSRuntime(
 		// File descriptors
 		{"openFds", fmt.Sprintf(`avg(avg_over_time(%s{%s}%s))`, rt.OpenFDs, svcFilter, lookback)},
 		{"maxFds", fmt.Sprintf(`max(%s{%s})`, rt.MaxFDs, svcFilter)},
-		// Pod count
-		{"podCount", fmt.Sprintf(`count(%s{%s})`, rt.HeapUsed, svcFilter)},
+		// Pod count — deduplicate by instance for consistency
+		{"podCount", fmt.Sprintf(`count(count by (instance) (%s{%s}))`, rt.HeapUsed, svcFilter)},
 		// Version info
 		{"info", fmt.Sprintf(`count by (version) (%s{%s})`, rt.VersionInfo, svcFilter)},
 	}
@@ -746,7 +746,7 @@ func (a *App) queryGoRuntime(
 		{"cpuRate", fmt.Sprintf(`avg(rate(%s{%s}%s))`, rt.CPUTotal, svcFilter, lookback)},
 		{"openFds", fmt.Sprintf(`avg(avg_over_time(%s{%s}%s))`, rt.OpenFDs, svcFilter, lookback)},
 		{"maxFds", fmt.Sprintf(`max(%s{%s})`, rt.MaxFDs, svcFilter)},
-		{"podCount", fmt.Sprintf(`count(%s{%s})`, rt.Goroutines, svcFilter)},
+		{"podCount", fmt.Sprintf(`count(count by (instance) (%s{%s}))`, rt.Goroutines, svcFilter)},
 		{"info", fmt.Sprintf(`count by (version) (%s{%s})`, rt.Info, svcFilter)},
 	}
 
@@ -850,8 +850,8 @@ func (a *App) queryContainerRuntime(
 		// Memory requests and limits
 		{"memReqs", fmt.Sprintf(`avg(%s{%s, %s="memory"})`, rt.ResourceReqs, ctrFilter, rt.ResourceLabel)},
 		{"memLimits", fmt.Sprintf(`avg(%s{%s, %s="memory"})`, rt.ResourceLimits, ctrFilter, rt.ResourceLabel)},
-		// Pod count (from container metrics)
-		{"podCount", fmt.Sprintf(`count(%s{%s})`, rt.MemoryUsage, ctrFilter)},
+		// Pod count — deduplicate by pod since container metrics use kubelet instance
+		{"podCount", fmt.Sprintf(`count(count by (pod) (%s{%s}))`, rt.MemoryUsage, ctrFilter)},
 		// Restarts (sum across all pods, 24h window to be meaningful)
 		{"restarts", fmt.Sprintf(`sum(increase(%s{%s}[24h]))`, rt.Restarts, ctrFilter)},
 	}
