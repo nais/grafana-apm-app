@@ -43,6 +43,7 @@ func (a *App) handleEndpoints(w http.ResponseWriter, req *http.Request) {
 	ctx := a.requestContext(req)
 	namespace := queries.ParseNamespace(req.PathValue("namespace"))
 	service := queries.MustSanitizeLabel(req.PathValue("service"))
+	environment := queries.MustSanitizeLabel(req.URL.Query().Get("environment"))
 
 	if !requireServiceParam(w, service) {
 		return
@@ -58,14 +59,14 @@ func (a *App) handleEndpoints(w http.ResponseWriter, req *http.Request) {
 	from := parseUnixParam(req, "from", now.Add(-1*time.Hour))
 	to := parseUnixParam(req, "to", now)
 
-	groups := a.queryEndpoints(ctx, caps, namespace, service, from, to)
+	groups := a.queryEndpoints(ctx, caps, namespace, service, environment, from, to)
 	writeJSON(w, groups)
 }
 
 func (a *App) queryEndpoints(
 	ctx context.Context,
 	caps queries.Capabilities,
-	namespace, service string,
+	namespace, service, environment string,
 	_, to time.Time,
 ) queries.EndpointGroups {
 	logger := log.DefaultLogger.With("handler", "endpoints")
@@ -76,6 +77,9 @@ func (a *App) queryEndpoints(
 	rangeStr := "[5m]"
 
 	baseFilter := a.otelCfg.ServiceFilter(service, namespace)
+	if environment != "" {
+		baseFilter += fmt.Sprintf(`, %s="%s"`, a.otelCfg.Labels.DeploymentEnv, environment)
+	}
 
 	// Define query groups for each protocol category
 	type endpointCategory struct {

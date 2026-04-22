@@ -99,6 +99,7 @@ func (a *App) handleGraphQLMetrics(w http.ResponseWriter, req *http.Request) {
 
 	namespace := queries.ParseNamespace(req.PathValue("namespace"))
 	service := queries.MustSanitizeLabel(req.PathValue("service"))
+	environment := queries.MustSanitizeLabel(req.URL.Query().Get("environment"))
 	if !requireServiceParam(w, service) {
 		return
 	}
@@ -107,11 +108,11 @@ func (a *App) handleGraphQLMetrics(w http.ResponseWriter, req *http.Request) {
 	from := parseUnixParam(req, "from", now.Add(-1*time.Hour))
 	to := parseUnixParam(req, "to", now)
 
-	result := a.queryGraphQLMetrics(ctx, namespace, service, from, to)
+	result := a.queryGraphQLMetrics(ctx, namespace, service, environment, from, to)
 	writeJSON(w, result)
 }
 
-func (a *App) queryGraphQLMetrics(ctx context.Context, namespace, service string, _, to time.Time) GraphQLMetricsResponse {
+func (a *App) queryGraphQLMetrics(ctx context.Context, namespace, service, environment string, _, to time.Time) GraphQLMetricsResponse {
 	logger := log.DefaultLogger.With("handler", "graphql")
 	client := a.prom(ctx)
 	if client == nil {
@@ -121,6 +122,9 @@ func (a *App) queryGraphQLMetrics(ctx context.Context, namespace, service string
 	// Build the service filter — try both app and service_name labels.
 	// Most Nav services have app=service_name and namespace=service_namespace.
 	svcFilter := fmt.Sprintf(`app="%s", namespace="%s"`, service, namespace)
+	if environment != "" {
+		svcFilter += fmt.Sprintf(`, %s="%s"`, a.otelCfg.Labels.DeploymentEnv, environment)
+	}
 
 	// Single discovery query: find all graphql-related metric names for this service
 	discoveryQuery := fmt.Sprintf(

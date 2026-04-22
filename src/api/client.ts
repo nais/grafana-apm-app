@@ -313,11 +313,18 @@ export async function getEndpoints(
   namespace: string,
   service: string,
   from: number,
-  to: number
+  to: number,
+  environment?: string
 ): Promise<EndpointGroups> {
+  const params: Record<string, string> = {
+    ...timeParams(from, to),
+  };
+  if (environment) {
+    params.environment = environment;
+  }
   return fetchResource<EndpointGroups>(
     `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/endpoints`,
-    timeParams(from, to)
+    params
   );
 }
 
@@ -365,11 +372,18 @@ export async function getGraphQLMetrics(
   namespace: string,
   service: string,
   from: number,
-  to: number
+  to: number,
+  environment?: string
 ): Promise<GraphQLMetricsResponse> {
+  const params: Record<string, string> = {
+    ...timeParams(from, to),
+  };
+  if (environment) {
+    params.environment = environment;
+  }
   return fetchResource<GraphQLMetricsResponse>(
     `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/graphql`,
-    timeParams(from, to)
+    params
   );
 }
 

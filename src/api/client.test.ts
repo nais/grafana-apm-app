@@ -177,6 +177,12 @@ describe('getEndpoints', () => {
     const url = lastURL();
     expect(url.pathname).toContain('/services/ns/svc/endpoints');
   });
+
+  it('passes environment when provided', async () => {
+    await getEndpoints('ns', 'svc', 60000, 120000, 'prod-fss');
+    const url = lastURL();
+    expect(url.searchParams.get('environment')).toBe('prod-fss');
+  });
 });
 
 describe('getFrontendMetrics', () => {
@@ -201,6 +207,12 @@ describe('getGraphQLMetrics', () => {
     expect(url.pathname).toContain('/graphql');
     expect(url.searchParams.get('from')).toBe('60');
     expect(url.searchParams.get('to')).toBe('120');
+  });
+
+  it('passes environment when provided', async () => {
+    await getGraphQLMetrics('ns', 'svc', 60000, 120000, 'prod-fss');
+    const url = lastURL();
+    expect(url.searchParams.get('environment')).toBe('prod-fss');
   });
 });
 

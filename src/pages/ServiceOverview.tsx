@@ -718,6 +718,7 @@ function ServiceOverview() {
                 namespace={namespace}
                 fromMs={fromMs}
                 toMs={toMs}
+                environment={envFilter || undefined}
                 onViewTraces={onViewTraces}
               />
             </div>

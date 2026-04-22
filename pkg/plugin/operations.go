@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -17,6 +18,7 @@ func (a *App) handleOperations(w http.ResponseWriter, req *http.Request) {
 	ctx := a.requestContext(req)
 	namespace := queries.ParseNamespace(req.PathValue("namespace"))
 	service := queries.MustSanitizeLabel(req.PathValue("service"))
+	environment := queries.MustSanitizeLabel(req.URL.Query().Get("environment"))
 
 	if !requireServiceParam(w, service) {
 		return
@@ -32,14 +34,14 @@ func (a *App) handleOperations(w http.ResponseWriter, req *http.Request) {
 	now := time.Now()
 	from := parseUnixParam(req, "from", now.Add(-1*time.Hour))
 	to := parseUnixParam(req, "to", now)
-	operations := a.queryOperations(ctx, caps, namespace, service, from, to)
+	operations := a.queryOperations(ctx, caps, namespace, service, environment, from, to)
 	writeJSON(w, operations)
 }
 
 func (a *App) queryOperations(
 	ctx context.Context,
 	caps queries.Capabilities,
-	namespace, service string,
+	namespace, service, environment string,
 	_, to time.Time,
 ) []queries.OperationSummary {
 	logger := log.DefaultLogger.With("handler", "operations")
@@ -51,6 +53,9 @@ func (a *App) queryOperations(
 
 	// Build label filter
 	labelFilter := a.otelCfg.ServiceFilter(service, namespace)
+	if environment != "" {
+		labelFilter += fmt.Sprintf(`, %s="%s"`, a.otelCfg.Labels.DeploymentEnv, environment)
+	}
 
 	groupBy := a.otelCfg.Labels.SpanName + ", " + a.otelCfg.Labels.SpanKind
 	rateQuery := otelconfig.Rate(callsMetric, labelFilter, groupBy, rangeStr)

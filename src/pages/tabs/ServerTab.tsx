@@ -18,6 +18,7 @@ interface ServerTabProps {
   namespace: string;
   fromMs: number;
   toMs: number;
+  environment?: string;
   onViewTraces?: (spanName: string, status?: string) => void;
 }
 
@@ -34,15 +35,15 @@ interface ServerData {
   graphql: GraphQLMetricsResponse | null;
 }
 
-export function ServerTab({ service, namespace, fromMs, toMs, onViewTraces }: ServerTabProps) {
+export function ServerTab({ service, namespace, fromMs, toMs, environment, onViewTraces }: ServerTabProps) {
   const styles = useStyles2(getStyles);
   const { data, loading, error } = useFetch<ServerData>(async () => {
     const [endpoints, graphql] = await Promise.all([
-      getEndpoints(namespace, service, fromMs, toMs),
-      getGraphQLMetrics(namespace, service, fromMs, toMs).catch(() => null),
+      getEndpoints(namespace, service, fromMs, toMs, environment),
+      getGraphQLMetrics(namespace, service, fromMs, toMs, environment).catch(() => null),
     ]);
     return { endpoints, graphql };
-  }, [service, namespace, fromMs, toMs]);
+  }, [service, namespace, fromMs, toMs, environment]);
 
   if (loading) {
     return <LoadingPlaceholder text="Loading endpoints..." />;
