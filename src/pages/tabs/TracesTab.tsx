@@ -52,13 +52,13 @@ export function TracesTab({ service, namespace, tracesUid, from, to, initialSpan
       // auth wrappers like "(authenticate tokenX)" in http.route but not in name).
       conditions.push(`(name=~".*${escaped}.*" || span.http.route=~".*${escaped}.*")`);
     }
-    let traceQL = `{${conditions.join(' && ')}}`;
     if (durationMin) {
-      traceQL += ` | duration >= ${durationMin}ms`;
+      conditions.push(`duration >= ${durationMin}ms`);
     }
     if (durationMax) {
-      traceQL += ` | duration <= ${durationMax}ms`;
+      conditions.push(`duration <= ${durationMax}ms`);
     }
+    const traceQL = `{${conditions.join(' && ')}}`;
 
     const traceQuery = new SceneQueryRunner({
       datasource: { uid: tracesUid, type: 'tempo' },
