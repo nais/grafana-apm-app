@@ -284,7 +284,10 @@ func (a *App) fetchServiceSummaries( //nolint:gocyclo // complex due to parallel
 
 	// Fill framework from app-emitted metrics.
 	// Framework results use app/namespace labels — match to service_name/service_namespace.
-	// Priority: ktor > spring > go > nodejs (ktor is more specific than generic Spring/Micrometer).
+	// Priority: ktor > spring > nodejs > go
+	//   Ktor is more specific than generic Spring/Micrometer.
+	//   Node.js beats Go because go_info can leak from Go-based exporters/proxies
+	//   alongside a Node.js app, but nodejs_version_info is definitive.
 	type appKey struct {
 		name      string
 		namespace string
@@ -307,13 +310,13 @@ func (a *App) fetchServiceSummaries( //nolint:gocyclo // complex due to parallel
 			if existing != "Ktor" {
 				frameworkMap[k] = "Spring Boot"
 			}
+		case "nodejs_version_info":
+			if existing == "" || existing == "Go" {
+				frameworkMap[k] = "Node.js"
+			}
 		case "go_info":
 			if existing == "" {
 				frameworkMap[k] = "Go"
-			}
-		case "nodejs_version_info":
-			if existing == "" {
-				frameworkMap[k] = "Node.js"
 			}
 		}
 	}
