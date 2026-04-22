@@ -3,9 +3,7 @@ package plugin
 import (
 	"context"
 	"fmt"
-	"math"
 	"net/http"
-	"strconv"
 	"sync"
 	"time"
 
@@ -26,13 +24,11 @@ func (a *App) handleServices(w http.ResponseWriter, req *http.Request) {
 	ctx := a.requestContext(req)
 
 	// Parse time range from query params (defaults: last 1h)
-	now := time.Now()
-	from := parseUnixParam(req, "from", now.Add(-1*time.Hour))
-	to := parseUnixParam(req, "to", now)
+	from, to := parseTimeRange(req)
 	step := parseDurationParam(req, "step", 60*time.Second)
 	withSeries := req.URL.Query().Get("withSeries") != "false"
 	filterNamespace := queries.MustSanitizeLabel(req.URL.Query().Get("namespace"))
-	filterEnvironment := queries.MustSanitizeLabel(req.URL.Query().Get("environment"))
+	filterEnvironment := parseEnvironment(req)
 
 	// Check response cache (keyed on time range rounded to 30s + filters + org)
 	roundedFrom := fmt.Sprintf("%d", from.Unix()/30*30)
@@ -481,35 +477,6 @@ func valuesToDataPoints(values []queries.PromValue) []queries.DataPoint {
 		pts[i] = queries.DataPoint{Timestamp: v.Timestamp(), Value: v.Float()}
 	}
 	return pts
-}
-
-func roundTo(val float64, decimals int) float64 {
-	pow := math.Pow(10, float64(decimals))
-	return math.Round(val*pow) / pow
-}
-
-func parseUnixParam(req *http.Request, name string, defaultVal time.Time) time.Time {
-	s := req.URL.Query().Get(name)
-	if s == "" {
-		return defaultVal
-	}
-	ts, err := strconv.ParseInt(s, 10, 64)
-	if err != nil {
-		return defaultVal
-	}
-	return time.Unix(ts, 0)
-}
-
-func parseDurationParam(req *http.Request, name string, defaultVal time.Duration) time.Duration {
-	s := req.URL.Query().Get(name)
-	if s == "" {
-		return defaultVal
-	}
-	secs, err := strconv.Atoi(s)
-	if err != nil {
-		return defaultVal
-	}
-	return time.Duration(secs) * time.Second
 }
 
 // cachedOrDetectCapabilities returns cached capabilities or detects fresh ones.

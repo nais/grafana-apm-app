@@ -41,9 +41,8 @@ func (a *App) handleEndpoints(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	ctx := a.requestContext(req)
-	namespace := queries.ParseNamespace(req.PathValue("namespace"))
-	service := queries.MustSanitizeLabel(req.PathValue("service"))
-	environment := queries.MustSanitizeLabel(req.URL.Query().Get("environment"))
+	namespace, service := parseServiceRef(req)
+	environment := parseEnvironment(req)
 
 	if !requireServiceParam(w, service) {
 		return
@@ -55,9 +54,7 @@ func (a *App) handleEndpoints(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	now := time.Now()
-	from := parseUnixParam(req, "from", now.Add(-1*time.Hour))
-	to := parseUnixParam(req, "to", now)
+	from, to := parseTimeRange(req)
 
 	groups := a.queryEndpoints(ctx, caps, namespace, service, environment, from, to)
 	writeJSON(w, groups)

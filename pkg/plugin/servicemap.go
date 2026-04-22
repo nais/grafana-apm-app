@@ -32,7 +32,7 @@ func (a *App) handleServiceMap(w http.ResponseWriter, req *http.Request) {
 	// Optional: filter to a specific service's neighborhood
 	filterService := queries.MustSanitizeLabel(req.URL.Query().Get("service"))
 	filterNamespace := queries.MustSanitizeLabel(req.URL.Query().Get("namespace"))
-	filterEnvironment := queries.MustSanitizeLabel(req.URL.Query().Get("environment"))
+	filterEnvironment := parseEnvironment(req)
 
 	// Check response cache
 	roundedFrom := fmt.Sprintf("%d", from.Unix()/30*30)

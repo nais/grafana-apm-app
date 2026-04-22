@@ -18,16 +18,13 @@ func (a *App) handleRuntime(w http.ResponseWriter, req *http.Request) {
 	}
 	ctx := a.requestContext(req)
 
-	namespace := queries.ParseNamespace(req.PathValue("namespace"))
-	service := queries.MustSanitizeLabel(req.PathValue("service"))
-	environment := queries.MustSanitizeLabel(req.URL.Query().Get("environment"))
+	namespace, service := parseServiceRef(req)
+	environment := parseEnvironment(req)
 	if !requireServiceParam(w, service) {
 		return
 	}
 
-	now := time.Now()
-	_ = parseUnixParam(req, "from", now.Add(-1*time.Hour))
-	to := parseUnixParam(req, "to", now)
+	_, to := parseTimeRange(req)
 
 	result := a.queryRuntimeMetrics(ctx, namespace, service, environment, to)
 	writeJSON(w, result)

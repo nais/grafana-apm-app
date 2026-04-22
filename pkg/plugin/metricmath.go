@@ -15,6 +15,12 @@ func safeFloat(v float64) float64 {
 	return v
 }
 
+// roundTo rounds a float to the given number of decimal places.
+func roundTo(val float64, decimals int) float64 {
+	pow := math.Pow(10, float64(decimals))
+	return math.Round(val*pow) / pow
+}
+
 // calculateErrorRate computes an error percentage from an error count rate and
 // total request rate. Returns 0 when the total rate is not positive. The result
 // is clamped to [0, 100].

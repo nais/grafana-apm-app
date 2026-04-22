@@ -75,9 +75,8 @@ func (a *App) handleServiceDependencies(w http.ResponseWriter, req *http.Request
 		return
 	}
 	ctx := a.requestContext(req)
-	service := queries.MustSanitizeLabel(req.PathValue("service"))
-	namespace := queries.ParseNamespace(req.PathValue("namespace"))
-	filterEnv := queries.MustSanitizeLabel(req.URL.Query().Get("environment"))
+	namespace, service := parseServiceRef(req)
+	filterEnv := parseEnvironment(req)
 
 	if !requireServiceParam(w, service) {
 		return
@@ -103,7 +102,7 @@ func (a *App) handleGlobalDependencies(w http.ResponseWriter, req *http.Request)
 		return
 	}
 	ctx := a.requestContext(req)
-	filterEnv := queries.MustSanitizeLabel(req.URL.Query().Get("environment"))
+	filterEnv := parseEnvironment(req)
 
 	caps := a.cachedOrDetectCapabilities(ctx)
 	if !caps.ServiceGraph.Detected {
@@ -126,7 +125,7 @@ func (a *App) handleDependencyDetail(w http.ResponseWriter, req *http.Request) {
 	}
 	ctx := a.requestContext(req)
 	depName := queries.MustSanitizeLabel(req.PathValue("name"))
-	filterEnv := queries.MustSanitizeLabel(req.URL.Query().Get("environment"))
+	filterEnv := parseEnvironment(req)
 
 	if depName == "" {
 		http.Error(w, `{"error":"missing or invalid dependency name"}`, http.StatusBadRequest)
@@ -1017,8 +1016,8 @@ func (a *App) handleConnectedServices(w http.ResponseWriter, req *http.Request) 
 		return
 	}
 	ctx := a.requestContext(req)
-	service := queries.MustSanitizeLabel(req.PathValue("service"))
-	filterEnv := queries.MustSanitizeLabel(req.URL.Query().Get("environment"))
+	_, service := parseServiceRef(req)
+	filterEnv := parseEnvironment(req)
 
 	if !requireServiceParam(w, service) {
 		return
