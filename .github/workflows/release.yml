@@ -30,7 +30,25 @@ jobs:
           sign_root_urls: ${{ secrets.GRAFANA_PLUGIN_ROOT_URLS }}
           attestation: true
 
+      - name: Extract changelog
+        id: changelog
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          NOTES=$(awk -v ver="$VERSION" '
+            /^## / { if (found) exit; if ($0 ~ ver) found=1; next }
+            found { print }
+          ' CHANGELOG.md)
+          {
+            echo "notes<<CHANGELOG_EOF"
+            echo "$NOTES"
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Publish release
-        run: gh release edit "${{ github.ref_name }}" --draft=false
+        run: |
+          gh release edit "${{ github.ref_name }}" \
+            --draft=false \
+            --notes "$NOTES"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NOTES: ${{ steps.changelog.outputs.notes }}
