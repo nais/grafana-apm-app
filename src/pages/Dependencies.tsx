@@ -66,30 +66,29 @@ function Dependencies() {
       types.set(d.type, (types.get(d.type) ?? 0) + 1);
     }
     const opts: Array<{ label: string; value: string }> = [{ label: `All (${deps.length})`, value: 'all' }];
-    const sorted = [...types.entries()].sort((a, b) => b[1] - a[1]);
-    for (const [t, count] of sorted) {
+    const byCount = [...types.entries()].sort((a, b) => b[1] - a[1]);
+    for (const [t, count] of byCount) {
       opts.push({ label: `${formatDepType(t)} (${count})`, value: t });
     }
     return opts;
   }, [deps]);
 
-  const sorted = useMemo(() => {
-    const searchLower = search.toLowerCase();
-    return [...deps]
-      .filter((d) => {
-        if (searchLower && !d.name.toLowerCase().includes(searchLower)) {
-          return false;
-        }
-        if (typeFilter !== 'all' && d.type !== typeFilter) {
-          return false;
-        }
-        if (errorsOnly && d.errorRate <= 0) {
-          return false;
-        }
-        return true;
-      })
-      .sort(comparator);
-  }, [deps, comparator, search, typeFilter, errorsOnly]);
+  // Client-side filtering and sorting — computed every render (not memoized)
+  // to avoid stale-closure issues with React 18 batching.
+  const searchLower = search.toLowerCase();
+  const filtered = deps.filter((d) => {
+    if (searchLower && !d.name.toLowerCase().includes(searchLower)) {
+      return false;
+    }
+    if (typeFilter !== 'all' && d.type !== typeFilter) {
+      return false;
+    }
+    if (errorsOnly && d.errorRate <= 0) {
+      return false;
+    }
+    return true;
+  });
+  filtered.sort(comparator);
 
   return (
     <PluginPage layout={PageLayoutType.Canvas}>
@@ -147,14 +146,14 @@ function Dependencies() {
 
         {!loading && !error && deps.length > 0 && (
           <>
-            {sorted.length === 0 ? (
+            {filtered.length === 0 ? (
               <Alert severity="info" title="No matches">
                 No dependencies match the current filters.
               </Alert>
             ) : (
               <>
                 <div className={styles.resultCount}>
-                  Showing {sorted.length} of {deps.length} dependencies
+                  Showing {filtered.length} of {deps.length} dependencies
                 </div>
                 <table className={styles.table}>
                   <thead>
@@ -204,9 +203,9 @@ function Dependencies() {
                     </tr>
                   </thead>
                   <tbody>
-                    {sorted.map((dep) => (
+                    {filtered.map((dep) => (
                       <tr
-                        key={dep.name}
+                        key={`${dep.name}-${dep.type}`}
                         className={styles.clickableRow}
                         onClick={() => {
                           appNavigate(`dependencies/${encodeURIComponent(dep.name)}`);

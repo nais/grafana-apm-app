@@ -123,50 +123,50 @@ function ServiceInventory() {
     return opts;
   }, [services]);
 
-  const filtered = useMemo(() => {
-    let result = services;
-    if (namespaceFilter) {
-      result = result.filter((s) => s.namespace === namespaceFilter);
+  // Client-side filtering and sorting — computed every render to avoid
+  // stale-closure issues with React 18 batching.
+  let filtered = services;
+  if (namespaceFilter) {
+    filtered = filtered.filter((s) => s.namespace === namespaceFilter);
+  }
+  if (envFilter) {
+    filtered = filtered.filter((s) => s.environment === envFilter);
+  }
+  if (search) {
+    const q = search.toLowerCase();
+    filtered = filtered.filter((s) => s.name.toLowerCase().includes(q) || s.namespace.toLowerCase().includes(q));
+  }
+  // NaN-safe numeric comparison — NaN/undefined/Infinity sort to bottom
+  const safeNum = (v: number) => (Number.isFinite(v) ? v : -Infinity);
+  const dir = sortDir === 'desc' ? -1 : 1;
+  filtered = [...filtered].sort((a, b) => {
+    let cmp = 0;
+    switch (sortField) {
+      case 'name':
+        cmp = a.name.localeCompare(b.name);
+        break;
+      case 'namespace':
+        cmp = a.namespace.localeCompare(b.namespace);
+        break;
+      case 'environment':
+        cmp = (a.environment ?? '').localeCompare(b.environment ?? '');
+        break;
+      case 'p95Duration':
+        cmp = safeNum(a.p95Duration) - safeNum(b.p95Duration);
+        break;
+      case 'errorRate':
+        cmp = safeNum(a.errorRate) - safeNum(b.errorRate);
+        break;
+      case 'rate':
+        cmp = safeNum(a.rate) - safeNum(b.rate);
+        break;
     }
-    if (envFilter) {
-      result = result.filter((s) => s.environment === envFilter);
+    if (cmp !== 0) {
+      return cmp * dir;
     }
-    if (search) {
-      const q = search.toLowerCase();
-      result = result.filter((s) => s.name.toLowerCase().includes(q) || s.namespace.toLowerCase().includes(q));
-    }
-    // NaN-safe numeric comparison — NaN/undefined/Infinity sort to bottom
-    const safeNum = (v: number) => (Number.isFinite(v) ? v : -Infinity);
-    const dir = sortDir === 'desc' ? -1 : 1;
-    return [...result].sort((a, b) => {
-      let cmp = 0;
-      switch (sortField) {
-        case 'name':
-          cmp = a.name.localeCompare(b.name);
-          break;
-        case 'namespace':
-          cmp = a.namespace.localeCompare(b.namespace);
-          break;
-        case 'environment':
-          cmp = (a.environment ?? '').localeCompare(b.environment ?? '');
-          break;
-        case 'p95Duration':
-          cmp = safeNum(a.p95Duration) - safeNum(b.p95Duration);
-          break;
-        case 'errorRate':
-          cmp = safeNum(a.errorRate) - safeNum(b.errorRate);
-          break;
-        case 'rate':
-          cmp = safeNum(a.rate) - safeNum(b.rate);
-          break;
-      }
-      if (cmp !== 0) {
-        return cmp * dir;
-      }
-      // Stable tiebreaker: always sort by name ascending when primary values tie
-      return a.name.localeCompare(b.name);
-    });
-  }, [services, search, sortField, sortDir, namespaceFilter, envFilter]);
+    // Stable tiebreaker: always sort by name ascending when primary values tie
+    return a.name.localeCompare(b.name);
+  });
 
   // Show environment column when multiple envs exist and no single env is selected
   const showEnvColumn = envOptions.length > 1 && !envFilter;
