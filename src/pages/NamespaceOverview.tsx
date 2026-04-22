@@ -153,7 +153,7 @@ function NamespaceOverview() {
   }, [appNavigate]);
 
   return (
-    <PluginPage layout={PageLayoutType.Standard}>
+    <PluginPage layout={PageLayoutType.Canvas}>
       <div className={styles.container}>
         {/* Header */}
         <div className={styles.header}>
@@ -252,7 +252,9 @@ const getStyles = (theme: GrafanaTheme2) => ({
   container: css`
     display: flex;
     flex-direction: column;
-    padding: ${theme.spacing(2)};
+    flex: 1;
+    min-height: 0;
+    padding: 0;
   `,
   header: css`
     display: flex;
