@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { PluginPage } from '@grafana/runtime';
-import { useStyles2, Tab, TabsBar, Icon, LinkButton, Combobox, LoadingPlaceholder, Alert, Badge } from '@grafana/ui';
+import { useStyles2, Tab, TabsBar, LinkButton, Combobox, Alert } from '@grafana/ui';
 import { GrafanaTheme2, PageLayoutType } from '@grafana/data';
 import { css } from '@emotion/css';
 import { buildTempoExploreUrl, buildLokiExploreUrl } from '../utils/explore';
@@ -14,20 +14,20 @@ import {
   ServiceMapResponse,
   ConnectedServicesResponse,
 } from '../api/client';
-import { formatDuration } from '../utils/format';
 import { usePluginDatasources, useHasEnvironmentOverrides } from '../utils/datasources';
 import { useTimeRange } from '../utils/timeRange';
 import { useCapabilities, getMetricNames } from '../utils/capabilities';
 import { useAppNavigate, sanitizeParam } from '../utils/navigation';
 import { useFetch } from '../utils/useFetch';
+import { toGraphData } from '../components/ServiceGraph';
+import { buildServiceScene } from './buildServiceScene';
+import { OverviewTab } from './tabs/OverviewTab';
 import { TracesTab } from './tabs/TracesTab';
 import { LogsTab } from './tabs/LogsTab';
 import { DependenciesTab } from './tabs/DependenciesTab';
 import { ServerTab } from './tabs/ServerTab';
 import { FrontendTab } from './tabs/FrontendTab';
 import { RuntimeTab } from './tabs/RuntimeTab';
-import { ServiceGraph, toGraphData } from '../components/ServiceGraph';
-import { buildServiceScene } from './buildServiceScene';
 
 type TabId = 'overview' | 'server' | 'frontend' | 'runtime' | 'dependencies' | 'traces' | 'logs';
 const VALID_TABS: TabId[] = ['overview', 'server', 'frontend', 'runtime', 'dependencies', 'traces', 'logs'];
@@ -225,21 +225,12 @@ function ServiceOverview() {
     ]
   );
 
-  const MAX_OVERVIEW_OPS = 5;
-
-  // Top operations for the overview: top N by rate + any with errors not already shown
-  const overviewOps = useMemo(() => {
-    const byRate = [...operations].sort((a, b) => b.rate - a.rate);
-    const topN = byRate.slice(0, MAX_OVERVIEW_OPS);
-    const topKeys = new Set(topN.map((o) => `${o.spanName}|${o.spanKind}`));
-    const erroring = operations
-      .filter((o) => o.errorRate > 0 && !topKeys.has(`${o.spanName}|${o.spanKind}`))
-      .sort((a, b) => b.errorRate - a.errorRate)
-      .slice(0, MAX_OVERVIEW_OPS);
-    return [...topN, ...erroring];
-  }, [operations]);
-
-  const hiddenCount = operations.length - overviewOps.length;
+  const onNavigateService = useCallback(
+    (name: string) => {
+      appNavigate(`services/_/${encodeURIComponent(name)}`);
+    },
+    [appNavigate]
+  );
 
   // Service detail pages always use Canvas layout (no plugin-level header)
   return (
@@ -348,181 +339,18 @@ function ServiceOverview() {
         {/* Tab content — keep visited tabs mounted to avoid re-fetching */}
         <div className={styles.tabContent}>
           <div style={{ display: activeTab === 'overview' ? undefined : 'none' }}>
-            <>
-              {/* RED panels + Duration distribution (single scene for shared time range) */}
-              <div style={{ marginBottom: 16 }}>{scene && <scene.Component model={scene} />}</div>
-
-              {/* Operations table */}
-              <div className={styles.operationsSection}>
-                <h3 className={styles.sectionTitle}>Operations</h3>
-                <p className={styles.sectionSubtitle}>Top operations across all span kinds, sorted by throughput.</p>
-                {opsError && (
-                  <Alert severity="error" title="Error">
-                    {opsError}
-                  </Alert>
-                )}
-                {opsLoading && <LoadingPlaceholder text="Loading operations..." />}
-                {!opsLoading && operations.length === 0 && (
-                  <Alert severity="info" title="No operations found">
-                    No span operations found for this service.
-                  </Alert>
-                )}
-                {!opsLoading && operations.length > 0 && (
-                  <>
-                    <table className={styles.opsTable}>
-                      <thead>
-                        <tr>
-                          <th>Operation</th>
-                          <th>Kind</th>
-                          <th style={{ textAlign: 'right' }}>Rate</th>
-                          <th style={{ textAlign: 'right' }}>Error %</th>
-                          <th style={{ textAlign: 'right' }}>P50</th>
-                          <th style={{ textAlign: 'right' }}>P95</th>
-                          <th style={{ textAlign: 'right' }}>P99</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {overviewOps.map((op) => (
-                          <tr key={`${op.spanName}-${op.spanKind}`}>
-                            <td className={styles.opNameCell}>{op.spanName}</td>
-                            <td className={styles.opKindCell}>{op.spanKind}</td>
-                            <td className={styles.opNumCell}>{op.rate.toFixed(2)} req/s</td>
-                            <td className={op.errorRate > 0 ? styles.opErrorCell : styles.opNumCell}>
-                              {op.errorRate.toFixed(1)}%
-                            </td>
-                            <td className={styles.opNumCell}>{formatDuration(op.p50Duration, op.durationUnit)}</td>
-                            <td className={styles.opNumCell}>{formatDuration(op.p95Duration, op.durationUnit)}</td>
-                            <td className={styles.opNumCell}>{formatDuration(op.p99Duration, op.durationUnit)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    <button className={styles.viewAllLink} onClick={() => setActiveTab('server')}>
-                      {hiddenCount > 0
-                        ? `View all ${operations.length} operations on Server tab →`
-                        : 'View details on Server tab →'}
-                    </button>
-                  </>
-                )}
-              </div>
-
-              {/* Service topology graph */}
-              {graphNodes.length > 0 && (
-                <div className={styles.operationsSection}>
-                  <h3 className={styles.sectionTitle}>Service Topology</h3>
-                  <div style={{ height: 350, borderRadius: 4, overflow: 'hidden' }}>
-                    <ServiceGraph nodes={graphNodes} edges={graphEdges} focusNode={service} direction="RIGHT" />
-                  </div>
-                </div>
-              )}
-
-              {/* Connected services (inbound/outbound) */}
-              {connected && (connected.inbound.length > 0 || connected.outbound.length > 0) && (
-                <div className={styles.operationsSection}>
-                  <h3 className={styles.sectionTitle}>Connected Services</h3>
-                  <div className={styles.connectedGrid}>
-                    {connected.inbound.length > 0 && (
-                      <div>
-                        <h4 className={styles.connectedSubtitle}>
-                          <Icon name="arrow-down" /> Inbound ({connected.inbound.length})
-                        </h4>
-                        <table className={styles.opsTable}>
-                          <thead>
-                            <tr>
-                              <th>Service</th>
-                              <th>Type</th>
-                              <th>Rate</th>
-                              <th>Error %</th>
-                              <th>P95</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {connected.inbound.map((s) => (
-                              <tr
-                                key={s.name + (s.connectionType ?? '')}
-                                className={s.connectionType ? undefined : styles.clickableRow}
-                                style={s.isSidecar ? { opacity: 0.6 } : undefined}
-                                onClick={
-                                  s.connectionType
-                                    ? undefined
-                                    : () => {
-                                        appNavigate(`services/_/${encodeURIComponent(s.name)}`);
-                                      }
-                                }
-                              >
-                                <td className={s.connectionType ? undefined : styles.linkCell}>
-                                  {s.name}
-                                  {s.isSidecar && (
-                                    <Badge text="sidecar" color="orange" icon="cog" className={styles.sidecarBadge} />
-                                  )}
-                                </td>
-                                <td>
-                                  <ConnectionTypeBadge type={s.connectionType} />
-                                </td>
-                                <td className={styles.opNumCell}>{s.rate.toFixed(2)} req/s</td>
-                                <td className={s.errorRate > 0 ? styles.opErrorCell : styles.opNumCell}>
-                                  {s.errorRate.toFixed(1)}%
-                                </td>
-                                <td className={styles.opNumCell}>{formatDuration(s.p95Duration, s.durationUnit)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                    {connected.outbound.length > 0 && (
-                      <div>
-                        <h4 className={styles.connectedSubtitle}>
-                          <Icon name="arrow-up" /> Outbound ({connected.outbound.length})
-                        </h4>
-                        <table className={styles.opsTable}>
-                          <thead>
-                            <tr>
-                              <th>Service</th>
-                              <th>Type</th>
-                              <th>Rate</th>
-                              <th>Error %</th>
-                              <th>P95</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {connected.outbound.map((s) => (
-                              <tr
-                                key={s.name + (s.connectionType ?? '')}
-                                className={s.connectionType ? undefined : styles.clickableRow}
-                                style={s.isSidecar ? { opacity: 0.6 } : undefined}
-                                onClick={
-                                  s.connectionType
-                                    ? undefined
-                                    : () => {
-                                        appNavigate(`services/_/${encodeURIComponent(s.name)}`);
-                                      }
-                                }
-                              >
-                                <td className={s.connectionType ? undefined : styles.linkCell}>
-                                  {s.name}
-                                  {s.isSidecar && (
-                                    <Badge text="sidecar" color="orange" icon="cog" className={styles.sidecarBadge} />
-                                  )}
-                                </td>
-                                <td>
-                                  <ConnectionTypeBadge type={s.connectionType} />
-                                </td>
-                                <td className={styles.opNumCell}>{s.rate.toFixed(2)} req/s</td>
-                                <td className={s.errorRate > 0 ? styles.opErrorCell : styles.opNumCell}>
-                                  {s.errorRate.toFixed(1)}%
-                                </td>
-                                <td className={styles.opNumCell}>{formatDuration(s.p95Duration, s.durationUnit)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </>
+            <OverviewTab
+              scene={scene}
+              operations={operations}
+              opsLoading={opsLoading}
+              opsError={opsError ?? null}
+              graphNodes={graphNodes}
+              graphEdges={graphEdges}
+              connected={connected ?? undefined}
+              service={service}
+              onViewAllOperations={() => setActiveTab('server')}
+              onNavigateService={onNavigateService}
+            />
           </div>
 
           {visitedTabs.has('traces') && (
@@ -602,26 +430,6 @@ function ServiceOverview() {
   );
 }
 
-const CONNECTION_TYPE_LABELS: Record<
-  string,
-  { text: string; color: 'blue' | 'green' | 'orange' | 'red' | 'purple'; icon?: string }
-> = {
-  database: { text: 'Database', color: 'purple', icon: 'database' },
-  messaging_system: { text: 'Messaging', color: 'orange', icon: 'envelope' },
-  virtual_node: { text: 'External', color: 'blue', icon: 'cloud' },
-};
-
-function ConnectionTypeBadge({ type }: { type?: string }) {
-  if (!type) {
-    return null;
-  }
-  const info = CONNECTION_TYPE_LABELS[type];
-  if (!info) {
-    return null;
-  }
-  return <Badge text={info.text} color={info.color} icon={info.icon as any} />;
-}
-
 const getStyles = (theme: GrafanaTheme2) => ({
   container: css`
     display: flex;
@@ -674,122 +482,6 @@ const getStyles = (theme: GrafanaTheme2) => ({
   controlLabel: css`
     color: ${theme.colors.text.secondary};
     font-size: ${theme.typography.bodySmall.fontSize};
-  `,
-  operationsSection: css`
-    margin-top: ${theme.spacing(3)};
-  `,
-  viewAllLink: css`
-    display: block;
-    margin-top: ${theme.spacing(1.5)};
-    padding: 0;
-    background: none;
-    border: none;
-    color: ${theme.colors.text.link};
-    font-size: ${theme.typography.bodySmall.fontSize};
-    cursor: pointer;
-    &:hover {
-      text-decoration: underline;
-    }
-  `,
-  sectionTitle: css`
-    margin-bottom: ${theme.spacing(0.5)};
-    font-size: ${theme.typography.h4.fontSize};
-  `,
-  sectionSubtitle: css`
-    margin: 0 0 ${theme.spacing(1.5)} 0;
-    color: ${theme.colors.text.secondary};
-    font-size: ${theme.typography.bodySmall.fontSize};
-  `,
-  connectedGrid: css`
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: ${theme.spacing(3)};
-    @media (max-width: 768px) {
-      grid-template-columns: 1fr;
-    }
-  `,
-  connectedSubtitle: css`
-    font-size: ${theme.typography.body.fontSize};
-    font-weight: ${theme.typography.fontWeightMedium};
-    color: ${theme.colors.text.secondary};
-    margin-bottom: ${theme.spacing(1)};
-    display: flex;
-    align-items: center;
-    gap: ${theme.spacing(0.5)};
-  `,
-  clickableRow: css`
-    cursor: pointer;
-    &:hover {
-      background: ${theme.colors.background.secondary};
-    }
-  `,
-  linkCell: css`
-    font-weight: ${theme.typography.fontWeightMedium};
-    max-width: 300px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: ${theme.colors.text.link};
-  `,
-  sidecarBadge: css`
-    margin-left: ${theme.spacing(0.75)};
-    vertical-align: middle;
-  `,
-  opsTable: css`
-    width: 100%;
-    border-collapse: separate;
-    border-spacing: 0;
-    table-layout: fixed;
-    th:nth-child(1) {
-      width: 30%;
-    }
-    th:nth-child(2) {
-      width: 10%;
-    }
-    th {
-      text-align: left;
-      padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
-      color: ${theme.colors.text.secondary};
-      font-size: ${theme.typography.bodySmall.fontSize};
-      font-weight: ${theme.typography.fontWeightMedium};
-      border-bottom: 1px solid ${theme.colors.border.medium};
-      white-space: nowrap;
-    }
-    th:nth-child(n + 3) {
-      width: 12%;
-      text-align: right;
-    }
-    td {
-      padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
-      border-bottom: 1px solid ${theme.colors.border.weak};
-      vertical-align: middle;
-    }
-    tr:hover {
-      background: ${theme.colors.background.secondary};
-    }
-  `,
-  opNameCell: css`
-    font-weight: ${theme.typography.fontWeightMedium};
-    max-width: 300px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  `,
-  opKindCell: css`
-    color: ${theme.colors.text.secondary};
-    white-space: nowrap;
-  `,
-  opNumCell: css`
-    text-align: right;
-    white-space: nowrap;
-    font-variant-numeric: tabular-nums;
-  `,
-  opErrorCell: css`
-    text-align: right;
-    white-space: nowrap;
-    font-variant-numeric: tabular-nums;
-    color: ${theme.colors.error.text};
-    font-weight: ${theme.typography.fontWeightMedium};
   `,
 });
 
