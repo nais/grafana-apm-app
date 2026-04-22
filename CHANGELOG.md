@@ -4,13 +4,27 @@
 
 ### Features
 
+- **Namespace Overview Page** — New team/namespace page (`/namespaces/{ns}`) with aggregate stats tiles, service topology graph, services table with search/pagination, and external dependencies table with pagination. Navigate from any namespace link in ServiceInventory.
+- **Server-Side Namespace Filtering** — Backend `/service-map` and new `/namespace-dependencies` endpoints filter by namespace using a service→namespace mapping from spanmetrics. Eliminates client-side filtering inaccuracies.
+- **Service Topology for Large Teams** — Removed the 20-service cap on namespace topology graphs. ELK layout handles up to 300 nodes with zoom/pan controls.
 - **Frontend Tab: Per-Page Performance** — New table grouping all five Core Web Vitals (LCP, FCP, CLS, INP, TTFB) by page URL with threshold-colored cells and measurement counts.
 - **Frontend Tab: Console Errors** — New panel showing most frequent `console.error` messages from Faro logs, replacing the noisy Top Events panel.
 - **Frontend Tab: Enhanced Exceptions** — Top Exceptions expanded to top 20 with full error messages, "Sessions Affected" column, and click-through Explore links to Loki.
 - **Frontend Tab: Threshold Bands** — Green/yellow/red Web Vitals reference zones on INP and CLS time series panels (both Loki and Mimir paths).
 
+### Improvements
+
+- **Consistent Back Button** — Shared `BackButton` component across ServiceOverview, DependencyDetail, and NamespaceOverview pages.
+- **Environment Column** — Namespace services table shows environment column when multiple environments exist (hidden when env filter is active).
+- **Framework Badge Styling** — Lighter weight (`font-weight: 400`) and subtle rounding (`border-radius: 4px`) for framework badges. Unknown frameworks now render a grey fallback badge instead of being hidden.
+- **Canvas Layout** — Namespace page uses `PageLayoutType.Canvas` for a clean, headerless layout matching the service detail page.
+
 ### Bug Fixes
 
+- **Empty Service Topology** — Fix topology graph rendering as blank on namespace page. Root cause: ReactFlow `height: 100%` resolved to 0px when parent had no explicit height. Fixed by wrapping graph in container with explicit height.
+- **Environment Dropdown Stuck** — Fix environment dropdown disappearing after selection. Now uses a separate unfiltered fetch for environment discovery, and always shows dropdown when a filter is active.
+- **Sidecar Filtering** — Namespace page now hides known infrastructure sidecars (wonderwall, texas) consistent with ServiceInventory default behavior.
+- **Empty Namespace Navigation** — Namespace links in ServiceInventory only render as clickable when namespace is non-empty, preventing broken route navigation.
 - **Frontend Tab: Loki Aggregation** — Fix incorrect averages: `avg(avg_over_time(...))` computed average-per-stream then averaged those (wrong when streams have unequal sample counts). Now uses weighted mean via `sum(sum_over_time(...))/sum(count_over_time(...))`.
 - **Frontend Tab: Rating Pie Chart** — Fix "Value #A" labels on the Web Vitals rating distribution pie chart. Now correctly shows "good", "needs-improvement", "poor".
 - **Frontend Tab: Loki Query Parse Error** — Fix `count_over_time` failing with `unwrap` operator. The `unwrap` stage is now only applied to `sum_over_time`.

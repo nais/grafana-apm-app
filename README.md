@@ -13,6 +13,7 @@ already operate.
 ## Features
 
 - **Service Inventory** — auto-discovers all instrumented services with health sparklines, SDK language icons, framework badges, sidecar filtering, and sort/filter/search
+- **Namespace Overview** — team-level dashboard with aggregate stats, service topology graph (no service limit), services table with search/pagination, and external dependencies
 - **RED Dashboards** — per-service Rate, Errors, and Duration panels with configurable percentile selectors (P50–P99) and exemplar overlays linking to traces
 - **Operations Breakdown** — top operations table and duration distribution heatmap
 - **Dependencies** — downstream dependency inventory with impact scoring, per-dependency RED panels, and operation-level detail including database target (`db_name · db_operation`) and messaging topic breakdowns
@@ -115,6 +116,7 @@ src/
 ├── pages/
 │   ├── ServiceInventory.tsx    # Service list with sparklines and health indicators
 │   ├── ServiceOverview.tsx     # Per-service RED panels, traces, logs, operations
+│   ├── NamespaceOverview.tsx   # Team/namespace page with stats, topology, services
 │   ├── Dependencies.tsx        # Downstream dependency inventory
 │   ├── DependencyDetail.tsx    # Per-dependency RED panels and operation breakdown
 │   └── tabs/                   # Tab components for service detail
