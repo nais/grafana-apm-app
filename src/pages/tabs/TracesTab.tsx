@@ -46,7 +46,11 @@ export function TracesTab({ service, namespace, tracesUid, from, to, initialSpan
       conditions.push(`status=ok`);
     }
     if (debouncedSearch) {
-      conditions.push(`name=~".*${escapeQueryString(escapeRegex(debouncedSearch))}.*"`);
+      const escaped = escapeQueryString(escapeRegex(debouncedSearch));
+      // Search both span name and http.route — metric span names often come from
+      // http.route which may differ from the trace span name (e.g. Ktor includes
+      // auth wrappers like "(authenticate tokenX)" in http.route but not in name).
+      conditions.push(`(name=~".*${escaped}.*" || span.http.route=~".*${escaped}.*")`);
     }
     let traceQL = `{${conditions.join(' && ')}}`;
     if (durationMin) {
