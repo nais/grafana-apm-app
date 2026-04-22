@@ -92,6 +92,7 @@ type ServiceSummary struct {
 	P95Duration     float64      `json:"p95Duration"`
 	DurationUnit    string       `json:"durationUnit"`
 	RateSeries      []DataPoint  `json:"rateSeries,omitempty"`
+	ErrorSeries     []DataPoint  `json:"errorSeries,omitempty"`
 	DurationSeries  []DataPoint  `json:"durationSeries,omitempty"`
 }
 

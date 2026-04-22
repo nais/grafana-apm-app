@@ -49,6 +49,7 @@ export interface ServiceSummary {
   p95Duration: number;
   durationUnit: string;
   rateSeries?: DataPoint[];
+  errorSeries?: DataPoint[];
   durationSeries?: DataPoint[];
 }
 

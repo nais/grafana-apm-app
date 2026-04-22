@@ -191,6 +191,7 @@ func (a *App) fetchServiceSummaries( //nolint:gocyclo // complex due to parallel
 			query string
 		}{
 			{"rateSeries", rateQuery},
+			{"errorSeries", errorQuery},
 			{"durationSeries", p95Query},
 		} {
 			wg.Add(1)
@@ -314,6 +315,10 @@ func (a *App) fetchServiceSummaries( //nolint:gocyclo // complex due to parallel
 		for _, r := range resultMap["rateSeries"] {
 			s := getOrCreate(r)
 			s.RateSeries = valuesToDataPoints(r.Values)
+		}
+		for _, r := range resultMap["errorSeries"] {
+			s := getOrCreate(r)
+			s.ErrorSeries = valuesToDataPoints(r.Values)
 		}
 		for _, r := range resultMap["durationSeries"] {
 			s := getOrCreate(r)

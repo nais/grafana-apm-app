@@ -326,8 +326,12 @@ function ServiceInventory() {
                         <span className={svc.errorRate > 0 ? styles.errorValue : styles.metricValue}>
                           {svc.errorRate.toFixed(1)}%
                         </span>
-                        {svc.errorRate > 0 && <div className={styles.errorBar} />}
-                        {svc.errorRate === 0 && <div className={styles.errorBarFlat} />}
+                        <AreaSparkline
+                          data={sparklineMap
+                            .get(`${svc.namespace}/${svc.name}/${svc.environment ?? ''}`)
+                            ?.errorSeries?.map((p) => p.v)}
+                          color={svc.errorRate > 0 ? '#F2495C' : '#44444480'}
+                        />
                       </div>
                     </td>
                     <td>
@@ -541,20 +545,6 @@ const getStyles = (theme: GrafanaTheme2) => ({
     font-variant-numeric: tabular-nums;
     color: ${theme.colors.error.text};
     font-weight: ${theme.typography.fontWeightMedium};
-  `,
-  errorBar: css`
-    flex: 1;
-    min-width: 20px;
-    max-width: 80px;
-    height: 2px;
-    background: ${theme.colors.error.main};
-  `,
-  errorBarFlat: css`
-    flex: 1;
-    min-width: 20px;
-    max-width: 80px;
-    height: 2px;
-    background: ${theme.colors.border.weak};
   `,
   footer: css`
     display: flex;
