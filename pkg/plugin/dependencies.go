@@ -366,20 +366,20 @@ func (a *App) buildSpanmetricsDepsQueries(ctx context.Context, filterClient, fil
 		envFilter = fmt.Sprintf(`, %s="%s"`, cfg.Labels.DeploymentEnv, filterEnvironment)
 	}
 
-	// Rate by (server_address, http_host, db_system, messaging_system)
+	// Rate by (server_address, http_host, db_system, messaging_system, messaging_destination_name)
 	smRateQ := fmt.Sprintf(
-		`sum by (%s, %s, %s, %s) (rate(%s{%s%s%s}%s))`,
+		`sum by (%s, %s, %s, %s, %s) (rate(%s{%s%s%s}%s))`,
 		cfg.Labels.ServerAddress, cfg.Labels.HTTPHost,
-		cfg.Labels.DBSystem, cfg.Labels.MessagingSystem,
+		cfg.Labels.DBSystem, cfg.Labels.MessagingSystem, cfg.Labels.MessagingDestination,
 		a.callsMetric(ctx),
 		kindFilter, serviceFilter, envFilter,
 		rangeStr,
 	)
 	// Error rate
 	smErrQ := fmt.Sprintf(
-		`sum by (%s, %s, %s, %s) (rate(%s{%s%s%s, %s="%s"}%s))`,
+		`sum by (%s, %s, %s, %s, %s) (rate(%s{%s%s%s, %s="%s"}%s))`,
 		cfg.Labels.ServerAddress, cfg.Labels.HTTPHost,
-		cfg.Labels.DBSystem, cfg.Labels.MessagingSystem,
+		cfg.Labels.DBSystem, cfg.Labels.MessagingSystem, cfg.Labels.MessagingDestination,
 		a.callsMetric(ctx),
 		kindFilter, serviceFilter, envFilter,
 		cfg.Labels.StatusCode, cfg.StatusCodes.Error,
@@ -786,33 +786,35 @@ func (a *App) queryDependencyOperations(
 	// Second fallback: http_host with same regex
 	hostFilter := fmt.Sprintf(`%s=~"%s", %s="%s"%s`, cfg.Labels.HTTPHost, addrRegex, cfg.Labels.SpanKind, cfg.SpanKinds.Client, envFilter)
 
-	// Build queries using OR across all three filter strategies
+	// Build queries using OR across all three filter strategies.
+	// Include db_name, db_operation, messaging_destination_name in grouping
+	// so operations show per-database and per-topic detail when available.
+	byLabels := fmt.Sprintf("%s, %s, %s, %s, %s",
+		cfg.Labels.SpanName, cfg.Labels.ServiceName,
+		cfg.Labels.DBName, cfg.Labels.DBOperation, cfg.Labels.MessagingDestination,
+	)
+	byLabelsLe := fmt.Sprintf("%s, %s, %s, %s, %s, %s",
+		cfg.Labels.SpanName, cfg.Labels.ServiceName,
+		cfg.Labels.DBName, cfg.Labels.DBOperation, cfg.Labels.MessagingDestination,
+		cfg.Labels.Le,
+	)
 	rateQuery := fmt.Sprintf(
-		`sum by (%s, %s) (rate(%s{%s}%s)) or sum by (%s, %s) (rate(%s{%s}%s)) or sum by (%s, %s) (rate(%s{%s}%s))`,
-		cfg.Labels.SpanName, cfg.Labels.ServiceName,
-		callsMetric, peerFilter, rangeStr,
-		cfg.Labels.SpanName, cfg.Labels.ServiceName,
-		callsMetric, addrFilter, rangeStr,
-		cfg.Labels.SpanName, cfg.Labels.ServiceName,
-		callsMetric, hostFilter, rangeStr,
+		`sum by (%s) (rate(%s{%s}%s)) or sum by (%s) (rate(%s{%s}%s)) or sum by (%s) (rate(%s{%s}%s))`,
+		byLabels, callsMetric, peerFilter, rangeStr,
+		byLabels, callsMetric, addrFilter, rangeStr,
+		byLabels, callsMetric, hostFilter, rangeStr,
 	)
 	errorQuery := fmt.Sprintf(
-		`sum by (%s, %s) (rate(%s{%s, %s="%s"}%s)) or sum by (%s, %s) (rate(%s{%s, %s="%s"}%s)) or sum by (%s, %s) (rate(%s{%s, %s="%s"}%s))`,
-		cfg.Labels.SpanName, cfg.Labels.ServiceName,
-		callsMetric, peerFilter, cfg.Labels.StatusCode, cfg.StatusCodes.Error, rangeStr,
-		cfg.Labels.SpanName, cfg.Labels.ServiceName,
-		callsMetric, addrFilter, cfg.Labels.StatusCode, cfg.StatusCodes.Error, rangeStr,
-		cfg.Labels.SpanName, cfg.Labels.ServiceName,
-		callsMetric, hostFilter, cfg.Labels.StatusCode, cfg.StatusCodes.Error, rangeStr,
+		`sum by (%s) (rate(%s{%s, %s="%s"}%s)) or sum by (%s) (rate(%s{%s, %s="%s"}%s)) or sum by (%s) (rate(%s{%s, %s="%s"}%s))`,
+		byLabels, callsMetric, peerFilter, cfg.Labels.StatusCode, cfg.StatusCodes.Error, rangeStr,
+		byLabels, callsMetric, addrFilter, cfg.Labels.StatusCode, cfg.StatusCodes.Error, rangeStr,
+		byLabels, callsMetric, hostFilter, cfg.Labels.StatusCode, cfg.StatusCodes.Error, rangeStr,
 	)
 	p95Query := fmt.Sprintf(
-		`histogram_quantile(0.95, sum by (%s, %s, %s) (rate(%s{%s}%s))) or histogram_quantile(0.95, sum by (%s, %s, %s) (rate(%s{%s}%s))) or histogram_quantile(0.95, sum by (%s, %s, %s) (rate(%s{%s}%s)))`,
-		cfg.Labels.SpanName, cfg.Labels.ServiceName, cfg.Labels.Le,
-		durationBucket, peerFilter, rangeStr,
-		cfg.Labels.SpanName, cfg.Labels.ServiceName, cfg.Labels.Le,
-		durationBucket, addrFilter, rangeStr,
-		cfg.Labels.SpanName, cfg.Labels.ServiceName, cfg.Labels.Le,
-		durationBucket, hostFilter, rangeStr,
+		`histogram_quantile(0.95, sum by (%s) (rate(%s{%s}%s))) or histogram_quantile(0.95, sum by (%s) (rate(%s{%s}%s))) or histogram_quantile(0.95, sum by (%s) (rate(%s{%s}%s)))`,
+		byLabelsLe, durationBucket, peerFilter, rangeStr,
+		byLabelsLe, durationBucket, addrFilter, rangeStr,
+		byLabelsLe, durationBucket, hostFilter, rangeStr,
 	)
 
 	resultMap := a.runInstantQueries(ctx, to, []QueryJob{
@@ -824,20 +826,29 @@ func (a *App) queryDependencyOperations(
 	type opKey struct {
 		spanName    string
 		serviceName string
+		dbName      string
+		dbOperation string
+		msgDest     string
 	}
 	opsMap := make(map[opKey]*queries.DependencyOperation)
 	getOrCreate := func(r queries.PromResult) *queries.DependencyOperation {
 		k := opKey{
 			spanName:    r.Metric[a.otelCfg.Labels.SpanName],
 			serviceName: r.Metric[a.otelCfg.Labels.ServiceName],
+			dbName:      r.Metric[a.otelCfg.Labels.DBName],
+			dbOperation: r.Metric[a.otelCfg.Labels.DBOperation],
+			msgDest:     r.Metric[a.otelCfg.Labels.MessagingDestination],
 		}
 		if o, ok := opsMap[k]; ok {
 			return o
 		}
 		o := &queries.DependencyOperation{
-			SpanName:       k.spanName,
-			CallingService: k.serviceName,
-			DurationUnit:   durationUnit,
+			SpanName:             k.spanName,
+			CallingService:       k.serviceName,
+			DbName:               k.dbName,
+			DbOperation:          k.dbOperation,
+			MessagingDestination: k.msgDest,
+			DurationUnit:         durationUnit,
 		}
 		opsMap[k] = o
 		return o

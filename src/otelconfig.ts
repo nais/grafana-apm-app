@@ -23,6 +23,8 @@ export const otel = {
     rpcService: 'rpc_service',
     rpcMethod: 'rpc_method',
     dbSystem: 'db_system',
+    dbName: 'db_name',
+    dbOperation: 'db_operation',
     deploymentEnv: 'k8s_cluster_name',
     sdkLanguage: 'telemetry_sdk_language',
     le: 'le',
@@ -33,6 +35,8 @@ export const otel = {
     // Spanmetrics dependency labels
     serverAddress: 'server_address',
     httpHost: 'http_host',
+    messagingSystem: 'messaging_system',
+    messagingDestination: 'messaging_destination_name',
   },
 
   spanKinds: {

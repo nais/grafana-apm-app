@@ -193,6 +193,7 @@ function ServiceOverview() {
           refId: 'A',
           expr: `histogram_quantile(${percentile}, sum by (${otel.labels.le}) (rate(${metrics.durationBucket}{${svcFilter}, ${otel.labels.spanKind}="${otel.spanKinds.server}"}[$__rate_interval])))`,
           legendFormat: percentileLabel,
+          exemplar: true,
         },
       ],
     });
@@ -205,6 +206,7 @@ function ServiceOverview() {
           refId: 'A',
           expr: `sum(rate(${metrics.callsMetric}{${svcFilter}, ${otel.labels.spanKind}="${otel.spanKinds.server}", ${otel.labels.statusCode}="${otel.statusCodes.error}"}[$__rate_interval])) / sum(rate(${metrics.callsMetric}{${svcFilter}, ${otel.labels.spanKind}="${otel.spanKinds.server}"}[$__rate_interval])) * 100`,
           legendFormat: 'Error %',
+          exemplar: true,
         },
       ],
     });
@@ -217,6 +219,7 @@ function ServiceOverview() {
           refId: 'A',
           expr: `sum(rate(${metrics.callsMetric}{${svcFilter}, ${otel.labels.spanKind}="${otel.spanKinds.server}"}[$__rate_interval]))`,
           legendFormat: 'Rate',
+          exemplar: true,
         },
       ],
     });

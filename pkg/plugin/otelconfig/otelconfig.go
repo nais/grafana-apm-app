@@ -30,10 +30,13 @@ type Labels struct {
 	RPCMethod  string
 
 	// Database
-	DBSystem string
+	DBSystem    string
+	DBName      string
+	DBOperation string
 
 	// Messaging
-	MessagingSystem string
+	MessagingSystem      string
+	MessagingDestination string
 
 	// Network / peer
 	ServerAddress string
@@ -305,9 +308,12 @@ func Default() Config {
 			RPCService: "rpc_service",
 			RPCMethod:  "rpc_method",
 
-			DBSystem: "db_system",
+			DBSystem:    "db_system",
+			DBName:      "db_name",
+			DBOperation: "db_operation",
 
-			MessagingSystem: "messaging_system",
+			MessagingSystem:      "messaging_system",
+			MessagingDestination: "messaging_destination_name",
 
 			ServerAddress: "server_address",
 			HTTPHost:      "http_host",

@@ -71,6 +71,10 @@ function DependencyDetail() {
   }, [services]);
   const { sortField, sortDir, toggleSort, comparator } = useTableSort<keyof DependencySummary>('impact');
 
+  // Detect whether operations have database or messaging detail to show conditional columns
+  const hasDbDetail = useMemo(() => (data?.operations ?? []).some((op) => op.dbName || op.dbOperation), [data]);
+  const hasMsgDetail = useMemo(() => (data?.operations ?? []).some((op) => op.messagingDestination), [data]);
+
   const sorted = useMemo(() => {
     if (!data) {
       return [];
@@ -109,6 +113,7 @@ function DependencyDetail() {
           refId: 'A',
           expr: `sum(rate(${sgPrefix}_request_total{${serverFilter}}[$__rate_interval])) or sum(rate(${callsMetric}{${smAddrFilter}}[$__rate_interval])) or sum(rate(${callsMetric}{${smHostFilter}}[$__rate_interval]))`,
           legendFormat: 'Request Rate',
+          exemplar: true,
         },
       ],
     });
@@ -125,6 +130,7 @@ function DependencyDetail() {
             `sum(rate(${callsMetric}{${smHostFilter}, ${otel.labels.statusCode}="${otel.statusCodes.error}"}[$__rate_interval])) / sum(rate(${callsMetric}{${smHostFilter}}[$__rate_interval])) * 100`,
           ].join(' or '),
           legendFormat: 'Error %',
+          exemplar: true,
         },
       ],
     });
@@ -329,6 +335,8 @@ function DependencyDetail() {
                     <tr>
                       <th>Operation</th>
                       <th>Calling Service</th>
+                      {hasDbDetail && <th>Target</th>}
+                      {hasMsgDetail && <th>Topic</th>}
                       <th>Throughput</th>
                       <th>Error %</th>
                       <th>Latency (P95)</th>
@@ -341,6 +349,12 @@ function DependencyDetail() {
                           {op.spanName}
                         </td>
                         <td title={op.callingService}>{op.callingService}</td>
+                        {hasDbDetail && (
+                          <td title={[op.dbName, op.dbOperation].filter(Boolean).join(' ')}>
+                            {[op.dbName, op.dbOperation].filter(Boolean).join(' · ') || '—'}
+                          </td>
+                        )}
+                        {hasMsgDetail && <td title={op.messagingDestination}>{op.messagingDestination || '—'}</td>}
                         <td className={styles.numCell}>{formatRate(op.rate)}</td>
                         <td className={op.errorRate > 0 ? styles.errorCell : styles.numCell}>
                           {formatErrorRate(op.errorRate)}

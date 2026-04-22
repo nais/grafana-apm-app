@@ -232,6 +232,10 @@ func (a *App) queryServiceMap( //nolint:gocyclo // complex due to parallel queri
 				nodeTypes[k.server] = "database"
 			case "messaging":
 				nodeTypes[k.server] = "messaging"
+			case "virtual_node":
+				if _, exists := nodeTypes[k.server]; !exists {
+					nodeTypes[k.server] = "external"
+				}
 			default:
 				if _, exists := nodeTypes[k.server]; !exists {
 					nodeTypes[k.server] = "external"

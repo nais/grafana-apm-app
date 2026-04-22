@@ -206,6 +206,9 @@ export interface DependenciesResponse {
 export interface DependencyOperation {
   spanName: string;
   callingService: string;
+  dbName?: string;
+  dbOperation?: string;
+  messagingDestination?: string;
   rate: number;
   errorRate: number;
   p95Duration: number;

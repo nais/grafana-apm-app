@@ -118,12 +118,15 @@ type OperationSummary struct {
 // DependencyOperation represents an operation calling a specific dependency,
 // grouped by span name and calling service.
 type DependencyOperation struct {
-	SpanName       string  `json:"spanName"`
-	CallingService string  `json:"callingService"`
-	Rate           float64 `json:"rate"`
-	ErrorRate      float64 `json:"errorRate"`
-	P95Duration    float64 `json:"p95Duration"`
-	DurationUnit   string  `json:"durationUnit"`
+	SpanName             string  `json:"spanName"`
+	CallingService       string  `json:"callingService"`
+	DbName               string  `json:"dbName,omitempty"`
+	DbOperation          string  `json:"dbOperation,omitempty"`
+	MessagingDestination string  `json:"messagingDestination,omitempty"`
+	Rate                 float64 `json:"rate"`
+	ErrorRate            float64 `json:"errorRate"`
+	P95Duration          float64 `json:"p95Duration"`
+	DurationUnit         string  `json:"durationUnit"`
 }
 
 // EndpointSummary represents a single API endpoint or operation with protocol metadata.
