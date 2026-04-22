@@ -9,11 +9,11 @@ import {
   Input,
   LoadingPlaceholder,
   Pagination,
-  Select,
+  Combobox,
   Tooltip,
   useStyles2,
 } from '@grafana/ui';
-import { GrafanaTheme2, SelectableValue } from '@grafana/data';
+import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getServices, getCapabilities, ServiceSummary, Capabilities } from '../api/client';
 import { useTimeRange } from '../utils/timeRange';
@@ -34,13 +34,13 @@ const FRAMEWORK_BADGES: Record<string, { text: string; color: 'blue' | 'green' |
 type SortField = 'name' | 'namespace' | 'environment' | 'p95Duration' | 'errorRate' | 'rate';
 type SortDir = 'asc' | 'desc';
 
-const PAGE_SIZE_OPTIONS: Array<SelectableValue<number>> = [
+const PAGE_SIZE_OPTIONS: Array<{ label: string; value: number }> = [
   { label: '10', value: 10 },
   { label: '25', value: 25 },
   { label: '50', value: 50 },
 ];
 
-const TIME_RANGE_OPTIONS: Array<SelectableValue<string>> = [
+const TIME_RANGE_OPTIONS: Array<{ label: string; value: string }> = [
   { label: 'Last 15 minutes', value: 'now-15m' },
   { label: 'Last 30 minutes', value: 'now-30m' },
   { label: 'Last 1 hour', value: 'now-1h' },
@@ -120,9 +120,9 @@ function ServiceInventory() {
   const setPageSize = (sz: number) => updateParams({ pageSize: sz !== 25 ? String(sz) : null, page: null });
 
   // Compute unique namespaces for the filter dropdown
-  const namespaceOptions = useMemo<Array<SelectableValue<string>>>(() => {
+  const namespaceOptions = useMemo<Array<{ label: string; value: string }>>(() => {
     const nss = new Set(services.map((s) => s.namespace).filter(Boolean));
-    const opts: Array<SelectableValue<string>> = [];
+    const opts: Array<{ label: string; value: string }> = [];
     for (const ns of [...nss].sort()) {
       opts.push({ label: ns, value: ns });
     }
@@ -130,9 +130,9 @@ function ServiceInventory() {
   }, [services]);
 
   // Compute unique environments for the filter dropdown
-  const envOptions = useMemo<Array<SelectableValue<string>>>(() => {
-    const envs = new Set(services.map((s) => s.environment).filter(Boolean));
-    const opts: Array<SelectableValue<string>> = [];
+  const envOptions = useMemo<Array<{ label: string; value: string }>>(() => {
+    const envs = new Set(services.map((s) => s.environment).filter((e): e is string => !!e));
+    const opts: Array<{ label: string; value: string }> = [];
     for (const e of [...envs].sort()) {
       opts.push({ label: e, value: e });
     }
@@ -267,7 +267,7 @@ function ServiceInventory() {
                   setSearch(e.currentTarget.value);
                 }}
               />
-              <Select
+              <Combobox
                 options={namespaceOptions}
                 value={namespaceFilter || null}
                 onChange={(v) => setNamespaceFilter(v?.value ?? '')}
@@ -276,7 +276,7 @@ function ServiceInventory() {
                 isClearable
               />
               {envOptions.length > 1 && (
-                <Select
+                <Combobox
                   options={envOptions}
                   value={envFilter || null}
                   onChange={(v) => setEnvFilter(v?.value ?? '')}
@@ -294,12 +294,12 @@ function ServiceInventory() {
                   onChange={() => updateParams({ hideSidecars: hideSidecars ? 'false' : null, page: null })}
                 />
               </Tooltip>
-              <Select
+              <Combobox
                 options={TIME_RANGE_OPTIONS}
                 value={from}
                 onChange={(v) => setTimeRange(v?.value ?? 'now-1h', 'now')}
                 width={22}
-                prefix={<Icon name="clock-nine" />}
+                prefixIcon="clock-nine"
               />
             </div>
 
@@ -426,7 +426,7 @@ function ServiceInventory() {
             <div className={styles.footer}>
               <div className={styles.pageSize}>
                 <span>Row per page:</span>
-                <Select
+                <Combobox
                   options={PAGE_SIZE_OPTIONS}
                   value={pageSize}
                   onChange={(v) => {

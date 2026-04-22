@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { PluginPage } from '@grafana/runtime';
-import { useStyles2, Icon, LoadingPlaceholder, Alert, Input, RadioButtonGroup, Select } from '@grafana/ui';
-import { GrafanaTheme2, PageLayoutType, SelectableValue } from '@grafana/data';
+import { useStyles2, Icon, LoadingPlaceholder, Alert, Input, RadioButtonGroup, Combobox } from '@grafana/ui';
+import { GrafanaTheme2, PageLayoutType } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getGlobalDependencies, DependencySummary, DependenciesResponse } from '../api/client';
 import { formatDuration, formatRate, formatErrorRate } from '../utils/format';
@@ -22,7 +22,7 @@ function Dependencies() {
 
   // Read configured environment names from plugin datasource config
   const configuredEnvs = useConfiguredEnvironments();
-  const envOptions = useMemo<Array<SelectableValue<string>>>(() => {
+  const envOptions = useMemo<Array<{ label: string; value: string }>>(() => {
     return configuredEnvs.map((e) => ({ label: e, value: e }));
   }, [configuredEnvs]);
 
@@ -108,7 +108,7 @@ function Dependencies() {
               onChange={(e) => setSearch(e.currentTarget.value)}
             />
             {envOptions.length > 0 && (
-              <Select
+              <Combobox
                 options={[{ label: 'All environments', value: '' }, ...envOptions]}
                 value={envFilter}
                 onChange={(v) => setEnvFilter(v?.value ?? '')}

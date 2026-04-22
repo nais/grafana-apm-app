@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { useStyles2, Select, Input, Icon } from '@grafana/ui';
-import { SelectableValue, GrafanaTheme2 } from '@grafana/data';
+import { useStyles2, MultiCombobox, Input, Icon } from '@grafana/ui';
+import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { GraphDrawStyle, StackingMode } from '@grafana/schema';
 import {
@@ -29,7 +29,7 @@ export function LogsTab({ service, namespace, logsUid }: LogsTabProps) {
   const debouncedSearch = useDebouncedValue(logSearch, 500);
   const styles = useStyles2(getStyles);
 
-  const severityOptions: Array<SelectableValue<string>> = [
+  const severityOptions: Array<{ label: string; value: string }> = [
     { label: 'Error', value: 'error' },
     { label: 'Warn', value: 'warn' },
     { label: 'Info', value: 'info' },
@@ -116,11 +116,10 @@ export function LogsTab({ service, namespace, logsUid }: LogsTabProps) {
           onChange={(e) => setLogSearch(e.currentTarget.value)}
         />
         <label className={styles.label}>Severity:</label>
-        <Select
-          isMulti
+        <MultiCombobox
           options={severityOptions}
-          value={severityFilter.map((v) => severityOptions.find((o) => o.value === v)!)}
-          onChange={(v) => setSeverityFilter(v ? (v as Array<SelectableValue<string>>).map((o) => o.value ?? '') : [])}
+          value={severityFilter}
+          onChange={(v) => setSeverityFilter(v.map((o) => o.value))}
           width={30}
           placeholder="All severities"
         />

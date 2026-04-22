@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { PluginPage } from '@grafana/runtime';
-import { useStyles2, Tab, TabsBar, Icon, LinkButton, Select, LoadingPlaceholder, Alert, Badge } from '@grafana/ui';
-import { GrafanaTheme2, SelectableValue, PageLayoutType } from '@grafana/data';
+import { useStyles2, Tab, TabsBar, Icon, LinkButton, Combobox, LoadingPlaceholder, Alert, Badge } from '@grafana/ui';
+import { GrafanaTheme2, PageLayoutType } from '@grafana/data';
 import { css } from '@emotion/css';
 import {
   SceneFlexLayout,
@@ -46,7 +46,7 @@ import { ServiceGraph, toGraphData } from '../components/ServiceGraph';
 type TabId = 'overview' | 'server' | 'frontend' | 'runtime' | 'dependencies' | 'traces' | 'logs';
 const VALID_TABS: TabId[] = ['overview', 'server', 'frontend', 'runtime', 'dependencies', 'traces', 'logs'];
 
-const PERCENTILE_OPTIONS: Array<SelectableValue<string>> = [
+const PERCENTILE_OPTIONS: Array<{ label: string; value: string }> = [
   { label: 'P50', value: '0.50' },
   { label: 'P90', value: '0.90' },
   { label: 'P95', value: '0.95' },
@@ -429,7 +429,7 @@ function ServiceOverview() {
             {activeTab === 'overview' && (
               <>
                 <label className={styles.controlLabel}>Percentile:</label>
-                <Select
+                <Combobox
                   options={PERCENTILE_OPTIONS}
                   value={percentile}
                   onChange={(v) => setPercentile(v.value ?? '0.95')}
@@ -438,7 +438,7 @@ function ServiceOverview() {
               </>
             )}
             {environments.length > 1 && (
-              <Select
+              <Combobox
                 options={[
                   { label: 'All environments', value: '' },
                   ...environments.map((e) => ({ label: e, value: e })),

@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { useStyles2, Select, Input, Icon } from '@grafana/ui';
-import { SelectableValue, GrafanaTheme2 } from '@grafana/data';
+import { useStyles2, Combobox, Input, Icon } from '@grafana/ui';
+import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import {
   SceneTimeRange,
@@ -88,7 +88,7 @@ export function TracesTab({ service, namespace, tracesUid, from, to, initialSpan
     });
   }, [service, tracesUid, from, to, statusFilter, durationMin, durationMax, debouncedSearch]);
 
-  const statusOptions: Array<SelectableValue<string>> = [
+  const statusOptions: Array<{ label: string; value: string }> = [
     { label: 'All', value: '' },
     { label: 'Error', value: 'error' },
     { label: 'OK', value: 'ok' },
@@ -105,7 +105,7 @@ export function TracesTab({ service, namespace, tracesUid, from, to, initialSpan
           onChange={(e) => setSpanSearch(e.currentTarget.value)}
         />
         <label className={styles.label}>Status:</label>
-        <Select
+        <Combobox
           options={statusOptions}
           value={statusFilter}
           onChange={(v) => setStatusFilter(v.value ?? '')}

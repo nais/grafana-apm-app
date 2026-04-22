@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
 import { PluginType } from '@grafana/data';
 import AppConfig, { AppConfigProps } from './AppConfig';
 import { testIds } from 'components/testIds';
@@ -40,11 +40,13 @@ describe('Components/AppConfig', () => {
     } as unknown as AppConfigProps;
   });
 
-  test('renders data source and detection fieldsets', () => {
+  test('renders data source and detection fieldsets', async () => {
     const plugin = { meta: { ...props.plugin.meta, enabled: true } };
 
-    // @ts-ignore
-    render(<AppConfig plugin={plugin} query={props.query} />);
+    await act(async () => {
+      // @ts-ignore
+      render(<AppConfig plugin={plugin} query={props.query} />);
+    });
 
     expect(screen.queryByRole('group', { name: /data sources/i })).toBeInTheDocument();
     expect(screen.queryByRole('group', { name: /detection & overrides/i })).toBeInTheDocument();

@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor, act } from '@testing-library/react';
 import { useFetch } from './useFetch';
 
 describe('useFetch', () => {
@@ -137,7 +137,9 @@ describe('useFetch', () => {
     await waitFor(() => expect(result.current.data).toBe('data-1'));
 
     // Trigger manual refetch
-    result.current.refetch();
+    act(() => {
+      result.current.refetch();
+    });
 
     await waitFor(() => expect(result.current.data).toBe('data-2'));
     expect(fetcher).toHaveBeenCalledTimes(2);
