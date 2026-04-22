@@ -192,10 +192,22 @@ function ServiceInventory() {
     return a.name.localeCompare(b.name);
   });
 
+  // When viewing a single namespace with multiple envs, group rows by environment
+  // with section headers instead of showing a flat environment column.
+  const groupByEnv = !!namespaceFilter && !envFilter && envOptions.length > 1;
+
+  // When grouping by environment, ensure rows are grouped by env while
+  // preserving the user's chosen sort order within each group (stable sort).
+  if (groupByEnv) {
+    filtered = [...filtered].sort((a, b) => {
+      return (a.environment ?? '').localeCompare(b.environment ?? '');
+    });
+  }
+
   // Hide namespace column when a single namespace is selected (redundant info)
   const showNsColumn = !namespaceFilter;
-  // Show environment column when multiple envs exist and no single env is selected
-  const showEnvColumn = envOptions.length > 1 && !envFilter;
+  // Show environment column only when there are multiple envs, no env filter, and not grouping
+  const showEnvColumn = envOptions.length > 1 && !envFilter && !groupByEnv;
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
@@ -319,75 +331,90 @@ function ServiceInventory() {
                 </tr>
               </thead>
               <tbody>
-                {paginated.map((svc) => (
-                  <tr
-                    key={`${svc.namespace}/${svc.name}/${svc.environment ?? ''}`}
-                    className={styles.row}
-                    onClick={() => {
-                      const ns = svc.namespace || '_';
-                      appNavigate(
-                        `services/${encodeURIComponent(ns)}/${encodeURIComponent(svc.name)}`,
-                        svc.environment ? { environment: svc.environment } : undefined
-                      );
-                    }}
-                  >
-                    <td className={styles.typeCell}>
-                      <div className={styles.typeCellInner}>
-                        <FrameworkBadge framework={svc.framework} />
-                        {svc.isSidecar && (
-                          <Tooltip content="Infrastructure sidecar (runs alongside your app in the same pod)">
-                            <Badge text="sidecar" color="orange" icon="cog" />
-                          </Tooltip>
-                        )}
-                        {svc.hasFrontend && (
-                          <span className={styles.faroBadge} title="Faro Web SDK">
-                            🌐
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td>
-                      <span className={styles.nameCell}>{svc.name}</span>
-                    </td>
-                    {showNsColumn && <td className={styles.nsCell}>{svc.namespace}</td>}
-                    {showEnvColumn && <td className={styles.nsCell}>{svc.environment}</td>}
-                    <td>
-                      <div className={styles.metricCell}>
-                        <span className={styles.metricValue}>{formatDuration(svc.p95Duration, svc.durationUnit)}</span>
-                        <AreaSparkline
-                          data={sparklineMap
-                            .get(`${svc.namespace}/${svc.name}/${svc.environment ?? ''}`)
-                            ?.durationSeries?.map((p) => p.v)}
-                          color="#E0B400"
-                        />
-                      </div>
-                    </td>
-                    <td>
-                      <div className={styles.metricCell}>
-                        <span className={svc.errorRate > 0 ? styles.errorValue : styles.metricValue}>
-                          {svc.errorRate.toFixed(1)}%
-                        </span>
-                        <AreaSparkline
-                          data={sparklineMap
-                            .get(`${svc.namespace}/${svc.name}/${svc.environment ?? ''}`)
-                            ?.errorSeries?.map((p) => p.v)}
-                          color={svc.errorRate > 0 ? '#F2495C' : '#44444480'}
-                        />
-                      </div>
-                    </td>
-                    <td>
-                      <div className={styles.metricCell}>
-                        <span className={styles.metricValue}>{svc.rate.toFixed(1)} req/s</span>
-                        <AreaSparkline
-                          data={sparklineMap
-                            .get(`${svc.namespace}/${svc.name}/${svc.environment ?? ''}`)
-                            ?.rateSeries?.map((p) => p.v)}
-                          color="#73BF69"
-                        />
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {paginated.map((svc, idx) => {
+                  const prevEnv = idx > 0 ? paginated[idx - 1].environment : null;
+                  const showGroupHeader = groupByEnv && svc.environment !== prevEnv;
+                  const colCount = 5 + (showNsColumn ? 1 : 0) + (showEnvColumn ? 1 : 0);
+                  return (
+                    <React.Fragment key={`${svc.namespace}/${svc.name}/${svc.environment ?? ''}`}>
+                      {showGroupHeader && (
+                        <tr className={styles.groupHeaderRow}>
+                          <td colSpan={colCount} className={styles.groupHeaderCell}>
+                            <Icon name="layer-group" size="sm" /> {svc.environment || 'Unknown'}
+                          </td>
+                        </tr>
+                      )}
+                      <tr
+                        className={styles.row}
+                        onClick={() => {
+                          const ns = svc.namespace || '_';
+                          appNavigate(
+                            `services/${encodeURIComponent(ns)}/${encodeURIComponent(svc.name)}`,
+                            svc.environment ? { environment: svc.environment } : undefined
+                          );
+                        }}
+                      >
+                        <td className={styles.typeCell}>
+                          <div className={styles.typeCellInner}>
+                            <FrameworkBadge framework={svc.framework} />
+                            {svc.isSidecar && (
+                              <Tooltip content="Infrastructure sidecar (runs alongside your app in the same pod)">
+                                <Badge text="sidecar" color="orange" icon="cog" />
+                              </Tooltip>
+                            )}
+                            {svc.hasFrontend && (
+                              <span className={styles.faroBadge} title="Faro Web SDK">
+                                🌐
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td>
+                          <span className={styles.nameCell}>{svc.name}</span>
+                        </td>
+                        {showNsColumn && <td className={styles.nsCell}>{svc.namespace}</td>}
+                        {showEnvColumn && <td className={styles.nsCell}>{svc.environment}</td>}
+                        <td>
+                          <div className={styles.metricCell}>
+                            <span className={styles.metricValue}>
+                              {formatDuration(svc.p95Duration, svc.durationUnit)}
+                            </span>
+                            <AreaSparkline
+                              data={sparklineMap
+                                .get(`${svc.namespace}/${svc.name}/${svc.environment ?? ''}`)
+                                ?.durationSeries?.map((p) => p.v)}
+                              color="#E0B400"
+                            />
+                          </div>
+                        </td>
+                        <td>
+                          <div className={styles.metricCell}>
+                            <span className={svc.errorRate > 0 ? styles.errorValue : styles.metricValue}>
+                              {svc.errorRate.toFixed(1)}%
+                            </span>
+                            <AreaSparkline
+                              data={sparklineMap
+                                .get(`${svc.namespace}/${svc.name}/${svc.environment ?? ''}`)
+                                ?.errorSeries?.map((p) => p.v)}
+                              color={svc.errorRate > 0 ? '#F2495C' : '#44444480'}
+                            />
+                          </div>
+                        </td>
+                        <td>
+                          <div className={styles.metricCell}>
+                            <span className={styles.metricValue}>{svc.rate.toFixed(1)} req/s</span>
+                            <AreaSparkline
+                              data={sparklineMap
+                                .get(`${svc.namespace}/${svc.name}/${svc.environment ?? ''}`)
+                                ?.rateSeries?.map((p) => p.v)}
+                              color="#73BF69"
+                            />
+                          </div>
+                        </td>
+                      </tr>
+                    </React.Fragment>
+                  );
+                })}
               </tbody>
             </table>
 
@@ -514,6 +541,18 @@ const getStyles = (theme: GrafanaTheme2) => ({
     &:hover {
       background: ${theme.colors.background.secondary};
     }
+  `,
+  groupHeaderRow: css`
+    background: ${theme.colors.background.secondary};
+  `,
+  groupHeaderCell: css`
+    padding: ${theme.spacing(0.75)} ${theme.spacing(1.5)} !important;
+    font-size: ${theme.typography.bodySmall.fontSize};
+    font-weight: ${theme.typography.fontWeightMedium};
+    color: ${theme.colors.text.secondary};
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    border-bottom: 1px solid ${theme.colors.border.medium} !important;
   `,
   nameCell: css`
     font-weight: ${theme.typography.fontWeightMedium};
