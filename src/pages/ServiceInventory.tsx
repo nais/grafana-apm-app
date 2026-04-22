@@ -588,19 +588,17 @@ const getStyles = (theme: GrafanaTheme2) => ({
     display: block;
   `,
   typeColHeader: css`
-    width: 120px;
-    max-width: 120px;
+    width: 1%;
+    white-space: nowrap;
     color: ${theme.colors.text.secondary};
     font-weight: ${theme.typography.fontWeightMedium};
     padding-right: ${theme.spacing(0.5)} !important;
   `,
   typeCell: css`
-    width: 120px;
-    max-width: 120px;
-    min-width: 120px;
+    width: 1%;
+    white-space: nowrap;
     padding-right: ${theme.spacing(0.5)} !important;
     text-align: right;
-    white-space: nowrap;
     vertical-align: middle;
   `,
   typeCellInner: css`
