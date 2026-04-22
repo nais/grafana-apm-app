@@ -371,15 +371,19 @@ function ServiceInventory() {
                         </td>
                         {showNsColumn && (
                           <td className={styles.nsCell}>
-                            <button
-                              className={styles.nsLink}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                appNavigate(`namespaces/${encodeURIComponent(svc.namespace)}`);
-                              }}
-                            >
-                              {svc.namespace}
-                            </button>
+                            {svc.namespace ? (
+                              <button
+                                className={styles.nsLink}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  appNavigate(`namespaces/${encodeURIComponent(svc.namespace)}`);
+                                }}
+                              >
+                                {svc.namespace}
+                              </button>
+                            ) : (
+                              '—'
+                            )}
                           </td>
                         )}
                         {showEnvColumn && <td className={styles.nsCell}>{svc.environment}</td>}

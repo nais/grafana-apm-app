@@ -23,7 +23,7 @@ export function FrameworkBadge({ framework, className }: { framework?: string; c
   }
   const info = FRAMEWORK_BADGES[framework];
   if (!info) {
-    return null;
+    return <span className={`${badgeStyle('#888')}${className ? ` ${className}` : ''}`}>{framework}</span>;
   }
   return <span className={`${badgeStyle(info.bg)}${className ? ` ${className}` : ''}`}>{info.label}</span>;
 }
@@ -33,9 +33,9 @@ function badgeStyle(bg: string) {
     display: inline-flex;
     align-items: center;
     padding: 2px 10px;
-    border-radius: 12px;
+    border-radius: 4px;
     font-size: 12px;
-    font-weight: 600;
+    font-weight: 400;
     color: white;
     letter-spacing: 0.5px;
     background-color: ${bg};
