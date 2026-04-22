@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.3.0 (2026-04-22)
+
+### Features
+
+- **Sidecar Filtering**: Sidecars (wonderwall, texas) are identified and hidden by default in the service inventory with a toggle to show them. Sidecar badges and visual de-emphasis in connected services and service map views.
+- **Framework Detection**: Improved detection for Go (`go_info`) and Spring Boot (`application_started_time_seconds`). Node.js correctly takes priority over Go when both metrics are present (Go-based exporters alongside Node.js apps).
+- **Environment Grouping**: When filtering by namespace, services are automatically grouped by environment with visual section headers — helps teams see their apps across prod/dev/staging.
+- **Namespace Column**: Namespace column is automatically hidden when a namespace filter is active to reduce redundancy.
+- **Percentile Help**: Added tooltip on the Server tab explaining how histogram bucket boundaries affect P95/P99 accuracy, with link to configuration docs.
+
+### Bug Fixes
+
+- **Error Rate Calculation**: 5 call sites used raw division instead of `calculateErrorRate()`, risking NaN/Inf display. All now use the canonical helper with validation and clamping.
+- **Input Sanitization**: Defense-in-depth `MustSanitizeLabel()` applied to environment parameter in frontend metrics handler.
+- **Client-side Filtering**: Fixed filtering on Dependencies and ServiceInventory pages not responding to user input.
+- **Dependency Detail**: Fixed external services missing data — address normalization, deduplication, and P95 calculation for external dependencies.
+- **Trace Search**: Search `http.route` in addition to span name for trace lookups, improving hit rate.
+- **Error Sparklines**: Error sparkline column now renders actual time-series charts instead of static bars.
+- **Pod Count**: Runtime pod count deduplicates by instance/pod, fixing inflated container counts on the Server tab.
+- **Duplicate Rows**: Fixed service list showing duplicate rows from inconsistent metric labels.
+- **URL Sanitization**: Fixed corrupted environment params from browser history on all pages.
+- **Navigation & Auth**: Fixed critical bugs in navigation, auth header forwarding, and regex patterns.
+- **External Dependencies**: Include external domains in global dependencies list.
+
+### Refactoring
+
+- Consolidated duplicate model types across packages and reduced verbose code patterns.
+- Added critical tests for API contract, metric math, and model serialization.
+
+### Documentation
+
+- Comprehensive metrics pipeline and operator configuration guide.
+- Documented all metrics, traces, and log data with origins.
+
+### CI
+
+- Fix release workflow to publish instead of leaving as draft.
+- E2E workflow only starts Grafana, not full LGTM stack.
+- Heatmap height and topology layout improvements.
+
 ## 0.2.1 (2026-04-22)
 
 ### Features
