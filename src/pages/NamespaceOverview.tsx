@@ -30,6 +30,9 @@ function NamespaceOverview() {
   const [searchParams, setSearchParams] = useSearchParams();
   const styles = useStyles2(getStyles);
   const envFilter = sanitizeParam(searchParams.get('environment') ?? '');
+  const svcSearch = searchParams.get('svcSearch') ?? '';
+  const svcPage = Math.max(1, parseInt(searchParams.get('svcPage') ?? '1', 10) || 1);
+  const depPage = Math.max(1, parseInt(searchParams.get('depPage') ?? '1', 10) || 1);
   const { fromMs, toMs } = useTimeRange();
 
   // Fetch services for this namespace (fast, no sparklines)
@@ -105,6 +108,27 @@ function NamespaceOverview() {
             next.set('environment', env);
           } else {
             next.delete('environment');
+          }
+          // Reset pages when env changes
+          next.delete('svcPage');
+          next.delete('depPage');
+          return next;
+        },
+        { replace: true }
+      );
+    },
+    [setSearchParams]
+  );
+
+  const updateParam = useCallback(
+    (key: string, value: string | null) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (value && value !== '1' && value !== '') {
+            next.set(key, value);
+          } else {
+            next.delete(key);
           }
           return next;
         },
@@ -201,12 +225,22 @@ function NamespaceOverview() {
                 services={services}
                 sparklineMap={sparklineMap}
                 showEnvironment={!envFilter && envOptions.length > 1}
+                search={svcSearch}
+                page={svcPage}
+                onSearchChange={(q) => updateParam('svcSearch', q || null)}
+                onPageChange={(p) => updateParam('svcPage', p > 1 ? String(p) : null)}
                 onServiceClick={handleServiceClick}
               />
             </div>
 
             {/* External dependencies */}
-            {!depsLoading && depsResult && <NamespaceDependencies dependencies={depsResult.dependencies} />}
+            {!depsLoading && depsResult && (
+              <NamespaceDependencies
+                dependencies={depsResult.dependencies}
+                page={depPage}
+                onPageChange={(p) => updateParam('depPage', p > 1 ? String(p) : null)}
+              />
+            )}
           </>
         )}
       </div>

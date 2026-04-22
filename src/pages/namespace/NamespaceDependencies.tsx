@@ -1,18 +1,22 @@
 import React, { useMemo } from 'react';
-import { useStyles2 } from '@grafana/ui';
+import { Pagination, useStyles2 } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { NamespaceDependency } from '../../api/client';
 import { useTableSort, SortHeader, getTableStyles } from '../../components/SortableTable';
 import { DepTypeIcon } from '../../components/DepTypeIcon';
 
+const PAGE_SIZE = 10;
+
 interface NamespaceDependenciesProps {
   dependencies: NamespaceDependency[];
+  page: number;
+  onPageChange: (p: number) => void;
 }
 
 type SortField = 'name' | 'callerCount' | 'rate' | 'errorRate' | 'p95Duration';
 
-export function NamespaceDependencies({ dependencies }: NamespaceDependenciesProps) {
+export function NamespaceDependencies({ dependencies, page, onPageChange }: NamespaceDependenciesProps) {
   const tableStyles = useStyles2(getTableStyles);
   const styles = useStyles2(getLocalStyles);
   const { sortField, sortDir, toggleSort, comparator } = useTableSort<SortField>('rate');
@@ -22,6 +26,10 @@ export function NamespaceDependencies({ dependencies }: NamespaceDependenciesPro
   if (sorted.length === 0) {
     return null;
   }
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const paginated = sorted.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   return (
     <div className={styles.section}>
@@ -55,7 +63,7 @@ export function NamespaceDependencies({ dependencies }: NamespaceDependenciesPro
           </tr>
         </thead>
         <tbody>
-          {sorted.map((dep) => (
+          {paginated.map((dep) => (
             <tr key={dep.name}>
               <td className={tableStyles.nameCell}>{dep.name}</td>
               <td>
@@ -71,6 +79,7 @@ export function NamespaceDependencies({ dependencies }: NamespaceDependenciesPro
           ))}
         </tbody>
       </table>
+      {totalPages > 1 && <Pagination currentPage={safePage} numberOfPages={totalPages} onNavigate={onPageChange} />}
     </div>
   );
 }
