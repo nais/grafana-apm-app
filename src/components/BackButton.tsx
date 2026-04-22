@@ -1,5 +1,5 @@
 import React from 'react';
-import { LinkButton } from '@grafana/ui';
+import { IconButton } from '@grafana/ui';
 
 interface BackButtonProps {
   label: string;
@@ -7,9 +7,5 @@ interface BackButtonProps {
 }
 
 export function BackButton({ label, onClick }: BackButtonProps) {
-  return (
-    <LinkButton variant="secondary" size="sm" icon="arrow-left" fill="text" onClick={onClick}>
-      {label}
-    </LinkButton>
-  );
+  return <IconButton name="arrow-left" size="xl" tooltip={label} onClick={onClick} variant="secondary" />;
 }
