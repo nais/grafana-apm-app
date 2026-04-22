@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Improvements
+
+- **Backend Code Quality**: Extract shared request parsing (`reqparse.go`) and metric math helpers (`metricmath.go`), eliminating duplicated patterns across handlers.
+- **Dependencies Module**: Split monolithic `dependencies.go` (1244 lines) into 5 focused files: handlers, classification, detail queries, connected services, and shared helpers.
+- **Services Module**: Extract `aggregateServiceResults` from `fetchServiceSummaries`, splitting a 408-line function into two cohesive halves.
+- **ServiceOverview Extraction**: Extract `buildServiceScene` (scene builder) and `OverviewTab` (operations, topology, connected services) — reduces ServiceOverview.tsx from 960 to 488 lines.
+- **Parallel Query Pattern**: Convert manual WaitGroup/channel pattern in `queryConnectedServices` to use the existing `runInstantQueries` helper.
+
 ## 0.4.3 (2026-04-22)
 
 ### Features
