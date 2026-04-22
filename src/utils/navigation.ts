@@ -17,7 +17,11 @@ export function useAppNavigate() {
     (path: string, extraParams?: Record<string, string>) => {
       const params = new URLSearchParams();
       for (const key of PRESERVED_PARAMS) {
-        const val = searchParams.get(key);
+        let val = searchParams.get(key);
+        // Sanitize: strip corrupted values containing '?' (from old double-query-string bug)
+        if (val && val.includes('?')) {
+          val = val.split('?')[0];
+        }
         if (val) {
           params.set(key, val);
         }

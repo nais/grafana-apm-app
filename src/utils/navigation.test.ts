@@ -16,7 +16,11 @@ function buildNavigationURL(
   const PRESERVED_PARAMS = ['from', 'to', 'namespace', 'environment', 'sort', 'dir', 'q', 'pageSize'];
   const params = new URLSearchParams();
   for (const key of PRESERVED_PARAMS) {
-    const val = currentParams[key];
+    let val = currentParams[key];
+    // Sanitize: strip corrupted values containing '?' (mirrors appNavigate logic)
+    if (val && val.includes('?')) {
+      val = val.split('?')[0];
+    }
     if (val) {
       params.set(key, val);
     }
@@ -73,6 +77,14 @@ describe('buildNavigationURL', () => {
   it('encodes special characters in param values', () => {
     const url = buildNavigationURL('services', { environment: 'prod gcp' });
     expect(url).toContain('environment=prod+gcp');
+    expect(url.match(/\?/g)?.length).toBe(1);
+  });
+
+  it('sanitizes corrupted environment values from old double-? bug', () => {
+    // Old bug created URLs like ?environment=prod-fss?sort=rate
+    const url = buildNavigationURL('services', { environment: 'prod-fss?sort=rate', from: '1000' });
+    expect(url).toContain('environment=prod-fss');
+    expect(url).not.toContain('sort=rate');
     expect(url.match(/\?/g)?.length).toBe(1);
   });
 });

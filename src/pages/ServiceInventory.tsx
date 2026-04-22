@@ -68,7 +68,9 @@ function ServiceInventory() {
 
   // Read all UI state from query params (persisted across navigation)
   const namespaceFilter = searchParams.get('namespace') ?? '';
-  const envFilter = searchParams.get('environment') ?? '';
+  const rawEnvFilter = searchParams.get('environment') ?? '';
+  // Sanitize: strip corrupted values from old double-query-string bug (e.g., "prod-fss?sort=rate")
+  const envFilter = rawEnvFilter.includes('?') ? rawEnvFilter.split('?')[0] : rawEnvFilter;
   const search = searchParams.get('q') ?? '';
   const sortField: SortField = (searchParams.get('sort') as SortField) || 'name';
   const sortDir: SortDir = (searchParams.get('dir') as SortDir) || 'asc';
