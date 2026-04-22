@@ -278,9 +278,8 @@ func queryProbeOperations(
 		}
 
 		if errMap != nil {
-			errRate := errMap[name]
 			if rate > 0 {
-				pct := (errRate / rate) * 100
+				pct := calculateErrorRate(errMap[name], rate)
 				op.ErrorRate = &pct
 			}
 		}
@@ -339,10 +338,7 @@ func queryDGSFetchers(
 			continue
 		}
 		lat := safeFloat(latMap[name])
-		errRate := float64(0)
-		if rate > 0 {
-			errRate = (errMap[name] / rate) * 100
-		}
+		errRate := calculateErrorRate(errMap[name], rate)
 		fetchers = append(fetchers, GraphQLOperation{
 			Name:        name,
 			Rate:        math.Round(rate*1000) / 1000,

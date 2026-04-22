@@ -314,10 +314,7 @@ func (a *App) queryDependencies(
 		if depType == "service" {
 			continue
 		}
-		errPct := 0.0
-		if d.rate > 0 {
-			errPct = (d.errorRate / d.rate) * 100
-		}
+		errPct := calculateErrorRate(d.errorRate, d.rate)
 		impact := 0.0
 		if totalImpact > 0 {
 			impact = (d.p95 * d.rate) / totalImpact
@@ -741,10 +738,7 @@ func (a *App) aggregateUpstreams(
 
 	list := make([]DependencySummary, 0, len(upstreams))
 	for name, u := range upstreams {
-		errPct := 0.0
-		if u.rate > 0 {
-			errPct = (u.errorRate / u.rate) * 100
-		}
+		errPct := calculateErrorRate(u.errorRate, u.rate)
 		impact := 0.0
 		if totalImpact > 0 {
 			impact = (u.p95 * u.rate) / totalImpact
@@ -1160,16 +1154,12 @@ func (a *App) queryConnectedServices(ctx context.Context, to time.Time, service 
 		}
 		result := make([]ConnectedService, 0, len(m))
 		for k, d := range m {
-			errPct := 0.0
-			if d.rate > 0 {
-				errPct = (d.err / d.rate) * 100
-			}
 			result = append(result, ConnectedService{
 				Name:           k.name,
 				ConnectionType: k.connectionType,
 				IsSidecar:      isSidecar(k.name),
 				Rate:           roundTo(d.rate, 3),
-				ErrorRate:      roundTo(errPct, 2),
+				ErrorRate:      calculateErrorRate(d.err, d.rate),
 				P95Duration:    roundTo(d.p95*1000, 2),
 				DurationUnit:   "ms",
 			})
