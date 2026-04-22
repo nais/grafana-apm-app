@@ -153,6 +153,22 @@ function DependencyDetail() {
       ],
     });
 
+    // Override exemplar links to use the environment-resolved Tempo datasource
+    const exemplarOverride = (b: any) =>
+      ds.tracesUid
+        ? b.matchFieldsWithName('traceID').overrideLinks([
+            {
+              title: 'View trace',
+              url: '',
+              internal: {
+                query: { query: '${__value.raw}', queryType: 'traceql' },
+                datasourceUid: ds.tracesUid,
+                datasourceName: '',
+              },
+            },
+          ])
+        : b;
+
     return new EmbeddedScene({
       $timeRange: timeRange,
       $behaviors: [new behaviors.CursorSync({ sync: DashboardCursorSync.Crosshair })],
@@ -161,11 +177,21 @@ function DependencyDetail() {
         children: [
           new SceneFlexItem({
             height: 200,
-            body: PanelBuilders.timeseries().setTitle('Request Rate').setData(rateQuery).setUnit('reqps').build(),
+            body: PanelBuilders.timeseries()
+              .setTitle('Request Rate')
+              .setData(rateQuery)
+              .setUnit('reqps')
+              .setOverrides(exemplarOverride)
+              .build(),
           }),
           new SceneFlexItem({
             height: 200,
-            body: PanelBuilders.timeseries().setTitle('Error Rate').setData(errorQuery).setUnit('percent').build(),
+            body: PanelBuilders.timeseries()
+              .setTitle('Error Rate')
+              .setData(errorQuery)
+              .setUnit('percent')
+              .setOverrides(exemplarOverride)
+              .build(),
           }),
           new SceneFlexItem({
             height: 200,
@@ -173,12 +199,13 @@ function DependencyDetail() {
               .setTitle('Duration (P95 / P50)')
               .setData(durationQuery)
               .setUnit('s')
+              .setOverrides(exemplarOverride)
               .build(),
           }),
         ],
       }),
     });
-  }, [name, from, to, ds.metricsUid, caps, envFilter]);
+  }, [name, from, to, ds.metricsUid, ds.tracesUid, caps, envFilter]);
 
   return (
     <PluginPage layout={PageLayoutType.Canvas}>

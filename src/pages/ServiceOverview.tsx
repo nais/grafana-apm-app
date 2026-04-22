@@ -280,6 +280,23 @@ function ServiceOverview() {
       ],
     });
 
+    // Override exemplar links to point to the environment-resolved Tempo datasource
+    // (the Mimir datasource's built-in exemplar config always points to the default Tempo).
+    const exemplarOverride = (b: any) =>
+      tracesUid
+        ? b.matchFieldsWithName('traceID').overrideLinks([
+            {
+              title: 'View trace',
+              url: '',
+              internal: {
+                query: { query: '${__value.raw}', queryType: 'traceql' },
+                datasourceUid: tracesUid,
+                datasourceName: '',
+              },
+            },
+          ])
+        : b;
+
     return new EmbeddedScene({
       $timeRange: timeRange,
       $behaviors: [new behaviors.CursorSync({ sync: DashboardCursorSync.Crosshair })],
@@ -298,6 +315,7 @@ function ServiceOverview() {
                     .setDescription(durationDesc)
                     .setData(durationQuery)
                     .setUnit(panelDurationUnit)
+                    .setOverrides(exemplarOverride)
                     .setLinks([
                       { title: 'Traces', url: tempoUrl, targetBlank: false },
                       { title: 'Logs', url: lokiUrl, targetBlank: false },
@@ -311,6 +329,7 @@ function ServiceOverview() {
                     .setDescription(errorDesc)
                     .setData(errorQuery)
                     .setUnit('percent')
+                    .setOverrides(exemplarOverride)
                     .setLinks([
                       { title: 'Traces', url: tempoUrl, targetBlank: false },
                       { title: 'Logs', url: lokiUrl, targetBlank: false },
@@ -324,6 +343,7 @@ function ServiceOverview() {
                     .setDescription(rateDesc)
                     .setData(rateQuery)
                     .setUnit('reqps')
+                    .setOverrides(exemplarOverride)
                     .setLinks([{ title: 'Explore', url: mimirUrl, targetBlank: false }])
                     .build(),
                 }),
