@@ -118,6 +118,25 @@ func (a *App) fetchServiceSummaries( //nolint:gocyclo // complex due to parallel
 		callsMetric, a.otelCfg.Labels.ServiceName, extraFilters,
 	)
 
+	// Fallback queries: no span_kind filter, used for services without SERVER spans.
+	// Services with SERVER spans use the SERVER-filtered queries above (unchanged behavior).
+	fallbackRateQuery := fmt.Sprintf(
+		`sum by (%s, %s, %s) (rate(%s{%s!=""%s}%s))`,
+		a.otelCfg.Labels.ServiceName, a.otelCfg.Labels.ServiceNamespace, envLabel,
+		callsMetric, a.otelCfg.Labels.ServiceName, extraFilters, rangeStr,
+	)
+	fallbackErrorQuery := fmt.Sprintf(
+		`sum by (%s, %s, %s) (rate(%s{%s!="", %s="%s"%s}%s))`,
+		a.otelCfg.Labels.ServiceName, a.otelCfg.Labels.ServiceNamespace, envLabel,
+		callsMetric, a.otelCfg.Labels.ServiceName,
+		a.otelCfg.Labels.StatusCode, a.otelCfg.StatusCodes.Error, extraFilters, rangeStr,
+	)
+	fallbackP95Query := fmt.Sprintf(
+		`histogram_quantile(0.95, sum by (%s, %s, %s, %s) (rate(%s{%s!=""%s}%s)))`,
+		a.otelCfg.Labels.ServiceName, a.otelCfg.Labels.ServiceNamespace, envLabel, a.otelCfg.Labels.Le,
+		durationBucket, a.otelCfg.Labels.ServiceName, extraFilters, rangeStr,
+	)
+
 	// Framework detection from app-emitted metrics (uses app/namespace labels).
 	// Detection metrics per framework:
 	//   Ktor:        ktor_http_server_requests_seconds_count (always present with Ktor + Micrometer)
@@ -144,7 +163,7 @@ func (a *App) fetchServiceSummaries( //nolint:gocyclo // complex due to parallel
 
 	// Run instant queries in parallel
 	var wg sync.WaitGroup
-	ch := make(chan queryResult, 10)
+	ch := make(chan queryResult, 20)
 
 	// Faro frontend detection: query Loki for app_name label values (parallel, ~100ms)
 	// Use environment-specific Loki when filtered to improve detection accuracy.
@@ -175,11 +194,14 @@ func (a *App) fetchServiceSummaries( //nolint:gocyclo // complex due to parallel
 	}
 
 	instantQueries := map[string]string{
-		"rate":      rateQuery,
-		"error":     errorQuery,
-		"p95":       p95Query,
-		"sdk":       sdkQuery,
-		"framework": frameworkQuery,
+		"rate":         rateQuery,
+		"error":        errorQuery,
+		"p95":          p95Query,
+		"sdk":          sdkQuery,
+		"framework":    frameworkQuery,
+		"fallbackRate":  fallbackRateQuery,
+		"fallbackError": fallbackErrorQuery,
+		"fallbackP95":   fallbackP95Query,
 	}
 
 	for name, q := range instantQueries {
@@ -200,6 +222,9 @@ func (a *App) fetchServiceSummaries( //nolint:gocyclo // complex due to parallel
 			{"rateSeries", rateQuery},
 			{"errorSeries", errorQuery},
 			{"durationSeries", p95Query},
+			{"fallbackRateSeries", fallbackRateQuery},
+			{"fallbackErrorSeries", fallbackErrorQuery},
+			{"fallbackDurationSeries", fallbackP95Query},
 		} {
 			wg.Add(1)
 			go func(n, query string) {
@@ -286,6 +311,30 @@ func (a *App) fetchServiceSummaries( //nolint:gocyclo // complex due to parallel
 		}
 	}
 
+	// Fill fallback RED metrics for services without SERVER spans.
+	// Only applied to services not already populated by SERVER-filtered queries above.
+	for _, r := range resultMap["fallbackRate"] {
+		s := getOrCreate(r)
+		if !s.HasServerSpans {
+			s.Rate = roundTo(r.Value.Float(), 3)
+		}
+	}
+	for _, r := range resultMap["fallbackError"] {
+		s := getOrCreate(r)
+		if !s.HasServerSpans {
+			s.ErrorRate = calculateErrorRate(r.Value.Float(), s.Rate)
+		}
+	}
+	for _, r := range resultMap["fallbackP95"] {
+		s := getOrCreate(r)
+		if !s.HasServerSpans {
+			v := r.Value.Float()
+			if isValidMetricValue(v) {
+				s.P95Duration = roundTo(v, 2)
+			}
+		}
+	}
+
 	// Fill framework from app-emitted metrics.
 	// Framework results use app/namespace labels — match to service_name/service_namespace.
 	// Priority: ktor > spring > nodejs > go
@@ -357,6 +406,33 @@ func (a *App) fetchServiceSummaries( //nolint:gocyclo // complex due to parallel
 				}
 			}
 			s.DurationSeries = filtered
+		}
+
+		// Fallback sparklines for services without SERVER spans
+		for _, r := range resultMap["fallbackRateSeries"] {
+			s := getOrCreate(r)
+			if !s.HasServerSpans && len(s.RateSeries) == 0 {
+				s.RateSeries = valuesToDataPoints(r.Values)
+			}
+		}
+		for _, r := range resultMap["fallbackErrorSeries"] {
+			s := getOrCreate(r)
+			if !s.HasServerSpans && len(s.ErrorSeries) == 0 {
+				s.ErrorSeries = valuesToDataPoints(r.Values)
+			}
+		}
+		for _, r := range resultMap["fallbackDurationSeries"] {
+			s := getOrCreate(r)
+			if !s.HasServerSpans && len(s.DurationSeries) == 0 {
+				pts := valuesToDataPoints(r.Values)
+				filtered := make([]queries.DataPoint, 0, len(pts))
+				for _, p := range pts {
+					if isValidMetricValue(p.Value) {
+						filtered = append(filtered, p)
+					}
+				}
+				s.DurationSeries = filtered
+			}
 		}
 	}
 

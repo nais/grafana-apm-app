@@ -176,6 +176,19 @@ function ServiceOverview() {
 
   const percentileLabel = PERCENTILE_OPTIONS.find((o) => o.value === percentile)?.label ?? 'P95';
 
+  // Determine if this service has SERVER spans (for query filter strategy).
+  // If true (or unknown), use SERVER filter for clean inbound metrics.
+  // If false, omit span_kind filter to show Consumer/Producer/Client activity.
+  const hasServerSpans = useMemo(() => {
+    if (!serviceList) {
+      return true; // safe default while loading
+    }
+    const matches = serviceList.filter(
+      (s) => s.name === service && s.namespace === namespace && (!envFilter || s.environment === envFilter)
+    );
+    return matches.length === 0 || matches.some((s) => s.hasServerSpans);
+  }, [serviceList, service, namespace, envFilter]);
+
   // Scenes for RED panels — rebuild when percentile or capabilities change
   const scene = useMemo(() => {
     const timeRange = new SceneTimeRange({ from, to });
@@ -183,6 +196,7 @@ function ServiceOverview() {
     if (envFilter) {
       svcFilter += `, ${otel.labels.deploymentEnv}="${sanitizeLabelValue(envFilter)}"`;
     }
+    const spanKindFilter = hasServerSpans ? `, ${otel.labels.spanKind}="${otel.spanKinds.server}"` : '';
     const durationUnit = metrics.durationUnit === 's' ? 's' : 'ms';
 
     const durationQuery = new SceneQueryRunner({
@@ -191,7 +205,7 @@ function ServiceOverview() {
       queries: [
         {
           refId: 'A',
-          expr: `histogram_quantile(${percentile}, sum by (${otel.labels.le}) (rate(${metrics.durationBucket}{${svcFilter}, ${otel.labels.spanKind}="${otel.spanKinds.server}"}[$__rate_interval])))`,
+          expr: `histogram_quantile(${percentile}, sum by (${otel.labels.le}) (rate(${metrics.durationBucket}{${svcFilter}${spanKindFilter}}[$__rate_interval])))`,
           legendFormat: percentileLabel,
           exemplar: true,
         },
@@ -204,7 +218,7 @@ function ServiceOverview() {
       queries: [
         {
           refId: 'A',
-          expr: `sum(rate(${metrics.callsMetric}{${svcFilter}, ${otel.labels.spanKind}="${otel.spanKinds.server}", ${otel.labels.statusCode}="${otel.statusCodes.error}"}[$__rate_interval])) / sum(rate(${metrics.callsMetric}{${svcFilter}, ${otel.labels.spanKind}="${otel.spanKinds.server}"}[$__rate_interval])) * 100`,
+          expr: `sum(rate(${metrics.callsMetric}{${svcFilter}${spanKindFilter}, ${otel.labels.statusCode}="${otel.statusCodes.error}"}[$__rate_interval])) / sum(rate(${metrics.callsMetric}{${svcFilter}${spanKindFilter}}[$__rate_interval])) * 100`,
           legendFormat: 'Error %',
           exemplar: true,
         },
@@ -217,7 +231,7 @@ function ServiceOverview() {
       queries: [
         {
           refId: 'A',
-          expr: `sum(rate(${metrics.callsMetric}{${svcFilter}, ${otel.labels.spanKind}="${otel.spanKinds.server}"}[$__rate_interval]))`,
+          expr: `sum(rate(${metrics.callsMetric}{${svcFilter}${spanKindFilter}}[$__rate_interval]))`,
           legendFormat: 'Rate',
           exemplar: true,
         },
@@ -228,7 +242,7 @@ function ServiceOverview() {
     const lokiUrl = buildLokiExploreUrl(ds.logsUid, service, { namespace });
     const mimirUrl = buildMimirExploreUrl(
       ds.metricsUid,
-      `sum(rate(${metrics.callsMetric}{${otel.labels.serviceName}="${service}", ${otel.labels.serviceNamespace}="${namespace}", ${otel.labels.spanKind}="${otel.spanKinds.server}"}[5m]))`
+      `sum(rate(${metrics.callsMetric}{${otel.labels.serviceName}="${service}", ${otel.labels.serviceNamespace}="${namespace}"${spanKindFilter}}[5m]))`
     );
 
     const heatmapQuery = new SceneQueryRunner({
@@ -237,7 +251,7 @@ function ServiceOverview() {
       queries: [
         {
           refId: 'A',
-          expr: `sum by (${otel.labels.le}) (increase(${metrics.durationBucket}{${svcFilter}, ${otel.labels.spanKind}="${otel.spanKinds.server}"}[$__rate_interval]))`,
+          expr: `sum by (${otel.labels.le}) (increase(${metrics.durationBucket}{${svcFilter}${spanKindFilter}}[$__rate_interval]))`,
           format: 'heatmap',
           legendFormat: '{{le}}',
         },
@@ -312,7 +326,7 @@ function ServiceOverview() {
         ],
       }),
     });
-  }, [service, namespace, envFilter, percentile, percentileLabel, from, to, ds, metrics]);
+  }, [service, namespace, envFilter, percentile, percentileLabel, from, to, ds, metrics, hasServerSpans]);
 
   const MAX_OVERVIEW_OPS = 5;
 
