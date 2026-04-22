@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.1 (2026-04-22)
+
+### Features
+
+- **Framework Detection**: Use `telemetry_sdk_language` from span metrics as fallback when framework-specific metric probing doesn't match. Adds Python, .NET, Java, and Go badges for services without framework-specific runtime metrics. Specific detection (Spring Boot, Ktor) still takes priority. Closes #20.
+
+### Bug Fixes
+
+- **Traces Tab**: Fix bad request when filtering by duration — move `duration >=`/`<=` inside the TraceQL span selector instead of using unsupported pipeline syntax.
+- **Service Inventory**: Shrink Type column to fit badge width instead of fixed 120px. Remove Faro badge to prevent row wrapping.
+
 ## 0.4.0 (2026-04-22)
 
 ### Features
