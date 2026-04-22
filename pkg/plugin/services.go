@@ -118,13 +118,18 @@ func (a *App) fetchServiceSummaries( //nolint:gocyclo // complex due to parallel
 	)
 
 	// Framework detection from app-emitted metrics (uses app/namespace labels).
-	// Single query detecting Ktor, Spring Boot, and Node.js via unique metric names.
+	// Detection metrics per framework:
+	//   Ktor:        ktor_http_server_requests_seconds_count (always present with Ktor + Micrometer)
+	//   Spring Boot: application_started_time_seconds (always present with Spring Boot 3 + Micrometer)
+	//                OR spring_security_filterchains_* (only with Spring Security + actual exceptions)
+	//   Node.js:     nodejs_version_info (always present with prom-client / OTel Node.js SDK)
+	//   Go:          go_info (always present in Go apps with default Prometheus client)
 	fwExtraFilters := ""
 	if filterNamespace != "" {
 		fwExtraFilters += fmt.Sprintf(`, %s="%s"`, a.otelCfg.Runtime.Labels.Namespace, filterNamespace)
 	}
 	frameworkQuery := fmt.Sprintf(
-		`group by (%s, %s, __name__) ({__name__=~"ktor_http_server_requests_seconds_count|spring_security_filterchains_access_exceptions_after_total|nodejs_version_info", %s!=""%s})`,
+		`group by (%s, %s, __name__) ({__name__=~"ktor_http_server_requests_seconds_count|application_started_time_seconds|spring_security_filterchains_access_exceptions_after_total|nodejs_version_info|go_info", %s!=""%s})`,
 		a.otelCfg.Runtime.Labels.App, a.otelCfg.Runtime.Labels.Namespace,
 		a.otelCfg.Runtime.Labels.App, fwExtraFilters,
 	)
@@ -279,7 +284,7 @@ func (a *App) fetchServiceSummaries( //nolint:gocyclo // complex due to parallel
 
 	// Fill framework from app-emitted metrics.
 	// Framework results use app/namespace labels — match to service_name/service_namespace.
-	// Priority: ktor > spring > nodejs (ktor is more specific than generic Spring/Micrometer).
+	// Priority: ktor > spring > go > nodejs (ktor is more specific than generic Spring/Micrometer).
 	type appKey struct {
 		name      string
 		namespace string
@@ -294,9 +299,17 @@ func (a *App) fetchServiceSummaries( //nolint:gocyclo // complex due to parallel
 		switch metricName {
 		case "ktor_http_server_requests_seconds_count":
 			frameworkMap[k] = "Ktor"
+		case "application_started_time_seconds":
+			if existing != "Ktor" {
+				frameworkMap[k] = "Spring Boot"
+			}
 		case "spring_security_filterchains_access_exceptions_after_total":
 			if existing != "Ktor" {
 				frameworkMap[k] = "Spring Boot"
+			}
+		case "go_info":
+			if existing == "" {
+				frameworkMap[k] = "Go"
 			}
 		case "nodejs_version_info":
 			if existing == "" {
@@ -348,6 +361,7 @@ func (a *App) fetchServiceSummaries( //nolint:gocyclo // complex due to parallel
 	// Convert map to slice
 	result := make([]queries.ServiceSummary, 0, len(serviceMap))
 	for _, s := range serviceMap {
+		s.IsSidecar = isSidecar(s.Name)
 		result = append(result, *s)
 	}
 

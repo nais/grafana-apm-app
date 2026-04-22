@@ -38,6 +38,18 @@ func TestServiceMapNodeJSON(t *testing.T) {
 	if _, ok := m["subtitle"]; ok {
 		t.Error("expected subtitle to be omitted when empty")
 	}
+	// isSidecar should be omitted when false
+	if _, ok := m["isSidecar"]; ok {
+		t.Error("expected isSidecar to be omitted when false")
+	}
+
+	// isSidecar should be present when true
+	node.IsSidecar = true
+	data, _ = json.Marshal(node)
+	_ = json.Unmarshal(data, &m)
+	if v, ok := m["isSidecar"]; !ok || v != true {
+		t.Errorf("expected isSidecar=true, got %v", m["isSidecar"])
+	}
 }
 
 func TestGraphQLOperationNullableErrorRate(t *testing.T) {
@@ -109,6 +121,7 @@ func TestConnectedServicesResponseJSON(t *testing.T) {
 		},
 		Outbound: []ConnectedService{
 			{Name: "db", ConnectionType: "database", Rate: 100, P95Duration: 15, DurationUnit: "ms"},
+			{Name: "wonderwall", IsSidecar: true, Rate: 200, P95Duration: 5, DurationUnit: "ms"},
 		},
 	}
 	data, err := json.Marshal(resp)
@@ -123,8 +136,15 @@ func TestConnectedServicesResponseJSON(t *testing.T) {
 	if len(got.Inbound) != 1 || got.Inbound[0].Name != "caller" {
 		t.Errorf("inbound mismatch: %+v", got.Inbound)
 	}
-	if len(got.Outbound) != 1 || got.Outbound[0].ConnectionType != "database" {
+	if len(got.Outbound) != 2 || got.Outbound[0].ConnectionType != "database" {
 		t.Errorf("outbound mismatch: %+v", got.Outbound)
+	}
+	// Verify sidecar field round-trips
+	if !got.Outbound[1].IsSidecar {
+		t.Error("expected wonderwall to have isSidecar=true")
+	}
+	if got.Inbound[0].IsSidecar {
+		t.Error("expected caller to have isSidecar=false (omitted)")
 	}
 
 	// connectionType should be omitted when empty
@@ -134,6 +154,10 @@ func TestConnectedServicesResponseJSON(t *testing.T) {
 	_ = json.Unmarshal(svcData, &m)
 	if _, ok := m["connectionType"]; ok {
 		t.Error("expected connectionType to be omitted when empty")
+	}
+	// isSidecar should be omitted when false
+	if _, ok := m["isSidecar"]; ok {
+		t.Error("expected isSidecar to be omitted when false")
 	}
 }
 

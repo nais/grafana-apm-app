@@ -394,6 +394,38 @@ The plugin auto-parses JSON-formatted logs and extracts the message field:
 This supports both `.message` (standard) and `.msg` (common alternative) field
 names, falling back to the raw log line.
 
+## Framework / app type detection
+
+The service list shows a **type badge** (Ktor, Spring, Node.js, Go) next to
+services where the framework can be automatically detected from Prometheus
+metrics. Detection works by looking for well-known metrics scraped from your
+application pods.
+
+| Framework | Badge | Detection metric | When present |
+|-----------|-------|-----------------|--------------|
+| **Ktor** | `Ktor` (purple) | `ktor_http_server_requests_seconds_count` | Always, when using Ktor + Micrometer |
+| **Spring Boot** | `Spring` (green) | `application_started_time_seconds` | Always, in Spring Boot 3 + Micrometer |
+| | | `spring_security_filterchains_access_exceptions_after_total` | Only with Spring Security + exceptions |
+| **Node.js** | `Node.js` (orange) | `nodejs_version_info` | Always, with `prom-client` or OTel Node.js SDK |
+| **Go** | `Go` (blue) | `go_info` | Always, with default Go Prometheus client |
+
+**Why does my service not show a badge?**
+
+1. **No Prometheus scraping** — the detection metrics come from application-emitted
+   Prometheus metrics (not OTel span metrics). Your pod must be scraped by
+   Prometheus with `app` and `namespace` labels.
+2. **Missing instrumentation library** — for JVM apps, you need Micrometer on the
+   classpath (typically included via Spring Boot Actuator or Ktor metrics plugin).
+   For Node.js, `prom-client` or the OpenTelemetry Prometheus exporter. For Go,
+   the standard `prometheus/client_golang`.
+3. **Label mismatch** — the `app` label on your Prometheus metrics must match the
+   `service_name` on your OTel span metrics. In Nais, both default to the
+   application name from `nais.yaml`.
+
+**Priority:** If multiple detection metrics match (e.g., a Ktor app also has
+Spring Boot metrics), the most specific framework wins:
+Ktor > Spring Boot > Go > Node.js.
+
 ## Installation
 
 Install the plugin in your Grafana instance:

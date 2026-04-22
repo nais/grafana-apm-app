@@ -1167,6 +1167,7 @@ func (a *App) queryConnectedServices(ctx context.Context, to time.Time, service 
 			result = append(result, ConnectedService{
 				Name:           k.name,
 				ConnectionType: k.connectionType,
+				IsSidecar:      isSidecar(k.name),
 				Rate:           roundTo(d.rate, 3),
 				ErrorRate:      roundTo(errPct, 2),
 				P95Duration:    roundTo(d.p95*1000, 2),

@@ -33,6 +33,7 @@ type DependencyDetailResponse struct {
 type ConnectedService struct {
 	Name           string  `json:"name"`
 	ConnectionType string  `json:"connectionType,omitempty"`
+	IsSidecar      bool    `json:"isSidecar,omitempty"`
 	Rate           float64 `json:"rate"`
 	ErrorRate      float64 `json:"errorRate"`
 	P95Duration    float64 `json:"p95Duration"`
@@ -93,6 +94,7 @@ type ServiceMapNode struct {
 	ArcErrors     float64 `json:"arc__errors"` //nolint:revive // JSON field required by Grafana node graph
 	ArcOK         float64 `json:"arc__ok"`     //nolint:revive // JSON field required by Grafana node graph
 	NodeType      string  `json:"nodeType,omitempty"`
+	IsSidecar     bool    `json:"isSidecar,omitempty"`
 	ErrorRate     float64 `json:"errorRate"`
 }
 

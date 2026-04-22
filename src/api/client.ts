@@ -44,6 +44,7 @@ export interface ServiceSummary {
   sdkLanguage?: string;
   framework?: string;
   hasFrontend?: boolean;
+  isSidecar?: boolean;
   rate: number;
   errorRate: number;
   p95Duration: number;
@@ -122,6 +123,7 @@ export interface ServiceMapNode {
   arc__errors: number;
   arc__ok: number;
   nodeType?: 'service' | 'database' | 'messaging' | 'external';
+  isSidecar?: boolean;
   errorRate: number;
 }
 
@@ -161,6 +163,7 @@ export async function getServiceMap(
 export interface ConnectedService {
   name: string;
   connectionType?: string;
+  isSidecar?: boolean;
   rate: number;
   errorRate: number;
   p95Duration: number;

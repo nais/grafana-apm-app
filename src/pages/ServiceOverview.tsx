@@ -528,6 +528,7 @@ function ServiceOverview() {
                               <tr
                                 key={s.name + (s.connectionType ?? '')}
                                 className={s.connectionType ? undefined : styles.clickableRow}
+                                style={s.isSidecar ? { opacity: 0.6 } : undefined}
                                 onClick={
                                   s.connectionType
                                     ? undefined
@@ -536,7 +537,12 @@ function ServiceOverview() {
                                       }
                                 }
                               >
-                                <td className={s.connectionType ? undefined : styles.linkCell}>{s.name}</td>
+                                <td className={s.connectionType ? undefined : styles.linkCell}>
+                                  {s.name}
+                                  {s.isSidecar && (
+                                    <Badge text="sidecar" color="orange" icon="cog" className={styles.sidecarBadge} />
+                                  )}
+                                </td>
                                 <td>
                                   <ConnectionTypeBadge type={s.connectionType} />
                                 </td>
@@ -571,6 +577,7 @@ function ServiceOverview() {
                               <tr
                                 key={s.name + (s.connectionType ?? '')}
                                 className={s.connectionType ? undefined : styles.clickableRow}
+                                style={s.isSidecar ? { opacity: 0.6 } : undefined}
                                 onClick={
                                   s.connectionType
                                     ? undefined
@@ -579,7 +586,12 @@ function ServiceOverview() {
                                       }
                                 }
                               >
-                                <td className={s.connectionType ? undefined : styles.linkCell}>{s.name}</td>
+                                <td className={s.connectionType ? undefined : styles.linkCell}>
+                                  {s.name}
+                                  {s.isSidecar && (
+                                    <Badge text="sidecar" color="orange" icon="cog" className={styles.sidecarBadge} />
+                                  )}
+                                </td>
                                 <td>
                                   <ConnectionTypeBadge type={s.connectionType} />
                                 </td>
@@ -799,6 +811,10 @@ const getStyles = (theme: GrafanaTheme2) => ({
     text-overflow: ellipsis;
     white-space: nowrap;
     color: ${theme.colors.text.link};
+  `,
+  sidecarBadge: css`
+    margin-left: ${theme.spacing(0.75)};
+    vertical-align: middle;
   `,
   opsTable: css`
     width: 100%;

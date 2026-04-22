@@ -1,7 +1,18 @@
 import React, { useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { PluginPage } from '@grafana/runtime';
-import { Alert, Badge, Icon, Input, LoadingPlaceholder, Pagination, Select, useStyles2 } from '@grafana/ui';
+import {
+  Alert,
+  Badge,
+  Icon,
+  InlineSwitch,
+  Input,
+  LoadingPlaceholder,
+  Pagination,
+  Select,
+  Tooltip,
+  useStyles2,
+} from '@grafana/ui';
 import { GrafanaTheme2, SelectableValue } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getServices, getCapabilities, ServiceSummary, Capabilities } from '../api/client';
@@ -14,6 +25,7 @@ const FRAMEWORK_BADGES: Record<string, { text: string; color: 'blue' | 'green' |
   Ktor: { text: 'Ktor', color: 'purple' },
   'Spring Boot': { text: 'Spring', color: 'green' },
   'Node.js': { text: 'Node.js', color: 'orange' },
+  Go: { text: 'Go', color: 'blue' },
 };
 
 type SortField = 'name' | 'namespace' | 'environment' | 'p95Duration' | 'errorRate' | 'rate';
@@ -71,6 +83,7 @@ function ServiceInventory() {
   const rawEnvFilter = searchParams.get('environment') ?? '';
   const envFilter = sanitizeParam(rawEnvFilter);
   const search = searchParams.get('q') ?? '';
+  const hideSidecars = searchParams.get('hideSidecars') !== 'false'; // default: true
   const sortField: SortField = (searchParams.get('sort') as SortField) || 'name';
   const sortDir: SortDir = (searchParams.get('dir') as SortDir) || 'asc';
   const page = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10) || 1);
@@ -126,6 +139,9 @@ function ServiceInventory() {
   // Client-side filtering and sorting — computed every render to avoid
   // stale-closure issues with React 18 batching.
   let filtered = services;
+  if (hideSidecars) {
+    filtered = filtered.filter((s) => !s.isSidecar);
+  }
   if (namespaceFilter) {
     filtered = filtered.filter((s) => s.namespace === namespaceFilter);
   }
@@ -163,6 +179,14 @@ function ServiceInventory() {
     }
     if (cmp !== 0) {
       return cmp * dir;
+    }
+    // When sidecars are visible, push them after team-owned services as a secondary tiebreaker
+    if (!hideSidecars) {
+      const sa = a.isSidecar ? 1 : 0;
+      const sb = b.isSidecar ? 1 : 0;
+      if (sa !== sb) {
+        return sa - sb;
+      }
     }
     // Stable tiebreaker: always sort by name ascending when primary values tie
     return a.name.localeCompare(b.name);
@@ -238,6 +262,14 @@ function ServiceInventory() {
                 />
               )}
               <div className={styles.toolbarSpacer} />
+              <Tooltip content="Hide infrastructure sidecars (wonderwall, texas) from the list">
+                <InlineSwitch
+                  label="Hide sidecars"
+                  showLabel
+                  value={hideSidecars}
+                  onChange={() => updateParams({ hideSidecars: hideSidecars ? 'false' : null, page: null })}
+                />
+              </Tooltip>
               <Select
                 options={TIME_RANGE_OPTIONS}
                 value={from}
@@ -298,6 +330,11 @@ function ServiceInventory() {
                     <td className={styles.typeCell}>
                       <div className={styles.typeCellInner}>
                         <FrameworkBadge framework={svc.framework} />
+                        {svc.isSidecar && (
+                          <Tooltip content="Infrastructure sidecar (runs alongside your app in the same pod)">
+                            <Badge text="sidecar" color="orange" icon="cog" />
+                          </Tooltip>
+                        )}
                         {svc.hasFrontend && (
                           <span className={styles.faroBadge} title="Faro Web SDK">
                             🌐

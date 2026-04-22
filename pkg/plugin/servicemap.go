@@ -266,6 +266,7 @@ func (a *App) queryServiceMap( //nolint:gocyclo // complex due to parallel queri
 			ArcErrors:     errPct,
 			ArcOK:         1 - errPct,
 			NodeType:      nType,
+			IsSidecar:     isSidecar(name),
 			ErrorRate:     errPct,
 		})
 	}
