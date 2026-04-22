@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.2 (2026-04-22)
+
+### Features
+
+- **Panel Descriptions**: RED panels on ServiceOverview now include help text explaining what each panel measures (e.g., inbound SERVER requests vs all span kinds).
+
+### Bug Fixes
+
+- **Dependency Detail**: Fix dependency metrics showing zeros for addresses with standard ports (e.g., `idporten.no:443`) — queries now use regex matching to handle both normalized and raw address forms.
+- **Service Detail Navigation**: Fix error when clicking connected services that have no namespace — the `_` wildcard placeholder was converted to empty string, producing double-slashes in API URLs that Grafana couldn't route to the plugin backend.
+- **RED Panel Flashing**: Reduce unnecessary panel re-renders on ServiceOverview by stabilizing Scenes `useMemo` dependencies — destructure datasource/metric objects into primitive strings to prevent object identity changes from recreating the entire `EmbeddedScene`.
+
 ## 0.4.1 (2026-04-22)
 
 ### Features
