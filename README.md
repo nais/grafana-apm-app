@@ -114,7 +114,7 @@ the [spanmetrics](https://github.com/open-telemetry/opentelemetry-collector-cont
 and [servicegraph](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/connector/servicegraphconnector)
 connectors. This is the approach used in the local dev setup.
 
-See [`otel-collector-config.yaml`](https://github.com/nais/grafana-apm-app/blob/main/otel-collector-config.yaml)
+See [`otel-collector-config.yaml`](https://github.com/nais/grafana-apm-app/blob/main/config/otel-collector-config.yaml)
 for a working example. The key differences from Tempo:
 - Metric namespace is configurable (e.g., `traces.span.metrics` → `traces_span_metrics_calls_total`)
 - Duration unit can be milliseconds or seconds depending on histogram bucket config
@@ -572,7 +572,7 @@ The project uses [mise](https://mise.jdx.dev/) as task runner:
 
 ### Requirements
 
-- Node.js 22 (see [`.nvmrc`](https://github.com/nais/grafana-apm-app/blob/main/.nvmrc))
+- Node.js 22 (see [`mise.toml`](https://github.com/nais/grafana-apm-app/blob/main/mise.toml))
 - Go 1.25+
 - Docker
 

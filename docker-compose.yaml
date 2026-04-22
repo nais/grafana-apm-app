@@ -46,7 +46,7 @@ services:
     container_name: otel-collector
     command: ["--config=/etc/otel/config.yaml"]
     volumes:
-      - ./otel-collector-config.yaml:/etc/otel/config.yaml:ro
+      - ./config/otel-collector-config.yaml:/etc/otel/config.yaml:ro
     ports:
       - "4317:4317"   # OTLP gRPC
       - "4318:4318"   # OTLP HTTP

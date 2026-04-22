@@ -8,7 +8,7 @@ discuss the approach.
 
 ### Prerequisites
 
-- Node.js 22 (use `nvm install` — the repo includes an `.nvmrc`)
+- Node.js 22 (use `mise install` — the repo includes a [`mise.toml`](mise.toml))
 - Go 1.25+
 - Docker
 - [golangci-lint](https://golangci-lint.run/docs/install/) v2+
