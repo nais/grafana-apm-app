@@ -41,6 +41,7 @@ mise run deploy:status         # Show containers + health check
 mise run deploy:demo           # Start stack with OTel Demo traffic
 mise run dev                  # Docker stack + frontend watch
 mise run clean                # Remove dist/ and coverage/
+mise run release              # Cut release (patch bump, or: -- minor/major/X.Y.Z)
 pnpm run e2e                  # Playwright E2E (needs running stack)
 docker compose up             # Full LGTM dev stack
 docker compose -f docker-compose.demo.yaml up  # With OTel Demo traffic
