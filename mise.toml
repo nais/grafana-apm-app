@@ -125,3 +125,7 @@ run = ["docker compose up -d", "pnpm run dev"]
 [tasks.clean]
 description = "Remove build artifacts"
 run = "rm -rf dist/ coverage/"
+
+[tasks.release]
+description = "Cut a release: bump version, update changelog, commit + tag"
+run = "bash scripts/release.sh {{arg(i=0, name='bump', default='patch')}}"
