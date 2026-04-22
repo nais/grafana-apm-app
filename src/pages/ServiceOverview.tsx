@@ -533,7 +533,7 @@ function ServiceOverview() {
                                   s.connectionType
                                     ? undefined
                                     : () => {
-                                        appNavigate(`dependencies/${encodeURIComponent(s.name)}`);
+                                        appNavigate(`services/_/${encodeURIComponent(s.name)}`);
                                       }
                                 }
                               >
@@ -582,7 +582,7 @@ function ServiceOverview() {
                                   s.connectionType
                                     ? undefined
                                     : () => {
-                                        appNavigate(`dependencies/${encodeURIComponent(s.name)}`);
+                                        appNavigate(`services/_/${encodeURIComponent(s.name)}`);
                                       }
                                 }
                               >
