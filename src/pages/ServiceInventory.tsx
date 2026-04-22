@@ -192,6 +192,8 @@ function ServiceInventory() {
     return a.name.localeCompare(b.name);
   });
 
+  // Hide namespace column when a single namespace is selected (redundant info)
+  const showNsColumn = !namespaceFilter;
   // Show environment column when multiple envs exist and no single env is selected
   const showEnvColumn = envOptions.length > 1 && !envFilter;
 
@@ -283,7 +285,7 @@ function ServiceInventory() {
               <colgroup>
                 <col style={{ width: '80px' }} />
                 <col style={{ width: '22%' }} />
-                <col style={{ width: '14%' }} />
+                {showNsColumn && <col style={{ width: '14%' }} />}
                 {showEnvColumn && <col style={{ width: '10%' }} />}
                 <col style={{ width: '18%' }} />
                 <col style={{ width: '18%' }} />
@@ -295,9 +297,11 @@ function ServiceInventory() {
                   <th className={styles.sortable} onClick={() => toggleSort('name')}>
                     Name {sortIcon('name')}
                   </th>
-                  <th className={styles.sortable} onClick={() => toggleSort('namespace')}>
-                    Namespace {sortIcon('namespace')}
-                  </th>
+                  {showNsColumn && (
+                    <th className={styles.sortable} onClick={() => toggleSort('namespace')}>
+                      Namespace {sortIcon('namespace')}
+                    </th>
+                  )}
                   {showEnvColumn && (
                     <th className={styles.sortable} onClick={() => toggleSort('environment')}>
                       Environment {sortIcon('environment')}
@@ -345,7 +349,7 @@ function ServiceInventory() {
                     <td>
                       <span className={styles.nameCell}>{svc.name}</span>
                     </td>
-                    <td className={styles.nsCell}>{svc.namespace}</td>
+                    {showNsColumn && <td className={styles.nsCell}>{svc.namespace}</td>}
                     {showEnvColumn && <td className={styles.nsCell}>{svc.environment}</td>}
                     <td>
                       <div className={styles.metricCell}>
