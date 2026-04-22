@@ -9,6 +9,10 @@
 - **Exemplars**: RED panels on ServiceOverview and DependencyDetail pages now display exemplar data points — click to jump directly to the originating trace.
 - **Service Map**: Explicit handling of `virtual_node` connection type for external dependency classification.
 
+### Bug Fixes
+
+- **Service Inventory**: Services with only CLIENT, PRODUCER, or CONSUMER spans (Kafka consumers, batch jobs, event-driven workers) now appear in the inventory. Previously, only services with SERVER spans were discovered. Services without inbound requests show "—" for RED metrics.
+
 ## 0.3.1 (2026-04-22)
 
 ### Bug Fixes
