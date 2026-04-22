@@ -19,6 +19,7 @@ import { getServices, getCapabilities, ServiceSummary, Capabilities } from '../a
 import { useTimeRange } from '../utils/timeRange';
 import { useAppNavigate, sanitizeParam } from '../utils/navigation';
 import { formatDuration } from '../utils/format';
+import { extractEnvironmentOptions, extractNamespaceOptions } from '../utils/options';
 import { useFetch } from '../utils/useFetch';
 import { FrameworkBadge } from '../components/FrameworkBadge';
 import { Sparkline } from '../components/Sparkline';
@@ -112,24 +113,10 @@ function ServiceInventory() {
   const setPageSize = (sz: number) => updateParams({ pageSize: sz !== 25 ? String(sz) : null, page: null });
 
   // Compute unique namespaces for the filter dropdown
-  const namespaceOptions = useMemo<Array<{ label: string; value: string }>>(() => {
-    const nss = new Set(services.map((s) => s.namespace).filter(Boolean));
-    const opts: Array<{ label: string; value: string }> = [];
-    for (const ns of [...nss].sort()) {
-      opts.push({ label: ns, value: ns });
-    }
-    return opts;
-  }, [services]);
+  const namespaceOptions = useMemo(() => extractNamespaceOptions(services), [services]);
 
   // Compute unique environments for the filter dropdown
-  const envOptions = useMemo<Array<{ label: string; value: string }>>(() => {
-    const envs = new Set(services.map((s) => s.environment).filter((e): e is string => !!e));
-    const opts: Array<{ label: string; value: string }> = [];
-    for (const e of [...envs].sort()) {
-      opts.push({ label: e, value: e });
-    }
-    return opts;
-  }, [services]);
+  const envOptions = useMemo(() => extractEnvironmentOptions(services), [services]);
 
   // Client-side filtering and sorting — computed every render to avoid
   // stale-closure issues with React 18 batching.

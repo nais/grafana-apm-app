@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { PluginPage } from '@grafana/runtime';
-import { useStyles2, Icon, LoadingPlaceholder, Alert } from '@grafana/ui';
+import { useStyles2, Icon, Alert } from '@grafana/ui';
 import { GrafanaTheme2, PageLayoutType } from '@grafana/data';
 import { css } from '@emotion/css';
 import {
@@ -27,7 +27,9 @@ import { useTimeRange } from '../utils/timeRange';
 import { useAppNavigate, sanitizeParam } from '../utils/navigation';
 import { DepTypeIcon } from '../components/DepTypeIcon';
 import { BackButton } from '../components/BackButton';
+import { DataState } from '../components/DataState';
 import { SortHeader, ImpactBar, useTableSort, getTableStyles } from '../components/SortableTable';
+import { getSectionStyles } from '../utils/styles';
 import { useFetch } from '../utils/useFetch';
 import { usePluginDatasources } from '../utils/datasources';
 import { useCapabilities } from '../utils/capabilities';
@@ -215,175 +217,171 @@ function DependencyDetail() {
           <BackButton label="Dependencies" onClick={() => appNavigate('dependencies')} />
         </div>
 
-        {loading && <LoadingPlaceholder text="Loading dependency details..." />}
-
-        {error && (
-          <Alert severity="error" title="Error">
-            {error}
-          </Alert>
-        )}
-
-        {!loading && !error && data && (
-          <>
-            {/* Summary card */}
-            <div className={styles.summaryCard}>
-              <div className={styles.summaryTitle}>
-                <DepTypeIcon type={data.dependency.type} size={28} />
-                <h2 className={styles.depName}>{name}</h2>
-                <span className={styles.typeBadge}>{data.dependency.type}</span>
-              </div>
-              <div className={styles.summaryStats}>
-                <div className={styles.statItem}>
-                  <span className={styles.statLabel}>Throughput</span>
-                  <span className={styles.statValue}>{formatRate(data.dependency.rate)}</span>
+        <DataState loading={loading} error={error} loadingText="Loading dependency details...">
+          {data && (
+            <>
+              {/* Summary card */}
+              <div className={styles.summaryCard}>
+                <div className={styles.summaryTitle}>
+                  <DepTypeIcon type={data.dependency.type} size={28} />
+                  <h2 className={styles.depName}>{name}</h2>
+                  <span className={styles.typeBadge}>{data.dependency.type}</span>
                 </div>
-                <div className={styles.statItem}>
-                  <span className={styles.statLabel}>Error Rate</span>
-                  <span className={data.dependency.errorRate > 0 ? styles.statValueError : styles.statValue}>
-                    {formatErrorRate(data.dependency.errorRate)}
-                  </span>
-                </div>
-                <div className={styles.statItem}>
-                  <span className={styles.statLabel}>Latency (P95)</span>
-                  <span className={styles.statValue}>
-                    {formatDuration(data.dependency.p95Duration, data.dependency.durationUnit)}
-                  </span>
+                <div className={styles.summaryStats}>
+                  <div className={styles.statItem}>
+                    <span className={styles.statLabel}>Throughput</span>
+                    <span className={styles.statValue}>{formatRate(data.dependency.rate)}</span>
+                  </div>
+                  <div className={styles.statItem}>
+                    <span className={styles.statLabel}>Error Rate</span>
+                    <span className={data.dependency.errorRate > 0 ? styles.statValueError : styles.statValue}>
+                      {formatErrorRate(data.dependency.errorRate)}
+                    </span>
+                  </div>
+                  <div className={styles.statItem}>
+                    <span className={styles.statLabel}>Latency (P95)</span>
+                    <span className={styles.statValue}>
+                      {formatDuration(data.dependency.p95Duration, data.dependency.durationUnit)}
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {/* RED metric time-series graphs */}
-            {redScene && (
-              <div className={styles.redPanels}>
-                <redScene.Component model={redScene} />
-              </div>
-            )}
+              {/* RED metric time-series graphs */}
+              {redScene && (
+                <div className={styles.redPanels}>
+                  <redScene.Component model={redScene} />
+                </div>
+              )}
 
-            {/* Upstream services */}
-            <h3 className={styles.sectionTitle}>Upstream Services</h3>
-            <p className={styles.sectionDesc}>Services that call this dependency, ranked by impact.</p>
+              {/* Upstream services */}
+              <h3 className={styles.sectionTitle}>Upstream Services</h3>
+              <p className={styles.sectionSubtitle}>Services that call this dependency, ranked by impact.</p>
 
-            {sorted.length === 0 ? (
-              <Alert severity="info" title="No upstream data">
-                No upstream services found for this dependency.
-              </Alert>
-            ) : (
-              <table className={styles.table}>
-                <thead>
-                  <tr>
-                    <SortHeader
-                      field="name"
-                      label="Service"
-                      sortField={sortField}
-                      sortDir={sortDir}
-                      onSort={toggleSort}
-                    />
-                    <SortHeader
-                      field="rate"
-                      label="Throughput"
-                      sortField={sortField}
-                      sortDir={sortDir}
-                      onSort={toggleSort}
-                    />
-                    <SortHeader
-                      field="errorRate"
-                      label="Error %"
-                      sortField={sortField}
-                      sortDir={sortDir}
-                      onSort={toggleSort}
-                    />
-                    <SortHeader
-                      field="p95Duration"
-                      label="Latency (P95)"
-                      sortField={sortField}
-                      sortDir={sortDir}
-                      onSort={toggleSort}
-                    />
-                    <SortHeader
-                      field="impact"
-                      label="Impact"
-                      sortField={sortField}
-                      sortDir={sortDir}
-                      onSort={toggleSort}
-                    />
-                  </tr>
-                </thead>
-                <tbody>
-                  {sorted.map((upstream) => (
-                    <tr
-                      key={upstream.name}
-                      className={styles.clickableRow}
-                      onClick={() => {
-                        const ns = serviceNsMap.get(upstream.name);
-                        if (ns) {
-                          appNavigate(`services/${encodeURIComponent(ns)}/${encodeURIComponent(upstream.name)}`);
-                        }
-                      }}
-                    >
-                      <td className={styles.linkNameCell} title={upstream.name}>
-                        <Icon name="gf-layout-simple" size="sm" />
-                        <span style={{ marginLeft: 8 }}>{upstream.name}</span>
-                      </td>
-                      <td className={styles.numCell}>{formatRate(upstream.rate)}</td>
-                      <td className={upstream.errorRate > 0 ? styles.errorCell : styles.numCell}>
-                        {formatErrorRate(upstream.errorRate)}
-                      </td>
-                      <td className={styles.numCell}>{formatDuration(upstream.p95Duration, upstream.durationUnit)}</td>
-                      <td className={styles.numCell}>
-                        <ImpactBar impact={upstream.impact} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-
-            {/* Operations calling this dependency */}
-            {data.operations && data.operations.length > 0 && (
-              <>
-                <h3 className={styles.sectionTitle}>Operations</h3>
-                <p className={styles.sectionDesc}>
-                  Client-side operations that call this dependency (from spanmetrics <code>peer.service</code>{' '}
-                  dimension).
-                </p>
+              {sorted.length === 0 ? (
+                <Alert severity="info" title="No upstream data">
+                  No upstream services found for this dependency.
+                </Alert>
+              ) : (
                 <table className={styles.table}>
                   <thead>
                     <tr>
-                      <th>Operation</th>
-                      <th>Calling Service</th>
-                      {hasDbDetail && <th>Target</th>}
-                      {hasMsgDetail && <th>Topic</th>}
-                      <th>Throughput</th>
-                      <th>Error %</th>
-                      <th>Latency (P95)</th>
+                      <SortHeader
+                        field="name"
+                        label="Service"
+                        sortField={sortField}
+                        sortDir={sortDir}
+                        onSort={toggleSort}
+                      />
+                      <SortHeader
+                        field="rate"
+                        label="Throughput"
+                        sortField={sortField}
+                        sortDir={sortDir}
+                        onSort={toggleSort}
+                      />
+                      <SortHeader
+                        field="errorRate"
+                        label="Error %"
+                        sortField={sortField}
+                        sortDir={sortDir}
+                        onSort={toggleSort}
+                      />
+                      <SortHeader
+                        field="p95Duration"
+                        label="Latency (P95)"
+                        sortField={sortField}
+                        sortDir={sortDir}
+                        onSort={toggleSort}
+                      />
+                      <SortHeader
+                        field="impact"
+                        label="Impact"
+                        sortField={sortField}
+                        sortDir={sortDir}
+                        onSort={toggleSort}
+                      />
                     </tr>
                   </thead>
                   <tbody>
-                    {data.operations.map((op: DependencyOperation, idx: number) => (
-                      <tr key={`${op.spanName}-${op.callingService}-${idx}`}>
-                        <td className={styles.nameCell} title={op.spanName}>
-                          {op.spanName}
+                    {sorted.map((upstream) => (
+                      <tr
+                        key={upstream.name}
+                        className={styles.clickableRow}
+                        onClick={() => {
+                          const ns = serviceNsMap.get(upstream.name);
+                          if (ns) {
+                            appNavigate(`services/${encodeURIComponent(ns)}/${encodeURIComponent(upstream.name)}`);
+                          }
+                        }}
+                      >
+                        <td className={styles.linkNameCell} title={upstream.name}>
+                          <Icon name="gf-layout-simple" size="sm" />
+                          <span style={{ marginLeft: 8 }}>{upstream.name}</span>
                         </td>
-                        <td title={op.callingService}>{op.callingService}</td>
-                        {hasDbDetail && (
-                          <td title={[op.dbName, op.dbOperation].filter(Boolean).join(' ')}>
-                            {[op.dbName, op.dbOperation].filter(Boolean).join(' · ') || '—'}
-                          </td>
-                        )}
-                        {hasMsgDetail && <td title={op.messagingDestination}>{op.messagingDestination || '—'}</td>}
-                        <td className={styles.numCell}>{formatRate(op.rate)}</td>
-                        <td className={op.errorRate > 0 ? styles.errorCell : styles.numCell}>
-                          {formatErrorRate(op.errorRate)}
+                        <td className={styles.numCell}>{formatRate(upstream.rate)}</td>
+                        <td className={upstream.errorRate > 0 ? styles.errorCell : styles.numCell}>
+                          {formatErrorRate(upstream.errorRate)}
                         </td>
-                        <td className={styles.numCell}>{formatDuration(op.p95Duration, op.durationUnit)}</td>
+                        <td className={styles.numCell}>
+                          {formatDuration(upstream.p95Duration, upstream.durationUnit)}
+                        </td>
+                        <td className={styles.numCell}>
+                          <ImpactBar impact={upstream.impact} />
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-              </>
-            )}
-          </>
-        )}
+              )}
+
+              {/* Operations calling this dependency */}
+              {data.operations && data.operations.length > 0 && (
+                <>
+                  <h3 className={styles.sectionTitle}>Operations</h3>
+                  <p className={styles.sectionSubtitle}>
+                    Client-side operations that call this dependency (from spanmetrics <code>peer.service</code>{' '}
+                    dimension).
+                  </p>
+                  <table className={styles.table}>
+                    <thead>
+                      <tr>
+                        <th>Operation</th>
+                        <th>Calling Service</th>
+                        {hasDbDetail && <th>Target</th>}
+                        {hasMsgDetail && <th>Topic</th>}
+                        <th>Throughput</th>
+                        <th>Error %</th>
+                        <th>Latency (P95)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.operations.map((op: DependencyOperation, idx: number) => (
+                        <tr key={`${op.spanName}-${op.callingService}-${idx}`}>
+                          <td className={styles.nameCell} title={op.spanName}>
+                            {op.spanName}
+                          </td>
+                          <td title={op.callingService}>{op.callingService}</td>
+                          {hasDbDetail && (
+                            <td title={[op.dbName, op.dbOperation].filter(Boolean).join(' ')}>
+                              {[op.dbName, op.dbOperation].filter(Boolean).join(' · ') || '—'}
+                            </td>
+                          )}
+                          {hasMsgDetail && <td title={op.messagingDestination}>{op.messagingDestination || '—'}</td>}
+                          <td className={styles.numCell}>{formatRate(op.rate)}</td>
+                          <td className={op.errorRate > 0 ? styles.errorCell : styles.numCell}>
+                            {formatErrorRate(op.errorRate)}
+                          </td>
+                          <td className={styles.numCell}>{formatDuration(op.p95Duration, op.durationUnit)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </>
+              )}
+            </>
+          )}
+        </DataState>
       </div>
     </PluginPage>
   );
@@ -391,6 +389,7 @@ function DependencyDetail() {
 
 const getStyles = (theme: GrafanaTheme2) => ({
   ...getTableStyles(theme),
+  ...getSectionStyles(theme),
   container: css`
     display: flex;
     flex-direction: column;
@@ -457,15 +456,6 @@ const getStyles = (theme: GrafanaTheme2) => ({
     font-weight: ${theme.typography.fontWeightMedium};
     font-variant-numeric: tabular-nums;
     color: ${theme.colors.error.text};
-  `,
-  sectionTitle: css`
-    margin-top: ${theme.spacing(2)};
-    margin-bottom: ${theme.spacing(0.5)};
-    font-size: ${theme.typography.h4.fontSize};
-  `,
-  sectionDesc: css`
-    color: ${theme.colors.text.secondary};
-    margin-bottom: ${theme.spacing(2)};
   `,
   linkNameCell: css`
     font-weight: ${theme.typography.fontWeightMedium};

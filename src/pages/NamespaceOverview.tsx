@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { PluginPage } from '@grafana/runtime';
-import { Alert, Combobox, LoadingPlaceholder, useStyles2 } from '@grafana/ui';
+import { Combobox, useStyles2 } from '@grafana/ui';
 import { GrafanaTheme2, PageLayoutType } from '@grafana/data';
 import { css } from '@emotion/css';
 import {
@@ -14,9 +14,12 @@ import {
 } from '../api/client';
 import { useTimeRange } from '../utils/timeRange';
 import { useAppNavigate, sanitizeParam } from '../utils/navigation';
+import { extractEnvironmentOptions } from '../utils/options';
+import { getSectionStyles } from '../utils/styles';
 import { useFetch } from '../utils/useFetch';
 import { ServiceGraph, toGraphData } from '../components/ServiceGraph';
-import { BackButton } from '../components/BackButton';
+import { PageHeader } from '../components/PageHeader';
+import { DataState } from '../components/DataState';
 import { NamespaceStats } from './namespace/NamespaceStats';
 import { NamespaceServicesTable } from './namespace/NamespaceServicesTable';
 import { NamespaceDependencies } from './namespace/NamespaceDependencies';
@@ -78,10 +81,7 @@ function NamespaceOverview() {
   }, [sparklineResult]);
 
   // Compute unique environments for dropdown (from unfiltered data to prevent dropdown disappearing)
-  const envOptions = useMemo<Array<{ label: string; value: string }>>(() => {
-    const envs = new Set((allEnvServices ?? []).map((s) => s.environment).filter((e): e is string => !!e));
-    return [...envs].sort().map((e) => ({ label: e, value: e }));
-  }, [allEnvServices]);
+  const envOptions = useMemo(() => extractEnvironmentOptions(allEnvServices ?? []), [allEnvServices]);
 
   // Use backend-filtered service map directly for topology
   const { graphNodes, graphEdges } = useMemo(() => {
@@ -147,14 +147,12 @@ function NamespaceOverview() {
   return (
     <PluginPage layout={PageLayoutType.Canvas}>
       <div className={styles.container}>
-        {/* Header */}
-        <div className={styles.header}>
-          <div className={styles.headerLeft}>
-            <BackButton label="Services" onClick={handleBack} />
-            <h2 className={styles.title}>{decodedNs}</h2>
-          </div>
-          <div className={styles.headerRight}>
-            {(envOptions.length > 1 || envFilter) && (
+        <PageHeader
+          title={decodedNs}
+          backLabel="Services"
+          onBack={handleBack}
+          controls={
+            envOptions.length > 1 || envFilter ? (
               <Combobox
                 options={[{ label: 'All environments', value: '' }, ...envOptions]}
                 value={envFilter}
@@ -162,117 +160,85 @@ function NamespaceOverview() {
                 placeholder="All environments"
                 width={28}
               />
-            )}
-          </div>
-        </div>
+            ) : undefined
+          }
+        />
 
-        {/* Loading / error states */}
-        {servicesError && (
-          <Alert severity="error" title="Error loading services">
-            {servicesError}
-          </Alert>
-        )}
-        {servicesLoading && <LoadingPlaceholder text="Loading namespace data..." />}
+        <DataState
+          loading={servicesLoading}
+          error={servicesError}
+          errorTitle="Error loading services"
+          empty={!servicesLoading && services.length === 0}
+          emptyTitle="No services found"
+          emptyMessage={
+            <>
+              No services found for namespace <strong>{decodedNs}</strong>
+              {envFilter ? ` in environment ${envFilter}` : ''}.
+            </>
+          }
+          loadingText="Loading namespace data..."
+        >
+          {/* Stats tiles */}
+          <NamespaceStats services={services} />
 
-        {!servicesLoading && services.length === 0 && (
-          <Alert severity="info" title="No services found">
-            No services found for namespace <strong>{decodedNs}</strong>
-            {envFilter ? ` in environment ${envFilter}` : ''}.
-          </Alert>
-        )}
-
-        {!servicesLoading && services.length > 0 && (
-          <>
-            {/* Stats tiles */}
-            <NamespaceStats services={services} />
-
-            {/* Topology graph */}
-            {graphNodes.length > 0 && (
-              <div className={styles.section}>
-                <h3 className={styles.sectionTitle}>Service Topology</h3>
-                <div style={{ height: 500, borderRadius: 4, overflow: 'hidden' }}>
-                  <ServiceGraph
-                    nodes={graphNodes}
-                    edges={graphEdges}
-                    direction="RIGHT"
-                    enableGrouping={false}
-                    onNodeClick={(nodeId) => {
-                      const svc = services.find((s) => s.name === nodeId);
-                      if (svc) {
-                        handleServiceClick(svc.namespace, svc.name);
-                      }
-                    }}
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Services table */}
+          {/* Topology graph */}
+          {graphNodes.length > 0 && (
             <div className={styles.section}>
-              <h3 className={styles.sectionTitle}>Services</h3>
-              <NamespaceServicesTable
-                services={services}
-                sparklineMap={sparklineMap}
-                showEnvironment={!envFilter && envOptions.length > 1}
-                search={svcSearch}
-                page={svcPage}
-                onSearchChange={(q) => updateParam('svcSearch', q || null)}
-                onPageChange={(p) => updateParam('svcPage', p > 1 ? String(p) : null)}
-                onServiceClick={handleServiceClick}
-              />
+              <h3 className={styles.sectionTitle}>Service Topology</h3>
+              <div style={{ height: 500, borderRadius: 4, overflow: 'hidden' }}>
+                <ServiceGraph
+                  nodes={graphNodes}
+                  edges={graphEdges}
+                  direction="RIGHT"
+                  enableGrouping={false}
+                  onNodeClick={(nodeId) => {
+                    const svc = services.find((s) => s.name === nodeId);
+                    if (svc) {
+                      handleServiceClick(svc.namespace, svc.name);
+                    }
+                  }}
+                />
+              </div>
             </div>
+          )}
 
-            {/* External dependencies */}
-            {!depsLoading && depsResult && (
-              <NamespaceDependencies
-                dependencies={depsResult.dependencies}
-                page={depPage}
-                onPageChange={(p) => updateParam('depPage', p > 1 ? String(p) : null)}
-              />
-            )}
-          </>
-        )}
+          {/* Services table */}
+          <div className={styles.section}>
+            <h3 className={styles.sectionTitle}>Services</h3>
+            <NamespaceServicesTable
+              services={services}
+              sparklineMap={sparklineMap}
+              showEnvironment={!envFilter && envOptions.length > 1}
+              search={svcSearch}
+              page={svcPage}
+              onSearchChange={(q) => updateParam('svcSearch', q || null)}
+              onPageChange={(p) => updateParam('svcPage', p > 1 ? String(p) : null)}
+              onServiceClick={handleServiceClick}
+            />
+          </div>
+
+          {/* External dependencies */}
+          {!depsLoading && depsResult && (
+            <NamespaceDependencies
+              dependencies={depsResult.dependencies}
+              page={depPage}
+              onPageChange={(p) => updateParam('depPage', p > 1 ? String(p) : null)}
+            />
+          )}
+        </DataState>
       </div>
     </PluginPage>
   );
 }
 
 const getStyles = (theme: GrafanaTheme2) => ({
+  ...getSectionStyles(theme),
   container: css`
     display: flex;
     flex-direction: column;
     flex: 1;
     min-height: 0;
     padding: 0;
-  `,
-  header: css`
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: ${theme.spacing(3)};
-    flex-wrap: wrap;
-    gap: ${theme.spacing(1)};
-  `,
-  headerLeft: css`
-    display: flex;
-    align-items: center;
-    gap: ${theme.spacing(1)};
-  `,
-  headerRight: css`
-    display: flex;
-    align-items: center;
-    gap: ${theme.spacing(1)};
-  `,
-  title: css`
-    margin: 0;
-    font-size: ${theme.typography.h2.fontSize};
-  `,
-  section: css`
-    margin-top: ${theme.spacing(3)};
-  `,
-  sectionTitle: css`
-    margin-bottom: ${theme.spacing(1)};
-    font-size: ${theme.typography.h4.fontSize};
   `,
 });
 

@@ -5,6 +5,7 @@ import { css } from '@emotion/css';
 import { EmbeddedScene } from '@grafana/scenes';
 import { OperationSummary, ConnectedServicesResponse } from '../../api/client';
 import { formatDuration } from '../../utils/format';
+import { getSectionStyles } from '../../utils/styles';
 import { ServiceGraph, ServiceGraphNode, ServiceGraphEdge } from '../../components/ServiceGraph';
 
 const MAX_OVERVIEW_OPS = 5;
@@ -227,18 +228,7 @@ function ConnectedTable({ title, icon, services, onNavigate }: ConnectedTablePro
 // --- Styles ---
 
 const getStyles = (theme: GrafanaTheme2) => ({
-  section: css`
-    margin-top: ${theme.spacing(3)};
-  `,
-  sectionTitle: css`
-    margin-bottom: ${theme.spacing(0.5)};
-    font-size: ${theme.typography.h4.fontSize};
-  `,
-  sectionSubtitle: css`
-    margin: 0 0 ${theme.spacing(1.5)} 0;
-    color: ${theme.colors.text.secondary};
-    font-size: ${theme.typography.bodySmall.fontSize};
-  `,
+  ...getSectionStyles(theme),
   connectedGrid: css`
     display: grid;
     grid-template-columns: 1fr 1fr;

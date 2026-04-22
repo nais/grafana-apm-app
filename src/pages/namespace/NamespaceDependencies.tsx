@@ -1,9 +1,8 @@
 import React, { useMemo } from 'react';
 import { Pagination, useStyles2 } from '@grafana/ui';
-import { GrafanaTheme2 } from '@grafana/data';
-import { css } from '@emotion/css';
 import { NamespaceDependency } from '../../api/client';
 import { useTableSort, SortHeader, getTableStyles } from '../../components/SortableTable';
+import { getSectionStyles } from '../../utils/styles';
 import { DepTypeIcon } from '../../components/DepTypeIcon';
 
 const PAGE_SIZE = 10;
@@ -18,7 +17,7 @@ type SortField = 'name' | 'callerCount' | 'rate' | 'errorRate' | 'p95Duration';
 
 export function NamespaceDependencies({ dependencies, page, onPageChange }: NamespaceDependenciesProps) {
   const tableStyles = useStyles2(getTableStyles);
-  const styles = useStyles2(getLocalStyles);
+  const sectionStyles = useStyles2(getSectionStyles);
   const { sortField, sortDir, toggleSort, comparator } = useTableSort<SortField>('rate');
 
   const sorted = useMemo(() => [...dependencies].sort(comparator), [dependencies, comparator]);
@@ -32,9 +31,9 @@ export function NamespaceDependencies({ dependencies, page, onPageChange }: Name
   const paginated = sorted.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   return (
-    <div className={styles.section}>
-      <h3 className={styles.sectionTitle}>External Dependencies</h3>
-      <p className={styles.sectionSubtitle}>
+    <div className={sectionStyles.section}>
+      <h3 className={sectionStyles.sectionTitle}>External Dependencies</h3>
+      <p className={sectionStyles.sectionSubtitle}>
         Services and resources outside this namespace that are called by namespace services.
       </p>
       <table className={tableStyles.table}>
@@ -83,18 +82,3 @@ export function NamespaceDependencies({ dependencies, page, onPageChange }: Name
     </div>
   );
 }
-
-const getLocalStyles = (theme: GrafanaTheme2) => ({
-  section: css`
-    margin-top: ${theme.spacing(3)};
-  `,
-  sectionTitle: css`
-    margin-bottom: ${theme.spacing(0.5)};
-    font-size: ${theme.typography.h4.fontSize};
-  `,
-  sectionSubtitle: css`
-    margin: 0 0 ${theme.spacing(1.5)} 0;
-    color: ${theme.colors.text.secondary};
-    font-size: ${theme.typography.bodySmall.fontSize};
-  `,
-});

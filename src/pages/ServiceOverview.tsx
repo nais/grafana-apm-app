@@ -6,7 +6,7 @@ import { GrafanaTheme2, PageLayoutType } from '@grafana/data';
 import { css } from '@emotion/css';
 import { buildTempoExploreUrl, buildLokiExploreUrl } from '../utils/explore';
 import { FrameworkBadge } from '../components/FrameworkBadge';
-import { BackButton } from '../components/BackButton';
+import { PageHeader } from '../components/PageHeader';
 import {
   getOperations,
   getServices,
@@ -20,6 +20,7 @@ import { usePluginDatasources, useHasEnvironmentOverrides } from '../utils/datas
 import { useTimeRange } from '../utils/timeRange';
 import { useCapabilities, getMetricNames } from '../utils/capabilities';
 import { useAppNavigate, sanitizeParam } from '../utils/navigation';
+import { extractEnvironmentOptions } from '../utils/options';
 import { useFetch } from '../utils/useFetch';
 import { toGraphData } from '../components/ServiceGraph';
 import { buildServiceScene } from './buildServiceScene';
@@ -128,18 +129,7 @@ function ServiceOverview() {
     const match = serviceList?.find((s) => s.name === service && s.namespace === namespace);
     return match?.framework ?? '';
   }, [serviceList, service, namespace]);
-  const environments = useMemo(() => {
-    if (!serviceList) {
-      return [];
-    }
-    const envSet = new Set<string>();
-    for (const s of serviceList) {
-      if (s.environment) {
-        envSet.add(s.environment);
-      }
-    }
-    return [...envSet].sort();
-  }, [serviceList]);
+  const envOptions = useMemo(() => extractEnvironmentOptions(serviceList ?? []), [serviceList]);
 
   // Fetch operations
   const {
@@ -228,70 +218,69 @@ function ServiceOverview() {
   return (
     <PluginPage layout={PageLayoutType.Canvas}>
       <div className={styles.container}>
-        {/* Header */}
-        <div className={styles.header}>
-          <div className={styles.titleRow}>
-            <BackButton label="Services" onClick={() => appNavigate('services')} />
-            <h2 className={styles.title}>
+        <PageHeader
+          title={
+            <>
               {namespace ? `${namespace}/` : ''}
               {service}
-            </h2>
-            {framework && <FrameworkBadge framework={framework} />}
-          </div>
-          <div className={styles.headerLinks}>
-            {activeTab === 'overview' && (
-              <>
-                <label className={styles.controlLabel}>Percentile:</label>
+            </>
+          }
+          backLabel="Services"
+          onBack={() => appNavigate('services')}
+          after={framework ? <FrameworkBadge framework={framework} /> : undefined}
+          controls={
+            <>
+              {activeTab === 'overview' && (
+                <>
+                  <label className={styles.controlLabel}>Percentile:</label>
+                  <Combobox
+                    options={PERCENTILE_OPTIONS}
+                    value={percentile}
+                    onChange={(v) => setPercentile(v.value ?? '0.95')}
+                    width={10}
+                  />
+                </>
+              )}
+              {envOptions.length > 1 && (
                 <Combobox
-                  options={PERCENTILE_OPTIONS}
-                  value={percentile}
-                  onChange={(v) => setPercentile(v.value ?? '0.95')}
-                  width={10}
+                  options={[{ label: 'All environments', value: '' }, ...envOptions]}
+                  value={envFilter}
+                  onChange={(v) => {
+                    const next = new URLSearchParams(searchParams);
+                    if (v.value) {
+                      next.set('environment', v.value);
+                    } else {
+                      next.delete('environment');
+                    }
+                    setSearchParams(next, { replace: true });
+                  }}
+                  width={20}
+                  placeholder="Environment"
                 />
-              </>
-            )}
-            {environments.length > 1 && (
-              <Combobox
-                options={[
-                  { label: 'All environments', value: '' },
-                  ...environments.map((e) => ({ label: e, value: e })),
-                ]}
-                value={envFilter}
-                onChange={(v) => {
-                  const next = new URLSearchParams(searchParams);
-                  if (v.value) {
-                    next.set('environment', v.value);
-                  } else {
-                    next.delete('environment');
-                  }
-                  setSearchParams(next, { replace: true });
-                }}
-                width={20}
-                placeholder="Environment"
-              />
-            )}
-            {caps?.tempo?.available !== false && (
-              <LinkButton
-                variant="secondary"
-                size="sm"
-                icon="compass"
-                href={buildTempoExploreUrl(ds.tracesUid, service, { namespace })}
-              >
-                Traces
-              </LinkButton>
-            )}
-            {caps?.loki?.available !== false && (
-              <LinkButton
-                variant="secondary"
-                size="sm"
-                icon="document-info"
-                href={buildLokiExploreUrl(ds.logsUid, service, { namespace })}
-              >
-                Logs
-              </LinkButton>
-            )}
-          </div>
-        </div>
+              )}
+              {caps?.tempo?.available !== false && (
+                <LinkButton
+                  variant="secondary"
+                  size="sm"
+                  icon="compass"
+                  href={buildTempoExploreUrl(ds.tracesUid, service, { namespace })}
+                >
+                  Traces
+                </LinkButton>
+              )}
+              {caps?.loki?.available !== false && (
+                <LinkButton
+                  variant="secondary"
+                  size="sm"
+                  icon="document-info"
+                  href={buildLokiExploreUrl(ds.logsUid, service, { namespace })}
+                >
+                  Logs
+                </LinkButton>
+              )}
+            </>
+          }
+        />
 
         {/* Tabs — hide when required datasource is unavailable */}
         <TabsBar>
@@ -423,30 +412,6 @@ const getStyles = (theme: GrafanaTheme2) => ({
     flex: 1;
     min-height: 0;
     padding: 0;
-  `,
-  header: css`
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: ${theme.spacing(1)};
-    flex-wrap: wrap;
-    gap: ${theme.spacing(1)};
-  `,
-  titleRow: css`
-    display: flex;
-    align-items: center;
-    gap: ${theme.spacing(1.5)};
-    flex-wrap: wrap;
-  `,
-  title: css`
-    margin: 0;
-    font-size: ${theme.typography.h2.fontSize};
-  `,
-  headerLinks: css`
-    display: flex;
-    align-items: center;
-    gap: ${theme.spacing(1)};
-    flex-wrap: wrap;
   `,
   tabContent: css`
     margin-top: ${theme.spacing(2)};
