@@ -13,10 +13,16 @@ type SortField = 'name' | 'rate' | 'errorRate' | 'p95Duration';
 interface NamespaceServicesTableProps {
   services: ServiceSummary[];
   sparklineMap?: Map<string, ServiceSummary>;
-  onServiceClick: (namespace: string, service: string) => void;
+  showEnvironment?: boolean;
+  onServiceClick: (namespace: string, service: string, environment?: string) => void;
 }
 
-export function NamespaceServicesTable({ services, sparklineMap, onServiceClick }: NamespaceServicesTableProps) {
+export function NamespaceServicesTable({
+  services,
+  sparklineMap,
+  showEnvironment,
+  onServiceClick,
+}: NamespaceServicesTableProps) {
   const tableStyles = useStyles2(getTableStyles);
   const styles = useStyles2(getLocalStyles);
   const { sortField, sortDir, toggleSort, comparator } = useTableSort<SortField>('rate');
@@ -26,15 +32,17 @@ export function NamespaceServicesTable({ services, sparklineMap, onServiceClick 
   return (
     <table className={tableStyles.table}>
       <colgroup>
-        <col style={{ width: '30%' }} />
+        <col style={{ width: showEnvironment ? '25%' : '30%' }} />
+        {showEnvironment && <col style={{ width: '15%' }} />}
         <col style={{ width: '15%' }} />
         <col style={{ width: '15%' }} />
         <col style={{ width: '15%' }} />
-        <col style={{ width: '25%' }} />
+        <col style={{ width: showEnvironment ? '15%' : '25%' }} />
       </colgroup>
       <thead>
         <tr>
           <SortHeader field="name" label="Service" sortField={sortField} sortDir={sortDir} onSort={toggleSort} />
+          {showEnvironment && <th>Environment</th>}
           <SortHeader field="rate" label="Rate" sortField={sortField} sortDir={sortDir} onSort={toggleSort} />
           <SortHeader field="errorRate" label="Error %" sortField={sortField} sortDir={sortDir} onSort={toggleSort} />
           <SortHeader field="p95Duration" label="P95" sortField={sortField} sortDir={sortDir} onSort={toggleSort} />
@@ -49,12 +57,13 @@ export function NamespaceServicesTable({ services, sparklineMap, onServiceClick 
             <tr
               key={`${svc.name}/${svc.environment ?? ''}`}
               className={tableStyles.clickableRow}
-              onClick={() => onServiceClick(svc.namespace, svc.name)}
+              onClick={() => onServiceClick(svc.namespace, svc.name, svc.environment)}
             >
               <td className={tableStyles.nameCell}>
                 {svc.name}
                 <FrameworkBadge framework={svc.framework} className={styles.badge} />
               </td>
+              {showEnvironment && <td className={tableStyles.numCell}>{svc.environment ?? '—'}</td>}
               <td className={tableStyles.numCell}>{svc.rate.toFixed(2)} req/s</td>
               <td className={svc.errorRate > 0 ? tableStyles.errorCell : tableStyles.numCell}>
                 {svc.errorRate.toFixed(2)}%

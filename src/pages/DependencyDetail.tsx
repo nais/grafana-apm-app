@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { PluginPage } from '@grafana/runtime';
-import { useStyles2, Icon, LoadingPlaceholder, Alert, LinkButton } from '@grafana/ui';
+import { useStyles2, Icon, LoadingPlaceholder, Alert } from '@grafana/ui';
 import { GrafanaTheme2, PageLayoutType } from '@grafana/data';
 import { css } from '@emotion/css';
 import {
@@ -26,6 +26,7 @@ import { formatDuration, formatRate, formatErrorRate } from '../utils/format';
 import { useTimeRange } from '../utils/timeRange';
 import { useAppNavigate, sanitizeParam } from '../utils/navigation';
 import { DepTypeIcon } from '../components/DepTypeIcon';
+import { BackButton } from '../components/BackButton';
 import { SortHeader, ImpactBar, useTableSort, getTableStyles } from '../components/SortableTable';
 import { useFetch } from '../utils/useFetch';
 import { usePluginDatasources } from '../utils/datasources';
@@ -211,17 +212,7 @@ function DependencyDetail() {
     <PluginPage layout={PageLayoutType.Canvas}>
       <div className={styles.container}>
         <div className={styles.header}>
-          <LinkButton
-            variant="secondary"
-            size="sm"
-            icon="arrow-left"
-            fill="text"
-            onClick={() => {
-              appNavigate('dependencies');
-            }}
-          >
-            Dependencies
-          </LinkButton>
+          <BackButton label="Dependencies" onClick={() => appNavigate('dependencies')} />
         </div>
 
         {loading && <LoadingPlaceholder text="Loading dependency details..." />}

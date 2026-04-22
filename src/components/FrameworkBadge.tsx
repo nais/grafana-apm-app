@@ -32,7 +32,7 @@ function badgeStyle(bg: string) {
   return css`
     display: inline-flex;
     align-items: center;
-    padding: 2px 10px;
+    padding: 1px 8px;
     border-radius: 4px;
     font-size: 12px;
     font-weight: 400;

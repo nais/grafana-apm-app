@@ -6,6 +6,7 @@ import { GrafanaTheme2, PageLayoutType } from '@grafana/data';
 import { css } from '@emotion/css';
 import { buildTempoExploreUrl, buildLokiExploreUrl } from '../utils/explore';
 import { FrameworkBadge } from '../components/FrameworkBadge';
+import { BackButton } from '../components/BackButton';
 import {
   getOperations,
   getServices,
@@ -230,9 +231,7 @@ function ServiceOverview() {
         {/* Header */}
         <div className={styles.header}>
           <div className={styles.titleRow}>
-            <LinkButton variant="secondary" size="sm" icon="arrow-left" onClick={() => appNavigate('services')}>
-              Services
-            </LinkButton>
+            <BackButton label="Services" onClick={() => appNavigate('services')} />
             <h2 className={styles.title}>
               {namespace ? `${namespace}/` : ''}
               {service}

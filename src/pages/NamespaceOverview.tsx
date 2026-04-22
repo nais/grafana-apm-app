@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { PluginPage } from '@grafana/runtime';
-import { Alert, Combobox, Icon, LoadingPlaceholder, useStyles2 } from '@grafana/ui';
+import { Alert, Combobox, LoadingPlaceholder, useStyles2 } from '@grafana/ui';
 import { GrafanaTheme2, PageLayoutType } from '@grafana/data';
 import { css } from '@emotion/css';
 import {
@@ -16,6 +16,7 @@ import { useTimeRange } from '../utils/timeRange';
 import { useAppNavigate, sanitizeParam } from '../utils/navigation';
 import { useFetch } from '../utils/useFetch';
 import { ServiceGraph, toGraphData } from '../components/ServiceGraph';
+import { BackButton } from '../components/BackButton';
 import { NamespaceStats } from './namespace/NamespaceStats';
 import { NamespaceServicesTable } from './namespace/NamespaceServicesTable';
 import { NamespaceDependencies } from './namespace/NamespaceDependencies';
@@ -39,6 +40,12 @@ function NamespaceOverview() {
   } = useFetch<ServiceSummary[]>(
     () => getServices(fromMs, toMs, 60, false, { namespace: decodedNs, environment: envFilter || undefined }),
     [fromMs, toMs, decodedNs, envFilter]
+  );
+
+  // Separate fetch without env filter to discover available environments
+  const { data: allEnvServices } = useFetch<ServiceSummary[]>(
+    () => getServices(fromMs, toMs, 60, false, { namespace: decodedNs }),
+    [fromMs, toMs, decodedNs]
   );
 
   // Lazy-load sparklines after initial data is on screen
@@ -72,11 +79,11 @@ function NamespaceOverview() {
   // Set of service names in this namespace (for topology cap check)
   const namespaceServiceNames = useMemo(() => new Set(services.map((s) => s.name)), [services]);
 
-  // Compute unique environments for dropdown
+  // Compute unique environments for dropdown (from unfiltered data to prevent dropdown disappearing)
   const envOptions = useMemo<Array<{ label: string; value: string }>>(() => {
-    const envs = new Set(services.map((s) => s.environment).filter((e): e is string => !!e));
+    const envs = new Set((allEnvServices ?? []).map((s) => s.environment).filter((e): e is string => !!e));
     return [...envs].sort().map((e) => ({ label: e, value: e }));
-  }, [services]);
+  }, [allEnvServices]);
 
   // Use backend-filtered service map directly for topology
   const { graphNodes, graphEdges } = useMemo(() => {
@@ -108,8 +115,11 @@ function NamespaceOverview() {
   );
 
   const handleServiceClick = useCallback(
-    (ns: string, svc: string) => {
-      appNavigate(`services/${encodeURIComponent(ns || '_')}/${encodeURIComponent(svc)}`);
+    (ns: string, svc: string, env?: string) => {
+      appNavigate(
+        `services/${encodeURIComponent(ns || '_')}/${encodeURIComponent(svc)}`,
+        env ? { environment: env } : undefined
+      );
     },
     [appNavigate]
   );
@@ -124,13 +134,11 @@ function NamespaceOverview() {
         {/* Header */}
         <div className={styles.header}>
           <div className={styles.headerLeft}>
-            <button className={styles.backBtn} onClick={handleBack} title="Back to services">
-              <Icon name="arrow-left" />
-            </button>
+            <BackButton label="Services" onClick={handleBack} />
             <h2 className={styles.title}>{decodedNs}</h2>
           </div>
           <div className={styles.headerRight}>
-            {envOptions.length > 1 && (
+            {(envOptions.length > 1 || envFilter) && (
               <Combobox
                 options={[{ label: 'All environments', value: '' }, ...envOptions]}
                 value={envFilter}
@@ -192,6 +200,7 @@ function NamespaceOverview() {
               <NamespaceServicesTable
                 services={services}
                 sparklineMap={sparklineMap}
+                showEnvironment={!envFilter && envOptions.length > 1}
                 onServiceClick={handleServiceClick}
               />
             </div>
@@ -228,20 +237,6 @@ const getStyles = (theme: GrafanaTheme2) => ({
     display: flex;
     align-items: center;
     gap: ${theme.spacing(1)};
-  `,
-  backBtn: css`
-    background: none;
-    border: 1px solid ${theme.colors.border.medium};
-    border-radius: ${theme.shape.radius.default};
-    padding: ${theme.spacing(0.5)} ${theme.spacing(1)};
-    cursor: pointer;
-    color: ${theme.colors.text.secondary};
-    display: inline-flex;
-    align-items: center;
-    &:hover {
-      background: ${theme.colors.action.hover};
-      color: ${theme.colors.text.primary};
-    }
   `,
   title: css`
     margin: 0;
