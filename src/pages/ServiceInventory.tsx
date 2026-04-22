@@ -26,6 +26,9 @@ const FRAMEWORK_BADGES: Record<string, { text: string; color: 'blue' | 'green' |
   'Spring Boot': { text: 'Spring', color: 'green' },
   'Node.js': { text: 'Node.js', color: 'orange' },
   Go: { text: 'Go', color: 'blue' },
+  Java: { text: 'Java', color: 'green' },
+  Python: { text: 'Python', color: 'blue' },
+  '.NET': { text: '.NET', color: 'purple' },
 };
 
 type SortField = 'name' | 'namespace' | 'environment' | 'p95Duration' | 'errorRate' | 'rate';

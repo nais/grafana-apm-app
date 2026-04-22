@@ -385,6 +385,24 @@ func (a *App) fetchServiceSummaries( //nolint:gocyclo // complex due to parallel
 		}
 	}
 
+	// Fallback: derive framework from telemetry_sdk_language when metric probing didn't match.
+	// This covers languages without framework-specific metrics (Python, .NET) and cases where
+	// the app doesn't emit runtime metrics at all.
+	sdkLangToFramework := map[string]string{
+		"java":   "Java",
+		"go":     "Go",
+		"nodejs": "Node.js",
+		"python": "Python",
+		"dotnet": ".NET",
+	}
+	for _, s := range serviceMap {
+		if s.Framework == "" && s.SDKLanguage != "" {
+			if fw, ok := sdkLangToFramework[s.SDKLanguage]; ok {
+				s.Framework = fw
+			}
+		}
+	}
+
 	// Fill sparkline series
 	if withSeries {
 		for _, r := range resultMap["rateSeries"] {

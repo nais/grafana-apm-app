@@ -57,6 +57,10 @@ const FRAMEWORK_BADGES: Record<string, { label: string; bg: string }> = {
   Ktor: { label: 'Ktor', bg: '#7B68EE' },
   'Spring Boot': { label: 'Spring', bg: '#6DB33F' },
   'Node.js': { label: 'Node.js', bg: '#68A063' },
+  Go: { label: 'Go', bg: '#00ADD8' },
+  Java: { label: 'Java', bg: '#5382A1' },
+  Python: { label: 'Python', bg: '#3776AB' },
+  '.NET': { label: '.NET', bg: '#512BD4' },
 };
 
 function ServiceOverview() {
