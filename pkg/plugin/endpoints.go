@@ -310,6 +310,30 @@ var noisyExactPaths = map[string]bool{
 	"/browserconfig.xml": true,
 }
 
+// isNoisyRoute checks if a route is a framework-generated static asset path.
+func isNoisyRoute(route string) bool {
+	r := strings.ToLower(route)
+	if noisyExactPaths[r] {
+		return true
+	}
+	for _, seg := range noisyPathSegments {
+		if strings.Contains(r, seg) {
+			return true
+		}
+	}
+	for _, p := range noisyPathPrefixes {
+		if strings.HasPrefix(r, p) {
+			return true
+		}
+	}
+	for _, s := range noisyPathSuffixes {
+		if strings.HasSuffix(r, s) {
+			return true
+		}
+	}
+	return false
+}
+
 // filterNoisyEndpoints removes framework-generated static asset routes from
 // HTTP endpoint lists so users see only their real API endpoints.
 func filterNoisyEndpoints(eps []queries.EndpointSummary) []queries.EndpointSummary {
@@ -319,37 +343,7 @@ func filterNoisyEndpoints(eps []queries.EndpointSummary) []queries.EndpointSumma
 		if route == "" {
 			route = ep.SpanName
 		}
-		routeLower := strings.ToLower(route)
-
-		skip := false
-		if noisyExactPaths[routeLower] {
-			skip = true
-		}
-		if !skip {
-			for _, seg := range noisyPathSegments {
-				if strings.Contains(routeLower, seg) {
-					skip = true
-					break
-				}
-			}
-		}
-		if !skip {
-			for _, prefix := range noisyPathPrefixes {
-				if strings.HasPrefix(routeLower, prefix) {
-					skip = true
-					break
-				}
-			}
-		}
-		if !skip {
-			for _, suffix := range noisyPathSuffixes {
-				if strings.HasSuffix(routeLower, suffix) {
-					skip = true
-					break
-				}
-			}
-		}
-		if !skip {
+		if !isNoisyRoute(route) {
 			out = append(out, ep)
 		}
 	}

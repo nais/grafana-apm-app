@@ -111,6 +111,50 @@ func TestCallResource(t *testing.T) {
 			path:      "not_found",
 			expStatus: http.StatusNotFound,
 		},
+		// POST rejection tests (requireGET enforcement)
+		{
+			name:      "post services rejected 405",
+			method:    http.MethodPost,
+			path:      "services",
+			expStatus: http.StatusMethodNotAllowed,
+		},
+		{
+			name:      "post capabilities rejected 405",
+			method:    http.MethodPost,
+			path:      "capabilities",
+			expStatus: http.StatusMethodNotAllowed,
+		},
+		{
+			name:      "post service-map rejected 405",
+			method:    http.MethodPost,
+			path:      "service-map",
+			expStatus: http.StatusMethodNotAllowed,
+		},
+		{
+			name:      "post dependencies rejected 405",
+			method:    http.MethodPost,
+			path:      "dependencies",
+			expStatus: http.StatusMethodNotAllowed,
+		},
+		{
+			name:      "post operations rejected 405",
+			method:    http.MethodPost,
+			path:      "services/demo/frontend/operations",
+			expStatus: http.StatusMethodNotAllowed,
+		},
+		// PUT/DELETE rejection
+		{
+			name:      "put services rejected 405",
+			method:    http.MethodPut,
+			path:      "services",
+			expStatus: http.StatusMethodNotAllowed,
+		},
+		{
+			name:      "delete capabilities rejected 405",
+			method:    http.MethodDelete,
+			path:      "capabilities",
+			expStatus: http.StatusMethodNotAllowed,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var r mockCallResourceResponseSender

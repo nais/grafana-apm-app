@@ -3,7 +3,6 @@ package plugin
 import (
 	"context"
 	"fmt"
-	"math"
 	"net/http"
 	"sync"
 	"time"
@@ -12,33 +11,7 @@ import (
 	"github.com/nais/grafana-otel-plugin/pkg/plugin/queries"
 )
 
-// ServiceMapNode represents a node in the service map.
-type ServiceMapNode struct {
-	ID            string  `json:"id"`
-	Title         string  `json:"title"`
-	SubTitle      string  `json:"subtitle,omitempty"`
-	MainStat      string  `json:"mainStat,omitempty"`
-	SecondaryStat string  `json:"secondaryStat,omitempty"`
-	ArcErrors     float64 `json:"arc__errors"` //nolint:revive // JSON field required by Grafana node graph
-	ArcOK         float64 `json:"arc__ok"`     //nolint:revive // JSON field required by Grafana node graph
-	NodeType      string  `json:"nodeType,omitempty"`
-	ErrorRate     float64 `json:"errorRate"`
-}
-
-// ServiceMapEdge represents an edge between two services.
-type ServiceMapEdge struct {
-	ID            string  `json:"id"`
-	Source        string  `json:"source"`
-	Target        string  `json:"target"`
-	MainStat      string  `json:"mainStat,omitempty"`
-	SecondaryStat string  `json:"secondaryStat,omitempty"`
-}
-
-// ServiceMapResponse is the full service map graph.
-type ServiceMapResponse struct {
-	Nodes []ServiceMapNode `json:"nodes"`
-	Edges []ServiceMapEdge `json:"edges"`
-}
+// ServiceMapNode, ServiceMapEdge, ServiceMapResponse → models.go
 
 func (a *App) handleServiceMap(w http.ResponseWriter, req *http.Request) {
 	if !requireGET(w, req) {
@@ -205,7 +178,7 @@ func (a *App) queryServiceMap( //nolint:gocyclo // complex due to parallel queri
 		}
 		e := getEdge(client, server)
 		v := r.Value.Float()
-		if !math.IsNaN(v) && !math.IsInf(v, 0) {
+		if isValidMetricValue(v) {
 			e.p95 = v
 		}
 	}
@@ -267,7 +240,7 @@ func (a *App) queryServiceMap( //nolint:gocyclo // complex due to parallel queri
 		}
 	}
 
-	var nodes []ServiceMapNode
+	nodes := make([]ServiceMapNode, 0, len(nodeSet))
 	for name := range nodeSet {
 		agg := nodeAggs[name]
 		errPct := 0.0
@@ -297,7 +270,7 @@ func (a *App) queryServiceMap( //nolint:gocyclo // complex due to parallel queri
 		})
 	}
 
-	var edgeList []ServiceMapEdge
+	edgeList := make([]ServiceMapEdge, 0, len(edges))
 	for k, e := range edges {
 		mainStat := fmt.Sprintf("%.1f req/s", e.rate)
 		secondaryStat := ""
@@ -311,13 +284,6 @@ func (a *App) queryServiceMap( //nolint:gocyclo // complex due to parallel queri
 			MainStat:      mainStat,
 			SecondaryStat: secondaryStat,
 		})
-	}
-
-	if nodes == nil {
-		nodes = []ServiceMapNode{}
-	}
-	if edgeList == nil {
-		edgeList = []ServiceMapEdge{}
 	}
 
 	return ServiceMapResponse{Nodes: nodes, Edges: edgeList}

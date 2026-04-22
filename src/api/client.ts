@@ -59,6 +59,11 @@ async function fetchResource<T>(path: string, params?: Record<string, string>): 
   return response.data;
 }
 
+/** Convert millisecond timestamps to the seconds-based params the backend expects. */
+function timeParams(from: number, to: number): Record<string, string> {
+  return { from: String(Math.floor(from / 1000)), to: String(Math.floor(to / 1000)) };
+}
+
 export async function getCapabilities(): Promise<Capabilities> {
   return fetchResource<Capabilities>('/capabilities');
 }
@@ -71,8 +76,7 @@ export async function getServices(
   filters?: { namespace?: string; environment?: string }
 ): Promise<ServiceSummary[]> {
   const params: Record<string, string> = {
-    from: String(Math.floor(from / 1000)),
-    to: String(Math.floor(to / 1000)),
+    ...timeParams(from, to),
     step: String(step),
     withSeries: String(withSeries),
   };
@@ -104,10 +108,7 @@ export async function getOperations(
 ): Promise<OperationSummary[]> {
   return fetchResource<OperationSummary[]>(
     `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(service)}/operations`,
-    {
-      from: String(Math.floor(from / 1000)),
-      to: String(Math.floor(to / 1000)),
-    }
+    timeParams(from, to)
   );
 }
 
@@ -143,8 +144,7 @@ export async function getServiceMap(
   namespace?: string
 ): Promise<ServiceMapResponse> {
   const params: Record<string, string> = {
-    from: String(Math.floor(from / 1000)),
-    to: String(Math.floor(to / 1000)),
+    ...timeParams(from, to),
   };
   if (service) {
     params.service = service;
@@ -157,7 +157,7 @@ export async function getServiceMap(
 
 // ---- Connected Services ----
 
-interface ConnectedService {
+export interface ConnectedService {
   name: string;
   connectionType?: string;
   rate: number;
@@ -179,10 +179,7 @@ export async function getConnectedServices(
 ): Promise<ConnectedServicesResponse> {
   return fetchResource<ConnectedServicesResponse>(
     `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(service)}/connected`,
-    {
-      from: String(Math.floor(from / 1000)),
-      to: String(Math.floor(to / 1000)),
-    }
+    timeParams(from, to)
   );
 }
 
@@ -225,8 +222,7 @@ export async function getServiceDependencies(
   environment?: string
 ): Promise<DependenciesResponse> {
   const params: Record<string, string> = {
-    from: String(Math.floor(from / 1000)),
-    to: String(Math.floor(to / 1000)),
+    ...timeParams(from, to),
   };
   if (environment) {
     params.environment = environment;
@@ -243,8 +239,7 @@ export async function getGlobalDependencies(
   environment?: string
 ): Promise<DependenciesResponse> {
   const params: Record<string, string> = {
-    from: String(Math.floor(from / 1000)),
-    to: String(Math.floor(to / 1000)),
+    ...timeParams(from, to),
   };
   if (environment) {
     params.environment = environment;
@@ -259,8 +254,7 @@ export async function getDependencyDetail(
   environment?: string
 ): Promise<DependencyDetailResponse> {
   const params: Record<string, string> = {
-    from: String(Math.floor(from / 1000)),
-    to: String(Math.floor(to / 1000)),
+    ...timeParams(from, to),
   };
   if (environment) {
     params.environment = environment;
@@ -303,16 +297,13 @@ export async function getEndpoints(
 ): Promise<EndpointGroups> {
   return fetchResource<EndpointGroups>(
     `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(service)}/endpoints`,
-    {
-      from: String(Math.floor(from / 1000)),
-      to: String(Math.floor(to / 1000)),
-    }
+    timeParams(from, to)
   );
 }
 
 // ---- Frontend / Faro metrics ----
 
-interface FrontendMetricsResponse {
+export interface FrontendMetricsResponse {
   available: boolean;
   source?: string; // "mimir" or "loki"
   vitals?: Record<string, number>;
@@ -358,10 +349,7 @@ export async function getGraphQLMetrics(
 ): Promise<GraphQLMetricsResponse> {
   return fetchResource<GraphQLMetricsResponse>(
     `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(service)}/graphql`,
-    {
-      from: String(Math.floor(from / 1000)),
-      to: String(Math.floor(to / 1000)),
-    }
+    timeParams(from, to)
   );
 }
 
@@ -510,9 +498,6 @@ export async function getRuntimeMetrics(
 ): Promise<RuntimeResponse> {
   return fetchResource<RuntimeResponse>(
     `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(service)}/runtime`,
-    {
-      from: String(Math.floor(from / 1000)),
-      to: String(Math.floor(to / 1000)),
-    }
+    timeParams(from, to)
   );
 }

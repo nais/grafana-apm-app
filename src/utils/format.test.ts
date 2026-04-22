@@ -41,4 +41,30 @@ describe('formatDuration', () => {
       expect(formatDuration(1.5, 's')).toBe('1.5s');
     });
   });
+
+  describe('edge cases', () => {
+    it('handles NaN gracefully', () => {
+      // NaN should not crash — the output is implementation-defined
+      const result = formatDuration(NaN, 'ms');
+      expect(typeof result).toBe('string');
+    });
+    it('handles Infinity', () => {
+      const result = formatDuration(Infinity, 'ms');
+      expect(typeof result).toBe('string');
+    });
+    it('handles negative values', () => {
+      const result = formatDuration(-5, 'ms');
+      expect(typeof result).toBe('string');
+    });
+    it('handles zero exactly', () => {
+      expect(formatDuration(0, 'ms')).toBe('< 1ms');
+      expect(formatDuration(0, 's')).toBe('< 1ms');
+    });
+    it('handles boundary at 1ms exactly', () => {
+      expect(formatDuration(1, 'ms')).toBe('1ms');
+    });
+    it('handles boundary at 1000ms exactly', () => {
+      expect(formatDuration(1000, 'ms')).toBe('1.0s');
+    });
+  });
 });

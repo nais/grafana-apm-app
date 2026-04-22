@@ -7,6 +7,14 @@ func isValidMetricValue(v float64) bool {
 	return !math.IsNaN(v) && !math.IsInf(v, 0)
 }
 
+// safeFloat returns 0 for NaN/Inf values, coercing invalid metrics to a safe zero.
+func safeFloat(v float64) float64 {
+	if !isValidMetricValue(v) {
+		return 0
+	}
+	return v
+}
+
 // calculateErrorRate computes an error percentage from an error count rate and
 // total request rate. Returns 0 when the total rate is not positive. The result
 // is clamped to [0, 100].

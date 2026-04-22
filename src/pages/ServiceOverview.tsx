@@ -18,7 +18,15 @@ import {
 import { DashboardCursorSync, TooltipDisplayMode } from '@grafana/schema';
 import { HeatmapColorMode } from '@grafana/schema/dist/esm/raw/composable/heatmap/panelcfg/x/HeatmapPanelCfg_types.gen';
 import { buildTempoExploreUrl, buildLokiExploreUrl, buildMimirExploreUrl } from '../utils/explore';
-import { getOperations, getServices, getServiceMap, OperationSummary, ServiceMapResponse } from '../api/client';
+import {
+  getOperations,
+  getServices,
+  getServiceMap,
+  getConnectedServices,
+  OperationSummary,
+  ServiceMapResponse,
+  ConnectedServicesResponse,
+} from '../api/client';
 import { formatDuration } from '../utils/format';
 import { usePluginDatasources, useHasEnvironmentOverrides } from '../utils/datasources';
 import { useTimeRange } from '../utils/timeRange';
@@ -33,7 +41,7 @@ import { DependenciesTab } from './tabs/DependenciesTab';
 import { ServerTab } from './tabs/ServerTab';
 import { FrontendTab } from './tabs/FrontendTab';
 import { RuntimeTab } from './tabs/RuntimeTab';
-import { ServiceGraph, type ServiceGraphNode, type ServiceGraphEdge } from '../components/ServiceGraph';
+import { ServiceGraph, toGraphData } from '../components/ServiceGraph';
 
 type TabId = 'overview' | 'server' | 'frontend' | 'runtime' | 'dependencies' | 'traces' | 'logs';
 const VALID_TABS: TabId[] = ['overview', 'server', 'frontend', 'runtime', 'dependencies', 'traces', 'logs'];
@@ -106,16 +114,13 @@ function ServiceOverview() {
     [setSearchParams]
   );
   const [percentile, setPercentile] = useState<string>('0.95');
-  const [framework, setFramework] = useState<string>('');
-  const [environments, setEnvironments] = useState<string[]>([]);
-  const [operations, setOperations] = useState<OperationSummary[]>([]);
-  const [opsLoading, setOpsLoading] = useState(true);
-  const [opsError, setOpsError] = useState<string | null>(null);
-  const [connected, setConnected] = useState<import('../api/client').ConnectedServicesResponse | null>(null);
 
-  // Track which tabs have been visited so we keep them mounted
+  // Track which tabs have been visited so we keep them mounted.
+  // The setState-in-effect pattern is intentional: visitedTabs is a monotonically
+  // growing set that prevents re-mounting expensive tab components when switching tabs.
   const [visitedTabs, setVisitedTabs] = useState<Set<TabId>>(new Set(['overview']));
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setVisitedTabs((prev) => {
       if (prev.has(activeTab)) {
         return prev;
@@ -126,87 +131,48 @@ function ServiceOverview() {
     });
   }, [activeTab]);
 
-  // Fetch SDK language and available environments
-  useEffect(() => {
-    const fetchSDK = async () => {
-      try {
-        const svcs = await getServices(fromMs, toMs, 60, false);
-        const match = svcs.find((s) => s.name === service && s.namespace === namespace);
-        if (match?.framework) {
-          setFramework(match.framework);
-        }
-        // Collect unique environments across all services (for filter dropdown)
-        const envSet = new Set<string>();
-        for (const s of svcs) {
-          if (s.environment) {
-            envSet.add(s.environment);
-          }
-        }
-        setEnvironments([...envSet].sort());
-      } catch {
-        // ignore — badge and environments are optional
+  // Fetch service list (for SDK badge + environment list)
+  const { data: serviceList } = useFetch(() => getServices(fromMs, toMs, 60, false), [fromMs, toMs]);
+  const framework = useMemo(() => {
+    const match = serviceList?.find((s) => s.name === service && s.namespace === namespace);
+    return match?.framework ?? '';
+  }, [serviceList, service, namespace]);
+  const environments = useMemo(() => {
+    if (!serviceList) {
+      return [];
+    }
+    const envSet = new Set<string>();
+    for (const s of serviceList) {
+      if (s.environment) {
+        envSet.add(s.environment);
       }
-    };
-    fetchSDK();
-  }, [service, namespace, fromMs, toMs]);
+    }
+    return [...envSet].sort();
+  }, [serviceList]);
 
   // Fetch operations
-  useEffect(() => {
-    const fetchOps = async () => {
-      try {
-        setOpsLoading(true);
-        const ops = await getOperations(namespace, service, fromMs, toMs);
-        setOperations(ops);
-      } catch (e) {
-        setOpsError(e instanceof Error ? e.message : 'Failed to load operations');
-      } finally {
-        setOpsLoading(false);
-      }
-    };
-    fetchOps();
-  }, [service, namespace, fromMs, toMs]);
+  const {
+    data: rawOperations,
+    loading: opsLoading,
+    error: opsError,
+  } = useFetch<OperationSummary[]>(
+    () => getOperations(namespace, service, fromMs, toMs),
+    [service, namespace, fromMs, toMs]
+  );
+  const operations = useMemo(() => rawOperations ?? [], [rawOperations]);
 
   // Fetch service map for overview graph
   const { data: mapData } = useFetch<ServiceMapResponse>(
     () => getServiceMap(fromMs, toMs, service, namespace),
     [service, namespace, fromMs, toMs]
   );
-  const { graphNodes, graphEdges } = useMemo(() => {
-    if (!mapData) {
-      return { graphNodes: [] as ServiceGraphNode[], graphEdges: [] as ServiceGraphEdge[] };
-    }
-    return {
-      graphNodes: mapData.nodes.map((n) => ({
-        id: n.id,
-        title: n.title,
-        mainStat: n.mainStat,
-        secondaryStat: n.secondaryStat,
-        errorRate: n.errorRate ?? 0,
-        nodeType: n.nodeType,
-      })),
-      graphEdges: mapData.edges.map((e) => ({
-        id: e.id,
-        source: e.source,
-        target: e.target,
-        mainStat: e.mainStat,
-        secondaryStat: e.secondaryStat,
-      })),
-    };
-  }, [mapData]);
+  const { graphNodes, graphEdges } = useMemo(() => toGraphData(mapData), [mapData]);
 
   // Fetch connected services (inbound/outbound)
-  useEffect(() => {
-    const fetchConnected = async () => {
-      try {
-        const { getConnectedServices } = await import('../api/client');
-        const data = await getConnectedServices(namespace, service, fromMs, toMs);
-        setConnected(data);
-      } catch {
-        // connected services are optional
-      }
-    };
-    fetchConnected();
-  }, [service, namespace, fromMs, toMs]);
+  const { data: connected } = useFetch<ConnectedServicesResponse>(
+    () => getConnectedServices(namespace, service, fromMs, toMs),
+    [service, namespace, fromMs, toMs]
+  );
 
   const percentileLabel = PERCENTILE_OPTIONS.find((o) => o.value === percentile)?.label ?? 'P95';
 

@@ -89,23 +89,7 @@ var knownGraphQLPrefixes = []string{
 	"graphql_bruker_",
 }
 
-// GraphQLOperation is a single GraphQL operation or resolver.
-type GraphQLOperation struct {
-	Name        string   `json:"name"`
-	Type        string   `json:"type,omitempty"` // query, mutation, or empty
-	Rate        float64  `json:"rate"`
-	ErrorRate   *float64 `json:"errorRate"`   // nil when not computable
-	AvgLatency  float64  `json:"avgLatency"`  // average latency in latencyUnit
-	LatencyUnit string   `json:"latencyUnit"` // "s" or "ms"
-}
-
-// GraphQLMetricsResponse is the API response for GraphQL metrics.
-type GraphQLMetricsResponse struct {
-	Detected   bool               `json:"detected"`
-	Framework  string             `json:"framework,omitempty"`
-	Operations []GraphQLOperation `json:"operations,omitempty"`
-	Fetchers   []GraphQLOperation `json:"fetchers,omitempty"` // DGS datafetchers
-}
+// GraphQLOperation, GraphQLMetricsResponse → models.go
 
 func (a *App) handleGraphQLMetrics(w http.ResponseWriter, req *http.Request) {
 	if !requireGET(w, req) {
@@ -272,7 +256,7 @@ func queryProbeOperations(
 			continue
 		}
 		rate := r.Value.Float()
-		if rate == 0 || math.IsNaN(rate) {
+		if rate == 0 || !isValidMetricValue(rate) {
 			continue
 		}
 
@@ -283,10 +267,7 @@ func queryProbeOperations(
 			key += "|" + r.Metric[probe.typeLabel]
 		}
 
-		lat := latMap[key]
-		if math.IsNaN(lat) || math.IsInf(lat, 0) {
-			lat = 0
-		}
+		lat := safeFloat(latMap[key])
 
 		op := GraphQLOperation{
 			Name:        name,
@@ -354,13 +335,10 @@ func queryDGSFetchers(
 	for _, r := range rateResults {
 		name := r.Metric[opLabel]
 		rate := r.Value.Float()
-		if name == "" || rate == 0 || math.IsNaN(rate) {
+		if name == "" || rate == 0 || !isValidMetricValue(rate) {
 			continue
 		}
-		lat := latMap[name]
-		if math.IsNaN(lat) || math.IsInf(lat, 0) {
-			lat = 0
-		}
+		lat := safeFloat(latMap[name])
 		errRate := float64(0)
 		if rate > 0 {
 			errRate = (errMap[name] / rate) * 100
@@ -438,7 +416,7 @@ func queryPDLOperations(
 		for _, r := range rateResults {
 			rate = r.Value.Float()
 		}
-		if rate == 0 || math.IsNaN(rate) {
+		if rate == 0 || !isValidMetricValue(rate) {
 			continue
 		}
 
@@ -449,9 +427,7 @@ func queryPDLOperations(
 				lat = r.Value.Float()
 			}
 		}
-		if math.IsNaN(lat) || math.IsInf(lat, 0) {
-			lat = 0
-		}
+		lat = safeFloat(lat)
 
 		ops = append(ops, GraphQLOperation{
 			Name:        name,

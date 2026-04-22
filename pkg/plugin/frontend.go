@@ -29,13 +29,7 @@ func (a *App) handleFrontendMetrics(w http.ResponseWriter, req *http.Request) {
 	writeJSON(w, result)
 }
 
-// FrontendMetricsResponse contains browser/Faro metrics for a service.
-type FrontendMetricsResponse struct {
-	Available bool               `json:"available"`
-	Source    string             `json:"source,omitempty"` // "mimir" or "loki"
-	Vitals    map[string]float64 `json:"vitals,omitempty"`
-	ErrorRate float64            `json:"errorRate"`
-}
+// FrontendMetricsResponse → models.go
 
 func (a *App) queryFrontendMetrics(ctx context.Context, namespace, service, env string, at time.Time, headers http.Header) FrontendMetricsResponse {
 	// 1. Try Mimir first

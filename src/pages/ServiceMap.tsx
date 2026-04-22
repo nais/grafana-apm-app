@@ -6,7 +6,7 @@ import { css } from '@emotion/css';
 import { getServiceMap, ServiceMapResponse } from '../api/client';
 import { useTimeRange } from '../utils/timeRange';
 import { useFetch } from '../utils/useFetch';
-import { ServiceGraph, type ServiceGraphNode, type ServiceGraphEdge } from '../components/ServiceGraph';
+import { ServiceGraph, toGraphData } from '../components/ServiceGraph';
 
 function ServiceMap() {
   const styles = useStyles2(getStyles);
@@ -17,27 +17,7 @@ function ServiceMap() {
     error,
   } = useFetch<ServiceMapResponse>(() => getServiceMap(fromMs, toMs), [fromMs, toMs]);
 
-  const { graphNodes, graphEdges } = useMemo(() => {
-    if (!mapData) {
-      return { graphNodes: [], graphEdges: [] };
-    }
-    const graphNodes: ServiceGraphNode[] = mapData.nodes.map((n) => ({
-      id: n.id,
-      title: n.title,
-      mainStat: n.mainStat,
-      secondaryStat: n.secondaryStat,
-      errorRate: n.errorRate ?? 0,
-      nodeType: n.nodeType,
-    }));
-    const graphEdges: ServiceGraphEdge[] = mapData.edges.map((e) => ({
-      id: e.id,
-      source: e.source,
-      target: e.target,
-      mainStat: e.mainStat,
-      secondaryStat: e.secondaryStat,
-    }));
-    return { graphNodes, graphEdges };
-  }, [mapData]);
+  const { graphNodes, graphEdges } = useMemo(() => toGraphData(mapData), [mapData]);
 
   return (
     <PluginPage layout={PageLayoutType.Canvas}>

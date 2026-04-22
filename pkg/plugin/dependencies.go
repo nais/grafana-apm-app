@@ -42,21 +42,7 @@ func coalesceAddress(serverAddress, httpHost string) string {
 	return normalizeAddress(httpHost)
 }
 
-// DependencySummary represents an external dependency (DB, cache, API).
-type DependencySummary struct {
-	Name         string  `json:"name"`
-	Type         string  `json:"type"`
-	Rate         float64 `json:"rate"`
-	ErrorRate    float64 `json:"errorRate"`
-	P95Duration  float64 `json:"p95Duration"`
-	DurationUnit string  `json:"durationUnit"`
-	Impact       float64 `json:"impact"`
-}
-
-// DependenciesResponse wraps a list of dependencies.
-type DependenciesResponse struct {
-	Dependencies []DependencySummary `json:"dependencies"`
-}
+// DependencySummary, DependenciesResponse → models.go
 
 // handleServiceDependencies returns downstream dependencies for a specific service.
 // GET /services/{namespace}/{service}/dependencies?from=&to=&environment=
@@ -140,12 +126,7 @@ func (a *App) handleDependencyDetail(w http.ResponseWriter, req *http.Request) {
 	writeJSON(w, detail)
 }
 
-// DependencyDetailResponse contains dependency info plus upstream callers and operations.
-type DependencyDetailResponse struct {
-	Dependency DependencySummary              `json:"dependency"`
-	Upstreams  []DependencySummary            `json:"upstreams"`
-	Operations []queries.DependencyOperation  `json:"operations"`
-}
+// DependencyDetailResponse → models.go
 
 // depKey uniquely identifies a dependency by server name and connection type.
 type depKey struct {
@@ -342,9 +323,6 @@ func (a *App) queryDependencies(
 		return result[i].Impact > result[j].Impact
 	})
 
-	if result == nil {
-		result = []DependencySummary{}
-	}
 	return result
 }
 
@@ -928,21 +906,7 @@ func looksLikeHostname(name string) bool {
 	return strings.Contains(name, ".") || strings.Contains(name, ":")
 }
 
-// ConnectedService represents a service connected via service graph.
-type ConnectedService struct {
-	Name           string  `json:"name"`
-	ConnectionType string  `json:"connectionType,omitempty"`
-	Rate           float64 `json:"rate"`
-	ErrorRate      float64 `json:"errorRate"`
-	P95Duration    float64 `json:"p95Duration"`
-	DurationUnit   string  `json:"durationUnit"`
-}
-
-// ConnectedServicesResponse contains inbound and outbound service connections.
-type ConnectedServicesResponse struct {
-	Inbound  []ConnectedService `json:"inbound"`
-	Outbound []ConnectedService `json:"outbound"`
-}
+// ConnectedService, ConnectedServicesResponse → models.go
 
 // handleConnectedServices returns inbound and outbound service connections.
 // GET /services/{namespace}/{service}/connected?from=&to=
@@ -1171,13 +1135,6 @@ func (a *App) queryConnectedServices(ctx context.Context, to time.Time, service 
 	sort.Slice(inbound, func(i, j int) bool {
 		return inbound[i].Rate > inbound[j].Rate
 	})
-
-	if outbound == nil {
-		outbound = []ConnectedService{}
-	}
-	if inbound == nil {
-		inbound = []ConnectedService{}
-	}
 
 	return ConnectedServicesResponse{Inbound: inbound, Outbound: outbound}
 }

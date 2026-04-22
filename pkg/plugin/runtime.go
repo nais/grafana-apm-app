@@ -3,7 +3,6 @@ package plugin
 import (
 	"context"
 	"fmt"
-	"math"
 	"net/http"
 	"sort"
 	"sync"
@@ -75,90 +74,55 @@ func (a *App) queryRuntimeMetrics(ctx context.Context, namespace, service string
 	// concurrent categories keeps peak query concurrency around 30.
 	catSem := make(chan struct{}, 3)
 
-	// JVM
-	if discovered[rt.JVM.MemoryUsed] || discovered[rt.JVM.ThreadsLive] || discovered[rt.JVM.Info] {
+	// runCategory launches a guarded goroutine for a runtime category.
+	runCategory := func(detect bool, fn func()) {
+		if !detect {
+			return
+		}
 		wg.Add(1)
 		go func() {
 			catSem <- struct{}{}
 			defer func() { <-catSem }()
 			defer wg.Done()
-			jvm := a.queryJVMRuntime(ctx, client, svcFilter, at, logger)
-			mu.Lock()
-			resp.JVM = jvm
-			mu.Unlock()
+			fn()
 		}()
 	}
 
-	// Node.js
-	if discovered[rt.NodeJS.HeapUsed] || discovered[rt.NodeJS.EventLoopP99] || discovered[rt.NodeJS.VersionInfo] {
-		wg.Add(1)
-		go func() {
-			catSem <- struct{}{}
-			defer func() { <-catSem }()
-			defer wg.Done()
-			nodejs := a.queryNodeJSRuntime(ctx, client, svcFilter, at, logger)
-			mu.Lock()
-			resp.NodeJS = nodejs
-			mu.Unlock()
-		}()
-	}
+	assign := func(fn func()) { mu.Lock(); fn(); mu.Unlock() }
 
-	// DB Pool
-	if discovered[rt.DBPool.HikariActive] || discovered[rt.DBPool.OtelDBActive] {
-		wg.Add(1)
-		go func() {
-			catSem <- struct{}{}
-			defer func() { <-catSem }()
-			defer wg.Done()
-			dbPool := a.queryDBPoolRuntime(ctx, client, svcFilter, at, logger)
-			mu.Lock()
-			resp.DBPool = dbPool
-			mu.Unlock()
-		}()
-	}
+	runCategory(discovered[rt.JVM.MemoryUsed] || discovered[rt.JVM.ThreadsLive] || discovered[rt.JVM.Info], func() {
+		jvm := a.queryJVMRuntime(ctx, client, svcFilter, at, logger)
+		assign(func() { resp.JVM = jvm })
+	})
 
-	// Kafka
-	if discovered[rt.Kafka.ConsumerLagMax] || discovered[rt.Kafka.ConsumerConsumed] || discovered[rt.Kafka.ProducerSent] {
-		wg.Add(1)
-		go func() {
-			catSem <- struct{}{}
-			defer func() { <-catSem }()
-			defer wg.Done()
-			kafka := a.queryKafkaRuntime(ctx, client, svcFilter, at, logger)
-			mu.Lock()
-			resp.Kafka = kafka
-			mu.Unlock()
-		}()
-	}
+	runCategory(discovered[rt.NodeJS.HeapUsed] || discovered[rt.NodeJS.EventLoopP99] || discovered[rt.NodeJS.VersionInfo], func() {
+		nodejs := a.queryNodeJSRuntime(ctx, client, svcFilter, at, logger)
+		assign(func() { resp.NodeJS = nodejs })
+	})
 
-	// Go runtime
-	if discovered[rt.Go.Goroutines] || discovered[rt.Go.MemAlloc] {
-		wg.Add(1)
-		go func() {
-			catSem <- struct{}{}
-			defer func() { <-catSem }()
-			defer wg.Done()
-			goRt := a.queryGoRuntime(ctx, client, svcFilter, at, logger)
-			mu.Lock()
-			resp.Go = goRt
-			mu.Unlock()
-		}()
-	}
+	runCategory(discovered[rt.DBPool.HikariActive] || discovered[rt.DBPool.OtelDBActive], func() {
+		dbPool := a.queryDBPoolRuntime(ctx, client, svcFilter, at, logger)
+		assign(func() { resp.DBPool = dbPool })
+	})
+
+	runCategory(discovered[rt.Kafka.ConsumerLagMax] || discovered[rt.Kafka.ConsumerConsumed] || discovered[rt.Kafka.ProducerSent], func() {
+		kafka := a.queryKafkaRuntime(ctx, client, svcFilter, at, logger)
+		assign(func() { resp.Kafka = kafka })
+	})
+
+	runCategory(discovered[rt.Go.Goroutines] || discovered[rt.Go.MemAlloc], func() {
+		goRt := a.queryGoRuntime(ctx, client, svcFilter, at, logger)
+		assign(func() { resp.Go = goRt })
+	})
 
 	// Container resource metrics (separate filter — uses container/namespace, not app)
 	ctrFilter := a.otelCfg.ContainerFilter(service, namespace)
-	wg.Add(1)
-	go func() {
-		catSem <- struct{}{}
-		defer func() { <-catSem }()
-		defer wg.Done()
+	runCategory(true, func() {
 		ctr := a.queryContainerRuntime(ctx, client, ctrFilter, service, namespace, at, logger)
 		if ctr != nil {
-			mu.Lock()
-			resp.Container = ctr
-			mu.Unlock()
+			assign(func() { resp.Container = ctr })
 		}
-	}()
+	})
 
 	wg.Wait()
 	return resp
@@ -965,12 +929,4 @@ func (a *App) queryContainerRuntime(
 	}
 
 	return ctr
-}
-
-// safeFloat returns 0 for NaN/Inf values.
-func safeFloat(v float64) float64 {
-	if math.IsNaN(v) || math.IsInf(v, 0) {
-		return 0
-	}
-	return v
 }
