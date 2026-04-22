@@ -369,11 +369,6 @@ function ServiceInventory() {
                                 <Badge text="sidecar" color="orange" icon="cog" />
                               </Tooltip>
                             )}
-                            {svc.hasFrontend && (
-                              <span className={styles.faroBadge} title="Faro Web SDK">
-                                🌐
-                              </span>
-                            )}
                           </div>
                         </td>
                         <td>
@@ -606,20 +601,6 @@ const getStyles = (theme: GrafanaTheme2) => ({
     align-items: center;
     justify-content: flex-end;
     gap: ${theme.spacing(0.75)};
-  `,
-  faroBadge: css`
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 3px 6px;
-    border-radius: 4px;
-    font-size: 14px;
-    line-height: 1;
-    height: 22px;
-    box-sizing: border-box;
-    background: ${theme.colors.info.transparent};
-    border: 1px solid ${theme.colors.info.border};
-    color: ${theme.colors.info.text};
   `,
   nsCell: css`
     color: ${theme.colors.text.secondary};
