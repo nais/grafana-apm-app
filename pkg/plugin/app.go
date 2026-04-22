@@ -293,5 +293,6 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/service-map", a.handleServiceMap)
 	mux.HandleFunc("/dependencies", a.handleGlobalDependencies)
 	mux.HandleFunc("/dependencies/{name}", a.handleDependencyDetail)
+	mux.HandleFunc("/namespaces/{namespace}/dependencies", a.handleNamespaceDependencies)
 	mux.HandleFunc("/ping", a.handlePing)
 }

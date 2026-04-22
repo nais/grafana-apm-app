@@ -61,6 +61,122 @@ func (a *App) handleGlobalDependencies(w http.ResponseWriter, req *http.Request)
 	writeJSON(w, DependenciesResponse{Dependencies: deps})
 }
 
+// handleNamespaceDependencies returns external dependencies for all services in a namespace.
+// Uses the service graph edges filtered by namespace to provide callerCount and proper RED metrics.
+// GET /namespaces/{namespace}/dependencies?from=&to=&environment=
+func (a *App) handleNamespaceDependencies(w http.ResponseWriter, req *http.Request) {
+	if !requireGET(w, req) {
+		return
+	}
+	ctx := a.requestContext(req)
+	namespace := queries.MustSanitizeLabel(req.PathValue("namespace"))
+	filterEnv := parseEnvironment(req)
+
+	if namespace == "" {
+		http.Error(w, `{"error":"missing or invalid namespace"}`, http.StatusBadRequest)
+		return
+	}
+
+	caps := a.cachedOrDetectCapabilities(ctx)
+	if !caps.ServiceGraph.Detected {
+		writeJSON(w, NamespaceDependenciesResponse{Dependencies: []NamespaceDependency{}})
+		return
+	}
+
+	now := time.Now()
+	to := parseUnixParam(req, "to", now)
+
+	deps := a.queryNamespaceDependencies(ctx, to, namespace, filterEnv)
+	writeJSON(w, NamespaceDependenciesResponse{Dependencies: deps})
+}
+
+// queryNamespaceDependencies finds external dependencies for a namespace by:
+// 1. Building a service→namespace map from spanmetrics
+// 2. Querying all service graph edges
+// 3. Filtering to outbound edges from namespace services to non-namespace targets
+// 4. Aggregating per-target with callerCount
+func (a *App) queryNamespaceDependencies(
+	ctx context.Context,
+	to time.Time,
+	namespace, filterEnv string,
+) []NamespaceDependency {
+	nsMap := a.buildServiceNamespaceMap(ctx, to, filterEnv)
+
+	// Collect services belonging to this namespace
+	nsServices := make(map[string]bool)
+	for svc, ns := range nsMap {
+		if ns == namespace {
+			nsServices[svc] = true
+		}
+	}
+	if len(nsServices) == 0 {
+		return []NamespaceDependency{}
+	}
+
+	edges := a.queryServiceGraphEdges(ctx, to, filterEnv)
+
+	// Aggregate outbound edges: client in namespace, server NOT in namespace
+	type depAgg struct {
+		callers  map[string]bool
+		rate     float64
+		errRate  float64
+		p95      float64
+		connType string
+	}
+	deps := make(map[string]*depAgg)
+
+	for k, e := range edges {
+		if !nsServices[k.client] {
+			continue
+		}
+		if nsServices[k.server] {
+			continue
+		}
+
+		d, ok := deps[k.server]
+		if !ok {
+			d = &depAgg{callers: make(map[string]bool)}
+			deps[k.server] = d
+		}
+		d.callers[k.client] = true
+		d.rate += e.rate
+		d.errRate += e.errorRate
+		if e.p95 > d.p95 {
+			d.p95 = e.p95
+		}
+		if d.connType == "" && e.connType != "" {
+			d.connType = e.connType
+		}
+	}
+
+	result := make([]NamespaceDependency, 0, len(deps))
+	for name, d := range deps {
+		if name == "" || name == "unknown" || name == "<unknown>" {
+			continue
+		}
+		depType := classifyDependency(name, d.connType, nil)
+		if depType == "service" {
+			continue
+		}
+		errPct := calculateErrorRate(d.errRate, d.rate)
+		result = append(result, NamespaceDependency{
+			Name:         name,
+			Type:         depType,
+			CallerCount:  len(d.callers),
+			Rate:         roundTo(d.rate, 3),
+			ErrorRate:    roundTo(errPct, 2),
+			P95Duration:  roundTo(d.p95*1000, 2),
+			DurationUnit: "ms",
+		})
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Rate > result[j].Rate
+	})
+
+	return result
+}
+
 // handleDependencyDetail returns RED metrics and upstream services for a specific dependency.
 // GET /dependencies/{name}?from=&to=&environment=
 func (a *App) handleDependencyDetail(w http.ResponseWriter, req *http.Request) {

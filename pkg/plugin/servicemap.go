@@ -2,9 +2,9 @@ package plugin
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
@@ -52,25 +52,33 @@ func (a *App) handleServiceMap(w http.ResponseWriter, req *http.Request) {
 	writeJSON(w, graph)
 }
 
-func (a *App) queryServiceMap( //nolint:gocyclo // complex due to parallel queries + node/edge assembly
-	ctx context.Context,
-	_, to time.Time,
-	filterService, _, filterEnvironment string,
-) ServiceMapResponse {
-	logger := log.DefaultLogger.With("handler", "servicemap")
+// sgEdgeKey identifies a directed edge in the service graph.
+type sgEdgeKey struct {
+	client string
+	server string
+}
+
+// sgEdgeData holds numeric metrics for a service graph edge.
+type sgEdgeData struct {
+	rate      float64
+	errorRate float64
+	p95       float64
+	connType  string
+}
+
+// queryServiceGraphEdges runs the 3 service graph queries (rate, error, P95)
+// and returns raw edge data. This is the shared building block for both
+// the service map endpoint and namespace dependencies.
+func (a *App) queryServiceGraphEdges(ctx context.Context, to time.Time, filterEnv string) map[sgEdgeKey]*sgEdgeData {
+	logger := log.DefaultLogger.With("handler", "servicegraph")
 	rangeStr := "[5m]"
-
-	// Note: service graph metrics don't carry namespace labels
-	// (only client, server, connection_type, client_db_system).
-	// Per-service filtering is done post-query on filterService.
-	labelFilter := ""
-	if filterEnvironment != "" {
-		labelFilter = fmt.Sprintf(`%s="%s"`, a.otelCfg.Labels.DeploymentEnv, filterEnvironment)
-	}
-
 	sgp := a.serviceGraphPrefix()
 
-	// Service graph metrics
+	labelFilter := ""
+	if filterEnv != "" {
+		labelFilter = fmt.Sprintf(`%s="%s"`, a.otelCfg.Labels.DeploymentEnv, filterEnv)
+	}
+
 	rateQuery := fmt.Sprintf(
 		`sum by (%s, %s, %s) (rate(%s%s%s%s))`,
 		a.otelCfg.Labels.Client, a.otelCfg.Labels.Server, a.otelCfg.Labels.ConnectionType,
@@ -87,69 +95,20 @@ func (a *App) queryServiceMap( //nolint:gocyclo // complex due to parallel queri
 		sgp, a.otelCfg.ServiceGraph.RequestServerBucket, labelFilterStr(labelFilter), rangeStr,
 	)
 
-	type queryResult struct {
-		name    string
-		results []queries.PromResult
-		err     error
-	}
-
-	var wg sync.WaitGroup
-	ch := make(chan queryResult, 3)
-
-	for _, q := range []struct {
-		name  string
-		query string
-	}{
+	resultMap := a.runInstantQueries(ctx, to, []QueryJob{
 		{"rate", rateQuery},
 		{"error", errorQuery},
 		{"p95", p95Query},
-	} {
-		wg.Add(1)
-		go func(n, query string) {
-			defer wg.Done()
-			results, err := a.prom(ctx).InstantQuery(ctx, query, to)
-			ch <- queryResult{name: n, results: results, err: err}
-		}(q.name, q.query)
-	}
+	}, logger)
 
-	go func() {
-		wg.Wait()
-		close(ch)
-	}()
-
-	resultMap := make(map[string][]queries.PromResult)
-	for r := range ch {
-		if r.err != nil {
-			logger.Warn("Service map query failed", "query", r.name, "error", r.err)
-			continue
-		}
-		resultMap[r.name] = r.results
-	}
-
-	// Build edge map keyed by client->server
-	type edgeKey struct {
-		client string
-		server string
-	}
-	type edgeData struct {
-		rate      float64
-		errorRate float64
-		p95       float64
-		connType  string
-	}
-
-	edges := make(map[edgeKey]*edgeData)
-	nodeSet := make(map[string]bool)
-
-	getEdge := func(client, server string) *edgeData {
-		k := edgeKey{client, server}
+	edges := make(map[sgEdgeKey]*sgEdgeData)
+	getEdge := func(client, server string) *sgEdgeData {
+		k := sgEdgeKey{client, server}
 		if e, ok := edges[k]; ok {
 			return e
 		}
-		e := &edgeData{}
+		e := &sgEdgeData{}
 		edges[k] = e
-		nodeSet[client] = true
-		nodeSet[server] = true
 		return e
 	}
 
@@ -170,8 +129,7 @@ func (a *App) queryServiceMap( //nolint:gocyclo // complex due to parallel queri
 		if client == "" || server == "" {
 			continue
 		}
-		e := getEdge(client, server)
-		e.errorRate = r.Value.Float()
+		getEdge(client, server).errorRate = r.Value.Float()
 	}
 
 	for _, r := range resultMap["p95"] {
@@ -180,19 +138,51 @@ func (a *App) queryServiceMap( //nolint:gocyclo // complex due to parallel queri
 		if client == "" || server == "" {
 			continue
 		}
-		e := getEdge(client, server)
-		v := r.Value.Float()
-		if isValidMetricValue(v) {
-			e.p95 = v
+		if v := r.Value.Float(); isValidMetricValue(v) {
+			getEdge(client, server).p95 = v
 		}
+	}
+
+	return edges
+}
+
+func (a *App) queryServiceMap( //nolint:gocyclo // complex due to filtering + node/edge assembly
+	ctx context.Context,
+	_, to time.Time,
+	filterService, filterNamespace, filterEnvironment string,
+) ServiceMapResponse {
+	edges := a.queryServiceGraphEdges(ctx, to, filterEnvironment)
+
+	nodeSet := make(map[string]bool)
+	for k := range edges {
+		nodeSet[k.client] = true
+		nodeSet[k.server] = true
 	}
 
 	// Apply per-service filter if specified
 	if filterService != "" {
-		filtered := make(map[edgeKey]*edgeData)
+		filtered := make(map[sgEdgeKey]*sgEdgeData)
 		filteredNodes := make(map[string]bool)
 		for k, e := range edges {
 			if k.client == filterService || k.server == filterService {
+				filtered[k] = e
+				filteredNodes[k.client] = true
+				filteredNodes[k.server] = true
+			}
+		}
+		edges = filtered
+		nodeSet = filteredNodes
+	}
+
+	// Apply namespace filter: keep edges where at least one end belongs to the namespace.
+	// Service graph metrics lack namespace labels, so we build a name→namespace mapping
+	// from spanmetrics (which DO carry service_namespace).
+	if filterNamespace != "" {
+		nsMap := a.buildServiceNamespaceMap(ctx, to, filterEnvironment)
+		filtered := make(map[sgEdgeKey]*sgEdgeData)
+		filteredNodes := make(map[string]bool)
+		for k, e := range edges {
+			if nsMap[k.client] == filterNamespace || nsMap[k.server] == filterNamespace {
 				filtered[k] = e
 				filteredNodes[k.client] = true
 				filteredNodes[k.server] = true
@@ -211,7 +201,6 @@ func (a *App) queryServiceMap( //nolint:gocyclo // complex due to parallel queri
 	}
 	nodeAggs := make(map[string]*nodeAgg)
 	for k, e := range edges {
-		// Aggregate incoming traffic (where node is the server)
 		agg, ok := nodeAggs[k.server]
 		if !ok {
 			agg = &nodeAgg{}
@@ -220,14 +209,12 @@ func (a *App) queryServiceMap( //nolint:gocyclo // complex due to parallel queri
 		agg.totalRate += e.rate
 		agg.errorRate += e.errorRate
 
-		// Ensure client nodes exist in the map (with zero if no incoming edges)
 		if _, ok := nodeAggs[k.client]; !ok {
 			nodeAggs[k.client] = &nodeAgg{}
 		}
 	}
 
-	// Build response — infer node types from connection_type on edges
-	// The connection_type label on an edge describes the server end
+	// Infer node types from connection_type on edges (describes the server end)
 	nodeTypes := make(map[string]string)
 	for k, e := range edges {
 		if e.connType != "" {
@@ -236,10 +223,6 @@ func (a *App) queryServiceMap( //nolint:gocyclo // complex due to parallel queri
 				nodeTypes[k.server] = "database"
 			case "messaging":
 				nodeTypes[k.server] = "messaging"
-			case "virtual_node":
-				if _, exists := nodeTypes[k.server]; !exists {
-					nodeTypes[k.server] = "external"
-				}
 			default:
 				if _, exists := nodeTypes[k.server]; !exists {
 					nodeTypes[k.server] = "external"
@@ -303,4 +286,56 @@ func labelFilterStr(filter string) string {
 		return ""
 	}
 	return "{" + filter + "}"
+}
+
+// buildServiceNamespaceMap queries spanmetrics to build a service_name → service_namespace
+// mapping. Service graph metrics lack namespace labels, so this mapping is used
+// to filter edges by namespace. The query is cheap (group by, no rate computation)
+// and results are cached for the response cache TTL.
+func (a *App) buildServiceNamespaceMap(ctx context.Context, to time.Time, filterEnv string) map[string]string {
+	logger := log.DefaultLogger.With("handler", "nsmap")
+
+	orgID := httpHeaders(ctx).Get("X-Grafana-Org-Id")
+	roundedTo := fmt.Sprintf("%d", to.Unix()/30*30)
+	ck := cacheKey("nsmap", orgID, roundedTo, filterEnv)
+	if cached, ok := a.respCache.get(ck); ok {
+		var nsMap map[string]string
+		if err := json.Unmarshal(cached, &nsMap); err == nil {
+			return nsMap
+		}
+	}
+
+	callsMetric := a.callsMetric(ctx)
+	envFilter := ""
+	if filterEnv != "" {
+		envFilter = fmt.Sprintf(`, %s="%s"`, a.otelCfg.Labels.DeploymentEnv, filterEnv)
+	}
+	query := fmt.Sprintf(`group by (%s, %s) (%s{%s!=""%s})`,
+		a.otelCfg.Labels.ServiceName, a.otelCfg.Labels.ServiceNamespace,
+		callsMetric, a.otelCfg.Labels.ServiceName, envFilter,
+	)
+
+	results, err := a.prom(ctx).InstantQuery(ctx, query, to)
+	if err != nil {
+		logger.Warn("Failed to build service namespace map", "error", err)
+		return map[string]string{}
+	}
+
+	nsMap := make(map[string]string, len(results))
+	for _, r := range results {
+		name := r.Metric[a.otelCfg.Labels.ServiceName]
+		ns := r.Metric[a.otelCfg.Labels.ServiceNamespace]
+		if name == "" || ns == "" {
+			continue
+		}
+		if existing, dup := nsMap[name]; dup && existing != ns {
+			logger.Warn("Service name exists in multiple namespaces, using first seen",
+				"service", name, "namespace1", existing, "namespace2", ns)
+			continue
+		}
+		nsMap[name] = ns
+	}
+
+	a.respCache.setJSON(ck, nsMap)
+	return nsMap
 }

@@ -22,6 +22,23 @@ type DependenciesResponse struct {
 	Dependencies []DependencySummary `json:"dependencies"`
 }
 
+// NamespaceDependency represents an external dependency seen from a namespace,
+// with the number of services within the namespace that call it.
+type NamespaceDependency struct {
+	Name         string  `json:"name"`
+	Type         string  `json:"type"`
+	CallerCount  int     `json:"callerCount"`
+	Rate         float64 `json:"rate"`
+	ErrorRate    float64 `json:"errorRate"`
+	P95Duration  float64 `json:"p95Duration"`
+	DurationUnit string  `json:"durationUnit"`
+}
+
+// NamespaceDependenciesResponse wraps namespace-scoped dependencies.
+type NamespaceDependenciesResponse struct {
+	Dependencies []NamespaceDependency `json:"dependencies"`
+}
+
 // DependencyDetailResponse contains dependency info plus upstream callers and operations.
 type DependencyDetailResponse struct {
 	Dependency DependencySummary             `json:"dependency"`

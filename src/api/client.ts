@@ -271,6 +271,40 @@ export async function getGlobalDependencies(
   return fetchResource<DependenciesResponse>('/dependencies', params);
 }
 
+// ---- Namespace Dependencies ----
+
+export interface NamespaceDependency {
+  name: string;
+  type: string;
+  callerCount: number;
+  rate: number;
+  errorRate: number;
+  p95Duration: number;
+  durationUnit: string;
+}
+
+export interface NamespaceDependenciesResponse {
+  dependencies: NamespaceDependency[];
+}
+
+export async function getNamespaceDependencies(
+  namespace: string,
+  from: number,
+  to: number,
+  environment?: string
+): Promise<NamespaceDependenciesResponse> {
+  const params: Record<string, string> = {
+    ...timeParams(from, to),
+  };
+  if (environment) {
+    params.environment = environment;
+  }
+  return fetchResource<NamespaceDependenciesResponse>(
+    `/namespaces/${encodeURIComponent(namespace)}/dependencies`,
+    params
+  );
+}
+
 export async function getDependencyDetail(
   name: string,
   from: number,

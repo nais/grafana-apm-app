@@ -4,7 +4,14 @@ import { PluginPage } from '@grafana/runtime';
 import { Alert, Combobox, Icon, LoadingPlaceholder, useStyles2 } from '@grafana/ui';
 import { GrafanaTheme2, PageLayoutType } from '@grafana/data';
 import { css } from '@emotion/css';
-import { getServices, getServiceMap, ServiceSummary, ServiceMapResponse } from '../api/client';
+import {
+  getServices,
+  getServiceMap,
+  getNamespaceDependencies,
+  ServiceSummary,
+  ServiceMapResponse,
+  NamespaceDependenciesResponse,
+} from '../api/client';
 import { useTimeRange } from '../utils/timeRange';
 import { useAppNavigate, sanitizeParam } from '../utils/navigation';
 import { useFetch } from '../utils/useFetch';
@@ -41,10 +48,16 @@ function NamespaceOverview() {
     { skip: !fetchResult }
   );
 
-  // Fetch service map for dependency and topology sections
-  const { data: mapData, loading: mapLoading } = useFetch<ServiceMapResponse>(
-    () => getServiceMap(fromMs, toMs, undefined, undefined, envFilter || undefined),
-    [fromMs, toMs, envFilter]
+  // Fetch service map filtered by namespace (backend filters via spanmetrics namespace mapping)
+  const { data: mapData } = useFetch<ServiceMapResponse>(
+    () => getServiceMap(fromMs, toMs, undefined, decodedNs, envFilter || undefined),
+    [fromMs, toMs, decodedNs, envFilter]
+  );
+
+  // Fetch namespace dependencies from dedicated backend endpoint
+  const { data: depsResult, loading: depsLoading } = useFetch<NamespaceDependenciesResponse>(
+    () => getNamespaceDependencies(decodedNs, fromMs, toMs, envFilter || undefined),
+    [fromMs, toMs, decodedNs, envFilter]
   );
 
   const services = useMemo(() => fetchResult ?? [], [fetchResult]);
@@ -56,7 +69,7 @@ function NamespaceOverview() {
     return new Map(sparklineResult.map((s) => [`${s.namespace}/${s.name}/${s.environment ?? ''}`, s]));
   }, [sparklineResult]);
 
-  // Set of service names in this namespace (for filtering the service map)
+  // Set of service names in this namespace (for topology cap check)
   const namespaceServiceNames = useMemo(() => new Set(services.map((s) => s.name)), [services]);
 
   // Compute unique environments for dropdown
@@ -65,26 +78,16 @@ function NamespaceOverview() {
     return [...envs].sort().map((e) => ({ label: e, value: e }));
   }, [services]);
 
-  // Filter service map to namespace services for topology
+  // Use backend-filtered service map directly for topology
   const { graphNodes, graphEdges } = useMemo(() => {
     if (!mapData) {
       return { graphNodes: [], graphEdges: [] };
     }
-    const full = toGraphData(mapData);
-    // Keep nodes that are in the namespace OR are direct neighbors
-    const filteredEdges = full.graphEdges.filter(
-      (e) => namespaceServiceNames.has(e.source) || namespaceServiceNames.has(e.target)
-    );
-    const referencedIds = new Set<string>();
-    for (const e of filteredEdges) {
-      referencedIds.add(e.source);
-      referencedIds.add(e.target);
-    }
-    const filteredNodes = full.graphNodes.filter((n) => referencedIds.has(n.id));
-    return { graphNodes: filteredNodes, graphEdges: filteredEdges };
-  }, [mapData, namespaceServiceNames]);
+    return toGraphData(mapData);
+  }, [mapData]);
 
-  const showTopology = services.length > 0 && services.length <= TOPOLOGY_SERVICE_CAP && graphNodes.length > 0;
+  const showTopology =
+    namespaceServiceNames.size > 0 && namespaceServiceNames.size <= TOPOLOGY_SERVICE_CAP && graphNodes.length > 0;
 
   const setEnvFilter = useCallback(
     (env: string) => {
@@ -177,7 +180,7 @@ function NamespaceOverview() {
                 />
               </div>
             )}
-            {services.length > TOPOLOGY_SERVICE_CAP && (
+            {namespaceServiceNames.size > TOPOLOGY_SERVICE_CAP && (
               <Alert severity="info" title="Topology hidden">
                 Service topology is hidden for namespaces with more than {TOPOLOGY_SERVICE_CAP} services.
               </Alert>
@@ -194,13 +197,7 @@ function NamespaceOverview() {
             </div>
 
             {/* External dependencies */}
-            {!mapLoading && mapData && (
-              <NamespaceDependencies
-                edges={mapData.edges}
-                nodes={mapData.nodes}
-                namespaceServices={namespaceServiceNames}
-              />
-            )}
+            {!depsLoading && depsResult && <NamespaceDependencies dependencies={depsResult.dependencies} />}
           </>
         )}
       </div>
