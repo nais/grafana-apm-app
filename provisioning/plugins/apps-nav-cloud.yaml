@@ -1,6 +1,7 @@
 # Nav Cloud plugin config — use alongside nav-cloud.yaml datasources.
 # Configures the plugin to use nav-metrics for metrics with per-environment
 # Tempo/Loki datasources.
+# Environment keys must match k8s_cluster_name label values in OTel data.
 
 apiVersion: 1
 
@@ -16,19 +17,31 @@ apps:
         uid: dev-gcp-tempo
         type: tempo
         byEnvironment:
-          dev-gcp:
+          dev:
             uid: dev-gcp-tempo
             type: tempo
-          prod-gcp:
+          dev-fss:
+            uid: dev-gcp-tempo
+            type: tempo
+          prod:
+            uid: prod-gcp-tempo
+            type: tempo
+          prod-fss:
             uid: prod-gcp-tempo
             type: tempo
       logsDataSource:
         uid: dev-gcp-loki
         type: loki
         byEnvironment:
-          dev-gcp:
+          dev:
             uid: dev-gcp-loki
             type: loki
-          prod-gcp:
+          dev-fss:
+            uid: dev-gcp-loki
+            type: loki
+          prod:
+            uid: prod-gcp-loki
+            type: loki
+          prod-fss:
             uid: prod-gcp-loki
             type: loki
