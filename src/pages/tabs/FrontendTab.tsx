@@ -88,7 +88,12 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
         <LokiWebVitalsPanels service={service} environment={environment} showVitalsRow={!hasAllVitals} />
       )}
       {source === 'mimir' && (
-        <MimirWebVitalsPanels service={service} namespace={namespace} showVitalsRow={!hasAllVitals} />
+        <MimirWebVitalsPanels
+          service={service}
+          namespace={namespace}
+          environment={environment}
+          showVitalsRow={!hasAllVitals}
+        />
       )}
     </div>
   );
@@ -872,13 +877,15 @@ function LokiWebVitalsPanels({
 function MimirWebVitalsPanels({
   service,
   namespace,
+  environment,
   showVitalsRow = true,
 }: {
   service: string;
   namespace: string;
+  environment?: string;
   showVitalsRow?: boolean;
 }) {
-  const ds = usePluginDatasources();
+  const ds = usePluginDatasources(environment || undefined);
   const { from, to } = useTimeRange();
 
   const svcFilter = `${otel.labels.serviceName}="${sanitizeLabelValue(service)}", ${otel.labels.serviceNamespace}="${sanitizeLabelValue(namespace)}"`;
