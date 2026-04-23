@@ -59,7 +59,6 @@ export function NamespaceServicesTable({
           value={search}
           onChange={(e) => {
             onSearchChange(e.currentTarget.value);
-            onPageChange(1);
           }}
           width={28}
         />
@@ -69,12 +68,12 @@ export function NamespaceServicesTable({
       </div>
       <table className={tableStyles.table}>
         <colgroup>
-          <col style={{ width: showEnvironment ? '25%' : '30%' }} />
-          {showEnvironment && <col style={{ width: '15%' }} />}
-          <col style={{ width: '15%' }} />
-          <col style={{ width: '15%' }} />
-          <col style={{ width: '15%' }} />
-          <col style={{ width: showEnvironment ? '15%' : '25%' }} />
+          <col style={{ width: showEnvironment ? '35%' : '40%' }} />
+          {showEnvironment && <col style={{ width: '8%' }} />}
+          <col style={{ width: '12%' }} />
+          <col style={{ width: '10%' }} />
+          <col style={{ width: '10%' }} />
+          <col style={{ width: showEnvironment ? '25%' : '28%' }} />
         </colgroup>
         <thead>
           <tr>
@@ -100,7 +99,7 @@ export function NamespaceServicesTable({
                   <FrameworkBadge framework={svc.framework} className={styles.badgeBefore} />
                   {svc.name}
                 </td>
-                {showEnvironment && <td className={tableStyles.numCell}>{svc.environment ?? '—'}</td>}
+                {showEnvironment && <td>{svc.environment ?? '—'}</td>}
                 <td className={tableStyles.numCell}>{svc.rate.toFixed(2)} req/s</td>
                 <td className={svc.errorRate > 0 ? tableStyles.errorCell : tableStyles.numCell}>
                   {svc.errorRate.toFixed(2)}%

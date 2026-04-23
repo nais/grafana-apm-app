@@ -217,7 +217,21 @@ function NamespaceOverview() {
               showEnvironment={!envFilter && envOptions.length > 1}
               search={svcSearch}
               page={svcPage}
-              onSearchChange={(q) => updateParam('svcSearch', q || null)}
+              onSearchChange={(q) => {
+                setSearchParams(
+                  (prev) => {
+                    const next = new URLSearchParams(prev);
+                    if (q) {
+                      next.set('svcSearch', q);
+                    } else {
+                      next.delete('svcSearch');
+                    }
+                    next.delete('svcPage');
+                    return next;
+                  },
+                  { replace: true }
+                );
+              }}
               onPageChange={(p) => updateParam('svcPage', p > 1 ? String(p) : null)}
               onServiceClick={handleServiceClick}
             />
