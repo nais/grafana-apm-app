@@ -24,6 +24,7 @@ import { useTimeRange } from '../../utils/timeRange';
 import { sanitizeLabelValue } from '../../utils/sanitize';
 import { otel } from '../../otelconfig';
 import { buildExploreUrl } from '../../utils/explore';
+import { BulletGraph, BulletGraphThreshold } from '../../components/BulletGraph';
 
 interface FrontendTabProps {
   service: string;
@@ -37,14 +38,35 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
   const styles = useStyles2(getStyles);
   const [available, setAvailable] = useState<boolean | null>(null);
   const [source, setSource] = useState<FrontendSource | null>(null);
+  const [vitals, setVitals] = useState<Record<string, number> | undefined>();
 
   useEffect(() => {
+    let cancelled = false;
+
     getFrontendMetrics(namespace, service, environment || undefined)
       .then((r) => {
+        if (cancelled) {
+          return;
+        }
         setAvailable(r.available);
         setSource((r.source as FrontendSource) ?? null);
+        setVitals(r.vitals);
       })
-      .catch(() => setAvailable(false));
+      .catch(() => {
+        if (!cancelled) {
+          setAvailable(false);
+          setSource(null);
+          setVitals(undefined);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      // Reset to loading state so stale data doesn't persist across switches
+      setAvailable(null);
+      setSource(null);
+      setVitals(undefined);
+    };
   }, [service, namespace, environment]);
 
   if (available === null) {
@@ -55,10 +77,19 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
     return <SetupPlaceholder namespace={namespace} service={service} />;
   }
 
+  // Only show bullet graphs when all core vitals are present to avoid partial display
+  const REQUIRED_VITALS = ['lcp', 'fcp', 'cls', 'inp', 'ttfb'];
+  const hasAllVitals = vitals != null && REQUIRED_VITALS.every((k) => k in vitals);
+
   return (
     <div className={styles.container}>
-      {source === 'loki' && <LokiWebVitalsPanels service={service} environment={environment} />}
-      {source === 'mimir' && <MimirWebVitalsPanels service={service} namespace={namespace} />}
+      {hasAllVitals && <WebVitalsBullets vitals={vitals} />}
+      {source === 'loki' && (
+        <LokiWebVitalsPanels service={service} environment={environment} showVitalsRow={!hasAllVitals} />
+      )}
+      {source === 'mimir' && (
+        <MimirWebVitalsPanels service={service} namespace={namespace} showVitalsRow={!hasAllVitals} />
+      )}
     </div>
   );
 }
@@ -152,11 +183,97 @@ const VITAL_THRESHOLDS = {
   ],
 };
 
+// ---- Web Vitals bullet graph summary ----
+
+interface VitalDef {
+  key: string;
+  label: string;
+  description: string;
+  tooltip: string;
+  unit?: string;
+  decimals?: number;
+  thresholds: BulletGraphThreshold[];
+}
+
+const VITAL_DEFS: VitalDef[] = [
+  {
+    key: 'ttfb',
+    label: 'TTFB',
+    description: 'Time to First Byte',
+    tooltip: 'Time from request start until the first byte of the response is received. Target < 800 ms.',
+    unit: 'ms',
+    thresholds: VITAL_THRESHOLDS.ttfb,
+  },
+  {
+    key: 'fcp',
+    label: 'FCP',
+    description: 'First Contentful Paint',
+    tooltip: 'Time until the first text or image is painted. Target < 1800 ms.',
+    unit: 'ms',
+    thresholds: VITAL_THRESHOLDS.fcp,
+  },
+  {
+    key: 'lcp',
+    label: 'LCP',
+    description: 'Largest Contentful Paint',
+    tooltip: 'Time until the largest text or image element is rendered. Target < 2500 ms.',
+    unit: 'ms',
+    thresholds: VITAL_THRESHOLDS.lcp,
+  },
+  {
+    key: 'cls',
+    label: 'CLS',
+    description: 'Cumulative Layout Shift',
+    tooltip: 'Total of all unexpected layout shift scores. Target < 0.1.',
+    decimals: 2,
+    thresholds: VITAL_THRESHOLDS.cls,
+  },
+  {
+    key: 'inp',
+    label: 'INP',
+    description: 'Interaction to Next Paint',
+    tooltip: 'Latency of the slowest interaction during the page visit. Target < 200 ms.',
+    unit: 'ms',
+    thresholds: VITAL_THRESHOLDS.inp,
+  },
+];
+
+function WebVitalsBullets({ vitals }: { vitals: Record<string, number> }) {
+  const styles = useStyles2(getBulletStyles);
+
+  return (
+    <div className={styles.grid}>
+      {VITAL_DEFS.map((def) => (
+        <BulletGraph
+          key={def.key}
+          value={vitals[def.key] ?? null}
+          thresholds={def.thresholds}
+          label={def.label}
+          description={def.description}
+          tooltip={def.tooltip}
+          unit={def.unit}
+          decimals={def.decimals}
+        />
+      ))}
+    </div>
+  );
+}
+
+const getBulletStyles = (theme: GrafanaTheme2) => ({
+  grid: css`
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: ${theme.spacing(1)};
+  `,
+});
+
 // ---- LogQL helper for Faro vital queries ----
 
 // Browser filter — Scenes interpolates $browser at query time.
 // When "All" is selected, allValue is '.*' so the regex matches everything.
-const BROWSER_FILTER = `| browser_name=~"$browser"`;
+// The trailing `|` also matches empty string, so services using older Faro SDKs
+// that don't populate browser_name still return data.
+const BROWSER_FILTER = `| browser_name=~"$browser|"`;
 
 function lokiVitalPipeline(service: string, vital: string, extraKeep?: string): string {
   const fl = otel.faroLoki;
@@ -240,7 +357,15 @@ function lokiMeasurementCountExpr(service: string, window: string): string {
 // Loki-based Web Vitals panels (Faro data in Loki)
 // ========================================================================
 
-function LokiWebVitalsPanels({ service, environment }: { service: string; environment?: string }) {
+function LokiWebVitalsPanels({
+  service,
+  environment,
+  showVitalsRow = true,
+}: {
+  service: string;
+  environment?: string;
+  showVitalsRow?: boolean;
+}) {
   const ds = usePluginDatasources(environment || undefined);
   const { from, to } = useTimeRange();
 
@@ -724,10 +849,18 @@ function LokiWebVitalsPanels({ service, environment }: { service: string; enviro
       controls: [new VariableValueSelectors({}), new SceneTimePicker({}), new SceneRefreshPicker({})],
       body: new SceneFlexLayout({
         direction: 'column',
-        children: [vitalsRow, overviewRow, perPageTable, trendsRow, errorsRow, supportRow, trafficRow],
+        children: [
+          ...(showVitalsRow ? [vitalsRow] : []),
+          overviewRow,
+          perPageTable,
+          trendsRow,
+          errorsRow,
+          supportRow,
+          trafficRow,
+        ],
       }),
     });
-  }, [from, to, ds, service]);
+  }, [from, to, ds, service, showVitalsRow]);
 
   return <scene.Component model={scene} />;
 }
@@ -736,7 +869,15 @@ function LokiWebVitalsPanels({ service, environment }: { service: string; enviro
 // Mimir-based Web Vitals panels (standard Prometheus/Faro metrics)
 // ========================================================================
 
-function MimirWebVitalsPanels({ service, namespace }: { service: string; namespace: string }) {
+function MimirWebVitalsPanels({
+  service,
+  namespace,
+  showVitalsRow = true,
+}: {
+  service: string;
+  namespace: string;
+  showVitalsRow?: boolean;
+}) {
   const ds = usePluginDatasources();
   const { from, to } = useTimeRange();
 
@@ -1049,10 +1190,10 @@ function MimirWebVitalsPanels({ service, namespace }: { service: string; namespa
       controls: [new SceneTimePicker({}), new SceneRefreshPicker({})],
       body: new SceneFlexLayout({
         direction: 'column',
-        children: [vitalsRow, trendsRow, trafficRow, perPageTable, bottomRow],
+        children: [...(showVitalsRow ? [vitalsRow] : []), trendsRow, trafficRow, perPageTable, bottomRow],
       }),
     });
-  }, [from, to, ds, svcFilter]);
+  }, [from, to, ds, svcFilter, showVitalsRow]);
 
   return <scene.Component model={scene} />;
 }
