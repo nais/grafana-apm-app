@@ -24,6 +24,7 @@ interface LogsTabProps {
 }
 
 // Severity options based on detected_level stream label values observed in production.
+// Maps each option to all case variants seen in Loki's detected_level.
 const SEVERITY_OPTIONS: Array<{ label: string; value: string }> = [
   { label: 'Error', value: 'error' },
   { label: 'Warn', value: 'warn' },
@@ -32,6 +33,17 @@ const SEVERITY_OPTIONS: Array<{ label: string; value: string }> = [
   { label: 'Trace', value: 'trace' },
   { label: 'Unknown', value: 'unknown' },
 ];
+
+// detected_level values are inconsistently cased across services.
+// Map each logical severity to all observed variants.
+const SEVERITY_VARIANTS: Record<string, string[]> = {
+  error: ['error', 'ERROR', 'SEVERE'],
+  warn: ['warn', 'WARN'],
+  info: ['info', 'INFO', 'Information'],
+  debug: ['debug', 'DEBUG'],
+  trace: ['trace', 'TRACE'],
+  unknown: ['unknown'],
+};
 
 export function LogsTab({ service, namespace, logsUid }: LogsTabProps) {
   const [severityFilter, setSeverityFilter] = useState<string[]>([]);
@@ -65,9 +77,9 @@ export function LogsTab({ service, namespace, logsUid }: LogsTabProps) {
     const svcLabel = `${otel.labels.serviceName}="${sanitizeLabelValue(service)}"`;
 
     // Use detected_level as stream label for efficient filtering (indexed).
-    // detected_level values are mixed-case in production (error, ERROR, info, INFO, etc.)
-    // so we use case-insensitive regex.
-    const severityStream = severityFilter.length > 0 ? `, detected_level=~"(?i)(${severityFilter.join('|')})"` : '';
+    // Expand selected severities to all known case variants.
+    const severityValues = severityFilter.flatMap((s) => SEVERITY_VARIANTS[s] ?? [s]);
+    const severityStream = severityValues.length > 0 ? `, detected_level=~"${severityValues.join('|')}"` : '';
 
     // Exclude Faro browser telemetry by default — it has kind=measurement|exception|event|log.
     // Backend app logs have no kind label (empty string).
