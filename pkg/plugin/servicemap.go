@@ -362,6 +362,53 @@ type dbEnrichInfo struct {
 	dbName   string
 }
 
+// parseDBEnrichResults parses instant query results containing server_address,
+// db_system, and optionally db_name labels into a dbEnrichInfo map.
+// Shared by both standalone queryDBEnrichment and batched enrichment queries.
+func parseDBEnrichResults(results []queries.PromResult, addrLabel, sysLabel, nameLabel string) map[string]*dbEnrichInfo {
+	info := make(map[string]*dbEnrichInfo)
+	for _, r := range results {
+		addr := r.Metric[addrLabel]
+		dbSys := r.Metric[sysLabel]
+		if addr == "" || dbSys == "" {
+			continue
+		}
+		dbName := ""
+		if nameLabel != "" {
+			dbName = r.Metric[nameLabel]
+		}
+		existing, ok := info[addr]
+		if !ok {
+			info[addr] = &dbEnrichInfo{dbSystem: dbSys, dbName: dbName}
+		} else if existing.dbName == "" && dbName != "" {
+			existing.dbName = dbName
+		}
+	}
+	return info
+}
+
+// dbSystemMapFrom builds a server_address → db_system map from enrichment info.
+// Used where only db_system is needed (e.g. classifyDependency, mergeSpanmetricsDeps).
+func dbSystemMapFrom(info map[string]*dbEnrichInfo) map[string]string {
+	m := make(map[string]string, len(info))
+	for addr, i := range info {
+		m[addr] = i.dbSystem
+	}
+	return m
+}
+
+// enrichedDisplayName returns a human-readable display name for a dependency
+// from db enrichment data. Returns empty string if no enrichment available.
+func enrichedDisplayName(name string, dbInfo map[string]*dbEnrichInfo) string {
+	if dbInfo == nil {
+		return ""
+	}
+	if info, ok := dbInfo[name]; ok && info.dbName != "" {
+		return info.dbName
+	}
+	return ""
+}
+
 // queryDBEnrichment queries spanmetrics to build a server_address → (db_system, db_name)
 // mapping for database nodes. Service graph metrics only carry the raw IP/hostname
 // as the server label; this enrichment adds human-readable database type and name.
@@ -387,21 +434,17 @@ func (a *App) queryDBEnrichment(ctx context.Context, to time.Time, filterEnv str
 		return nil
 	}
 
-	info := make(map[string]*dbEnrichInfo)
-	for _, r := range results {
-		addr := r.Metric[a.otelCfg.Labels.ServerAddress]
-		dbSys := r.Metric[a.otelCfg.Labels.DBSystem]
-		dbName := r.Metric[a.otelCfg.Labels.DBName]
-		if addr == "" || dbSys == "" {
-			continue
-		}
-		existing, ok := info[addr]
-		if !ok {
-			info[addr] = &dbEnrichInfo{dbSystem: dbSys, dbName: dbName}
-		} else if existing.dbName == "" && dbName != "" {
-			existing.dbName = dbName
-		}
-	}
+	return parseDBEnrichResults(results, a.otelCfg.Labels.ServerAddress, a.otelCfg.Labels.DBSystem, a.otelCfg.Labels.DBName)
+}
 
-	return info
+// dbEnrichQueryExpr returns a PromQL expression for batched DB enrichment queries.
+// Groups by (server_address, db_system, db_name) from CLIENT spans with db_system set.
+func (a *App) dbEnrichQueryExpr(ctx context.Context, envFilter, rangeStr string) string {
+	return fmt.Sprintf(
+		`count by (%s, %s, %s) (rate(%s{%s!="", %s="%s"%s}%s))`,
+		a.otelCfg.Labels.ServerAddress, a.otelCfg.Labels.DBSystem, a.otelCfg.Labels.DBName,
+		a.callsMetric(ctx),
+		a.otelCfg.Labels.DBSystem, a.otelCfg.Labels.SpanKind, a.otelCfg.SpanKinds.Client,
+		envFilter, rangeStr,
+	)
 }

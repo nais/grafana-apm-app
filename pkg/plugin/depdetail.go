@@ -43,21 +43,12 @@ func (a *App) queryDependencyDetail(
 		cfg.Labels.Client, cfg.Labels.Le,
 		sgp, cfg.ServiceGraph.RequestServerBucket, labelFilter, rangeStr,
 	)
-	// Enrichment for specific DB type
+	// Enrichment for specific DB type and name
 	envFilter := ""
 	if filterEnvironment != "" {
 		envFilter = fmt.Sprintf(`, %s="%s"`, cfg.Labels.DeploymentEnv, filterEnvironment)
 	}
-	dbEnrichQuery := fmt.Sprintf(
-		`count by (%s, %s) (rate(%s{%s=~"%s", %s!="", %s="%s"%s}%s))`,
-		cfg.Labels.ServerAddress, cfg.Labels.DBSystem,
-		a.callsMetric(ctx),
-		cfg.Labels.ServerAddress, addressMatchRegex(depName),
-		cfg.Labels.DBSystem,
-		cfg.Labels.SpanKind, cfg.SpanKinds.Client,
-		envFilter,
-		rangeStr,
-	)
+	dbEnrichQuery := a.dbEnrichQueryExpr(ctx, envFilter, rangeStr)
 
 	// Spanmetrics supplement: find upstream callers that target this dependency
 	// via server_address or http_host. Uses regex matching to handle address
@@ -107,15 +98,9 @@ func (a *App) queryDependencyDetail(
 	}
 	resultMap := a.runInstantQueries(ctx, to, jobs, logger)
 
-	// Build db_system map from enrichment
-	dbSystemMap := make(map[string]string)
-	for _, r := range resultMap["db_enrich"] {
-		addr := r.Metric[a.otelCfg.Labels.ServerAddress]
-		dbSys := r.Metric[a.otelCfg.Labels.DBSystem]
-		if addr != "" && dbSys != "" {
-			dbSystemMap[addr] = dbSys
-		}
-	}
+	// Build db enrichment from results
+	dbInfo := parseDBEnrichResults(resultMap["db_enrich"], a.otelCfg.Labels.ServerAddress, a.otelCfg.Labels.DBSystem, a.otelCfg.Labels.DBName)
+	dbSystemMap := dbSystemMapFrom(dbInfo)
 
 	// Extract connection_type from any result
 	detectedConnType := ""
@@ -144,6 +129,7 @@ func (a *App) queryDependencyDetail(
 	return DependencyDetailResponse{
 		Dependency: DependencySummary{
 			Name:         depName,
+			DisplayName:  enrichedDisplayName(depName, dbInfo),
 			Type:         classifyDependency(depName, detectedConnType, dbSystemMap),
 			Rate:         roundTo(totalRate, 3),
 			ErrorRate:    roundTo(errPct, 2),

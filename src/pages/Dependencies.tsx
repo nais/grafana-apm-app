@@ -77,7 +77,8 @@ function Dependencies() {
   // to avoid stale-closure issues with React 18 batching.
   const searchLower = search.toLowerCase();
   const filtered = deps.filter((d) => {
-    if (searchLower && !d.name.toLowerCase().includes(searchLower)) {
+    const label = (d.displayName || d.name).toLowerCase();
+    if (searchLower && !label.includes(searchLower) && !d.name.toLowerCase().includes(searchLower)) {
       return false;
     }
     if (typeFilter !== 'all' && d.type !== typeFilter) {
@@ -214,7 +215,7 @@ function Dependencies() {
                       >
                         <td className={styles.nameCell} title={dep.name}>
                           <DepTypeIcon type={dep.type} />
-                          <span style={{ marginLeft: 8 }}>{dep.name}</span>
+                          <span style={{ marginLeft: 8 }}>{dep.displayName || dep.name}</span>
                         </td>
                         <td className={styles.typeCell}>{formatDepType(dep.type)}</td>
                         <td className={styles.numCell}>{formatRate(dep.rate)}</td>

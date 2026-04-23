@@ -9,6 +9,7 @@ import "github.com/nais/grafana-otel-plugin/pkg/plugin/queries"
 // DependencySummary represents an external dependency (DB, cache, API).
 type DependencySummary struct {
 	Name         string  `json:"name"`
+	DisplayName  string  `json:"displayName,omitempty"`
 	Type         string  `json:"type"`
 	Rate         float64 `json:"rate"`
 	ErrorRate    float64 `json:"errorRate"`
@@ -26,6 +27,7 @@ type DependenciesResponse struct {
 // with the number of services within the namespace that call it.
 type NamespaceDependency struct {
 	Name         string  `json:"name"`
+	DisplayName  string  `json:"displayName,omitempty"`
 	Type         string  `json:"type"`
 	CallerCount  int     `json:"callerCount"`
 	Rate         float64 `json:"rate"`

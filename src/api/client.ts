@@ -208,6 +208,7 @@ export async function getConnectedServices(
 
 export interface DependencySummary {
   name: string;
+  displayName?: string;
   type: string;
   rate: number;
   errorRate: number;
@@ -275,6 +276,7 @@ export async function getGlobalDependencies(
 
 export interface NamespaceDependency {
   name: string;
+  displayName?: string;
   type: string;
   callerCount: number;
   rate: number;

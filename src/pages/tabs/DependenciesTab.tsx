@@ -86,7 +86,7 @@ export function DependenciesTab({ service, namespace, fromMs, toMs, environment 
             >
               <td className={styles.nameCell} title={dep.name}>
                 <DepTypeIcon type={dep.type} />
-                <span style={{ marginLeft: 8 }}>{dep.name}</span>
+                <span style={{ marginLeft: 8 }}>{dep.displayName || dep.name}</span>
               </td>
               <td className={styles.kindCell}>{formatDepType(dep.type)}</td>
               <td className={styles.numCell}>{formatRate(dep.rate)}</td>

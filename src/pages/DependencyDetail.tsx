@@ -224,7 +224,7 @@ function DependencyDetail() {
               <div className={styles.summaryCard}>
                 <div className={styles.summaryTitle}>
                   <DepTypeIcon type={data.dependency.type} size={28} />
-                  <h2 className={styles.depName}>{name}</h2>
+                  <h2 className={styles.depName}>{data.dependency.displayName || name}</h2>
                   <span className={styles.typeBadge}>{data.dependency.type}</span>
                 </div>
                 <div className={styles.summaryStats}>

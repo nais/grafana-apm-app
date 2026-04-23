@@ -9,7 +9,7 @@ interface TableSortState<F extends string> {
   sortField: F;
   sortDir: 'asc' | 'desc';
   toggleSort: (field: F) => void;
-  comparator: <R extends Record<F, string | number>>(a: R, b: R) => number;
+  comparator: <R extends Partial<Record<F, string | number>>>(a: R, b: R) => number;
 }
 
 export function useTableSort<F extends string>(
@@ -31,9 +31,9 @@ export function useTableSort<F extends string>(
   }, []);
 
   const comparator = useMemo(() => {
-    return <R extends Record<F, string | number>>(a: R, b: R): number => {
-      const aVal = a[sortField];
-      const bVal = b[sortField];
+    return <R extends Partial<Record<F, string | number>>>(a: R, b: R): number => {
+      const aVal = a[sortField] ?? '';
+      const bVal = b[sortField] ?? '';
       if (typeof aVal === 'number' && typeof bVal === 'number') {
         return sortDir === 'asc' ? aVal - bVal : bVal - aVal;
       }

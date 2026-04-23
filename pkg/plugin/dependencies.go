@@ -93,8 +93,9 @@ func (a *App) handleNamespaceDependencies(w http.ResponseWriter, req *http.Reque
 // queryNamespaceDependencies finds external dependencies for a namespace by:
 // 1. Building a service→namespace map from spanmetrics
 // 2. Querying all service graph edges
-// 3. Filtering to outbound edges from namespace services to non-namespace targets
-// 4. Aggregating per-target with callerCount
+// 3. Enriching database nodes with db_system/db_name from spanmetrics
+// 4. Filtering to outbound edges from namespace services to non-namespace targets
+// 5. Aggregating per-target with callerCount
 func (a *App) queryNamespaceDependencies(
 	ctx context.Context,
 	to time.Time,
@@ -114,6 +115,10 @@ func (a *App) queryNamespaceDependencies(
 	}
 
 	edges := a.queryServiceGraphEdges(ctx, to, filterEnv)
+
+	// Enrich database nodes with human-readable names
+	dbInfo := a.queryDBEnrichment(ctx, to, filterEnv)
+	dbSystemMap := dbSystemMapFrom(dbInfo)
 
 	// Aggregate outbound edges: client in namespace, server NOT in namespace
 	type depAgg struct {
@@ -154,13 +159,14 @@ func (a *App) queryNamespaceDependencies(
 		if name == "" || name == "unknown" || name == "<unknown>" {
 			continue
 		}
-		depType := classifyDependency(name, d.connType, nil)
+		depType := classifyDependency(name, d.connType, dbSystemMap)
 		if depType == "service" {
 			continue
 		}
 		errPct := calculateErrorRate(d.errRate, d.rate)
 		result = append(result, NamespaceDependency{
 			Name:         name,
+			DisplayName:  enrichedDisplayName(name, dbInfo),
 			Type:         depType,
 			CallerCount:  len(d.callers),
 			Rate:         roundTo(d.rate, 3),
@@ -266,19 +272,13 @@ func (a *App) queryDependencies(
 		sgp, a.otelCfg.ServiceGraph.RequestServerBucket, labelFilter, rangeStr,
 	)
 
-	// Enrichment: query spanmetrics for specific db_system per server_address.
-	// Only fetches for database-type dependencies to resolve postgresql vs oracle etc.
+	// Enrichment: query spanmetrics for db_system and db_name per server_address.
+	// Uses the shared query expression to get the full (db_system, db_name) mapping.
 	envFilterStr := ""
 	if filterEnvironment != "" {
 		envFilterStr = fmt.Sprintf(`, %s="%s"`, a.otelCfg.Labels.DeploymentEnv, filterEnvironment)
 	}
-	dbEnrichQuery := fmt.Sprintf(
-		`count by (%s, %s) (rate(%s{%s!="", %s="%s"%s}%s))`,
-		a.otelCfg.Labels.ServerAddress, a.otelCfg.Labels.DBSystem,
-		a.callsMetric(ctx), a.otelCfg.Labels.DBSystem, a.otelCfg.Labels.SpanKind, a.otelCfg.SpanKinds.Client,
-		envFilterStr,
-		rangeStr,
-	)
+	dbEnrichQuery := a.dbEnrichQueryExpr(ctx, envFilterStr, rangeStr)
 
 	// Spanmetrics supplement: discover downstream dependencies from CLIENT/CONSUMER
 	// spans using server_address, http_host, db_system, messaging_system attributes.
@@ -297,15 +297,10 @@ func (a *App) queryDependencies(
 
 	resultMap := a.runInstantQueries(ctx, to, allJobs, logger)
 
-	// Build server_address → db_system mapping from enrichment query
-	dbSystemMap := make(map[string]string) // server_address → db_system
-	for _, r := range resultMap["db_enrich"] {
-		addr := r.Metric[a.otelCfg.Labels.ServerAddress]
-		dbSys := r.Metric[a.otelCfg.Labels.DBSystem]
-		if addr != "" && dbSys != "" {
-			dbSystemMap[addr] = dbSys
-		}
-	}
+	// Build server_address → (db_system, db_name) mapping from enrichment query
+	cfg := a.otelCfg
+	dbInfo := parseDBEnrichResults(resultMap["db_enrich"], cfg.Labels.ServerAddress, cfg.Labels.DBSystem, cfg.Labels.DBName)
+	dbSystemMap := dbSystemMapFrom(dbInfo)
 
 	// Aggregate by (server, connection_type)
 	deps := make(map[depKey]*depData)
@@ -384,6 +379,7 @@ func (a *App) queryDependencies(
 		}
 		result = append(result, DependencySummary{
 			Name:         key.server,
+			DisplayName:  enrichedDisplayName(key.server, dbInfo),
 			Type:         depType,
 			Rate:         roundTo(d.rate, 3),
 			ErrorRate:    roundTo(errPct, 2),
