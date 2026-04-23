@@ -76,18 +76,23 @@ export function LogsTab({ service, namespace, logsUid }: LogsTabProps) {
     const timeRange = new SceneTimeRange({ from: 'now-1h', to: 'now' });
     const svcLabel = `${otel.labels.serviceName}="${sanitizeLabelValue(service)}"`;
 
-    // Use detected_level as stream label for efficient filtering (indexed).
-    // Expand selected severities to all known case variants.
-    const severityValues = severityFilter.flatMap((s) => SEVERITY_VARIANTS[s] ?? [s]);
-    const severityStream = severityValues.length > 0 ? `, detected_level=~"${severityValues.join('|')}"` : '';
-
-    // Exclude Faro browser telemetry by default — it has kind=measurement|exception|event|log.
-    // Backend app logs have no kind label (empty string).
+    // Exclude Faro browser telemetry by default — Faro streams have the `kind` label,
+    // backend app log streams do not. Using kind="" matches streams where kind is absent.
     const kindStream = includeFaro ? '' : ', kind=""';
 
+    // Pod filtering uses k8s_pod_name stream label (only present on backend log streams).
     const podStream = podFilter ? `, k8s_pod_name="${sanitizeLabelValue(podFilter)}"` : '';
 
-    const streamSelector = `{${svcLabel}${kindStream}${severityStream}${podStream}}`;
+    const streamSelector = `{${svcLabel}${kindStream}${podStream}}`;
+
+    // Severity filtering uses pipeline-level JSON parsing because `detected_level` is
+    // structured metadata in Loki, not an indexed stream label — it can't be used in
+    // stream selectors. We parse JSON and filter on the `level` field instead.
+    const severityValues = severityFilter.flatMap((s) => SEVERITY_VARIANTS[s] ?? [s]);
+    const severityLabelFilter = severityValues.length > 0 ? ` | level=~"${severityValues.join('|')}"` : '';
+    // Volume query needs its own json parser since it has no other parser stage.
+    const severityPipeline = severityValues.length > 0 ? ` | json${severityLabelFilter}` : '';
+
     const textFilter = debouncedSearch ? ` |~ "${escapeRegex(debouncedSearch)}"` : '';
 
     const volumeQuery = new SceneQueryRunner({
@@ -95,7 +100,7 @@ export function LogsTab({ service, namespace, logsUid }: LogsTabProps) {
       queries: [
         {
           refId: 'volume',
-          expr: `sum by (detected_level) (count_over_time(${streamSelector}${textFilter} [$__auto]))`,
+          expr: `sum by (detected_level) (count_over_time(${streamSelector}${textFilter}${severityPipeline} [$__auto]))`,
           legendFormat: '{{detected_level}}',
           queryType: 'range',
         },
@@ -107,7 +112,7 @@ export function LogsTab({ service, namespace, logsUid }: LogsTabProps) {
       queries: [
         {
           refId: 'A',
-          expr: `${streamSelector}${textFilter} | json | line_format \`{{ if .message }}{{ .message }}{{ else if .msg }}{{ .msg }}{{ else }}{{ __line__ }}{{ end }}\` | drop __error__, __error_details__`,
+          expr: `${streamSelector}${textFilter} | json${severityLabelFilter} | line_format \`{{ if .message }}{{ .message }}{{ else if .msg }}{{ .msg }}{{ else }}{{ __line__ }}{{ end }}\` | drop __error__, __error_details__`,
           queryType: 'range',
           maxLines: 200,
         },

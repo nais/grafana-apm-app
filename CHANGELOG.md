@@ -18,6 +18,7 @@
 - **Bullet Graph Layout Shift** — Rating text ("Needs improvement") now renders on its own line to prevent inconsistent card heights.
 - **Controls Above Bullet Charts** — Bullet graphs are now embedded inside the EmbeddedScene so Browser/time controls render above them.
 - **Topology Graph with Environment Filter** — Service topology graph now renders correctly regardless of environment filter selection.
+- **Logs Severity Filter** — Moved severity filter from Loki stream selector to label filter pipeline and expanded matching to handle all `detected_level` case variants (e.g. `Error`, `ERROR`, `error`).
 
 ### Improvements
 
