@@ -110,23 +110,23 @@ export function BulletGraph({
       {/* Row 2: full metric name */}
       {description && <span className={styles.metricName}>{description}</span>}
 
-      {/* Row 3: large value + (rating) */}
+      {/* Row 3: large value */}
       <div className={styles.valueRow}>
         {value !== null ? (
-          <>
-            <span className={styles.bigValue} style={{ color: ratingColor }}>
-              {formatVitalValue(value, unit, decimals)}
-            </span>
-            {rating && (
-              <span className={styles.ratingText} style={{ color: ratingColor }}>
-                ({rating.label})
-              </span>
-            )}
-          </>
+          <span className={styles.bigValue} style={{ color: ratingColor }}>
+            {formatVitalValue(value, unit, decimals)}
+          </span>
         ) : (
           <span className={styles.noData}>—</span>
         )}
       </div>
+
+      {/* Row 3b: rating label (always on its own line to prevent layout shift) */}
+      {rating && (
+        <span className={styles.ratingText} style={{ color: ratingColor }}>
+          ({rating.label})
+        </span>
+      )}
 
       {/* Row 4: colored bar + marker */}
       <div className={styles.barOuter}>
@@ -187,10 +187,6 @@ function getStyles(theme: GrafanaTheme2) {
       lineHeight: 1.3,
     }),
     valueRow: css({
-      display: 'flex',
-      alignItems: 'baseline',
-      gap: theme.spacing(0.5),
-      flexWrap: 'wrap' as const,
       marginTop: theme.spacing(0.5),
     }),
     bigValue: css({

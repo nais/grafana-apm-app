@@ -15,6 +15,7 @@ import {
   VariableValueSelectors,
   PanelBuilders,
   EmbeddedScene,
+  SceneReactObject,
   behaviors,
 } from '@grafana/scenes';
 import { DashboardCursorSync, GraphThresholdsStyleMode } from '@grafana/schema';
@@ -83,9 +84,13 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
 
   return (
     <div className={styles.container}>
-      {hasAllVitals && <WebVitalsBullets vitals={vitals} />}
       {source === 'loki' && (
-        <LokiWebVitalsPanels service={service} environment={environment} showVitalsRow={!hasAllVitals} />
+        <LokiWebVitalsPanels
+          service={service}
+          environment={environment}
+          showVitalsRow={!hasAllVitals}
+          vitals={hasAllVitals ? vitals : undefined}
+        />
       )}
       {source === 'mimir' && (
         <MimirWebVitalsPanels
@@ -93,6 +98,7 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
           namespace={namespace}
           environment={environment}
           showVitalsRow={!hasAllVitals}
+          vitals={hasAllVitals ? vitals : undefined}
         />
       )}
     </div>
@@ -366,10 +372,12 @@ function LokiWebVitalsPanels({
   service,
   environment,
   showVitalsRow = true,
+  vitals,
 }: {
   service: string;
   environment?: string;
   showVitalsRow?: boolean;
+  vitals?: Record<string, number>;
 }) {
   const ds = usePluginDatasources(environment || undefined);
   const { from, to } = useTimeRange();
@@ -847,6 +855,12 @@ function LokiWebVitalsPanels({
       value: '$__all',
     });
 
+    const bulletsItem = vitals
+      ? new SceneFlexItem({
+          body: new SceneReactObject({ reactNode: <WebVitalsBullets vitals={vitals} /> }),
+        })
+      : null;
+
     return new EmbeddedScene({
       $timeRange: timeRange,
       $variables: new SceneVariableSet({ variables: [browserVar] }),
@@ -855,6 +869,7 @@ function LokiWebVitalsPanels({
       body: new SceneFlexLayout({
         direction: 'column',
         children: [
+          ...(bulletsItem ? [bulletsItem] : []),
           ...(showVitalsRow ? [vitalsRow] : []),
           overviewRow,
           perPageTable,
@@ -865,7 +880,7 @@ function LokiWebVitalsPanels({
         ],
       }),
     });
-  }, [from, to, ds, service, showVitalsRow]);
+  }, [from, to, ds, service, showVitalsRow, vitals]);
 
   return <scene.Component model={scene} />;
 }
@@ -879,11 +894,13 @@ function MimirWebVitalsPanels({
   namespace,
   environment,
   showVitalsRow = true,
+  vitals,
 }: {
   service: string;
   namespace: string;
   environment?: string;
   showVitalsRow?: boolean;
+  vitals?: Record<string, number>;
 }) {
   const ds = usePluginDatasources(environment || undefined);
   const { from, to } = useTimeRange();
@@ -1191,16 +1208,29 @@ function MimirWebVitalsPanels({
       children: [histogramItem, browserTable],
     });
 
+    const bulletsItem = vitals
+      ? new SceneFlexItem({
+          body: new SceneReactObject({ reactNode: <WebVitalsBullets vitals={vitals} /> }),
+        })
+      : null;
+
     return new EmbeddedScene({
       $timeRange: timeRange,
       $behaviors: [new behaviors.CursorSync({ sync: DashboardCursorSync.Crosshair })],
       controls: [new SceneTimePicker({}), new SceneRefreshPicker({})],
       body: new SceneFlexLayout({
         direction: 'column',
-        children: [...(showVitalsRow ? [vitalsRow] : []), trendsRow, trafficRow, perPageTable, bottomRow],
+        children: [
+          ...(bulletsItem ? [bulletsItem] : []),
+          ...(showVitalsRow ? [vitalsRow] : []),
+          trendsRow,
+          trafficRow,
+          perPageTable,
+          bottomRow,
+        ],
       }),
     });
-  }, [from, to, ds, svcFilter, showVitalsRow]);
+  }, [from, to, ds, svcFilter, showVitalsRow, vitals]);
 
   return <scene.Component model={scene} />;
 }
