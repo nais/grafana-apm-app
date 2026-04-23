@@ -8,57 +8,62 @@ import (
 
 func TestClassifyDependency(t *testing.T) {
 	tests := []struct {
-		name       string
-		depName    string
-		connType   string
-		dbSysMap   map[string]string
-		expected   string
+		name      string
+		depName   string
+		connType  string
+		dbSysMap  map[string]string
+		msgSysMap map[string]string
+		expected  string
 	}{
 		// database connection type with db.system enrichment
-		{"postgres from db.system", "mydb-host", "database", map[string]string{"mydb-host": "postgresql"}, "postgresql"},
-		{"oracle from db.system", "orahost", "database", map[string]string{"orahost": "oracle"}, "oracle"},
-		{"redis from db.system", "cache-host", "database", map[string]string{"cache-host": "redis"}, "redis"},
-		{"mongodb from db.system", "mongo-host", "database", map[string]string{"mongo-host": "mongodb"}, "mongodb"},
+		{"postgres from db.system", "mydb-host", "database", map[string]string{"mydb-host": "postgresql"}, nil, "postgresql"},
+		{"oracle from db.system", "orahost", "database", map[string]string{"orahost": "oracle"}, nil, "oracle"},
+		{"redis from db.system", "cache-host", "database", map[string]string{"cache-host": "redis"}, nil, "redis"},
+		{"mongodb from db.system", "mongo-host", "database", map[string]string{"mongo-host": "mongodb"}, nil, "mongodb"},
 
 		// database connection type with hostname inference
-		{"oracle RAC scan", "dmv04-scan.oera.no", "database", nil, "oracle"},
-		{"nav postgres host", "a01dbvl123.oera.no", "database", nil, "postgresql"},
-		{"redis in hostname", "my-redis-cluster", "database", nil, "redis"},
-		{"valkey in hostname", "test-valkey-01", "database", nil, "redis"},
-		{"opensearch in hostname", "logs-opensearch-01", "database", nil, "opensearch"},
-		{"unknown db host", "some-random-host", "database", nil, "database"},
+		{"oracle RAC scan", "dmv04-scan.oera.no", "database", nil, nil, "oracle"},
+		{"nav postgres host", "a01dbvl123.oera.no", "database", nil, nil, "postgresql"},
+		{"redis in hostname", "my-redis-cluster", "database", nil, nil, "redis"},
+		{"valkey in hostname", "test-valkey-01", "database", nil, nil, "redis"},
+		{"opensearch in hostname", "logs-opensearch-01", "database", nil, nil, "opensearch"},
+		{"unknown db host", "some-random-host", "database", nil, nil, "database"},
 
 		// messaging system — service names are consumers, not dependencies
-		{"kafka consumer as service", "veilarbportefolje", "messaging_system", nil, "service"},
-		{"kafka consumer service", "vergemaal", "messaging_system", nil, "service"},
-		// messaging system — broker hostnames remain as kafka dependencies
-		{"kafka broker hostname", "kafka-brokers.nav.no", "messaging_system", nil, "kafka"},
-		{"kafka broker name", "kafka", "messaging_system", nil, "kafka"},
-		{"rabbitmq broker", "rabbitmq", "messaging_system", nil, "kafka"},
+		{"kafka consumer as service", "veilarbportefolje", "messaging_system", nil, nil, "service"},
+		{"kafka consumer service", "vergemaal", "messaging_system", nil, nil, "service"},
+		// messaging system — broker hostnames with specific messaging_system label
+		{"kafka broker with label", "kafka-brokers.nav.no", "messaging_system", nil, map[string]string{"kafka-brokers.nav.no": "kafka"}, "kafka"},
+		{"jms broker with label", "jms-broker.nav.no", "messaging_system", nil, map[string]string{"jms-broker.nav.no": "jms"}, "messaging"},
+		{"rabbitmq broker with label", "rmq.example.com", "messaging_system", nil, map[string]string{"rmq.example.com": "rabbitmq"}, "rabbitmq"},
+		// messaging system — broker hostnames without label (fallback)
+		{"kafka broker hostname", "kafka-brokers.nav.no", "messaging_system", nil, nil, "kafka"},
+		{"kafka broker name", "kafka", "messaging_system", nil, nil, "kafka"},
+		{"rabbitmq broker name", "rabbitmq", "messaging_system", nil, nil, "kafka"},
 
 		// virtual node
-		{"external virtual node", "api.example.com", "virtual_node", nil, "external"},
+		{"external virtual node", "api.example.com", "virtual_node", nil, nil, "external"},
 
 		// no connection type — db.system map lookup
-		{"no conntype postgres", "mydb", "", map[string]string{"mydb": "postgresql"}, "postgresql"},
+		{"no conntype postgres", "mydb", "", map[string]string{"mydb": "postgresql"}, nil, "postgresql"},
 
 		// no connection type — name inference
-		{"no conntype redis name", "redis", "", nil, "redis"},
-		{"no conntype valkey name", "valkey", "", nil, "redis"},
-		{"no conntype kafka name", "kafka", "", nil, "kafka"},
-		{"no conntype aiven redis", "my-app-redis-01.aivencloud.com", "", nil, "redis"},
-		{"no conntype unknown name", "some-service", "", nil, "service"},
+		{"no conntype redis name", "redis", "", nil, nil, "redis"},
+		{"no conntype valkey name", "valkey", "", nil, nil, "redis"},
+		{"no conntype kafka name", "kafka", "", nil, nil, "kafka"},
+		{"no conntype aiven redis", "my-app-redis-01.aivencloud.com", "", nil, nil, "redis"},
+		{"no conntype unknown name", "some-service", "", nil, nil, "service"},
 
 		// nil dbSysMap with database type
-		{"nil map database", "host.example.com", "database", nil, "database"},
+		{"nil map database", "host.example.com", "database", nil, nil, "database"},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := classifyDependency(tc.depName, tc.connType, tc.dbSysMap)
+			got := classifyDependency(tc.depName, tc.connType, tc.dbSysMap, tc.msgSysMap)
 			if got != tc.expected {
-				t.Errorf("classifyDependency(%q, %q, %v) = %q, want %q",
-					tc.depName, tc.connType, tc.dbSysMap, got, tc.expected)
+				t.Errorf("classifyDependency(%q, %q, %v, %v) = %q, want %q",
+					tc.depName, tc.connType, tc.dbSysMap, tc.msgSysMap, got, tc.expected)
 			}
 		})
 	}
@@ -90,6 +95,59 @@ func TestNormalizeDBSystem(t *testing.T) {
 			got := normalizeDBSystem(tc.input)
 			if got != tc.expected {
 				t.Errorf("normalizeDBSystem(%q) = %q, want %q", tc.input, got, tc.expected)
+			}
+		})
+	}
+}
+
+func TestNormalizeMessagingSystem(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"kafka", "kafka"},
+		{"Kafka", "kafka"},
+		{"rabbitmq", "rabbitmq"},
+		{"RabbitMQ", "rabbitmq"},
+		{"jms", "messaging"},
+		{"JMS", "messaging"},
+		{"nats", "messaging"},
+		{"unknown_system", "messaging"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			got := normalizeMessagingSystem(tc.input)
+			if got != tc.expected {
+				t.Errorf("normalizeMessagingSystem(%q) = %q, want %q", tc.input, got, tc.expected)
+			}
+		})
+	}
+}
+
+func TestFormatDepDisplayName(t *testing.T) {
+	tests := []struct {
+		name            string
+		depName         string
+		dbSystem        string
+		messagingSystem string
+		expected        string
+	}{
+		{"database dep", "100.71.2.33", "postgresql", "", "postgresql (100.71.2.33)"},
+		{"oracle dep", "dmv04-scan.oera.no", "oracle", "", "oracle (dmv04-scan.oera.no)"},
+		{"postgres alias", "mydb.host", "postgres", "", "postgresql (mydb.host)"},
+		{"kafka dep", "kafka-brokers.nav.no", "", "kafka", "kafka (kafka-brokers.nav.no)"},
+		{"jms dep", "jms-broker.nav.no", "", "jms", "jms (jms-broker.nav.no)"},
+		{"no enrichment", "api.example.com", "", "", ""},
+		{"db takes precedence", "host", "redis", "kafka", "redis (host)"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := formatDepDisplayName(tc.depName, tc.dbSystem, tc.messagingSystem)
+			if got != tc.expected {
+				t.Errorf("formatDepDisplayName(%q, %q, %q) = %q, want %q",
+					tc.depName, tc.dbSystem, tc.messagingSystem, got, tc.expected)
 			}
 		})
 	}

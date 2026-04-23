@@ -99,8 +99,8 @@ func (a *App) queryDependencyDetail(
 	// Build classification maps from service graph rate results.
 	// db_system and messaging_system are now available directly on SG metrics.
 	dbSystemMap := make(map[string]string)
+	messagingSystemMap := make(map[string]string)
 	detectedConnType := ""
-	detectedMessagingSystem := ""
 	for _, r := range resultMap["rate"] {
 		if ct := r.Metric[a.otelCfg.Labels.ConnectionType]; ct != "" {
 			detectedConnType = ct
@@ -109,7 +109,7 @@ func (a *App) queryDependencyDetail(
 			dbSystemMap[depName] = ds
 		}
 		if ms := r.Metric[a.otelCfg.Labels.MessagingSystem]; ms != "" {
-			detectedMessagingSystem = ms
+			messagingSystemMap[depName] = ms
 		}
 	}
 
@@ -131,8 +131,8 @@ func (a *App) queryDependencyDetail(
 	return DependencyDetailResponse{
 		Dependency: DependencySummary{
 			Name:         depName,
-			DisplayName:  formatDepDisplayName(depName, dbSystemMap[depName], detectedMessagingSystem),
-			Type:         classifyDependency(depName, detectedConnType, dbSystemMap),
+			DisplayName:  formatDepDisplayName(depName, dbSystemMap[depName], messagingSystemMap[depName]),
+			Type:         classifyDependency(depName, detectedConnType, dbSystemMap, messagingSystemMap),
 			Rate:         roundTo(totalRate, 3),
 			ErrorRate:    roundTo(errPct, 2),
 			P95Duration:  roundTo(totalP95*1000, 2),

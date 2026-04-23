@@ -3,11 +3,11 @@ package plugin
 import "strings"
 
 // classifyDependency determines the dependency type using service-graph
-// connection_type and optionally enriching database types from spanmetrics.
-func classifyDependency(name, connType string, dbSystemMap map[string]string) string {
+// connection_type, db_system from the service graph, and messaging_system labels.
+func classifyDependency(name, connType string, dbSystemMap, messagingSystemMap map[string]string) string {
 	switch connType {
 	case "database":
-		// Try to resolve specific DB type from spanmetrics enrichment
+		// Resolve specific DB type from service graph db_system label
 		if dbSys, ok := dbSystemMap[name]; ok {
 			return normalizeDBSystem(dbSys)
 		}
@@ -22,6 +22,9 @@ func classifyDependency(name, connType string, dbSystemMap map[string]string) st
 		// only in connected services.
 		if !looksLikeHostname(name) && !isKnownBrokerName(name) {
 			return "service"
+		}
+		if msgSys, ok := messagingSystemMap[name]; ok {
+			return normalizeMessagingSystem(msgSys)
 		}
 		return "kafka"
 
@@ -59,6 +62,18 @@ func normalizeDBSystem(dbSys string) string {
 		return "database"
 	default:
 		return "database"
+	}
+}
+
+// normalizeMessagingSystem maps OTel messaging.system values to our display types.
+func normalizeMessagingSystem(msgSys string) string {
+	switch strings.ToLower(msgSys) {
+	case "kafka":
+		return "kafka"
+	case "rabbitmq":
+		return "rabbitmq"
+	default:
+		return "messaging"
 	}
 }
 

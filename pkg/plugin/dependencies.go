@@ -92,10 +92,9 @@ func (a *App) handleNamespaceDependencies(w http.ResponseWriter, req *http.Reque
 
 // queryNamespaceDependencies finds external dependencies for a namespace by:
 // 1. Building a service→namespace map from spanmetrics
-// 2. Querying all service graph edges
-// 3. Enriching database nodes with db_system/db_name from spanmetrics
-// 4. Filtering to outbound edges from namespace services to non-namespace targets
-// 5. Aggregating per-target with callerCount
+// 2. Querying all service graph edges (with db_system/messaging_system labels)
+// 3. Filtering to outbound edges from namespace services to non-namespace targets
+// 4. Aggregating per-target with callerCount
 func (a *App) queryNamespaceDependencies(
 	ctx context.Context,
 	to time.Time,
@@ -168,7 +167,7 @@ func (a *App) queryNamespaceDependencies(
 		if name == "" || name == "unknown" || name == "<unknown>" {
 			continue
 		}
-		depType := classifyDependency(name, d.connType, dbSystemMap)
+		depType := classifyDependency(name, d.connType, dbSystemMap, messagingSystemMap)
 		if depType == "service" {
 			continue
 		}
@@ -378,7 +377,7 @@ func (a *App) queryDependencies(
 		if key.server == "" || key.server == "unknown" || key.server == "<unknown>" {
 			continue
 		}
-		depType := classifyDependency(key.server, key.connType, dbSystemMap)
+		depType := classifyDependency(key.server, key.connType, dbSystemMap, messagingSystemMap)
 		if depType == "service" {
 			continue
 		}
