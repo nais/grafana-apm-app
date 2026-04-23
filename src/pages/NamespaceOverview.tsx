@@ -1,7 +1,7 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { PluginPage } from '@grafana/runtime';
-import { Combobox, useStyles2 } from '@grafana/ui';
+import { Combobox, IconButton, useStyles2 } from '@grafana/ui';
 import { GrafanaTheme2, PageLayoutType } from '@grafana/data';
 import { css } from '@emotion/css';
 import {
@@ -17,6 +17,7 @@ import { useAppNavigate, sanitizeParam } from '../utils/navigation';
 import { extractEnvironmentOptions } from '../utils/options';
 import { getSectionStyles } from '../utils/styles';
 import { useFetch } from '../utils/useFetch';
+import { toMermaidGraph } from '../utils/mermaid';
 import { ServiceGraph, toGraphData } from '../components/ServiceGraph';
 import { PageHeader } from '../components/PageHeader';
 import { DataState } from '../components/DataState';
@@ -144,6 +145,15 @@ function NamespaceOverview() {
     appNavigate('');
   }, [appNavigate]);
 
+  const [mermaidCopied, setMermaidCopied] = useState(false);
+  const handleCopyMermaid = useCallback(() => {
+    const mermaid = toMermaidGraph(graphNodes, graphEdges, 'DOWN');
+    navigator.clipboard.writeText(mermaid).then(() => {
+      setMermaidCopied(true);
+      setTimeout(() => setMermaidCopied(false), 2000);
+    });
+  }, [graphNodes, graphEdges]);
+
   return (
     <PluginPage layout={PageLayoutType.Canvas}>
       <div className={styles.container}>
@@ -184,7 +194,15 @@ function NamespaceOverview() {
           {/* Topology graph */}
           {graphNodes.length > 0 && (
             <div className={styles.section}>
-              <h3 className={styles.sectionTitle}>Service Topology</h3>
+              <div className={styles.sectionHeader}>
+                <h3 className={styles.sectionTitle}>Service Topology</h3>
+                <IconButton
+                  name={mermaidCopied ? 'check' : 'copy'}
+                  tooltip={mermaidCopied ? 'Copied!' : 'Copy as Mermaid'}
+                  size="md"
+                  onClick={handleCopyMermaid}
+                />
+              </div>
               <div
                 style={{
                   height: Math.min(700, Math.max(400, graphNodes.length * 35)),
@@ -260,6 +278,11 @@ const getStyles = (theme: GrafanaTheme2) => ({
     flex: 1;
     min-height: 0;
     padding: 0;
+  `,
+  sectionHeader: css`
+    display: flex;
+    align-items: center;
+    gap: ${theme.spacing(1)};
   `,
 });
 
