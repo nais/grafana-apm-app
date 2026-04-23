@@ -553,14 +553,20 @@ func (c *Config) LokiStreamSelector(service, kind string) string {
 }
 
 // LokiVitalQuery builds a LogQL metric query to extract a Web Vital from Faro logs.
+// Uses weighted mean (sum of values / count of observations) to match the frontend Scene panels.
 //
-//	avg(avg_over_time({service_name="X", kind="measurement"} | logfmt | type="web-vitals" | fcp!="" | keep fcp | unwrap fcp [window]))
+//	sum(sum_over_time({service_name="X", kind="measurement"} | logfmt | type="web-vitals" | fcp!="" | keep fcp | unwrap fcp [window]))
+//	  / sum(count_over_time({service_name="X", kind="measurement"} | logfmt | type="web-vitals" | fcp!="" | keep fcp [window]))
 func (c *Config) LokiVitalQuery(service, vital, window string) string {
-	return fmt.Sprintf(
-		`avg(avg_over_time(%s | logfmt | %s="%s" | %s!="" | keep %s | unwrap %s %s))`,
+	pipeline := fmt.Sprintf(
+		`%s | logfmt | %s="%s" | %s!="" | keep %s`,
 		c.LokiStreamSelector(service, c.FaroLoki.KindMeasurement),
 		c.FaroLoki.TypeField, c.FaroLoki.TypeWebVitals,
-		vital, vital, vital, window,
+		vital, vital,
+	)
+	return fmt.Sprintf(
+		`sum(sum_over_time(%s | unwrap %s %s)) / sum(count_over_time(%s %s))`,
+		pipeline, vital, window, pipeline, window,
 	)
 }
 
