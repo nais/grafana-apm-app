@@ -185,11 +185,17 @@ function NamespaceOverview() {
           {graphNodes.length > 0 && (
             <div className={styles.section}>
               <h3 className={styles.sectionTitle}>Service Topology</h3>
-              <div style={{ height: 500, borderRadius: 4, overflow: 'hidden' }}>
+              <div
+                style={{
+                  height: Math.min(700, Math.max(400, graphNodes.length * 35)),
+                  borderRadius: 4,
+                  overflow: 'hidden',
+                }}
+              >
                 <ServiceGraph
                   nodes={graphNodes}
                   edges={graphEdges}
-                  direction="RIGHT"
+                  direction="DOWN"
                   enableGrouping={false}
                   onNodeClick={(nodeId) => {
                     const svc = services.find((s) => s.name === nodeId);
