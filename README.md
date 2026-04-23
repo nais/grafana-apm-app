@@ -16,9 +16,9 @@ already operate.
 - **Namespace Overview** — team-level dashboard with aggregate stats, service topology graph (no service limit), services table with search/pagination, and external dependencies
 - **RED Dashboards** — per-service Rate, Errors, and Duration panels with configurable percentile selectors (P50–P99) and exemplar overlays linking to traces
 - **Operations Breakdown** — top operations table and duration distribution heatmap
-- **Dependencies** — downstream dependency inventory with impact scoring, per-dependency RED panels, and operation-level detail including database target (`db_name · db_operation`) and messaging topic breakdowns
+- **Dependencies** — downstream dependency inventory with impact scoring, per-dependency RED panels, operation-level detail including database target (`db_name · db_operation`), messaging topic breakdowns, and enriched display names (e.g. `postgresql (10.0.0.1)`) from service graph metrics
 - **Connected Services** — inbound/outbound service tables on service detail pages with direct navigation to service or dependency detail
-- **Service Map** — topology graph with ELK.js auto-layout showing database, messaging, and external dependency types with error highlighting (per-service and per-namespace scoped)
+- **Service Map** — topology graph with ELK.js auto-layout showing database, messaging, and external dependency types with error highlighting (per-service and per-namespace scoped). Export as Mermaid flowchart for documentation.
 - **Server Tab** — HTTP, gRPC, and database endpoint breakdowns with protocol-specific metadata
 - **Runtime Tab** — container resource utilization, JVM memory pools and GC, Go runtime metrics, Node.js event loop and heap
 - **Frontend Tab** — Core Web Vitals (LCP, FCP, CLS, INP, TTFB) with threshold bands, per-page performance table, console errors, enhanced exception drill-down with Explore links, and browser breakdown for Faro-instrumented services

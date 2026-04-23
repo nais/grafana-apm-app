@@ -7,6 +7,8 @@
 - **Namespace Overview Page** — New team/namespace page (`/namespaces/{ns}`) with aggregate stats tiles, service topology graph, services table with search/pagination, and external dependencies table with pagination. Navigate from any namespace link in ServiceInventory.
 - **Server-Side Namespace Filtering** — Backend `/service-map` and new `/namespace-dependencies` endpoints filter by namespace using a service→namespace mapping from spanmetrics. Eliminates client-side filtering inaccuracies.
 - **Service Topology for Large Teams** — Removed the 20-service cap on namespace topology graphs. ELK layout handles up to 300 nodes with zoom/pan controls.
+- **Dependency Enrichment** — Database and messaging dependencies display enriched names like `postgresql (10.0.0.1)` or `kafka (brokers.example.com)` using `db_system` and `messaging_system` labels from Tempo's service graph metrics. No cross-fetching from spanmetrics needed.
+- **Mermaid Export** — Copy button on the namespace topology graph exports the service graph as a Mermaid flowchart. Node shapes match types: cylinders for databases, hexagons for messaging, stadiums for external services.
 - **Frontend Tab: Per-Page Performance** — New table grouping all five Core Web Vitals (LCP, FCP, CLS, INP, TTFB) by page URL with threshold-colored cells and measurement counts.
 - **Frontend Tab: Console Errors** — New panel showing most frequent `console.error` messages from Faro logs, replacing the noisy Top Events panel.
 - **Frontend Tab: Enhanced Exceptions** — Top Exceptions expanded to top 20 with full error messages, "Sessions Affected" column, and click-through Explore links to Loki.
@@ -15,12 +17,16 @@
 ### Improvements
 
 - **Consistent Back Button** — Shared `BackButton` component across ServiceOverview, DependencyDetail, and NamespaceOverview pages.
+- **Messaging System Classification** — `classifyDependency` now correctly distinguishes between Kafka, RabbitMQ, JMS, and generic messaging types, matching frontend icon rendering.
+- **Shared Components** — Extracted `PageHeader`, `DataState`, section styles, and option helpers into reusable modules.
 - **Environment Column** — Namespace services table shows environment column when multiple environments exist (hidden when env filter is active).
 - **Framework Badge Styling** — Lighter weight (`font-weight: 400`) and subtle rounding (`border-radius: 4px`) for framework badges. Unknown frameworks now render a grey fallback badge instead of being hidden.
 - **Canvas Layout** — Namespace page uses `PageLayoutType.Canvas` for a clean, headerless layout matching the service detail page.
 
 ### Bug Fixes
 
+- **Service Node Misclassification** — Fix services receiving Kafka traffic being rendered as messaging infrastructure nodes. A node that also initiates calls is a service, not a broker.
+- **Service Filter on Team Page** — Fix search filter not matching services and column alignment issues in the namespace services table.
 - **Empty Service Topology** — Fix topology graph rendering as blank on namespace page. Root cause: ReactFlow `height: 100%` resolved to 0px when parent had no explicit height. Fixed by wrapping graph in container with explicit height.
 - **Environment Dropdown Stuck** — Fix environment dropdown disappearing after selection. Now uses a separate unfiltered fetch for environment discovery, and always shows dropdown when a filter is active.
 - **Sidecar Filtering** — Namespace page now hides known infrastructure sidecars (wonderwall, texas) consistent with ServiceInventory default behavior.
