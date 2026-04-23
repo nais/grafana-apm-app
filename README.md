@@ -40,8 +40,8 @@ Your OTel pipeline (Tempo metrics-generator or OTel Collector spanmetrics/servic
 connectors) produces pre-aggregated span metrics and service graph metrics that
 the plugin queries for dashboards. Traces come from Tempo, logs from Loki.
 
-See [docs/configuration.md](docs/configuration.md) for setup details and
-[docs/metrics-reference.md](docs/metrics-reference.md) for the full list of
+See [docs/configuration.md](https://github.com/nais/grafana-apm-app/blob/main/docs/configuration.md) for setup details and
+[docs/metrics-reference.md](https://github.com/nais/grafana-apm-app/blob/main/docs/metrics-reference.md) for the full list of
 expected metrics and labels.
 
 ## Prerequisites
@@ -75,7 +75,7 @@ Then enable the plugin under **Administration > Plugins** in Grafana.
 4. Save
 
 For per-environment datasource overrides, authentication setup, and
-troubleshooting, see [docs/configuration.md](docs/configuration.md).
+troubleshooting, see [docs/configuration.md](https://github.com/nais/grafana-apm-app/blob/main/docs/configuration.md).
 
 ## Quick start (development)
 
@@ -145,15 +145,15 @@ service graph data aggregation.
 
 | Document | Contents |
 |----------|----------|
-| [docs/configuration.md](docs/configuration.md) | Datasource setup, per-environment overrides, authentication, auto-detection |
-| [docs/metrics-reference.md](docs/metrics-reference.md) | Complete metrics, labels, dimensions, and query patterns reference |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Development setup, code structure, testing, quality gates |
-| [CHANGELOG.md](CHANGELOG.md) | Release history |
+| [docs/configuration.md](https://github.com/nais/grafana-apm-app/blob/main/docs/configuration.md) | Datasource setup, per-environment overrides, authentication, auto-detection |
+| [docs/metrics-reference.md](https://github.com/nais/grafana-apm-app/blob/main/docs/metrics-reference.md) | Complete metrics, labels, dimensions, and query patterns reference |
+| [CONTRIBUTING.md](https://github.com/nais/grafana-apm-app/blob/main/CONTRIBUTING.md) | Development setup, code structure, testing, quality gates |
+| [CHANGELOG.md](https://github.com/nais/grafana-apm-app/blob/main/CHANGELOG.md) | Release history |
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+See [CONTRIBUTING.md](https://github.com/nais/grafana-apm-app/blob/main/CONTRIBUTING.md).
 
 ## License
 
-[Apache-2.0](LICENSE)
+[Apache-2.0](https://github.com/nais/grafana-apm-app/blob/main/LICENSE)
