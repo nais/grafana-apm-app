@@ -160,7 +160,11 @@ func (a *App) queryServiceMap( //nolint:gocyclo // complex due to filtering + no
 	_, to time.Time,
 	filterService, filterNamespace, filterEnvironment string,
 ) ServiceMapResponse {
-	edges := a.queryServiceGraphEdges(ctx, to, filterEnvironment)
+	// Service graph metrics (from Tempo's metrics generator) typically lack
+	// deployment_environment labels, so we fetch all edges unfiltered.
+	// Environment scoping is applied indirectly via the namespace map built
+	// from spanmetrics (which DO carry deployment_environment).
+	edges := a.queryServiceGraphEdges(ctx, to, "")
 
 	nodeSet := make(map[string]bool)
 	for k := range edges {
