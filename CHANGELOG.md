@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Bug Fixes
+
+- **E2E: Remove Stale Service Map Test** — Remove `service map page should render` e2e test that referenced the deleted `ROUTES.ServiceMap` constant (page removed in v0.5.0).
+- **README: Absolute Links** — Convert all relative links in README.md to absolute GitHub URLs to satisfy the Grafana plugin validator for marketplace publishing.
+
 ## 0.5.0 (2026-04-23)
 
 ### Features
