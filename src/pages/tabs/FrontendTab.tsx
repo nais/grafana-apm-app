@@ -10,6 +10,9 @@ import {
   SceneTimePicker,
   SceneRefreshPicker,
   SceneDataTransformer,
+  SceneVariableSet,
+  CustomVariable,
+  VariableValueSelectors,
   PanelBuilders,
   EmbeddedScene,
   behaviors,
@@ -151,11 +154,15 @@ const VITAL_THRESHOLDS = {
 
 // ---- LogQL helper for Faro vital queries ----
 
+// Browser filter — Scenes interpolates $browser at query time.
+// When "All" is selected, allValue is '.*' so the regex matches everything.
+const BROWSER_FILTER = `| browser_name=~"$browser"`;
+
 function lokiVitalPipeline(service: string, vital: string, extraKeep?: string): string {
   const fl = otel.faroLoki;
   const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindMeasurement}"}`;
   const keepFields = extraKeep ? `${vital}, ${extraKeep}` : vital;
-  return `${stream} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" | ${vital}!="" | keep ${keepFields}`;
+  return `${stream} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" | ${vital}!="" ${BROWSER_FILTER} | keep ${keepFields}`;
 }
 
 // Weighted mean: sum(values) / count(lines) across all streams.
@@ -196,37 +203,37 @@ function lokiVitalByPageExpr(service: string, vital: string, pageLabel: string, 
 function lokiExceptionExpr(service: string, window: string): string {
   const fl = otel.faroLoki;
   const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindException}"}`;
-  return `sum(count_over_time(${stream} ${window}))`;
+  return `sum(count_over_time(${stream} | logfmt ${BROWSER_FILTER} ${window}))`;
 }
 
 function lokiTopExceptionsExpr(service: string, window: string): string {
   const fl = otel.faroLoki;
   const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindException}"}`;
-  return `topk(20, sum by (value) (count_over_time(${stream} | logfmt | value!="" | keep value ${window})))`;
+  return `topk(20, sum by (value) (count_over_time(${stream} | logfmt | value!="" ${BROWSER_FILTER} | keep value ${window})))`;
 }
 
 function lokiExceptionSessionsExpr(service: string, window: string): string {
   const fl = otel.faroLoki;
   const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindException}"}`;
-  return `topk(20, count by (value) (sum by (value, session_id) (count_over_time(${stream} | logfmt | value!="" | session_id!="" | keep value, session_id ${window}))))`;
+  return `topk(20, count by (value) (sum by (value, session_id) (count_over_time(${stream} | logfmt | value!="" | session_id!="" ${BROWSER_FILTER} | keep value, session_id ${window}))))`;
 }
 
 function lokiSessionStartExpr(service: string, window: string): string {
   const fl = otel.faroLoki;
   const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindEvent}"}`;
-  return `sum(count_over_time(${stream} | logfmt | event_name="session_start" ${window}))`;
+  return `sum(count_over_time(${stream} | logfmt | event_name="session_start" ${BROWSER_FILTER} ${window}))`;
 }
 
 function lokiConsoleErrorsExpr(service: string, window: string): string {
   const fl = otel.faroLoki;
   const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindLog}"}`;
-  return `topk(10, sum by (value) (count_over_time(${stream} | logfmt | level="error" | value!="" | keep value ${window})))`;
+  return `topk(10, sum by (value) (count_over_time(${stream} | logfmt | level="error" | value!="" ${BROWSER_FILTER} | keep value ${window})))`;
 }
 
 function lokiMeasurementCountExpr(service: string, window: string): string {
   const fl = otel.faroLoki;
   const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindMeasurement}"}`;
-  return `sum(count_over_time(${stream} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" ${window}))`;
+  return `sum(count_over_time(${stream} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" ${BROWSER_FILTER} ${window}))`;
 }
 
 // ========================================================================
@@ -537,7 +544,7 @@ function LokiWebVitalsPanels({ service, environment }: { service: string; enviro
     const ratingStream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindMeasurement}"}`;
     const ratingQ = makeLokiQuery(
       lDs,
-      `sum by (${fl.rating}) (count_over_time(${ratingStream} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" | ${fl.rating}!="" | keep ${fl.rating} [$__range]))`,
+      `sum by (${fl.rating}) (count_over_time(${ratingStream} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" | ${fl.rating}!="" ${BROWSER_FILTER} | keep ${fl.rating} [$__range]))`,
       `{{${fl.rating}}}`,
       { instant: true }
     );
@@ -699,10 +706,22 @@ function LokiWebVitalsPanels({ service, environment }: { service: string; enviro
       ],
     });
 
+    // --- Filter variables ---
+    const browserVar = new CustomVariable({
+      name: 'browser',
+      label: 'Browser',
+      isMulti: false,
+      includeAll: true,
+      allValue: '.*',
+      query: 'Chrome,Firefox,Safari,Edge,Opera,Samsung Internet',
+      value: '$__all',
+    });
+
     return new EmbeddedScene({
       $timeRange: timeRange,
+      $variables: new SceneVariableSet({ variables: [browserVar] }),
       $behaviors: [new behaviors.CursorSync({ sync: DashboardCursorSync.Crosshair })],
-      controls: [new SceneTimePicker({}), new SceneRefreshPicker({})],
+      controls: [new VariableValueSelectors({}), new SceneTimePicker({}), new SceneRefreshPicker({})],
       body: new SceneFlexLayout({
         direction: 'column',
         children: [vitalsRow, overviewRow, perPageTable, trendsRow, errorsRow, supportRow, trafficRow],
