@@ -22,6 +22,7 @@ import { ServiceGraph, toGraphData } from '../components/ServiceGraph';
 import { PageHeader } from '../components/PageHeader';
 import { DataState } from '../components/DataState';
 import { NamespaceStats } from './namespace/NamespaceStats';
+import { NeedsAttention } from './namespace/NeedsAttention';
 import { NamespaceServicesTable } from './namespace/NamespaceServicesTable';
 import { NamespaceDependencies } from './namespace/NamespaceDependencies';
 
@@ -35,7 +36,8 @@ function NamespaceOverview() {
   const svcSearch = searchParams.get('svcSearch') ?? '';
   const svcPage = Math.max(1, parseInt(searchParams.get('svcPage') ?? '1', 10) || 1);
   const depPage = Math.max(1, parseInt(searchParams.get('depPage') ?? '1', 10) || 1);
-  const { fromMs, toMs } = useTimeRange();
+  const { from, fromMs, toMs } = useTimeRange();
+  const healthFilter = searchParams.get('healthFilter') ?? '';
 
   // Fetch services for this namespace (fast, no sparklines)
   const {
@@ -45,6 +47,17 @@ function NamespaceOverview() {
   } = useFetch<ServiceSummary[]>(
     () => getServices(fromMs, toMs, 60, false, { namespace: decodedNs, environment: envFilter || undefined }),
     [fromMs, toMs, decodedNs, envFilter]
+  );
+
+  // Fetch previous period for change deltas (only for relative time ranges, summary only)
+  const isRelativeRange = from.startsWith('now');
+  const rangeDuration = toMs - fromMs;
+  const prevFromMs = fromMs - rangeDuration;
+  const prevToMs = fromMs;
+  const { data: prevServices } = useFetch<ServiceSummary[]>(
+    () => getServices(prevFromMs, prevToMs, 60, false, { namespace: decodedNs, environment: envFilter || undefined }),
+    [prevFromMs, prevToMs, decodedNs, envFilter],
+    { skip: !isRelativeRange }
   );
 
   // Separate fetch without env filter to discover available environments
@@ -83,6 +96,18 @@ function NamespaceOverview() {
 
   // Compute unique environments for dropdown (from unfiltered data to prevent dropdown disappearing)
   const envOptions = useMemo(() => extractEnvironmentOptions(allEnvServices ?? []), [allEnvServices]);
+
+  // Build lookup map of previous period services for delta comparison
+  const previousMap = useMemo(() => {
+    if (!prevServices) {
+      return undefined;
+    }
+    const m = new Map<string, ServiceSummary>();
+    for (const s of prevServices) {
+      m.set(`${s.namespace}/${s.name}/${s.environment ?? ''}`, s);
+    }
+    return m;
+  }, [prevServices]);
 
   // Use backend-filtered service map directly for topology
   const { graphNodes, graphEdges } = useMemo(() => {
@@ -189,7 +214,15 @@ function NamespaceOverview() {
           loadingText="Loading namespace data..."
         >
           {/* Stats tiles */}
-          <NamespaceStats services={services} />
+          <NamespaceStats services={services} previousMap={previousMap} sparklineMap={sparklineMap} />
+
+          {/* Needs attention — unhealthy services */}
+          <NeedsAttention
+            services={services}
+            sparklineMap={sparklineMap}
+            previousMap={previousMap}
+            onServiceClick={handleServiceClick}
+          />
 
           {/* Topology graph */}
           {graphNodes.length > 0 && (
@@ -233,8 +266,10 @@ function NamespaceOverview() {
             <NamespaceServicesTable
               services={services}
               sparklineMap={sparklineMap}
+              previousMap={previousMap}
               showEnvironment={!envFilter && envOptions.length > 1}
               search={svcSearch}
+              healthFilter={healthFilter}
               page={svcPage}
               onSearchChange={(q) => {
                 setSearchParams(
@@ -251,6 +286,7 @@ function NamespaceOverview() {
                   { replace: true }
                 );
               }}
+              onHealthFilterChange={(f) => updateParam('healthFilter', f || null)}
               onPageChange={(p) => updateParam('svcPage', p > 1 ? String(p) : null)}
               onServiceClick={handleServiceClick}
             />
