@@ -13,6 +13,29 @@ updates:
     commit-message:
       prefix: 'chore'
       include: 'scope'
+    ignore:
+      # Grafana 13 SDK — defer until we migrate from Grafana 12
+      - dependency-name: '@grafana/data'
+        versions: ['>=13.0.0']
+      - dependency-name: '@grafana/i18n'
+        versions: ['>=13.0.0']
+      - dependency-name: '@grafana/runtime'
+        versions: ['>=13.0.0']
+      - dependency-name: '@grafana/schema'
+        versions: ['>=13.0.0']
+      - dependency-name: '@grafana/ui'
+        versions: ['>=13.0.0']
+      - dependency-name: '@grafana/scenes'
+        versions: ['>=7.0.0']
+      # React 19 — Grafana 13 runtime ships React 19
+      - dependency-name: 'react'
+        versions: ['>=19.0.0']
+      - dependency-name: 'react-dom'
+        versions: ['>=19.0.0']
+      - dependency-name: '@types/react'
+        versions: ['>=19.0.0']
+      - dependency-name: '@types/react-dom'
+        versions: ['>=19.0.0']
     groups:
       npm-all:
         patterns:
