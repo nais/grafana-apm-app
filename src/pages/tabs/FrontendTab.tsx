@@ -169,6 +169,30 @@ function lokiVitalByGroupExpr(service: string, vital: string, groupBy: string, w
   return `sum by (${groupBy}) (sum_over_time(${pipeline} | unwrap ${vital} ${window})) / sum by (${groupBy}) (count_over_time(${pipeline} ${window}))`;
 }
 
+// URL normalization: collapse UUIDs and long numeric IDs into wildcards, strip query params.
+// Applied via label_replace + re-aggregation so multiple raw URLs map to one route pattern.
+function normalizePageUrlExpr(innerExpr: string, label: string): string {
+  return `sum by (${label}) (
+    label_replace(
+      label_replace(
+        label_replace(
+          ${innerExpr},
+          "${label}", "$1", "${label}", "([^?]*)\\\\?.*"
+        ),
+        "${label}", "\${1}*\${2}", "${label}", "(.*?)/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(.*)"
+      ),
+      "${label}", "\${1}*\${2}", "${label}", "(.*?)/[0-9]{5,}(.*)"
+    )
+  )`;
+}
+
+function lokiVitalByPageExpr(service: string, vital: string, pageLabel: string, window: string): string {
+  const pipeline = lokiVitalPipeline(service, vital, pageLabel);
+  const sumExpr = `sum by (${pageLabel}) (sum_over_time(${pipeline} | unwrap ${vital} ${window}))`;
+  const countExpr = `sum by (${pageLabel}) (count_over_time(${pipeline} ${window}))`;
+  return `${normalizePageUrlExpr(sumExpr, pageLabel)} / ${normalizePageUrlExpr(countExpr, pageLabel)}`;
+}
+
 function lokiExceptionExpr(service: string, window: string): string {
   const fl = otel.faroLoki;
   const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindException}"}`;
@@ -252,7 +276,52 @@ function LokiWebVitalsPanels({ service, environment }: { service: string; enviro
       ],
     });
 
-    // --- Row 2: Web Vitals time series trends (use $__auto for trend resolution) ---
+    // --- Row 2: Overview stats (page views, sessions, errors) ---
+    const pageViewsQ = makeLokiQuery(lDs, lokiMeasurementCountExpr(service, '[$__range]'), 'Page Views', {
+      instant: true,
+    });
+    const sessionsStatQ = makeLokiQuery(lDs, lokiSessionStartExpr(service, '[$__range]'), 'Sessions', {
+      instant: true,
+    });
+    const errorsStatQ = makeLokiQuery(lDs, lokiExceptionExpr(service, '[$__range]'), 'Errors', { instant: true });
+
+    const overviewRow = new SceneFlexLayout({
+      direction: 'row',
+      children: [
+        new SceneFlexItem({
+          minHeight: 100,
+          body: PanelBuilders.stat()
+            .setTitle('Page Views')
+            .setDescription('Total Web Vitals measurements in time range')
+            .setData(pageViewsQ)
+            .setUnit('short')
+            .setColor({ mode: 'fixed', fixedColor: 'blue' } as any)
+            .build(),
+        }),
+        new SceneFlexItem({
+          minHeight: 100,
+          body: PanelBuilders.stat()
+            .setTitle('Sessions')
+            .setDescription('Unique user sessions started in time range')
+            .setData(sessionsStatQ)
+            .setUnit('short')
+            .setColor({ mode: 'fixed', fixedColor: 'purple' } as any)
+            .build(),
+        }),
+        new SceneFlexItem({
+          minHeight: 100,
+          body: PanelBuilders.stat()
+            .setTitle('JS Errors')
+            .setDescription('Total JavaScript exceptions in time range')
+            .setData(errorsStatQ)
+            .setUnit('short')
+            .setColor({ mode: 'fixed', fixedColor: 'red' } as any)
+            .build(),
+        }),
+      ],
+    });
+
+    // --- Row 3: Web Vitals time series trends (use $__auto for trend resolution) ---
     const pageLoadVitalsQ = new SceneQueryRunner({
       datasource: { uid: ds.logsUid, type: 'loki' },
       queries: [
@@ -308,79 +377,50 @@ function LokiWebVitalsPanels({ service, environment }: { service: string; enviro
       ],
     });
 
-    // --- Row 3: Measurement count + JS Exceptions ---
-    const measurementCountQ = makeLokiQuery(lDs, lokiMeasurementCountExpr(service, '[$__auto]'), 'Measurements');
-    const exceptionCountQ = makeLokiQuery(lDs, lokiExceptionExpr(service, '[$__auto]'), 'JS Exceptions');
-
-    const trafficRow = new SceneFlexLayout({
-      direction: 'row',
-      children: [
-        new SceneFlexItem({
-          minHeight: 200,
-          body: PanelBuilders.timeseries()
-            .setTitle('Web Vitals Measurements')
-            .setDescription('Number of web vitals measurements over time')
-            .setData(measurementCountQ)
-            .setUnit('short')
-            .setCustomFieldConfig('fillOpacity', 30)
-            .build(),
-        }),
-        new SceneFlexItem({
-          minHeight: 200,
-          body: PanelBuilders.timeseries()
-            .setTitle('JavaScript Exceptions')
-            .setDescription('JS exception count over time')
-            .setData(exceptionCountQ)
-            .setUnit('short')
-            .setCustomFieldConfig('fillOpacity', 15)
-            .build(),
-        }),
-      ],
-    });
-
     // --- Row 4: Per-Page Performance Table ---
     const pageUrl = otel.faroLoki.pageUrl;
+    const countPipeline = `{${otel.faroLoki.serviceName}="${sanitizeLabelValue(service)}", ${otel.faroLoki.kind}="${otel.faroLoki.kindMeasurement}"} | logfmt | ${otel.faroLoki.typeField}="${otel.faroLoki.typeWebVitals}" | ${pageUrl}!="" | keep ${pageUrl}`;
     const perPageQ = new SceneQueryRunner({
       datasource: { uid: ds.logsUid, type: 'loki' },
       queries: [
         {
           refId: 'lcp',
-          expr: lokiVitalByGroupExpr(service, otel.faroLoki.lcp, pageUrl, '[$__range]'),
+          expr: lokiVitalByPageExpr(service, otel.faroLoki.lcp, pageUrl, '[$__range]'),
           legendFormat: '__auto',
           format: 'table',
           instant: true,
         },
         {
           refId: 'fcp',
-          expr: lokiVitalByGroupExpr(service, otel.faroLoki.fcp, pageUrl, '[$__range]'),
+          expr: lokiVitalByPageExpr(service, otel.faroLoki.fcp, pageUrl, '[$__range]'),
           legendFormat: '__auto',
           format: 'table',
           instant: true,
         },
         {
           refId: 'cls',
-          expr: lokiVitalByGroupExpr(service, otel.faroLoki.cls, pageUrl, '[$__range]'),
+          expr: lokiVitalByPageExpr(service, otel.faroLoki.cls, pageUrl, '[$__range]'),
           legendFormat: '__auto',
           format: 'table',
           instant: true,
         },
         {
           refId: 'inp',
-          expr: lokiVitalByGroupExpr(service, otel.faroLoki.inp, pageUrl, '[$__range]'),
+          expr: lokiVitalByPageExpr(service, otel.faroLoki.inp, pageUrl, '[$__range]'),
           legendFormat: '__auto',
           format: 'table',
           instant: true,
         },
         {
           refId: 'ttfb',
-          expr: lokiVitalByGroupExpr(service, otel.faroLoki.ttfb, pageUrl, '[$__range]'),
+          expr: lokiVitalByPageExpr(service, otel.faroLoki.ttfb, pageUrl, '[$__range]'),
           legendFormat: '__auto',
           format: 'table',
           instant: true,
         },
         {
           refId: 'count',
-          expr: `sum by (${pageUrl}) (count_over_time({${otel.faroLoki.serviceName}="${sanitizeLabelValue(service)}", ${otel.faroLoki.kind}="${otel.faroLoki.kindMeasurement}"} | logfmt | ${otel.faroLoki.typeField}="${otel.faroLoki.typeWebVitals}" | ${pageUrl}!="" | keep ${pageUrl} [$__range]))`,
+          expr: normalizePageUrlExpr(`sum by (${pageUrl}) (count_over_time(${countPipeline} [$__range]))`, pageUrl),
           legendFormat: '__auto',
           format: 'table',
           instant: true,
@@ -396,8 +436,9 @@ function LokiWebVitalsPanels({ service, environment }: { service: string; enviro
       minHeight: 250,
       body: PanelBuilders.table()
         .setTitle('Per-Page Performance')
-        .setDescription('Average Web Vitals per page URL')
+        .setDescription('Average Web Vitals per page route (UUIDs and numeric IDs collapsed)')
         .setData(perPageData)
+        .setOption('sortBy', [{ displayName: 'Measurements', desc: true }])
         .setOverrides((b) => {
           b.matchFieldsWithName(pageUrl).overrideDisplayName('Page URL').overrideCustomFieldConfig('width', 400);
           b.matchFieldsWithName('Value #lcp')
@@ -531,11 +572,6 @@ function LokiWebVitalsPanels({ service, environment }: { service: string; enviro
         .build(),
     });
 
-    const bottomRow = new SceneFlexLayout({
-      direction: 'row',
-      children: [ratingPanel, browserTable],
-    });
-
     // --- Row 6: Top Exceptions table ---
     const topExceptionsQ = new SceneQueryRunner({
       datasource: { uid: ds.logsUid, type: 'loki' },
@@ -591,27 +627,7 @@ function LokiWebVitalsPanels({ service, environment }: { service: string; enviro
         .build(),
     });
 
-    // --- Row 7: Sessions + Exceptions over time ---
-    const sessionQ = makeLokiQuery(lDs, lokiSessionStartExpr(service, '[$__auto]'), 'Sessions');
-    const sessionsAndExceptionsRow = new SceneFlexLayout({
-      direction: 'row',
-      children: [
-        new SceneFlexItem({
-          minHeight: 200,
-          body: PanelBuilders.timeseries()
-            .setTitle('Sessions (Visits)')
-            .setDescription('New session starts over time — indicates user traffic volume')
-            .setData(sessionQ)
-            .setUnit('short')
-            .setCustomFieldConfig('fillOpacity', 25)
-            .setColor({ mode: 'fixed', fixedColor: 'blue' } as any)
-            .build(),
-        }),
-        topExceptionsPanel,
-      ],
-    });
-
-    // --- Row 8: Console Errors table ---
+    // --- Console Errors table ---
     const consoleErrorsQ = makeLokiQuery(lDs, lokiConsoleErrorsExpr(service, '[$__range]'), '{{value}}', {
       instant: true,
     });
@@ -629,9 +645,58 @@ function LokiWebVitalsPanels({ service, environment }: { service: string; enviro
         .build(),
     });
 
-    const consoleErrorsRow = new SceneFlexLayout({
+    // --- Errors section: Top Exceptions + Console Errors side by side ---
+    const errorsRow = new SceneFlexLayout({
       direction: 'row',
-      children: [consoleErrorsPanel],
+      children: [topExceptionsPanel, consoleErrorsPanel],
+    });
+
+    // --- Support section: Rating + Browser ---
+    const supportRow = new SceneFlexLayout({
+      direction: 'row',
+      children: [ratingPanel, browserTable],
+    });
+
+    // --- Traffic trends: Measurements + Exceptions + Sessions over time ---
+    const measurementCountQ = makeLokiQuery(lDs, lokiMeasurementCountExpr(service, '[$__auto]'), 'Measurements');
+    const exceptionCountQ = makeLokiQuery(lDs, lokiExceptionExpr(service, '[$__auto]'), 'JS Exceptions');
+    const sessionQ = makeLokiQuery(lDs, lokiSessionStartExpr(service, '[$__auto]'), 'Sessions');
+
+    const trafficRow = new SceneFlexLayout({
+      direction: 'row',
+      children: [
+        new SceneFlexItem({
+          minHeight: 200,
+          body: PanelBuilders.timeseries()
+            .setTitle('Web Vitals Measurements')
+            .setDescription('Number of Faro measurement reports over time')
+            .setData(measurementCountQ)
+            .setUnit('short')
+            .setCustomFieldConfig('fillOpacity', 15)
+            .build(),
+        }),
+        new SceneFlexItem({
+          minHeight: 200,
+          body: PanelBuilders.timeseries()
+            .setTitle('JavaScript Exceptions')
+            .setDescription('JS exception count over time')
+            .setData(exceptionCountQ)
+            .setUnit('short')
+            .setCustomFieldConfig('fillOpacity', 15)
+            .build(),
+        }),
+        new SceneFlexItem({
+          minHeight: 200,
+          body: PanelBuilders.timeseries()
+            .setTitle('Sessions')
+            .setDescription('New session starts over time')
+            .setData(sessionQ)
+            .setUnit('short')
+            .setCustomFieldConfig('fillOpacity', 25)
+            .setColor({ mode: 'fixed', fixedColor: 'blue' } as any)
+            .build(),
+        }),
+      ],
     });
 
     return new EmbeddedScene({
@@ -640,15 +705,7 @@ function LokiWebVitalsPanels({ service, environment }: { service: string; enviro
       controls: [new SceneTimePicker({}), new SceneRefreshPicker({})],
       body: new SceneFlexLayout({
         direction: 'column',
-        children: [
-          vitalsRow,
-          trendsRow,
-          trafficRow,
-          perPageTable,
-          bottomRow,
-          sessionsAndExceptionsRow,
-          consoleErrorsRow,
-        ],
+        children: [vitalsRow, overviewRow, perPageTable, trendsRow, errorsRow, supportRow, trafficRow],
       }),
     });
   }, [from, to, ds, service]);
