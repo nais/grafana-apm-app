@@ -60,10 +60,12 @@ type sgEdgeKey struct {
 
 // sgEdgeData holds numeric metrics for a service graph edge.
 type sgEdgeData struct {
-	rate      float64
-	errorRate float64
-	p95       float64
-	connType  string
+	rate            float64
+	errorRate       float64
+	p95             float64
+	connType        string
+	dbSystem        string
+	messagingSystem string
 }
 
 // queryServiceGraphEdges runs the 3 service graph queries (rate, error, P95)
@@ -80,8 +82,9 @@ func (a *App) queryServiceGraphEdges(ctx context.Context, to time.Time, filterEn
 	}
 
 	rateQuery := fmt.Sprintf(
-		`sum by (%s, %s, %s) (rate(%s%s%s%s))`,
+		`sum by (%s, %s, %s, %s, %s) (rate(%s%s%s%s))`,
 		a.otelCfg.Labels.Client, a.otelCfg.Labels.Server, a.otelCfg.Labels.ConnectionType,
+		a.otelCfg.Labels.DBSystem, a.otelCfg.Labels.MessagingSystem,
 		sgp, a.otelCfg.ServiceGraph.RequestTotal, labelFilterStr(labelFilter), rangeStr,
 	)
 	errorQuery := fmt.Sprintf(
@@ -121,6 +124,12 @@ func (a *App) queryServiceGraphEdges(ctx context.Context, to time.Time, filterEn
 		e := getEdge(client, server)
 		e.rate = r.Value.Float()
 		e.connType = r.Metric[a.otelCfg.Labels.ConnectionType]
+		if ds := r.Metric[a.otelCfg.Labels.DBSystem]; ds != "" {
+			e.dbSystem = ds
+		}
+		if ms := r.Metric[a.otelCfg.Labels.MessagingSystem]; ms != "" {
+			e.messagingSystem = ms
+		}
 	}
 
 	for _, r := range resultMap["error"] {
@@ -214,15 +223,24 @@ func (a *App) queryServiceMap( //nolint:gocyclo // complex due to filtering + no
 		}
 	}
 
-	// Infer node types from connection_type on edges (describes the server end)
+	// Infer node types and subtitles from edge labels.
+	// db_system and messaging_system come directly from service graph metrics,
+	// so no separate spanmetrics enrichment query is needed.
 	nodeTypes := make(map[string]string)
+	nodeSubtitles := make(map[string]string)
 	for k, e := range edges {
 		if e.connType != "" {
 			switch e.connType {
 			case "database":
 				nodeTypes[k.server] = "database"
-			case "messaging":
+				if e.dbSystem != "" {
+					nodeSubtitles[k.server] = normalizeDBSystem(e.dbSystem)
+				}
+			case "messaging_system":
 				nodeTypes[k.server] = "messaging"
+				if e.messagingSystem != "" {
+					nodeSubtitles[k.server] = e.messagingSystem
+				}
 			default:
 				if _, exists := nodeTypes[k.server]; !exists {
 					nodeTypes[k.server] = "external"
@@ -230,9 +248,6 @@ func (a *App) queryServiceMap( //nolint:gocyclo // complex due to filtering + no
 			}
 		}
 	}
-
-	// Enrich database nodes with db_system and db_name from spanmetrics
-	dbInfo := a.queryDBEnrichment(ctx, to, filterEnvironment)
 
 	nodes := make([]ServiceMapNode, 0, len(nodeSet))
 	for name := range nodeSet {
@@ -253,21 +268,10 @@ func (a *App) queryServiceMap( //nolint:gocyclo // complex due to filtering + no
 			nType = "service"
 		}
 
-		title := name
-		subtitle := ""
-		if nType == "database" {
-			if info, ok := dbInfo[name]; ok {
-				subtitle = normalizeDBSystem(info.dbSystem)
-				if info.dbName != "" {
-					title = info.dbName
-				}
-			}
-		}
-
 		nodes = append(nodes, ServiceMapNode{
 			ID:            name,
-			Title:         title,
-			SubTitle:      subtitle,
+			Title:         name,
+			SubTitle:      nodeSubtitles[name],
 			MainStat:      fmt.Sprintf("%.1f req/s", totalRate),
 			SecondaryStat: fmt.Sprintf("%.1f%% errors", errPct*100),
 			ArcErrors:     errPct,
@@ -356,95 +360,16 @@ func (a *App) buildServiceNamespaceMap(ctx context.Context, to time.Time, filter
 	return nsMap
 }
 
-// dbEnrichInfo holds database enrichment data from spanmetrics.
-type dbEnrichInfo struct {
-	dbSystem string
-	dbName   string
-}
-
-// parseDBEnrichResults parses instant query results containing server_address,
-// db_system, and optionally db_name labels into a dbEnrichInfo map.
-// Shared by both standalone queryDBEnrichment and batched enrichment queries.
-func parseDBEnrichResults(results []queries.PromResult, addrLabel, sysLabel, nameLabel string) map[string]*dbEnrichInfo {
-	info := make(map[string]*dbEnrichInfo)
-	for _, r := range results {
-		addr := r.Metric[addrLabel]
-		dbSys := r.Metric[sysLabel]
-		if addr == "" || dbSys == "" {
-			continue
-		}
-		dbName := ""
-		if nameLabel != "" {
-			dbName = r.Metric[nameLabel]
-		}
-		existing, ok := info[addr]
-		if !ok {
-			info[addr] = &dbEnrichInfo{dbSystem: dbSys, dbName: dbName}
-		} else if existing.dbName == "" && dbName != "" {
-			existing.dbName = dbName
-		}
+// formatDepDisplayName returns a human-readable display name for a dependency
+// using db_system or messaging_system labels from service graph metrics.
+// Format: "postgresql (100.71.2.33)" or "kafka (broker-name)".
+// Returns empty string when no enrichment data is available.
+func formatDepDisplayName(name, dbSystem, messagingSystem string) string {
+	if dbSystem != "" {
+		return fmt.Sprintf("%s (%s)", normalizeDBSystem(dbSystem), name)
 	}
-	return info
-}
-
-// dbSystemMapFrom builds a server_address → db_system map from enrichment info.
-// Used where only db_system is needed (e.g. classifyDependency, mergeSpanmetricsDeps).
-func dbSystemMapFrom(info map[string]*dbEnrichInfo) map[string]string {
-	m := make(map[string]string, len(info))
-	for addr, i := range info {
-		m[addr] = i.dbSystem
-	}
-	return m
-}
-
-// enrichedDisplayName returns a human-readable display name for a dependency
-// from db enrichment data. Returns empty string if no enrichment available.
-func enrichedDisplayName(name string, dbInfo map[string]*dbEnrichInfo) string {
-	if dbInfo == nil {
-		return ""
-	}
-	if info, ok := dbInfo[name]; ok && info.dbName != "" {
-		return info.dbName
+	if messagingSystem != "" {
+		return fmt.Sprintf("%s (%s)", messagingSystem, name)
 	}
 	return ""
-}
-
-// queryDBEnrichment queries spanmetrics to build a server_address → (db_system, db_name)
-// mapping for database nodes. Service graph metrics only carry the raw IP/hostname
-// as the server label; this enrichment adds human-readable database type and name.
-func (a *App) queryDBEnrichment(ctx context.Context, to time.Time, filterEnv string) map[string]*dbEnrichInfo {
-	logger := log.DefaultLogger.With("handler", "db_enrich")
-
-	envFilter := ""
-	if filterEnv != "" {
-		envFilter = fmt.Sprintf(`, %s="%s"`, a.otelCfg.Labels.DeploymentEnv, filterEnv)
-	}
-
-	query := fmt.Sprintf(
-		`count by (%s, %s, %s) (rate(%s{%s!="", %s="%s"%s}[5m]))`,
-		a.otelCfg.Labels.ServerAddress, a.otelCfg.Labels.DBSystem, a.otelCfg.Labels.DBName,
-		a.callsMetric(ctx),
-		a.otelCfg.Labels.DBSystem, a.otelCfg.Labels.SpanKind, a.otelCfg.SpanKinds.Client,
-		envFilter,
-	)
-
-	results, err := a.prom(ctx).InstantQuery(ctx, query, to)
-	if err != nil {
-		logger.Warn("Failed to query DB enrichment", "error", err)
-		return nil
-	}
-
-	return parseDBEnrichResults(results, a.otelCfg.Labels.ServerAddress, a.otelCfg.Labels.DBSystem, a.otelCfg.Labels.DBName)
-}
-
-// dbEnrichQueryExpr returns a PromQL expression for batched DB enrichment queries.
-// Groups by (server_address, db_system, db_name) from CLIENT spans with db_system set.
-func (a *App) dbEnrichQueryExpr(ctx context.Context, envFilter, rangeStr string) string {
-	return fmt.Sprintf(
-		`count by (%s, %s, %s) (rate(%s{%s!="", %s="%s"%s}%s))`,
-		a.otelCfg.Labels.ServerAddress, a.otelCfg.Labels.DBSystem, a.otelCfg.Labels.DBName,
-		a.callsMetric(ctx),
-		a.otelCfg.Labels.DBSystem, a.otelCfg.Labels.SpanKind, a.otelCfg.SpanKinds.Client,
-		envFilter, rangeStr,
-	)
 }

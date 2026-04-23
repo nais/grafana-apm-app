@@ -27,10 +27,12 @@ func (a *App) queryDependencyDetail(
 		labelFilter += fmt.Sprintf(`, %s="%s"`, cfg.Labels.DeploymentEnv, filterEnvironment)
 	}
 
-	// Query upstream services (by client) — service graph
+	// Query upstream services (by client) — service graph.
+	// Include db_system and messaging_system for classification and display.
 	rateQuery := fmt.Sprintf(
-		`sum by (%s, %s, %s) (rate(%s%s{%s}%s))`,
+		`sum by (%s, %s, %s, %s, %s) (rate(%s%s{%s}%s))`,
 		cfg.Labels.Client, cfg.Labels.Server, cfg.Labels.ConnectionType,
+		cfg.Labels.DBSystem, cfg.Labels.MessagingSystem,
 		sgp, cfg.ServiceGraph.RequestTotal, labelFilter, rangeStr,
 	)
 	errorQuery := fmt.Sprintf(
@@ -43,17 +45,14 @@ func (a *App) queryDependencyDetail(
 		cfg.Labels.Client, cfg.Labels.Le,
 		sgp, cfg.ServiceGraph.RequestServerBucket, labelFilter, rangeStr,
 	)
-	// Enrichment for specific DB type and name
-	envFilter := ""
-	if filterEnvironment != "" {
-		envFilter = fmt.Sprintf(`, %s="%s"`, cfg.Labels.DeploymentEnv, filterEnvironment)
-	}
-	dbEnrichQuery := a.dbEnrichQueryExpr(ctx, envFilter, rangeStr)
-
 	// Spanmetrics supplement: find upstream callers that target this dependency
 	// via server_address or http_host. Uses regex matching to handle address
 	// normalization (e.g., "idporten.no" must match "idporten.no:443" in labels).
 	addrRegex := addressMatchRegex(depName)
+	envFilter := ""
+	if filterEnvironment != "" {
+		envFilter = fmt.Sprintf(`, %s="%s"`, cfg.Labels.DeploymentEnv, filterEnvironment)
+	}
 	smKindFilter := fmt.Sprintf(`%s="%s"`, cfg.Labels.SpanKind, cfg.SpanKinds.Client)
 	smAddrMatch := fmt.Sprintf(`%s=~"%s"`, cfg.Labels.ServerAddress, addrRegex)
 	smHostMatch := fmt.Sprintf(`%s=~"%s"`, cfg.Labels.HTTPHost, addrRegex)
@@ -89,7 +88,6 @@ func (a *App) queryDependencyDetail(
 		{"rate", rateQuery},
 		{"error", errorQuery},
 		{"p95", p95Query},
-		{"db_enrich", dbEnrichQuery},
 		{"smUpRate", smUpRateQ},
 		{"smUpErr", smUpErrQ},
 	}
@@ -98,16 +96,20 @@ func (a *App) queryDependencyDetail(
 	}
 	resultMap := a.runInstantQueries(ctx, to, jobs, logger)
 
-	// Build db enrichment from results
-	dbInfo := parseDBEnrichResults(resultMap["db_enrich"], a.otelCfg.Labels.ServerAddress, a.otelCfg.Labels.DBSystem, a.otelCfg.Labels.DBName)
-	dbSystemMap := dbSystemMapFrom(dbInfo)
-
-	// Extract connection_type from any result
+	// Build classification maps from service graph rate results.
+	// db_system and messaging_system are now available directly on SG metrics.
+	dbSystemMap := make(map[string]string)
 	detectedConnType := ""
+	detectedMessagingSystem := ""
 	for _, r := range resultMap["rate"] {
 		if ct := r.Metric[a.otelCfg.Labels.ConnectionType]; ct != "" {
 			detectedConnType = ct
-			break
+		}
+		if ds := r.Metric[a.otelCfg.Labels.DBSystem]; ds != "" {
+			dbSystemMap[depName] = ds
+		}
+		if ms := r.Metric[a.otelCfg.Labels.MessagingSystem]; ms != "" {
+			detectedMessagingSystem = ms
 		}
 	}
 
@@ -129,7 +131,7 @@ func (a *App) queryDependencyDetail(
 	return DependencyDetailResponse{
 		Dependency: DependencySummary{
 			Name:         depName,
-			DisplayName:  enrichedDisplayName(depName, dbInfo),
+			DisplayName:  formatDepDisplayName(depName, dbSystemMap[depName], detectedMessagingSystem),
 			Type:         classifyDependency(depName, detectedConnType, dbSystemMap),
 			Rate:         roundTo(totalRate, 3),
 			ErrorRate:    roundTo(errPct, 2),

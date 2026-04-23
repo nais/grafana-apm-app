@@ -116,9 +116,18 @@ func (a *App) queryNamespaceDependencies(
 
 	edges := a.queryServiceGraphEdges(ctx, to, filterEnv)
 
-	// Enrich database nodes with human-readable names
-	dbInfo := a.queryDBEnrichment(ctx, to, filterEnv)
-	dbSystemMap := dbSystemMapFrom(dbInfo)
+	// Build db_system and messaging_system maps from edge-level labels.
+	// Service graph metrics now carry these directly — no spanmetrics cross-fetch needed.
+	dbSystemMap := make(map[string]string)
+	messagingSystemMap := make(map[string]string)
+	for k, e := range edges {
+		if e.dbSystem != "" {
+			dbSystemMap[k.server] = e.dbSystem
+		}
+		if e.messagingSystem != "" {
+			messagingSystemMap[k.server] = e.messagingSystem
+		}
+	}
 
 	// Aggregate outbound edges: client in namespace, server NOT in namespace
 	type depAgg struct {
@@ -166,7 +175,7 @@ func (a *App) queryNamespaceDependencies(
 		errPct := calculateErrorRate(d.errRate, d.rate)
 		result = append(result, NamespaceDependency{
 			Name:         name,
-			DisplayName:  enrichedDisplayName(name, dbInfo),
+			DisplayName:  formatDepDisplayName(name, dbSystemMap[name], messagingSystemMap[name]),
 			Type:         depType,
 			CallerCount:  len(d.callers),
 			Rate:         roundTo(d.rate, 3),
@@ -255,10 +264,13 @@ func (a *App) queryDependencies(
 		labelFilter += f
 	}
 
-	// Include connection_type in group-by to preserve dependency classification.
+	// Include connection_type, db_system, and messaging_system in group-by.
+	// These labels are available directly on service graph metrics, so no
+	// separate spanmetrics enrichment query is needed for type classification.
 	rateQuery := fmt.Sprintf(
-		`sum by (%s, %s, %s) (rate(%s%s{%s}%s))`,
+		`sum by (%s, %s, %s, %s, %s) (rate(%s%s{%s}%s))`,
 		a.otelCfg.Labels.Client, a.otelCfg.Labels.Server, ct,
+		a.otelCfg.Labels.DBSystem, a.otelCfg.Labels.MessagingSystem,
 		sgp, a.otelCfg.ServiceGraph.RequestTotal, labelFilter, rangeStr,
 	)
 	errorQuery := fmt.Sprintf(
@@ -272,14 +284,6 @@ func (a *App) queryDependencies(
 		sgp, a.otelCfg.ServiceGraph.RequestServerBucket, labelFilter, rangeStr,
 	)
 
-	// Enrichment: query spanmetrics for db_system and db_name per server_address.
-	// Uses the shared query expression to get the full (db_system, db_name) mapping.
-	envFilterStr := ""
-	if filterEnvironment != "" {
-		envFilterStr = fmt.Sprintf(`, %s="%s"`, a.otelCfg.Labels.DeploymentEnv, filterEnvironment)
-	}
-	dbEnrichQuery := a.dbEnrichQueryExpr(ctx, envFilterStr, rangeStr)
-
 	// Spanmetrics supplement: discover downstream dependencies from CLIENT/CONSUMER
 	// spans using server_address, http_host, db_system, messaging_system attributes.
 	// This catches external APIs and dependencies that the service graph connector misses.
@@ -289,7 +293,6 @@ func (a *App) queryDependencies(
 		{"rate", rateQuery},
 		{"error", errorQuery},
 		{"p95", p95Query},
-		{"db_enrich", dbEnrichQuery},
 	}
 	for _, sq := range smQueries {
 		allJobs = append(allJobs, QueryJob{sq.name, sq.query})
@@ -297,10 +300,10 @@ func (a *App) queryDependencies(
 
 	resultMap := a.runInstantQueries(ctx, to, allJobs, logger)
 
-	// Build server_address → (db_system, db_name) mapping from enrichment query
-	cfg := a.otelCfg
-	dbInfo := parseDBEnrichResults(resultMap["db_enrich"], cfg.Labels.ServerAddress, cfg.Labels.DBSystem, cfg.Labels.DBName)
-	dbSystemMap := dbSystemMapFrom(dbInfo)
+	// Build db_system and messaging_system maps from service graph rate results.
+	// These labels are now available directly on service graph metrics.
+	dbSystemMap := make(map[string]string)
+	messagingSystemMap := make(map[string]string)
 
 	// Aggregate by (server, connection_type)
 	deps := make(map[depKey]*depData)
@@ -317,6 +320,13 @@ func (a *App) queryDependencies(
 			deps[k] = d
 		}
 		d.rate += r.Value.Float()
+
+		if ds := r.Metric[a.otelCfg.Labels.DBSystem]; ds != "" {
+			dbSystemMap[server] = ds
+		}
+		if ms := r.Metric[a.otelCfg.Labels.MessagingSystem]; ms != "" {
+			messagingSystemMap[server] = ms
+		}
 	}
 
 	for _, r := range resultMap["error"] {
@@ -350,7 +360,7 @@ func (a *App) queryDependencies(
 	for k := range deps {
 		sgNames[strings.ToLower(k.server)] = true
 	}
-	smDeps := a.mergeSpanmetricsDeps(resultMap, dbSystemMap, sgNames)
+	smDeps := a.mergeSpanmetricsDeps(resultMap, dbSystemMap, messagingSystemMap, sgNames)
 	for k, d := range smDeps {
 		deps[k] = d
 	}
@@ -379,7 +389,7 @@ func (a *App) queryDependencies(
 		}
 		result = append(result, DependencySummary{
 			Name:         key.server,
-			DisplayName:  enrichedDisplayName(key.server, dbInfo),
+			DisplayName:  formatDepDisplayName(key.server, dbSystemMap[key.server], messagingSystemMap[key.server]),
 			Type:         depType,
 			Rate:         roundTo(d.rate, 3),
 			ErrorRate:    roundTo(errPct, 2),
@@ -456,6 +466,7 @@ func (a *App) buildSpanmetricsDepsQueries(ctx context.Context, filterClient, fil
 func (a *App) mergeSpanmetricsDeps(
 	resultMap map[string][]queries.PromResult,
 	dbSystemMap map[string]string,
+	messagingSystemMap map[string]string,
 	sgNames map[string]bool,
 ) map[depKey]*depData {
 	cfg := a.otelCfg
@@ -486,8 +497,9 @@ func (a *App) mergeSpanmetricsDeps(
 		if dbSys := r.Metric[cfg.Labels.DBSystem]; dbSys != "" {
 			connType = "database"
 			dbSystemMap[addr] = dbSys
-		} else if r.Metric[cfg.Labels.MessagingSystem] != "" {
+		} else if msgSys := r.Metric[cfg.Labels.MessagingSystem]; msgSys != "" {
 			connType = "messaging_system"
+			messagingSystemMap[addr] = msgSys
 		}
 
 		d, ok := smDeps[addr]
