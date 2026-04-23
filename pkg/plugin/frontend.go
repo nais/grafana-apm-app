@@ -141,9 +141,39 @@ func (a *App) queryFrontendFromLoki(ctx context.Context, service, env string, at
 		return FrontendMetricsResponse{Available: false}
 	}
 
-	// Return availability — let Scenes panels handle the actual queries
-	return FrontendMetricsResponse{
+	resp := FrontendMetricsResponse{
 		Available: true,
 		Source:    "loki",
+		Vitals:    make(map[string]float64),
 	}
+
+	// Query vital values in parallel
+	vitalFields := map[string]string{
+		"lcp":  a.otelCfg.FaroLoki.LCP,
+		"fcp":  a.otelCfg.FaroLoki.FCP,
+		"cls":  a.otelCfg.FaroLoki.CLS,
+		"inp":  a.otelCfg.FaroLoki.INP,
+		"ttfb": a.otelCfg.FaroLoki.TTFB,
+	}
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+	for key, field := range vitalFields {
+		wg.Add(1)
+		go func(k, f string) {
+			defer wg.Done()
+			q := a.otelCfg.LokiVitalQuery(service, f, "[1h]")
+			r, err := lokiClient.InstantQuery(ctx, q, at)
+			if err == nil && len(r) > 0 && r[0].Value.Float() > 0 {
+				mu.Lock()
+				resp.Vitals[k] = roundTo(r[0].Value.Float(), 2)
+				mu.Unlock()
+			}
+		}(key, field)
+	}
+
+	wg.Wait()
+
+	return resp
 }
