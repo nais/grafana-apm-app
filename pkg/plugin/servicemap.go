@@ -231,6 +231,9 @@ func (a *App) queryServiceMap( //nolint:gocyclo // complex due to filtering + no
 		}
 	}
 
+	// Enrich database nodes with db_system and db_name from spanmetrics
+	dbInfo := a.queryDBEnrichment(ctx, to, filterEnvironment)
+
 	nodes := make([]ServiceMapNode, 0, len(nodeSet))
 	for name := range nodeSet {
 		agg := nodeAggs[name]
@@ -249,9 +252,22 @@ func (a *App) queryServiceMap( //nolint:gocyclo // complex due to filtering + no
 		if nType == "" {
 			nType = "service"
 		}
+
+		title := name
+		subtitle := ""
+		if nType == "database" {
+			if info, ok := dbInfo[name]; ok {
+				subtitle = normalizeDBSystem(info.dbSystem)
+				if info.dbName != "" {
+					title = info.dbName
+				}
+			}
+		}
+
 		nodes = append(nodes, ServiceMapNode{
 			ID:            name,
-			Title:         name,
+			Title:         title,
+			SubTitle:      subtitle,
 			MainStat:      fmt.Sprintf("%.1f req/s", totalRate),
 			SecondaryStat: fmt.Sprintf("%.1f%% errors", errPct*100),
 			ArcErrors:     errPct,
@@ -338,4 +354,54 @@ func (a *App) buildServiceNamespaceMap(ctx context.Context, to time.Time, filter
 
 	a.respCache.setJSON(ck, nsMap)
 	return nsMap
+}
+
+// dbEnrichInfo holds database enrichment data from spanmetrics.
+type dbEnrichInfo struct {
+	dbSystem string
+	dbName   string
+}
+
+// queryDBEnrichment queries spanmetrics to build a server_address → (db_system, db_name)
+// mapping for database nodes. Service graph metrics only carry the raw IP/hostname
+// as the server label; this enrichment adds human-readable database type and name.
+func (a *App) queryDBEnrichment(ctx context.Context, to time.Time, filterEnv string) map[string]*dbEnrichInfo {
+	logger := log.DefaultLogger.With("handler", "db_enrich")
+
+	envFilter := ""
+	if filterEnv != "" {
+		envFilter = fmt.Sprintf(`, %s="%s"`, a.otelCfg.Labels.DeploymentEnv, filterEnv)
+	}
+
+	query := fmt.Sprintf(
+		`count by (%s, %s, %s) (rate(%s{%s!="", %s="%s"%s}[5m]))`,
+		a.otelCfg.Labels.ServerAddress, a.otelCfg.Labels.DBSystem, a.otelCfg.Labels.DBName,
+		a.callsMetric(ctx),
+		a.otelCfg.Labels.DBSystem, a.otelCfg.Labels.SpanKind, a.otelCfg.SpanKinds.Client,
+		envFilter,
+	)
+
+	results, err := a.prom(ctx).InstantQuery(ctx, query, to)
+	if err != nil {
+		logger.Warn("Failed to query DB enrichment", "error", err)
+		return nil
+	}
+
+	info := make(map[string]*dbEnrichInfo)
+	for _, r := range results {
+		addr := r.Metric[a.otelCfg.Labels.ServerAddress]
+		dbSys := r.Metric[a.otelCfg.Labels.DBSystem]
+		dbName := r.Metric[a.otelCfg.Labels.DBName]
+		if addr == "" || dbSys == "" {
+			continue
+		}
+		existing, ok := info[addr]
+		if !ok {
+			info[addr] = &dbEnrichInfo{dbSystem: dbSys, dbName: dbName}
+		} else if existing.dbName == "" && dbName != "" {
+			existing.dbName = dbName
+		}
+	}
+
+	return info
 }

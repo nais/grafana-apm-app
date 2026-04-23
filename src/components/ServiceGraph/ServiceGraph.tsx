@@ -22,6 +22,7 @@ import { useELKLayout } from './useELKLayout';
 export interface ServiceGraphNode {
   id: string;
   title: string;
+  subtitle?: string;
   mainStat?: string;
   secondaryStat?: string;
   errorRate: number;
@@ -214,6 +215,7 @@ function ServiceGraphInner({
           position: { x: 0, y: 0 },
           data: {
             label: n.title,
+            subtitle: n.subtitle,
             mainStat: n.mainStat,
             secondaryStat: n.secondaryStat,
             errorRate: n.errorRate,

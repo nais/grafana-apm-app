@@ -16,6 +16,7 @@ export function toGraphData(mapData: ServiceMapResponse | null): {
     graphNodes: mapData.nodes.map((n) => ({
       id: n.id,
       title: n.title,
+      subtitle: n.subtitle,
       mainStat: n.mainStat,
       secondaryStat: n.secondaryStat,
       errorRate: n.errorRate ?? 0,

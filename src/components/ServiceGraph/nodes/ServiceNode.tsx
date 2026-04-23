@@ -6,6 +6,7 @@ import { css, cx } from '@emotion/css';
 
 export interface ServiceNodeData {
   label: string;
+  subtitle?: string;
   mainStat?: string;
   secondaryStat?: string;
   errorRate?: number;
@@ -40,9 +41,16 @@ export const ServiceNode = memo(({ data, sourcePosition, targetPosition }: NodeP
         <span className={styles.iconBadge} style={{ background: config.bg }}>
           <Icon name={config.icon} size="xs" />
         </span>
-        <span className={styles.label} title={data.label}>
-          {data.label}
-        </span>
+        <div className={styles.labelGroup}>
+          <span className={styles.label} title={data.label}>
+            {data.label}
+          </span>
+          {data.subtitle && (
+            <span className={styles.subtitle} title={data.subtitle}>
+              {data.subtitle}
+            </span>
+          )}
+        </div>
       </div>
       {(data.mainStat || data.secondaryStat) && (
         <div className={styles.stats}>
@@ -109,6 +117,12 @@ const getStyles = (theme: GrafanaTheme2) => ({
     color: #fff;
     flex-shrink: 0;
   `,
+  labelGroup: css`
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-width: 0;
+  `,
   label: css`
     font-size: 12px;
     font-weight: ${theme.typography.fontWeightMedium};
@@ -116,6 +130,14 @@ const getStyles = (theme: GrafanaTheme2) => ({
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  `,
+  subtitle: css`
+    font-size: 10px;
+    color: ${theme.colors.text.secondary};
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.2;
   `,
   stats: css`
     display: flex;
