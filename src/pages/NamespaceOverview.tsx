@@ -197,6 +197,7 @@ function NamespaceOverview() {
                   edges={graphEdges}
                   direction="DOWN"
                   enableGrouping={false}
+                  enableWrapping={graphNodes.length > 15}
                   onNodeClick={(nodeId) => {
                     const svc = services.find((s) => s.name === nodeId);
                     if (svc) {

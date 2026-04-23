@@ -7,6 +7,7 @@ interface GraphInput {
   edges: Edge[];
   groups?: Map<string, string[]>; // groupId → nodeIds
   direction?: 'RIGHT' | 'DOWN';
+  enableWrapping?: boolean;
 }
 
 interface LayoutResult {
@@ -23,7 +24,7 @@ const GROUP_PADDING = 40;
 
 const MAX_LAYOUT_NODES = 300;
 
-export function useELKLayout({ nodes, edges, groups, direction = 'RIGHT' }: GraphInput): LayoutResult {
+export function useELKLayout({ nodes, edges, groups, direction = 'RIGHT', enableWrapping }: GraphInput): LayoutResult {
   const [layouted, setLayouted] = useState<{ nodes: Node[]; edges: Edge[] }>({ nodes: [], edges: [] });
   const [loading, setLoading] = useState(true);
 
@@ -101,7 +102,7 @@ export function useELKLayout({ nodes, edges, groups, direction = 'RIGHT' }: Grap
         'elk.spacing.nodeNode': '12',
         'elk.spacing.edgeNode': '25',
         'elk.spacing.edgeEdge': '12',
-        'elk.layered.spacing.nodeNodeBetweenLayers': '100',
+        'elk.layered.spacing.nodeNodeBetweenLayers': enableWrapping ? '60' : '100',
         'elk.layered.spacing.edgeNodeBetweenLayers': '30',
         'elk.layered.spacing.edgeEdgeBetweenLayers': '15',
         'elk.hierarchyHandling': 'INCLUDE_CHILDREN',
@@ -109,6 +110,17 @@ export function useELKLayout({ nodes, edges, groups, direction = 'RIGHT' }: Grap
         'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF',
         'elk.layered.compactness.connectedComponents': 'true',
         'elk.layered.mergeEdges': 'false',
+        // Wrapping folds wide layers into multiple rows for compact layouts
+        ...(enableWrapping
+          ? {
+              'elk.layered.wrapping.strategy': 'MULTI_EDGE',
+              'elk.layered.wrapping.additionalEdgeSpacing': '20',
+              'elk.aspectRatio': '1.6',
+              'elk.separateConnectedComponents': 'true',
+              'elk.layered.highDegreeNodes.treatment': 'true',
+              'elk.layered.highDegreeNodes.threshold': '8',
+            }
+          : {}),
       },
       children: elkChildren,
       edges: elkEdges,
@@ -193,7 +205,7 @@ export function useELKLayout({ nodes, edges, groups, direction = 'RIGHT' }: Grap
     } finally {
       setLoading(false);
     }
-  }, [nodes, edges, groups, direction]);
+  }, [nodes, edges, groups, direction, enableWrapping]);
 
   useEffect(() => {
     setLoading(true);

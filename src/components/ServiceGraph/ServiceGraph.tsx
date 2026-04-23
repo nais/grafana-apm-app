@@ -42,6 +42,7 @@ interface ServiceGraphProps {
   edges: ServiceGraphEdge[];
   focusNode?: string;
   enableGrouping?: boolean;
+  enableWrapping?: boolean;
   direction?: 'RIGHT' | 'DOWN';
   onNodeClick?: (nodeId: string) => void;
 }
@@ -84,6 +85,7 @@ function ServiceGraphInner({
   edges: inputEdges,
   focusNode,
   enableGrouping = false,
+  enableWrapping = false,
   direction = 'RIGHT',
   onNodeClick,
 }: ServiceGraphProps) {
@@ -264,6 +266,7 @@ function ServiceGraphInner({
     edges: rfEdges,
     groups,
     direction,
+    enableWrapping,
   });
 
   const handleNodeClick = useCallback(
