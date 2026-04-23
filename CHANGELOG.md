@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.5.2 (2026-04-23)
+
+### Features
+
+- **Bullet Graph Visualizations** — New compact bullet graph cards for all five Core Web Vitals (LCP, FCP, CLS, INP, TTFB) with qualitative color bands and threshold markers. Works for both Mimir and Loki data sources.
+- **Loki Vital Value Extraction** — Backend now queries Loki for individual vital values using weighted mean aggregation, enabling bullet graphs for Faro-in-Loki services.
+- **Environment Dropdown in Config** — Plugin config page auto-detects available environments from Mimir data and presents them as a dropdown instead of a free-text input.
+- **Browser Filter Dropdown** — Frontend tab includes a Browser variable selector (Chrome, Firefox, Safari, Edge, Opera, Samsung Internet) for filtering Web Vitals by browser.
+- **Logs Tab Enhancements** — Pod filter, severity stream labels, and Faro log toggle added to the Logs tab.
+
+### Bug Fixes
+
+- **Environment Datasource Routing** — `MimirWebVitalsPanels` now receives the `environment` prop so it queries the correct Loki/Tempo datasources instead of always falling back to the default.
+- **Provisioning Config Keys** — Updated provisioning file from `dev-gcp`/`prod-gcp` to match actual `k8s_cluster_name` values (`dev`, `dev-fss`, `prod`, `prod-fss`), preventing config reset on every deploy.
+- **Weighted Mean for Loki Vitals** — Changed Loki vital queries from `avg(avg_over_time)` to `sum(sum_over_time) / sum(count_over_time)` for proper weighted aggregation matching Scene panel values.
+- **Bullet Graph Layout Shift** — Rating text ("Needs improvement") now renders on its own line to prevent inconsistent card heights.
+- **Controls Above Bullet Charts** — Bullet graphs are now embedded inside the EmbeddedScene so Browser/time controls render above them.
+- **Topology Graph with Environment Filter** — Service topology graph now renders correctly regardless of environment filter selection.
+
+### Improvements
+
+- **Frontend Tab Layout** — Improved table readability and dashboard layout for the Frontend tab.
+
 ## 0.5.1 (2026-04-23)
 
 ### Bug Fixes
