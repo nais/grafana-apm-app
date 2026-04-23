@@ -86,6 +86,19 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
   const [tempoOptions, setTempoOptions] = useState<Array<{ label: string; value: string; description?: string }>>([]);
   const [lokiOptions, setLokiOptions] = useState<Array<{ label: string; value: string; description?: string }>>([]);
   const [dsLoaded, setDsLoaded] = useState(false);
+  const [envOptions, setEnvOptions] = useState<Array<{ label: string; value: string }>>([]);
+
+  // Fetch environment options from capabilities on mount
+  useEffect(() => {
+    getCapabilities()
+      .then((result) => {
+        setCaps(result);
+        if (result.environments?.length) {
+          setEnvOptions(result.environments.sort().map((e) => ({ label: e, value: e })));
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     getBackendSrv()
@@ -164,6 +177,9 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
     try {
       const result = await getCapabilities();
       setCaps(result);
+      if (result.environments?.length) {
+        setEnvOptions(result.environments.sort().map((e) => ({ label: e, value: e })));
+      }
       if (result.spanMetrics.detected) {
         setState((prev) => ({
           ...prev,
@@ -350,7 +366,23 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
         {state.envOverrides.map((ov, idx) => (
           <div key={idx} className={s.envRow}>
             <Field label="Environment">
-              <Input width={20} value={ov.env} placeholder="e.g., dev-gcp" onChange={onEnvChange(idx, 'env')} />
+              {envOptions.length > 0 ? (
+                <Combobox
+                  options={envOptions}
+                  value={ov.env || null}
+                  onChange={(v) =>
+                    setState((prev) => {
+                      const overrides = [...prev.envOverrides];
+                      overrides[idx] = { ...overrides[idx], env: v?.value ?? '' };
+                      return { ...prev, envOverrides: overrides };
+                    })
+                  }
+                  width={20}
+                  placeholder="Select environment..."
+                />
+              ) : (
+                <Input width={20} value={ov.env} placeholder="e.g., prod" onChange={onEnvChange(idx, 'env')} />
+              )}
             </Field>
             <Field label="Tempo">
               {dsLoaded && tempoOptions.length > 0 ? (

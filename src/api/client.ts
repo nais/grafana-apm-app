@@ -28,6 +28,7 @@ export interface Capabilities {
   tempo: DataSourceStatus;
   loki: DataSourceStatus;
   services: string[];
+  environments?: string[];
   tempoByEnv?: Record<string, DataSourceStatus>;
   lokiByEnv?: Record<string, DataSourceStatus>;
 }

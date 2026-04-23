@@ -179,7 +179,7 @@ func (a *App) detectCapabilities(ctx context.Context, headers http.Header, servi
 		}
 	}()
 
-	// Service list
+	// Service list + environment list
 	if caps.SpanMetrics.Detected {
 		wg.Add(1)
 		go func() {
@@ -187,6 +187,15 @@ func (a *App) detectCapabilities(ctx context.Context, headers http.Header, servi
 			svcs := a.detectServices(ctx, caps.SpanMetrics.CallsMetric)
 			mu.Lock()
 			caps.Services = svcs
+			mu.Unlock()
+		}()
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			envs := a.detectEnvironments(ctx, caps.SpanMetrics.CallsMetric)
+			mu.Lock()
+			caps.Environments = envs
 			mu.Unlock()
 		}()
 	}
@@ -261,6 +270,24 @@ func (a *App) detectServices(ctx context.Context, callsMetric string) []string {
 		}
 	}
 	return services
+}
+
+func (a *App) detectEnvironments(ctx context.Context, callsMetric string) []string {
+	envLabel := a.otelCfg.Labels.DeploymentEnv
+	query := fmt.Sprintf(`group by (%s) (%s)`, envLabel, callsMetric)
+	results, err := a.prom(ctx).InstantQuery(ctx, query, time.Now())
+	if err != nil {
+		log.DefaultLogger.Warn("Failed to detect environments", "error", err)
+		return nil
+	}
+
+	var envs []string
+	for _, r := range results {
+		if env, ok := r.Metric[envLabel]; ok && env != "" {
+			envs = append(envs, env)
+		}
+	}
+	return envs
 }
 
 func (a *App) checkHTTPHealth(ctx context.Context, baseURL, path string, headers http.Header, serviceToken string) queries.DataSourceStatus {

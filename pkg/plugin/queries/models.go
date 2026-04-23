@@ -52,6 +52,7 @@ type Capabilities struct {
 	Tempo        DataSourceStatus       `json:"tempo"`
 	Loki         DataSourceStatus       `json:"loki"`
 	Services     []string               `json:"services"`
+	Environments []string               `json:"environments,omitempty"`
 
 	// Per-environment datasource availability
 	TempoByEnv map[string]DataSourceStatus `json:"tempoByEnv,omitempty"`
