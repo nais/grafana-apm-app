@@ -226,10 +226,22 @@ func (a *App) queryServiceMap( //nolint:gocyclo // complex due to filtering + no
 	// Infer node types and subtitles from edge labels.
 	// db_system and messaging_system come directly from service graph metrics,
 	// so no separate spanmetrics enrichment query is needed.
+	// Build a set of nodes that appear as clients — these are real services,
+	// not infrastructure, so they should never be typed as database/messaging.
+	clientNodes := make(map[string]bool)
+	for k := range edges {
+		clientNodes[k.client] = true
+	}
+
 	nodeTypes := make(map[string]string)
 	nodeSubtitles := make(map[string]string)
 	for k, e := range edges {
 		if e.connType != "" {
+			// If a node also appears as a client in any edge it's a real
+			// service, not infrastructure — skip type override.
+			if clientNodes[k.server] {
+				continue
+			}
 			switch e.connType {
 			case "database":
 				nodeTypes[k.server] = "database"
