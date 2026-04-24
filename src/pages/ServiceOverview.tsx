@@ -89,9 +89,10 @@ function ServiceOverview() {
   // Read trace filter params (set when navigating from endpoint → traces)
   const traceSpan = searchParams.get('traceSpan') ?? '';
   const traceStatus = searchParams.get('traceStatus') ?? '';
+  const traceSpanKind = searchParams.get('traceSpanKind') ?? '';
 
   const onViewTraces = useCallback(
-    (spanName: string, status?: string) => {
+    (spanName: string, status?: string, spanKindRaw?: string) => {
       setSearchParams((prev) => {
         const next = new URLSearchParams(prev);
         next.set('tab', 'traces');
@@ -104,6 +105,11 @@ function ServiceOverview() {
           next.set('traceStatus', status);
         } else {
           next.delete('traceStatus');
+        }
+        if (spanKindRaw) {
+          next.set('traceSpanKind', spanKindRaw);
+        } else {
+          next.delete('traceSpanKind');
         }
         return next;
       });
@@ -301,7 +307,7 @@ function ServiceOverview() {
         {/* Tabs — hide when required datasource is unavailable */}
         <TabsBar>
           <Tab label="Overview" active={activeTab === 'overview'} onChangeTab={() => setActiveTab('overview')} />
-          <Tab label="Server" active={activeTab === 'server'} onChangeTab={() => setActiveTab('server')} />
+          <Tab label="Operations" active={activeTab === 'server'} onChangeTab={() => setActiveTab('server')} />
           <Tab label="Frontend" active={activeTab === 'frontend'} onChangeTab={() => setActiveTab('frontend')} />
           <Tab label="Runtime" active={activeTab === 'runtime'} onChangeTab={() => setActiveTab('runtime')} />
           {caps?.serviceGraph?.detected !== false && (
@@ -342,6 +348,7 @@ function ServiceOverview() {
               dependencies={depsResp?.dependencies}
               service={service}
               onViewAllOperations={() => setActiveTab('server')}
+              onViewTraces={caps?.tempo?.available !== false ? onViewTraces : undefined}
               onNavigateService={onNavigateService}
               onNavigateDependency={(depName: string) => {
                 setActiveTab('dependencies');
@@ -359,7 +366,7 @@ function ServiceOverview() {
               }}
             >
               <TracesTab
-                key={`${traceSpan}|${traceStatus}`}
+                key={`${traceSpan}|${traceStatus}|${traceSpanKind}`}
                 service={service}
                 namespace={namespace}
                 tracesUid={ds.tracesUid}
@@ -367,6 +374,7 @@ function ServiceOverview() {
                 to={to}
                 initialSpan={traceSpan}
                 initialStatus={traceStatus}
+                initialSpanKind={traceSpanKind}
               />
             </div>
           )}

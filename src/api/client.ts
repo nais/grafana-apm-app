@@ -101,6 +101,7 @@ export async function getServices(
 export interface OperationSummary {
   spanName: string;
   spanKind: string;
+  spanKindRaw: string;
   rate: number;
   errorRate: number;
   p50Duration: number;
@@ -347,6 +348,7 @@ export interface EndpointGroups {
   database: EndpointSummary[];
   messaging: EndpointSummary[];
   internal: EndpointSummary[];
+  client: EndpointSummary[];
   durationUnit: string;
 }
 

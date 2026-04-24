@@ -109,6 +109,7 @@ type DataPoint struct {
 type OperationSummary struct {
 	SpanName     string  `json:"spanName"`
 	SpanKind     string  `json:"spanKind"`
+	SpanKindRaw  string  `json:"spanKindRaw"`
 	Rate         float64 `json:"rate"`
 	ErrorRate    float64 `json:"errorRate"`
 	P50Duration  float64 `json:"p50Duration"`
@@ -156,13 +157,14 @@ type EndpointSummary struct {
 	MessagingKind string `json:"messagingKind,omitempty"`
 }
 
-// EndpointGroups is the grouped endpoint response for the Server tab.
+// EndpointGroups is the grouped endpoint response for the Operations tab.
 type EndpointGroups struct {
 	HTTP         []EndpointSummary `json:"http"`
 	GRPC         []EndpointSummary `json:"grpc"`
 	Database     []EndpointSummary `json:"database"`
 	Messaging    []EndpointSummary `json:"messaging"`
 	Internal     []EndpointSummary `json:"internal"`
+	Client       []EndpointSummary `json:"client"`
 	DurationUnit string            `json:"durationUnit"`
 }
 

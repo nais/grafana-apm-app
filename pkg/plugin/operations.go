@@ -86,6 +86,7 @@ func (a *App) queryOperations(
 		o := &queries.OperationSummary{
 			SpanName:     k.spanName,
 			SpanKind:     a.otelCfg.FormatSpanKind(k.spanKind),
+			SpanKindRaw:  k.spanKind,
 			DurationUnit: durationUnit,
 		}
 		opsMap[k] = o

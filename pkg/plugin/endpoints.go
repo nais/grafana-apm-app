@@ -149,6 +149,21 @@ func (a *App) queryEndpoints(
 				}
 			},
 		},
+		{
+			// Outbound CLIENT spans excluding database (has its own section) and gRPC (has its own section)
+			name:    "client",
+			filter:  baseFilter + fmt.Sprintf(`, %s="%s", %s=""`, a.otelCfg.Labels.SpanKind, a.otelCfg.SpanKinds.Client, a.otelCfg.Labels.DBSystem),
+			groupBy: a.otelCfg.Labels.SpanName,
+			keyExtract: func(r queries.PromResult) queries.EndpointSummary {
+				name := r.Metric[a.otelCfg.Labels.SpanName]
+				method, route := parseHTTPSpanName(name)
+				return queries.EndpointSummary{
+					SpanName:   name,
+					HTTPMethod: method,
+					HTTPRoute:  route,
+				}
+			},
+		},
 	}
 
 	groups := queries.EndpointGroups{
@@ -158,6 +173,7 @@ func (a *App) queryEndpoints(
 		Database:     []queries.EndpointSummary{},
 		Messaging:    []queries.EndpointSummary{},
 		Internal:     []queries.EndpointSummary{},
+		Client:       []queries.EndpointSummary{},
 	}
 
 	type categoryResult struct {
@@ -195,6 +211,8 @@ func (a *App) queryEndpoints(
 			groups.Messaging = r.endpoints
 		case "internal":
 			groups.Internal = r.endpoints
+		case "client":
+			groups.Client = filterNoisyEndpoints(r.endpoints)
 		}
 	}
 

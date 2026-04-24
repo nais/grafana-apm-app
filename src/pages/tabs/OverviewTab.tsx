@@ -23,6 +23,7 @@ interface OverviewTabProps {
   dependencies?: DependencySummary[];
   service: string;
   onViewAllOperations: () => void;
+  onViewTraces?: (spanName: string, status?: string, spanKindRaw?: string) => void;
   onNavigateService: (name: string) => void;
   onNavigateDependency?: (name: string) => void;
 }
@@ -39,6 +40,7 @@ export function OverviewTab({
   dependencies,
   service,
   onViewAllOperations,
+  onViewTraces,
   onNavigateService,
   onNavigateDependency,
 }: OverviewTabProps) {
@@ -94,25 +96,40 @@ export function OverviewTab({
                 </tr>
               </thead>
               <tbody>
-                {overviewOps.map((op) => (
-                  <tr key={`${op.spanName}-${op.spanKind}`}>
-                    <td className={styles.opNameCell}>{op.spanName}</td>
-                    <td className={styles.opKindCell}>{op.spanKind}</td>
-                    <td className={styles.opNumCell}>{op.rate.toFixed(2)} req/s</td>
-                    <td className={op.errorRate > 0 ? styles.opErrorCell : styles.opNumCell}>
-                      {op.errorRate.toFixed(1)}%
-                    </td>
-                    <td className={styles.opNumCell}>{formatDuration(op.p50Duration, op.durationUnit)}</td>
-                    <td className={styles.opNumCell}>{formatDuration(op.p95Duration, op.durationUnit)}</td>
-                    <td className={styles.opNumCell}>{formatDuration(op.p99Duration, op.durationUnit)}</td>
-                  </tr>
-                ))}
+                {overviewOps.map((op) => {
+                  const clickable = !!onViewTraces;
+                  return (
+                    <tr
+                      key={`${op.spanName}-${op.spanKind}`}
+                      className={clickable ? styles.clickableRow : undefined}
+                      onClick={
+                        clickable
+                          ? () =>
+                              onViewTraces(
+                                op.spanName,
+                                op.errorRate > 0 ? 'error' : undefined,
+                                op.spanKindRaw || undefined
+                              )
+                          : undefined
+                      }
+                      title={clickable ? `View traces for ${op.spanName} (${op.spanKind})` : undefined}
+                    >
+                      <td className={styles.opNameCell}>{op.spanName}</td>
+                      <td className={styles.opKindCell}>{op.spanKind}</td>
+                      <td className={styles.opNumCell}>{op.rate.toFixed(2)} req/s</td>
+                      <td className={op.errorRate > 0 ? styles.opErrorCell : styles.opNumCell}>
+                        {op.errorRate.toFixed(1)}%
+                      </td>
+                      <td className={styles.opNumCell}>{formatDuration(op.p50Duration, op.durationUnit)}</td>
+                      <td className={styles.opNumCell}>{formatDuration(op.p95Duration, op.durationUnit)}</td>
+                      <td className={styles.opNumCell}>{formatDuration(op.p99Duration, op.durationUnit)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
             <button className={styles.viewAllLink} onClick={onViewAllOperations}>
-              {hiddenCount > 0
-                ? `View all ${operations.length} operations on Server tab →`
-                : 'View details on Server tab →'}
+              {hiddenCount > 0 ? `View all ${operations.length} operations →` : 'View all operations →'}
             </button>
           </>
         )}

@@ -15,6 +15,24 @@ import {
 import { useDebouncedValue, escapeRegex } from '../../utils/debounce';
 import { escapeQueryString } from '../../utils/sanitize';
 
+/** Map OTel span kind values to TraceQL kind literals. */
+function mapSpanKindToTraceQL(raw: string): string {
+  switch (raw) {
+    case 'SPAN_KIND_SERVER':
+      return 'server';
+    case 'SPAN_KIND_CLIENT':
+      return 'client';
+    case 'SPAN_KIND_PRODUCER':
+      return 'producer';
+    case 'SPAN_KIND_CONSUMER':
+      return 'consumer';
+    case 'SPAN_KIND_INTERNAL':
+      return 'internal';
+    default:
+      return raw.toLowerCase();
+  }
+}
+
 interface TracesTabProps {
   service: string;
   namespace: string;
@@ -23,9 +41,19 @@ interface TracesTabProps {
   to: string;
   initialSpan?: string;
   initialStatus?: string;
+  initialSpanKind?: string;
 }
 
-export function TracesTab({ service, namespace, tracesUid, from, to, initialSpan, initialStatus }: TracesTabProps) {
+export function TracesTab({
+  service,
+  namespace,
+  tracesUid,
+  from,
+  to,
+  initialSpan,
+  initialStatus,
+  initialSpanKind,
+}: TracesTabProps) {
   const [statusFilter, setStatusFilter] = useState<string>(initialStatus ?? '');
   const [durationMin, setDurationMin] = useState<string>('');
   const [durationMax, setDurationMax] = useState<string>('');
@@ -40,6 +68,9 @@ export function TracesTab({ service, namespace, tracesUid, from, to, initialSpan
     // report "opentelemetry-demo" while traces/logs report "demo"). Only filter by
     // service.name for reliability; namespace scoping is handled at the backend API level.
     const conditions: string[] = [`resource.service.name="${escapeQueryString(service)}"`];
+    if (initialSpanKind) {
+      conditions.push(`kind=${mapSpanKindToTraceQL(initialSpanKind)}`);
+    }
     if (statusFilter === 'error') {
       conditions.push(`status=error`);
     } else if (statusFilter === 'ok') {
@@ -86,7 +117,7 @@ export function TracesTab({ service, namespace, tracesUid, from, to, initialSpan
         ],
       }),
     });
-  }, [service, tracesUid, from, to, statusFilter, durationMin, durationMax, debouncedSearch]);
+  }, [service, tracesUid, from, to, statusFilter, durationMin, durationMax, debouncedSearch, initialSpanKind]);
 
   const statusOptions: Array<{ label: string; value: string }> = [
     { label: 'All', value: '' },

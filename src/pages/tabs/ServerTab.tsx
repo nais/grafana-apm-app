@@ -68,8 +68,9 @@ export function ServerTab({ service, namespace, fromMs, toMs, environment, onVie
   const hasDB = endpoints.database.length > 0;
   const hasMessaging = endpoints.messaging?.length > 0;
   const hasInternal = endpoints.internal.length > 0;
+  const hasClient = endpoints.client?.length > 0;
   const hasGraphQL = graphql?.detected === true;
-  const hasAny = hasHTTP || hasGRPC || hasDB || hasMessaging || hasInternal || hasGraphQL;
+  const hasAny = hasHTTP || hasGRPC || hasDB || hasMessaging || hasInternal || hasClient || hasGraphQL;
 
   if (!hasAny) {
     return (
@@ -110,6 +111,24 @@ export function ServerTab({ service, namespace, fromMs, toMs, environment, onVie
             <span className={styles.httpEndpoint}>
               <span className={styles.httpMethod}>{ep.httpMethod}</span>
               <span>{ep.httpRoute}</span>
+            </span>
+          )}
+        />
+      )}
+
+      {hasClient && (
+        <EndpointSection
+          title="Outbound Calls"
+          subtitle="Client"
+          icon="arrow-right"
+          color="blue"
+          endpoints={endpoints.client}
+          durationUnit={endpoints.durationUnit}
+          onViewTraces={onViewTraces}
+          renderName={(ep) => (
+            <span className={styles.httpEndpoint}>
+              {ep.httpMethod && <span className={styles.httpMethod}>{ep.httpMethod}</span>}
+              <span>{ep.httpRoute || ep.spanName}</span>
             </span>
           )}
         />
