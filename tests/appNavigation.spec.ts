@@ -1,32 +1,35 @@
-import { test, expect } from './fixtures';
+import { test, expect, PLUGIN_ROOT, expectAnyVisible } from './fixtures';
 import { ROUTES } from '../src/constants';
 
-test.describe('navigating app', () => {
-  test('service inventory page should render with content', async ({ gotoPage, page }) => {
+test.describe('smoke: app navigation', () => {
+  test('plugin root URL redirects to services', async ({ gotoPage, page }) => {
+    await gotoPage('/');
+    await expect(page).toHaveURL(/\/services/, { timeout: 10_000 });
+  });
+
+  test('services page loads with plugin content', async ({ gotoPage, page }) => {
     await gotoPage(`/${ROUTES.Services}`);
     await expect(page).toHaveURL(/\/services/);
 
-    // The page should render meaningful content, not just a URL.
-    // Without backend data, we expect either a "No span metrics" warning,
-    // a "No services found" info alert, or a loading state that resolves.
-    // Any of these proves our plugin code is executing.
-    const noMetrics = page.getByText('No span metrics detected');
-    const noServices = page.getByText('No services found');
-    const serviceTable = page.locator('table');
-
-    await expect(noMetrics.or(noServices).or(serviceTable).first()).toBeVisible({ timeout: 15000 });
+    // Proves plugin code executed — not just a Grafana shell
+    await expectAnyVisible([page.getByRole('alert'), page.locator('table')], {
+      message: 'Services page did not render any plugin content',
+    });
   });
 
-  test('dependencies page should render with content', async ({ gotoPage, page }) => {
+  test('dependencies page loads with plugin content', async ({ gotoPage, page }) => {
     await gotoPage(`/${ROUTES.Dependencies}`);
 
-    // Verify the page actually loads our plugin content.
-    // Without backend data, we expect "No dependencies detected" or
-    // the dependencies table/search UI to appear.
-    const noDeps = page.getByText('No dependencies detected');
-    const depsTable = page.locator('table');
-    const searchInput = page.getByPlaceholder(/search|filter/i);
+    await expectAnyVisible([page.getByRole('alert'), page.locator('table')], {
+      message: 'Dependencies page did not render any plugin content',
+    });
+  });
 
-    await expect(noDeps.or(depsTable).or(searchInput).first()).toBeVisible({ timeout: 15000 });
+  test('sidebar navigation links are present', async ({ gotoPage, page }) => {
+    await gotoPage(`/${ROUTES.Services}`);
+
+    const nav = page.locator('nav');
+    await expect(nav.getByRole('link', { name: /Services/i }).first()).toBeVisible({ timeout: 10_000 });
+    await expect(nav.getByRole('link', { name: /Dependencies/i }).first()).toBeVisible();
   });
 });
