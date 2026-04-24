@@ -12,9 +12,11 @@ import {
   getServices,
   getServiceMap,
   getConnectedServices,
+  getServiceDependencies,
   OperationSummary,
   ServiceMapResponse,
   ConnectedServicesResponse,
+  DependenciesResponse,
 } from '../api/client';
 import { usePluginDatasources, useHasEnvironmentOverrides } from '../utils/datasources';
 import { useTimeRange } from '../utils/timeRange';
@@ -155,6 +157,12 @@ function ServiceOverview() {
   // Fetch connected services (inbound/outbound)
   const { data: connected } = useFetch<ConnectedServicesResponse>(
     () => getConnectedServices(namespace, service, fromMs, toMs, envFilter || undefined),
+    [service, namespace, fromMs, toMs, envFilter]
+  );
+
+  // Fetch dependencies for overview tab
+  const { data: depsResp } = useFetch<DependenciesResponse>(
+    () => getServiceDependencies(namespace, service, fromMs, toMs, envFilter || undefined),
     [service, namespace, fromMs, toMs, envFilter]
   );
 
@@ -331,9 +339,13 @@ function ServiceOverview() {
               graphNodes={graphNodes}
               graphEdges={graphEdges}
               connected={connected ?? undefined}
+              dependencies={depsResp?.dependencies}
               service={service}
               onViewAllOperations={() => setActiveTab('server')}
               onNavigateService={onNavigateService}
+              onNavigateDependency={(depName: string) => {
+                setActiveTab('dependencies');
+              }}
             />
           </div>
 

@@ -3,8 +3,9 @@ import { useStyles2, Icon, LoadingPlaceholder, Alert, Badge } from '@grafana/ui'
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { EmbeddedScene } from '@grafana/scenes';
-import { OperationSummary, ConnectedServicesResponse } from '../../api/client';
-import { formatDuration } from '../../utils/format';
+import { OperationSummary, ConnectedServicesResponse, DependencySummary } from '../../api/client';
+import { formatDuration, formatRate, formatErrorRate } from '../../utils/format';
+import { DepTypeIcon, formatDepType } from '../../components/DepTypeIcon';
 import { getSectionStyles } from '../../utils/styles';
 import { ServiceGraph, ServiceGraphNode, ServiceGraphEdge } from '../../components/ServiceGraph';
 
@@ -19,9 +20,11 @@ interface OverviewTabProps {
   graphNodes: ServiceGraphNode[];
   graphEdges: ServiceGraphEdge[];
   connected?: ConnectedServicesResponse;
+  dependencies?: DependencySummary[];
   service: string;
   onViewAllOperations: () => void;
   onNavigateService: (name: string) => void;
+  onNavigateDependency?: (name: string) => void;
 }
 
 export function OverviewTab({
@@ -33,9 +36,11 @@ export function OverviewTab({
   graphNodes,
   graphEdges,
   connected,
+  dependencies,
   service,
   onViewAllOperations,
   onNavigateService,
+  onNavigateDependency,
 }: OverviewTabProps) {
   const styles = useStyles2(getStyles);
 
@@ -125,26 +130,40 @@ export function OverviewTab({
         </div>
       )}
 
-      {/* Connected services (inbound/outbound) */}
-      {connected && (connected.inbound.length > 0 || connected.outbound.length > 0) && (
+      {/* Connected services & Dependencies — side by side */}
+      {((connected && (connected.inbound.length > 0 || connected.outbound.length > 0)) ||
+        (dependencies && dependencies.length > 0)) && (
         <div className={styles.section}>
-          <h3 className={styles.sectionTitle}>Connected Services</h3>
           <div className={styles.connectedGrid}>
-            {connected.inbound.length > 0 && (
-              <ConnectedTable
-                title="Inbound"
-                icon="arrow-down"
-                services={connected.inbound}
-                onNavigate={onNavigateService}
-              />
+            {/* Connected Services column */}
+            {connected && (connected.inbound.length > 0 || connected.outbound.length > 0) && (
+              <div>
+                <h3 className={styles.sectionTitle}>Connected Services</h3>
+                {connected.inbound.length > 0 && (
+                  <ConnectedTable
+                    title="Inbound"
+                    icon="arrow-down"
+                    services={connected.inbound}
+                    onNavigate={onNavigateService}
+                  />
+                )}
+                {connected.outbound.length > 0 && (
+                  <ConnectedTable
+                    title="Outbound"
+                    icon="arrow-up"
+                    services={connected.outbound}
+                    onNavigate={onNavigateService}
+                  />
+                )}
+              </div>
             )}
-            {connected.outbound.length > 0 && (
-              <ConnectedTable
-                title="Outbound"
-                icon="arrow-up"
-                services={connected.outbound}
-                onNavigate={onNavigateService}
-              />
+
+            {/* Dependencies column */}
+            {dependencies && dependencies.length > 0 && (
+              <div>
+                <h3 className={styles.sectionTitle}>Dependencies ({dependencies.length})</h3>
+                <DependenciesCompact dependencies={dependencies} onNavigate={onNavigateDependency} />
+              </div>
             )}
           </div>
         </div>
@@ -228,6 +247,52 @@ function ConnectedTable({ title, icon, services, onNavigate }: ConnectedTablePro
         </tbody>
       </table>
     </div>
+  );
+}
+
+// --- Dependencies compact list for overview ---
+
+interface DependenciesCompactProps {
+  dependencies: DependencySummary[];
+  onNavigate?: (name: string) => void;
+}
+
+function DependenciesCompact({ dependencies, onNavigate }: DependenciesCompactProps) {
+  const styles = useStyles2(getStyles);
+  const sorted = useMemo(() => [...dependencies].sort((a, b) => b.rate - a.rate), [dependencies]);
+
+  return (
+    <table className={styles.opsTable}>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Rate</th>
+          <th>Error %</th>
+          <th>P95</th>
+        </tr>
+      </thead>
+      <tbody>
+        {sorted.map((dep) => (
+          <tr
+            key={dep.name}
+            className={onNavigate ? styles.clickableRow : undefined}
+            onClick={onNavigate ? () => onNavigate(dep.name) : undefined}
+          >
+            <td className={styles.linkCell} title={dep.name}>
+              <DepTypeIcon type={dep.type} />
+              <span style={{ marginLeft: 6 }}>{dep.displayName || dep.name}</span>
+            </td>
+            <td className={styles.opKindCell}>{formatDepType(dep.type)}</td>
+            <td className={styles.opNumCell}>{formatRate(dep.rate)}</td>
+            <td className={dep.errorRate > 0 ? styles.opErrorCell : styles.opNumCell}>
+              {formatErrorRate(dep.errorRate)}
+            </td>
+            <td className={styles.opNumCell}>{formatDuration(dep.p95Duration, dep.durationUnit)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
