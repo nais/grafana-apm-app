@@ -71,7 +71,12 @@ type sgEdgeData struct {
 // queryServiceGraphEdges runs the 3 service graph queries (rate, error, P95)
 // and returns raw edge data. This is the shared building block for both
 // the service map endpoint and namespace dependencies.
-func (a *App) queryServiceGraphEdges(ctx context.Context, to time.Time, filterEnv string) map[sgEdgeKey]*sgEdgeData {
+//
+// filterService optionally scopes the PromQL to edges where the service
+// appears as either client or server. For large environments this is
+// critical — an unscoped query can time out when there are thousands
+// of service-to-service edges. When empty, all edges are returned.
+func (a *App) queryServiceGraphEdges(ctx context.Context, to time.Time, filterEnv, filterService string) map[sgEdgeKey]*sgEdgeData {
 	logger := log.DefaultLogger.With("handler", "servicegraph")
 	rangeStr := "[5m]"
 	sgp := a.serviceGraphPrefix()
@@ -79,6 +84,13 @@ func (a *App) queryServiceGraphEdges(ctx context.Context, to time.Time, filterEn
 	labelFilter := ""
 	if filterEnv != "" {
 		labelFilter = fmt.Sprintf(`%s="%s"`, a.otelCfg.Labels.DeploymentEnv, filterEnv)
+	}
+
+	// When a service filter is provided, run two scoped queries (client=X OR
+	// server=X) and merge results. This is dramatically faster than fetching
+	// all edges and filtering client-side in large environments.
+	if filterService != "" {
+		return a.queryServiceGraphEdgesScoped(ctx, to, labelFilter, filterService)
 	}
 
 	rateQuery := fmt.Sprintf(
@@ -155,36 +167,141 @@ func (a *App) queryServiceGraphEdges(ctx context.Context, to time.Time, filterEn
 	return edges
 }
 
+// queryServiceGraphEdgesScoped runs scoped queries for a single service
+// (client=X OR server=X) and merges results. This avoids the expensive
+// unscoped query that can time out in large environments.
+func (a *App) queryServiceGraphEdgesScoped(ctx context.Context, to time.Time, baseLabelFilter, service string) map[sgEdgeKey]*sgEdgeData {
+	logger := log.DefaultLogger.With("handler", "servicegraph-scoped", "service", service)
+	rangeStr := "[5m]"
+	sgp := a.serviceGraphPrefix()
+	cfg := a.otelCfg
+
+	// Build label filters for client=service and server=service
+	clientFilter := fmt.Sprintf(`%s="%s"`, cfg.Labels.Client, service)
+	serverFilter := fmt.Sprintf(`%s="%s"`, cfg.Labels.Server, service)
+	if baseLabelFilter != "" {
+		clientFilter += ", " + baseLabelFilter
+		serverFilter += ", " + baseLabelFilter
+	}
+
+	// Rate: outbound (as client) + inbound (as server)
+	outRateQ := fmt.Sprintf(
+		`sum by (%s, %s, %s, %s, %s) (rate(%s%s{%s}%s))`,
+		cfg.Labels.Client, cfg.Labels.Server, cfg.Labels.ConnectionType,
+		cfg.Labels.DBSystem, cfg.Labels.MessagingSystem,
+		sgp, cfg.ServiceGraph.RequestTotal, clientFilter, rangeStr,
+	)
+	inRateQ := fmt.Sprintf(
+		`sum by (%s, %s, %s, %s, %s) (rate(%s%s{%s}%s))`,
+		cfg.Labels.Client, cfg.Labels.Server, cfg.Labels.ConnectionType,
+		cfg.Labels.DBSystem, cfg.Labels.MessagingSystem,
+		sgp, cfg.ServiceGraph.RequestTotal, serverFilter, rangeStr,
+	)
+
+	// Error: outbound + inbound
+	outErrQ := fmt.Sprintf(
+		`sum by (%s, %s, %s) (rate(%s%s{%s}%s))`,
+		cfg.Labels.Client, cfg.Labels.Server, cfg.Labels.ConnectionType,
+		sgp, cfg.ServiceGraph.RequestFailedTotal, clientFilter, rangeStr,
+	)
+	inErrQ := fmt.Sprintf(
+		`sum by (%s, %s, %s) (rate(%s%s{%s}%s))`,
+		cfg.Labels.Client, cfg.Labels.Server, cfg.Labels.ConnectionType,
+		sgp, cfg.ServiceGraph.RequestFailedTotal, serverFilter, rangeStr,
+	)
+
+	// P95: outbound + inbound
+	outP95Q := fmt.Sprintf(
+		`histogram_quantile(0.95, sum by (%s, %s, %s) (rate(%s%s{%s}%s)))`,
+		cfg.Labels.Client, cfg.Labels.Server, cfg.Labels.Le,
+		sgp, cfg.ServiceGraph.RequestServerBucket, clientFilter, rangeStr,
+	)
+	inP95Q := fmt.Sprintf(
+		`histogram_quantile(0.95, sum by (%s, %s, %s) (rate(%s%s{%s}%s)))`,
+		cfg.Labels.Client, cfg.Labels.Server, cfg.Labels.Le,
+		sgp, cfg.ServiceGraph.RequestServerBucket, serverFilter, rangeStr,
+	)
+
+	resultMap := a.runInstantQueries(ctx, to, []QueryJob{
+		{"outRate", outRateQ}, {"inRate", inRateQ},
+		{"outErr", outErrQ}, {"inErr", inErrQ},
+		{"outP95", outP95Q}, {"inP95", inP95Q},
+	}, logger)
+
+	edges := make(map[sgEdgeKey]*sgEdgeData)
+	getEdge := func(client, server string) *sgEdgeData {
+		k := sgEdgeKey{client, server}
+		if e, ok := edges[k]; ok {
+			return e
+		}
+		e := &sgEdgeData{}
+		edges[k] = e
+		return e
+	}
+
+	for _, key := range []string{"outRate", "inRate"} {
+		for _, r := range resultMap[key] {
+			client := r.Metric[cfg.Labels.Client]
+			server := r.Metric[cfg.Labels.Server]
+			if client == "" || server == "" {
+				continue
+			}
+			e := getEdge(client, server)
+			e.rate = r.Value.Float()
+			e.connType = r.Metric[cfg.Labels.ConnectionType]
+			if ds := r.Metric[cfg.Labels.DBSystem]; ds != "" {
+				e.dbSystem = ds
+			}
+			if ms := r.Metric[cfg.Labels.MessagingSystem]; ms != "" {
+				e.messagingSystem = ms
+			}
+		}
+	}
+
+	for _, key := range []string{"outErr", "inErr"} {
+		for _, r := range resultMap[key] {
+			client := r.Metric[cfg.Labels.Client]
+			server := r.Metric[cfg.Labels.Server]
+			if client == "" || server == "" {
+				continue
+			}
+			getEdge(client, server).errorRate = r.Value.Float()
+		}
+	}
+
+	for _, key := range []string{"outP95", "inP95"} {
+		for _, r := range resultMap[key] {
+			client := r.Metric[cfg.Labels.Client]
+			server := r.Metric[cfg.Labels.Server]
+			if client == "" || server == "" {
+				continue
+			}
+			if v := r.Value.Float(); isValidMetricValue(v) {
+				getEdge(client, server).p95 = v
+			}
+		}
+	}
+
+	return edges
+}
+
 func (a *App) queryServiceMap( //nolint:gocyclo // complex due to filtering + node/edge assembly
 	ctx context.Context,
 	_, to time.Time,
 	filterService, filterNamespace, filterEnvironment string,
 ) ServiceMapResponse {
-	// Pass the environment filter to service graph edge queries so that only
-	// edges matching the selected environment are included. At Nav the
-	// deployment label (k8s_cluster_name) is a resource label present on all
-	// metrics including Tempo service graph metrics.
-	edges := a.queryServiceGraphEdges(ctx, to, filterEnvironment)
+	// When a filterService is specified, pass it to queryServiceGraphEdges so
+	// that service graph queries are scoped directly in PromQL (client=X OR
+	// server=X). This avoids fetching ALL edges in large environments, which
+	// can time out in Mimir when there are thousands of services.
+	// When no filterService is specified (namespace-level view), the unscoped
+	// query is used and filtering happens post-query.
+	edges := a.queryServiceGraphEdges(ctx, to, filterEnvironment, filterService)
 
 	nodeSet := make(map[string]bool)
 	for k := range edges {
 		nodeSet[k.client] = true
 		nodeSet[k.server] = true
-	}
-
-	// Apply per-service filter if specified
-	if filterService != "" {
-		filtered := make(map[sgEdgeKey]*sgEdgeData)
-		filteredNodes := make(map[string]bool)
-		for k, e := range edges {
-			if k.client == filterService || k.server == filterService {
-				filtered[k] = e
-				filteredNodes[k.client] = true
-				filteredNodes[k.server] = true
-			}
-		}
-		edges = filtered
-		nodeSet = filteredNodes
 	}
 
 	// Apply namespace filter: keep edges where at least one end belongs to the namespace.

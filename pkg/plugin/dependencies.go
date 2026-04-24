@@ -114,7 +114,9 @@ func (a *App) queryNamespaceDependencies(
 	}
 
 	// Filter service graph edges by environment when specified.
-	edges := a.queryServiceGraphEdges(ctx, to, filterEnv)
+	// Namespace dependencies need ALL edges (no per-service filter) since
+	// we aggregate across all services in the namespace.
+	edges := a.queryServiceGraphEdges(ctx, to, filterEnv, "")
 
 	// Build db_system and messaging_system maps from edge-level labels.
 	// Service graph metrics now carry these directly — no spanmetrics cross-fetch needed.
