@@ -21,6 +21,8 @@ interface LogsTabProps {
   service: string;
   namespace: string;
   logsUid: string;
+  from: string;
+  to: string;
 }
 
 // Severity options based on detected_level stream label values observed in production.
@@ -45,7 +47,7 @@ const SEVERITY_VARIANTS: Record<string, string[]> = {
   unknown: ['unknown'],
 };
 
-export function LogsTab({ service, namespace, logsUid }: LogsTabProps) {
+export function LogsTab({ service, namespace, logsUid, from, to }: LogsTabProps) {
   const [severityFilter, setSeverityFilter] = useState<string[]>([]);
   const [logSearch, setLogSearch] = useState<string>('');
   const [podFilter, setPodFilter] = useState<string>('');
@@ -73,7 +75,7 @@ export function LogsTab({ service, namespace, logsUid }: LogsTabProps) {
   }, [service, logsUid]);
 
   const scene = useMemo(() => {
-    const timeRange = new SceneTimeRange({ from: 'now-1h', to: 'now' });
+    const timeRange = new SceneTimeRange({ from, to });
     const svcLabel = `${otel.labels.serviceName}="${sanitizeLabelValue(service)}"`;
 
     // Exclude Faro browser telemetry by default — Faro streams have the `kind` label,
@@ -153,7 +155,7 @@ export function LogsTab({ service, namespace, logsUid }: LogsTabProps) {
         ],
       }),
     });
-  }, [service, logsUid, severityFilter, debouncedSearch, podFilter, includeFaro]);
+  }, [service, logsUid, severityFilter, debouncedSearch, podFilter, includeFaro, from, to]);
 
   return (
     <div className={styles.wrapper}>

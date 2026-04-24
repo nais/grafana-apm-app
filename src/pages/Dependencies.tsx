@@ -6,6 +6,7 @@ import { css } from '@emotion/css';
 import { getGlobalDependencies, DependencySummary, DependenciesResponse } from '../api/client';
 import { formatDuration, formatRate, formatErrorRate } from '../utils/format';
 import { useTimeRange } from '../utils/timeRange';
+import { QUICK_TIME_RANGES } from '../utils/timeRangeOptions';
 import { useAppNavigate, sanitizeParam } from '../utils/navigation';
 import { DepTypeIcon, formatDepType } from '../components/DepTypeIcon';
 import { SortHeader, ImpactBar, useTableSort, getTableStyles } from '../components/SortableTable';
@@ -18,7 +19,7 @@ function Dependencies() {
   const appNavigate = useAppNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const envFilter = sanitizeParam(searchParams.get('environment') ?? '');
-  const { fromMs, toMs } = useTimeRange();
+  const { from, fromMs, toMs, setTimeRange } = useTimeRange();
 
   // Read configured environment names from plugin datasource config
   const configuredEnvs = useConfiguredEnvironments();
@@ -94,10 +95,18 @@ function Dependencies() {
   return (
     <PluginPage layout={PageLayoutType.Canvas}>
       <div className={styles.container}>
-        <p className={styles.description}>
-          External dependencies detected from service graph edges. Shows databases, caches, message brokers, and other
-          services called by your applications.
-        </p>
+        <div className={styles.headerRow}>
+          <p className={styles.description}>
+            External dependencies detected from service graph edges. Shows databases, caches, message brokers, and other
+            services called by your applications.
+          </p>
+          <Combobox
+            options={QUICK_TIME_RANGES}
+            value={from}
+            onChange={(v) => setTimeRange(v?.value ?? 'now-1h', 'now')}
+            width={22}
+          />
+        </div>
 
         {!loading && !error && deps.length > 0 && (
           <div className={styles.filters}>
@@ -249,7 +258,15 @@ const getStyles = (theme: GrafanaTheme2) => ({
   `,
   description: css`
     color: ${theme.colors.text.secondary};
+    margin: 0;
+  `,
+  headerRow: css`
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     margin-bottom: ${theme.spacing(2)};
+    gap: ${theme.spacing(1)};
+    flex-wrap: wrap;
   `,
   filters: css`
     display: flex;

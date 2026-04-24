@@ -662,17 +662,22 @@ function MemoryPoolTable({ pools }: { pools: MemoryPool[] }) {
 // Shared components
 // ---------------------------------------------------------------------------
 
-const THREAD_STATE_COLORS: Record<string, string> = {
-  runnable: '#73BF69',
-  waiting: '#FF9830',
-  'timed-waiting': '#F2CC0C',
-  blocked: '#F2495C',
-  new: '#8AB8FF',
-  terminated: '#999999',
-};
+function threadStateColorsMap(theme: GrafanaTheme2): Record<string, string> {
+  const c = (name: string) => theme.visualization.getColorByName(name);
+  return {
+    runnable: c('green'),
+    waiting: c('orange'),
+    'timed-waiting': c('yellow'),
+    blocked: c('red'),
+    new: c('light-blue'),
+    terminated: theme.colors.text.disabled,
+  };
+}
 
 function ThreadStateBar({ states }: { states: Record<string, number> }) {
   const styles = useStyles2(getStyles);
+  const theme = useTheme2();
+  const stateColors = threadStateColorsMap(theme);
   const total = Object.values(states).reduce((a, b) => a + b, 0);
   if (total === 0) {
     return null;
@@ -689,7 +694,7 @@ function ThreadStateBar({ states }: { states: Record<string, number> }) {
             title={`${state}: ${count}`}
             style={{
               width: `${(count / total) * 100}%`,
-              backgroundColor: THREAD_STATE_COLORS[state] ?? '#999',
+              backgroundColor: stateColors[state] ?? theme.colors.text.disabled,
               height: '100%',
             }}
           />
@@ -698,7 +703,10 @@ function ThreadStateBar({ states }: { states: Record<string, number> }) {
       <div className={styles.threadStateLegend}>
         {entries.map(([state, count]) => (
           <span key={state} className={styles.threadStateItem}>
-            <span className={styles.threadStateDot} style={{ backgroundColor: THREAD_STATE_COLORS[state] ?? '#999' }} />
+            <span
+              className={styles.threadStateDot}
+              style={{ backgroundColor: stateColors[state] ?? theme.colors.text.disabled }}
+            />
             {state} {count}
           </span>
         ))}

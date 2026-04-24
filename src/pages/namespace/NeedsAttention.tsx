@@ -5,6 +5,7 @@ import { css } from '@emotion/css';
 import { ServiceSummary } from '../../api/client';
 import { getServiceHealth, healthSeverity, healthColor, healthEmoji, deltaArrow } from '../../utils/health';
 import { formatDuration, formatRate } from '../../utils/format';
+import { sparklineColors } from '../../utils/colors';
 import { getSectionStyles } from '../../utils/styles';
 import { Sparkline } from '../../components/Sparkline';
 
@@ -29,6 +30,7 @@ export function NeedsAttention({ services, sparklineMap, previousMap, onServiceC
   const styles = useStyles2(getStyles);
   const sectionStyles = useStyles2(getSectionStyles);
   const theme = useTheme2();
+  const sc = sparklineColors(theme);
 
   const items = useMemo(() => {
     const unhealthy: AttentionItem[] = [];
@@ -96,7 +98,7 @@ export function NeedsAttention({ services, sparklineMap, previousMap, onServiceC
                 </span>
                 <span className={styles.metricSecondary}>{formatRate(svc.rate)}</span>
                 {spark?.errorSeries && spark.errorSeries.length >= 2 && (
-                  <Sparkline data={spark.errorSeries.map((p) => p.v)} color="#FF4C4C" width={60} height={18} />
+                  <Sparkline data={spark.errorSeries.map((p) => p.v)} color={sc.error} width={60} height={18} />
                 )}
               </div>
             </div>

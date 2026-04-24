@@ -13,6 +13,7 @@ import {
   NamespaceDependenciesResponse,
 } from '../api/client';
 import { useTimeRange } from '../utils/timeRange';
+import { QUICK_TIME_RANGES } from '../utils/timeRangeOptions';
 import { useAppNavigate, sanitizeParam } from '../utils/navigation';
 import { extractEnvironmentOptions } from '../utils/options';
 import { getSectionStyles } from '../utils/styles';
@@ -36,7 +37,7 @@ function NamespaceOverview() {
   const svcSearch = searchParams.get('svcSearch') ?? '';
   const svcPage = Math.max(1, parseInt(searchParams.get('svcPage') ?? '1', 10) || 1);
   const depPage = Math.max(1, parseInt(searchParams.get('depPage') ?? '1', 10) || 1);
-  const { from, fromMs, toMs } = useTimeRange();
+  const { from, fromMs, toMs, setTimeRange } = useTimeRange();
   const healthFilter = searchParams.get('healthFilter') ?? '';
 
   // Fetch services for this namespace (fast, no sparklines)
@@ -187,15 +188,23 @@ function NamespaceOverview() {
           backLabel="Services"
           onBack={handleBack}
           controls={
-            envOptions.length > 1 || envFilter ? (
+            <>
+              {(envOptions.length > 1 || envFilter) && (
+                <Combobox
+                  options={[{ label: 'All environments', value: '' }, ...envOptions]}
+                  value={envFilter}
+                  onChange={(v) => setEnvFilter(v.value ?? '')}
+                  placeholder="All environments"
+                  width={28}
+                />
+              )}
               <Combobox
-                options={[{ label: 'All environments', value: '' }, ...envOptions]}
-                value={envFilter}
-                onChange={(v) => setEnvFilter(v.value ?? '')}
-                placeholder="All environments"
-                width={28}
+                options={QUICK_TIME_RANGES}
+                value={from}
+                onChange={(v) => setTimeRange(v?.value ?? 'now-1h', 'now')}
+                width={22}
               />
-            ) : undefined
+            </>
           }
         />
 
@@ -252,7 +261,7 @@ function NamespaceOverview() {
                   onNodeClick={(nodeId) => {
                     const svc = services.find((s) => s.name === nodeId);
                     if (svc) {
-                      handleServiceClick(svc.namespace, svc.name);
+                      handleServiceClick(svc.namespace, svc.name, envFilter || svc.environment);
                     }
                   }}
                 />

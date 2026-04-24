@@ -396,7 +396,7 @@ function ServiceOverview() {
                 minHeight: 0,
               }}
             >
-              <LogsTab service={service} namespace={namespace} logsUid={ds.logsUid} />
+              <LogsTab service={service} namespace={namespace} logsUid={ds.logsUid} from={from} to={to} />
             </div>
           )}
         </div>

@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Icon, Input, Pagination, RadioButtonGroup, useStyles2 } from '@grafana/ui';
+import { Icon, Input, Pagination, RadioButtonGroup, useStyles2, useTheme2 } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { ServiceSummary } from '../../api/client';
@@ -7,6 +7,7 @@ import { formatDuration } from '../../utils/format';
 import { useTableSort, SortHeader, getTableStyles } from '../../components/SortableTable';
 import { FrameworkBadge } from '../../components/FrameworkBadge';
 import { Sparkline } from '../../components/Sparkline';
+import { sparklineColors } from '../../utils/colors';
 import { getServiceHealth, healthEmoji, deltaArrow } from '../../utils/health';
 
 const PAGE_SIZE = 10;
@@ -47,6 +48,8 @@ export function NamespaceServicesTable({
 }: NamespaceServicesTableProps) {
   const tableStyles = useStyles2(getTableStyles);
   const styles = useStyles2(getLocalStyles);
+  const theme = useTheme2();
+  const sc = sparklineColors(theme);
   const { sortField, sortDir, toggleSort, comparator } = useTableSort<SortField>('rate');
 
   const filtered = useMemo(() => {
@@ -137,8 +140,13 @@ export function NamespaceServicesTable({
                 </td>
                 <td style={{ textAlign: 'right' }}>
                   <div className={styles.sparkContainer}>
-                    <Sparkline data={spark?.durationSeries?.map((p) => p.v)} color="#FF9830" width={60} height={20} />
-                    <Sparkline data={spark?.rateSeries?.map((p) => p.v)} color="#73BF69" width={60} height={20} />
+                    <Sparkline
+                      data={spark?.durationSeries?.map((p) => p.v)}
+                      color={sc.duration}
+                      width={60}
+                      height={20}
+                    />
+                    <Sparkline data={spark?.rateSeries?.map((p) => p.v)} color={sc.rate} width={60} height={20} />
                   </div>
                 </td>
               </tr>

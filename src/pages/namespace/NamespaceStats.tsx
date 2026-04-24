@@ -1,9 +1,10 @@
 import React, { useMemo } from 'react';
-import { useStyles2 } from '@grafana/ui';
+import { useStyles2, useTheme2 } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { ServiceSummary } from '../../api/client';
 import { getServiceHealth } from '../../utils/health';
+import { sparklineColors } from '../../utils/colors';
 import { Sparkline } from '../../components/Sparkline';
 
 interface NamespaceStatsProps {
@@ -47,6 +48,8 @@ function aggregateSparklines(
 
 export function NamespaceStats({ services, previousMap, sparklineMap }: NamespaceStatsProps) {
   const styles = useStyles2(getStyles);
+  const theme = useTheme2();
+  const sc = sparklineColors(theme);
 
   const { serviceCount, totalRate, withErrors, healthyCount, prevWithErrors, prevHealthy } = useMemo(() => {
     let errors = 0;
@@ -96,7 +99,7 @@ export function NamespaceStats({ services, previousMap, sparklineMap }: Namespac
   return (
     <div className={styles.grid}>
       <StatCard title="Services" value={String(serviceCount)} />
-      <StatCard title="Rate" value={`${totalRate.toFixed(1)} req/s`} sparkData={rateSpark} sparkColor="#73BF69" />
+      <StatCard title="Rate" value={`${totalRate.toFixed(1)} req/s`} sparkData={rateSpark} sparkColor={sc.rate} />
       <StatCard
         title="With Errors"
         value={`${withErrors} of ${serviceCount}`}
@@ -137,9 +140,7 @@ function StatCard({ title, value, color, delta, sparkData, sparkColor }: StatCar
     <div className={styles.card}>
       <span className={styles.cardTitle}>{title}</span>
       <span className={valueClass}>{value}</span>
-      {sparkData && sparkData.length >= 2 && (
-        <Sparkline data={sparkData} color={sparkColor ?? '#73BF69'} width={100} height={20} />
-      )}
+      {sparkData && sparkData.length >= 2 && <Sparkline data={sparkData} color={sparkColor!} width={100} height={20} />}
       {delta && <span className={styles.delta}>{delta}</span>}
     </div>
   );

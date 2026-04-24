@@ -12,13 +12,16 @@ import {
   Combobox,
   Tooltip,
   useStyles2,
+  useTheme2,
 } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getServices, getCapabilities, ServiceSummary, Capabilities } from '../api/client';
 import { useTimeRange } from '../utils/timeRange';
+import { QUICK_TIME_RANGES } from '../utils/timeRangeOptions';
 import { useAppNavigate, sanitizeParam } from '../utils/navigation';
 import { formatDuration } from '../utils/format';
+import { sparklineColors } from '../utils/colors';
 import { extractEnvironmentOptions, extractNamespaceOptions } from '../utils/options';
 import { useFetch } from '../utils/useFetch';
 import { FrameworkBadge } from '../components/FrameworkBadge';
@@ -33,18 +36,10 @@ const PAGE_SIZE_OPTIONS: Array<{ label: string; value: number }> = [
   { label: '50', value: 50 },
 ];
 
-const TIME_RANGE_OPTIONS: Array<{ label: string; value: string }> = [
-  { label: 'Last 15 minutes', value: 'now-15m' },
-  { label: 'Last 30 minutes', value: 'now-30m' },
-  { label: 'Last 1 hour', value: 'now-1h' },
-  { label: 'Last 3 hours', value: 'now-3h' },
-  { label: 'Last 6 hours', value: 'now-6h' },
-  { label: 'Last 12 hours', value: 'now-12h' },
-  { label: 'Last 24 hours', value: 'now-24h' },
-];
-
 function ServiceInventory() {
   const styles = useStyles2(getStyles);
+  const theme = useTheme2();
+  const sc = sparklineColors(theme);
   const appNavigate = useAppNavigate();
   const { from, fromMs, toMs, setTimeRange } = useTimeRange();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -274,7 +269,7 @@ function ServiceInventory() {
                 />
               </Tooltip>
               <Combobox
-                options={TIME_RANGE_OPTIONS}
+                options={QUICK_TIME_RANGES}
                 value={from}
                 onChange={(v) => setTimeRange(v?.value ?? 'now-1h', 'now')}
                 width={22}
@@ -383,7 +378,7 @@ function ServiceInventory() {
                               data={sparklineMap
                                 .get(`${svc.namespace}/${svc.name}/${svc.environment ?? ''}`)
                                 ?.durationSeries?.map((p) => p.v)}
-                              color="#E0B400"
+                              color={sc.duration}
                             />
                           </div>
                         </td>
@@ -396,7 +391,7 @@ function ServiceInventory() {
                               data={sparklineMap
                                 .get(`${svc.namespace}/${svc.name}/${svc.environment ?? ''}`)
                                 ?.errorSeries?.map((p) => p.v)}
-                              color={svc.errorRate > 0 ? '#F2495C' : '#44444480'}
+                              color={svc.errorRate > 0 ? sc.error : sc.errorDim}
                             />
                           </div>
                         </td>
@@ -407,7 +402,7 @@ function ServiceInventory() {
                               data={sparklineMap
                                 .get(`${svc.namespace}/${svc.name}/${svc.environment ?? ''}`)
                                 ?.rateSeries?.map((p) => p.v)}
-                              color="#73BF69"
+                              color={sc.rate}
                             />
                           </div>
                         </td>
