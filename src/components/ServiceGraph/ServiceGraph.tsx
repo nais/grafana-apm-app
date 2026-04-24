@@ -18,6 +18,7 @@ import { ServiceNode, type ServiceNodeData } from './nodes/ServiceNode';
 import { GroupNode } from './nodes/GroupNode';
 import { CollapseNode, type CollapseNodeData } from './nodes/CollapseNode';
 import { useELKLayout } from './useELKLayout';
+import { computeVisibility, DORMANT_CALLERS_ID, DORMANT_TARGETS_ID } from './graphUtils';
 
 export interface ServiceGraphNode {
   id: string;
@@ -64,23 +65,6 @@ const defaultEdgeOptions: DefaultEdgeOptions = {
   },
 };
 
-const DORMANT_CALLERS_ID = '__dormant_callers__';
-const DORMANT_TARGETS_ID = '__dormant_targets__';
-
-/** Parse "3.5 req/s" → 3.5, returns 0 for unparsable */
-function parseReqRate(stat?: string): number {
-  if (!stat) {
-    return 0;
-  }
-  const m = stat.match(/^([\d.]+)\s*req/);
-  return m ? parseFloat(m[1]) : 0;
-}
-
-/** A node is dormant if it has ~0 req/s and no errors */
-function isDormant(n: ServiceGraphNode): boolean {
-  return parseReqRate(n.mainStat) < 0.05 && n.errorRate < 0.001;
-}
-
 function ServiceGraphInner({
   nodes: inputNodes,
   edges: inputEdges,
@@ -96,101 +80,10 @@ function ServiceGraphInner({
   const [expandedTargets, setExpandedTargets] = useState(false);
 
   // Classify nodes relative to focus: callers → focus → targets
-  const { visibleNodes, visibleEdges } = useMemo(() => {
-    if (!focusNode || inputNodes.length <= 8) {
-      // Small graphs: show everything, no collapsing
-      return { visibleNodes: inputNodes, visibleEdges: inputEdges };
-    }
-
-    // Find caller and target node IDs relative to focusNode
-    const callerIds = new Set<string>();
-    const targetIds = new Set<string>();
-    for (const e of inputEdges) {
-      if (e.target === focusNode) {
-        callerIds.add(e.source);
-      }
-      if (e.source === focusNode) {
-        targetIds.add(e.target);
-      }
-    }
-
-    // Partition dormant callers and targets
-    const dormantCallerNodes: ServiceGraphNode[] = [];
-    const dormantTargetNodes: ServiceGraphNode[] = [];
-    const nodeMap = new Map(inputNodes.map((n) => [n.id, n]));
-
-    for (const id of callerIds) {
-      const n = nodeMap.get(id);
-      if (n && isDormant(n)) {
-        dormantCallerNodes.push(n);
-      }
-    }
-    for (const id of targetIds) {
-      const n = nodeMap.get(id);
-      if (n && isDormant(n)) {
-        dormantTargetNodes.push(n);
-      }
-    }
-
-    // Only collapse if there are 3+ dormant nodes on a side
-    const collapsCallers = !expandedCallers && dormantCallerNodes.length >= 3;
-    const collapsTargets = !expandedTargets && dormantTargetNodes.length >= 3;
-
-    const hiddenCallerIds = collapsCallers ? new Set(dormantCallerNodes.map((n) => n.id)) : new Set<string>();
-    const hiddenTargetIds = collapsTargets ? new Set(dormantTargetNodes.map((n) => n.id)) : new Set<string>();
-    const allHidden = new Set([...hiddenCallerIds, ...hiddenTargetIds]);
-
-    // Build visible nodes
-    const vNodes: ServiceGraphNode[] = inputNodes.filter((n) => !allHidden.has(n.id));
-
-    // Add collapse placeholder nodes
-    if (collapsCallers) {
-      vNodes.push({
-        id: DORMANT_CALLERS_ID,
-        title: `+${dormantCallerNodes.length} dormant`,
-        errorRate: 0,
-        nodeType: 'service',
-      });
-    }
-    if (collapsTargets) {
-      vNodes.push({
-        id: DORMANT_TARGETS_ID,
-        title: `+${dormantTargetNodes.length} dormant`,
-        errorRate: 0,
-        nodeType: 'service',
-      });
-    }
-
-    // Build visible edges — replace hidden node edges with collapse node edges
-    const vEdges: ServiceGraphEdge[] = [];
-    const addedCollapseEdges = { callers: false, targets: false };
-
-    for (const e of inputEdges) {
-      if (hiddenCallerIds.has(e.source)) {
-        if (!addedCollapseEdges.callers) {
-          vEdges.push({
-            id: `${DORMANT_CALLERS_ID}->${focusNode}`,
-            source: DORMANT_CALLERS_ID,
-            target: focusNode,
-          });
-          addedCollapseEdges.callers = true;
-        }
-      } else if (hiddenTargetIds.has(e.target)) {
-        if (!addedCollapseEdges.targets) {
-          vEdges.push({
-            id: `${focusNode}->${DORMANT_TARGETS_ID}`,
-            source: focusNode,
-            target: DORMANT_TARGETS_ID,
-          });
-          addedCollapseEdges.targets = true;
-        }
-      } else {
-        vEdges.push(e);
-      }
-    }
-
-    return { visibleNodes: vNodes, visibleEdges: vEdges };
-  }, [inputNodes, inputEdges, focusNode, expandedCallers, expandedTargets]);
+  const { visibleNodes, visibleEdges } = useMemo(
+    () => computeVisibility(inputNodes, inputEdges, focusNode, expandedCallers, expandedTargets),
+    [inputNodes, inputEdges, focusNode, expandedCallers, expandedTargets]
+  );
 
   // Convert input data to React Flow format
   const rfNodes = useMemo<Node[]>(

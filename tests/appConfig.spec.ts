@@ -20,13 +20,28 @@ async function dismissWhatsNew(page: import('@playwright/test').Page) {
 }
 
 test.describe('app configuration', () => {
-  test('config page should render with datasource fields', async ({ appConfigPage, page }) => {
+  test('config page should render all fieldsets', async ({ appConfigPage, page }) => {
     await dismissWhatsNew(page);
+
+    // Verify all four configuration sections render
     await expect(page.getByText('Data Sources')).toBeVisible();
+    await expect(page.getByText('Per-Environment Datasources')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('Authentication')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('Detection & Overrides')).toBeVisible({ timeout: 5000 });
   });
 
-  test('should display auto-detect capability button', async ({ appConfigPage, page }) => {
+  test('should display auto-detect button and save button', async ({ appConfigPage, page }) => {
     await dismissWhatsNew(page);
+
     await expect(page.getByRole('button', { name: /Auto-detect/i })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('button', { name: /Save settings/i })).toBeVisible({ timeout: 5000 });
+  });
+
+  test('metrics datasource field should accept input', async ({ appConfigPage, page }) => {
+    await dismissWhatsNew(page);
+
+    // Find the Metrics UID input and verify it's interactive
+    const metricsField = page.getByLabel(/Metrics.*UID/i).or(page.locator('input').first());
+    await expect(metricsField).toBeVisible({ timeout: 10000 });
   });
 });

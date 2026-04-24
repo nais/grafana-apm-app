@@ -123,3 +123,14 @@ export function useHasEnvironmentOverrides(): boolean {
   const envs = useConfiguredEnvironments();
   return envs.length > 0;
 }
+
+// Exported for testing — reset module state between test cases.
+// Not used in production code.
+export function _resetForTesting(): void {
+  _jsonDataCache = null;
+  _jsonDataPromise = null;
+  _listeners = [];
+}
+
+// Exported for testing — pure function, no side effects.
+export { resolveUid as _resolveUidForTesting };
