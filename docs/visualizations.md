@@ -4,6 +4,9 @@ Guidelines for choosing and using visualizations consistently across the
 Nais APM plugin. Each visualization type has a specific purpose — use the
 decision table below to pick the right one for your data.
 
+For the _why_ behind these choices — observability strategy, cognitive load
+principles, and visual design rules — see [design-philosophy.md](design-philosophy.md).
+
 ---
 
 ## Decision Table
