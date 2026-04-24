@@ -72,7 +72,7 @@ The project uses [mise](https://mise.jdx.dev/) as task runner:
 | Directory | Contents |
 |-----------|----------|
 | `src/pages/` | Main page components (ServiceInventory, ServiceOverview, ServiceMap, Dependencies, DependencyDetail) |
-| `src/pages/tabs/` | Tab components (Server, Runtime, Frontend, Dependencies, Traces, Logs) |
+| `src/pages/tabs/` | Tab components (Operations, Runtime, Frontend, Dependencies, Traces, Logs) |
 | `src/components/` | Shared React components, plugin config page, service graph |
 | `src/api/` | TypeScript API client for the Go backend |
 | `src/utils/` | Query builders, formatting helpers, constants |

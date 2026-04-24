@@ -311,7 +311,7 @@ Given a detected prefix `{pfx}` (e.g. `traces_service_graph`):
 | `server` | Called service name |
 | `connection_type` | Connection type (e.g. database system) |
 
-These metrics power the **Service Map** page, **Connected Services** panel,
+These metrics power the **Service Map** page, **Callers** panel on the Overview tab,
 and the **Dependencies** pages.
 
 ---

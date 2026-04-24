@@ -25,7 +25,7 @@ principles, and visual design rules — see [design-philosophy.md](design-philos
 | Change vs previous period | "Is this new or ongoing?" | **Delta arrow** (↑↓→) | Error rate change |
 | Network of dependencies | "How do services connect?" | **Topology graph** | Service map |
 | Tabular data with sorting | "Compare services side by side" | **Sortable table** | Services table, dependencies |
-| Latency distribution | "What does the latency shape look like?" | **Heatmap** (Scenes) | Duration heatmap on Server tab |
+| Latency distribution | "What does the latency shape look like?" | **Heatmap** (Scenes) | Duration heatmap on Operations tab |
 
 ---
 
@@ -213,7 +213,7 @@ drill-down.
 - Team/namespace overview pages where you need custom layouts.
 - Inline indicators in tables or cards.
 
-**Current usage:** Server tab (RED panels, heatmap), Frontend tab (web
+**Current usage:** Operations tab (RED panels, heatmap), Frontend tab (web
 vitals, Loki panels), Traces tab, Logs tab.
 
 ---
@@ -240,7 +240,7 @@ interactive exploration with full Grafana features.
 
 | Tab | Visualizations used |
 |-----|-------------------|
-| Server | Timeseries (RED metrics), heatmap (latency distribution) |
+| Operations | Timeseries (RED metrics), heatmap (latency distribution) |
 | Frontend | Bullet graphs (Web Vitals), Scene stat + timeseries panels |
 | Traces | Scene table (trace list) |
 | Logs | Scene logs panel + volume timeseries |

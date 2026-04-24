@@ -17,9 +17,9 @@ already operate.
 - **RED Dashboards** — per-service Rate, Errors, and Duration panels with configurable percentile selectors (P50–P99) and exemplar overlays linking to traces
 - **Operations Breakdown** — top operations table and duration distribution heatmap
 - **Dependencies** — downstream dependency inventory with impact scoring, per-dependency RED panels, operation-level detail including database target (`db_name · db_operation`), messaging topic breakdowns, and enriched display names (e.g. `postgresql (10.0.0.1)`) from service graph metrics
-- **Connected Services** — inbound/outbound service tables on service detail pages with direct navigation to service or dependency detail
+- **Callers & Dependencies** — upstream callers and downstream dependencies on the service Overview tab with direct navigation to service or dependency detail
 - **Service Map** — topology graph with ELK.js auto-layout showing database, messaging, and external dependency types with error highlighting (per-service and per-namespace scoped). Export as Mermaid flowchart for documentation.
-- **Server Tab** — HTTP, gRPC, and database endpoint breakdowns with protocol-specific metadata
+- **Operations Tab** — HTTP, gRPC, database, outbound HTTP client, and messaging endpoint breakdowns with protocol-specific metadata and click-through to traces
 - **Runtime Tab** — container resource utilization, JVM memory pools and GC, Go runtime metrics, Node.js event loop and heap
 - **Frontend Tab** — Core Web Vitals (LCP, FCP, CLS, INP, TTFB) with threshold bands, per-page performance table, console errors, enhanced exception drill-down with Explore links, and browser breakdown for Faro-instrumented services
 - **Cross-Signal Navigation** — click a spike on any chart to jump straight to the relevant traces or logs in Grafana Explore
@@ -120,7 +120,7 @@ src/
 │   ├── Dependencies.tsx        # Downstream dependency inventory
 │   ├── DependencyDetail.tsx    # Per-dependency RED panels and operation breakdown
 │   └── tabs/                   # Tab components for service detail
-│       ├── ServerTab.tsx       # HTTP/gRPC/DB endpoint breakdown
+│       ├── ServerTab.tsx       # Operations: HTTP/gRPC/DB/client endpoint breakdown
 │       ├── RuntimeTab.tsx      # Container, JVM, Go, Node.js runtime metrics
 │       ├── FrontendTab.tsx     # Web Vitals, page performance, browser breakdown
 │       ├── DependenciesTab.tsx # Per-service dependency list

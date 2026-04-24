@@ -6,7 +6,7 @@ Grafana app plugin with a Go backend and React/TypeScript frontend.
 
 ```
 src/           → React frontend (Scenes, @grafana/ui)
-  pages/       → Main views: ServiceInventory, ServiceOverview, ServiceMap
+  pages/       → Main views: ServiceInventory, ServiceOverview, ServiceMap, NamespaceOverview
   components/  → Shared components, AppConfig
   api/         → TypeScript client for the Go backend
   utils/       → Query builders, formatters, constants

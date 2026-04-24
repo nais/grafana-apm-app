@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.5.3 (2026-04-24)
+
+### Features
+
+- **Dependencies Panel on Overview** — New compact dependencies table on the service Overview tab showing outbound dependencies with rate, error %, and P95 latency alongside the Callers table.
+- **Clickable Operations → Traces** — Operation rows on the Overview tab are now clickable, navigating directly to the Traces tab pre-filtered by span name and span kind.
+- **Outbound Calls Section** — Operations tab (formerly "Server") now includes an "Outbound Calls (Client)" section showing HTTP client endpoints (excluding database spans which have their own section).
+- **Spanmetrics Topology Fallback** — Service topology graph now falls back to spanmetrics-based edges when service graph metrics are unavailable, ensuring graphs render in all environments.
+
+### Improvements
+
+- **"Server" → "Operations" Tab Rename** — Renamed the Server tab to Operations to better reflect its expanded scope (inbound + outbound endpoints).
+- **"Connected Services" → "Callers" Naming** — Unified terminology across the app: upstream services are "Callers", downstream services are "Dependencies". Removed inconsistent "inbound/outbound" labels.
+- **Tempo Availability Gating** — "View traces" actions on the Overview tab are only shown when Tempo is available, preventing dead-end clicks.
+
+### Bug Fixes
+
+- **Topology Graph for prod-fss Services** — Fixed topology graph not rendering for services in `prod-fss` cluster by adding spanmetrics fallback for environments without service graph metrics.
+
 ## 0.5.2 (2026-04-23)
 
 ### Features
