@@ -68,7 +68,10 @@ export function NamespaceDependencies({ dependencies, page, onPageChange }: Name
           {paginated.map((dep) => (
             <tr key={dep.name}>
               <td className={tableStyles.nameCell} title={dep.name}>
-                <HealthIndicator status={getDependencyHealth(dep.errorRate)} /> {dep.displayName || dep.name}
+                <div className={tableStyles.nameCellInner}>
+                  <HealthIndicator status={getDependencyHealth(dep.errorRate)} />
+                  <span>{dep.displayName || dep.name}</span>
+                </div>
               </td>
               <td>
                 <DepTypeIcon type={dep.type} />

@@ -126,9 +126,11 @@ export function NamespaceServicesTable({
                 onClick={() => onServiceClick(svc.namespace, svc.name, svc.environment)}
               >
                 <td className={tableStyles.nameCell}>
-                  <HealthIndicator status={health} />
-                  <FrameworkBadge framework={svc.framework} className={styles.badgeBefore} />
-                  {svc.name}
+                  <div className={tableStyles.nameCellInner}>
+                    <HealthIndicator status={health} />
+                    <FrameworkBadge framework={svc.framework} className={styles.badgeBefore} />
+                    <span>{svc.name}</span>
+                  </div>
                 </td>
                 {showEnvironment && <td>{svc.environment ?? '—'}</td>}
                 <td className={tableStyles.numCell}>{svc.rate.toFixed(2)} req/s</td>
@@ -155,14 +157,17 @@ export function NamespaceServicesTable({
           })}
         </tbody>
       </table>
-      {totalPages > 1 && <Pagination currentPage={safePage} numberOfPages={totalPages} onNavigate={onPageChange} />}
+      {totalPages > 1 && (
+        <div className={styles.pagination}>
+          <Pagination currentPage={safePage} numberOfPages={totalPages} onNavigate={onPageChange} />
+        </div>
+      )}
     </div>
   );
 }
 
 const getLocalStyles = (theme: GrafanaTheme2) => ({
   badgeBefore: css`
-    margin-right: ${theme.spacing(0.75)};
     vertical-align: middle;
   `,
   arrow: css`
@@ -177,11 +182,16 @@ const getLocalStyles = (theme: GrafanaTheme2) => ({
   toolbar: css`
     display: flex;
     align-items: center;
-    gap: ${theme.spacing(1)};
-    margin-bottom: ${theme.spacing(1)};
+    gap: ${theme.spacing(1.5)};
+    margin-bottom: ${theme.spacing(1.5)};
   `,
   count: css`
     color: ${theme.colors.text.secondary};
     font-size: ${theme.typography.bodySmall.fontSize};
+  `,
+  pagination: css`
+    margin-top: ${theme.spacing(1.5)};
+    display: flex;
+    justify-content: flex-end;
   `,
 });

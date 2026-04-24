@@ -84,29 +84,25 @@ export function NeedsAttention({ services, sparklineMap, previousMap, onServiceC
                 }
               }}
             >
-              <div className={styles.itemRow}>
-                <div className={styles.itemLeft}>
-                  <div className={styles.itemHeader}>
-                    <HealthIndicator status={health} size={10} />
-                    <span className={styles.serviceName}>{svc.name}</span>
-                    {svc.environment && <span className={styles.envBadge}>{svc.environment}</span>}
-                  </div>
-                  <div className={styles.itemMetrics}>
-                    <span className={styles.metric}>
-                      err: {svc.errorRate.toFixed(1)}%{errArrow && <span className={styles.arrow}> {errArrow}</span>}
-                    </span>
-                    <span className={styles.metric}>
-                      p95: {formatDuration(svc.p95Duration, svc.durationUnit)}
-                      {p95Arrow && <span className={styles.arrow}> {p95Arrow}</span>}
-                    </span>
-                    <span className={styles.metricSecondary}>{formatRate(svc.rate)}</span>
-                  </div>
-                </div>
+              <div className={styles.itemHeader}>
+                <HealthIndicator status={health} size={10} />
+                <span className={styles.serviceName}>{svc.name}</span>
+                {svc.environment && <span className={styles.envBadge}>{svc.environment}</span>}
                 {spark?.errorSeries && spark.errorSeries.length >= 2 && (
                   <div className={styles.itemSparkline}>
                     <Sparkline data={spark.errorSeries.map((p) => p.v)} color={sc.error} width={80} height={24} />
                   </div>
                 )}
+              </div>
+              <div className={styles.itemMetrics}>
+                <span className={styles.metric}>
+                  err: {svc.errorRate.toFixed(1)}%{errArrow && <span className={styles.arrow}> {errArrow}</span>}
+                </span>
+                <span className={styles.metric}>
+                  p95: {formatDuration(svc.p95Duration, svc.durationUnit)}
+                  {p95Arrow && <span className={styles.arrow}> {p95Arrow}</span>}
+                </span>
+                <span className={styles.metricSecondary}>{formatRate(svc.rate)}</span>
               </div>
             </div>
           );
@@ -118,35 +114,23 @@ export function NeedsAttention({ services, sparklineMap, previousMap, onServiceC
 
 const getStyles = (theme: GrafanaTheme2) => ({
   list: css`
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-    background: ${theme.colors.border.weak};
-    border: 1px solid ${theme.colors.border.weak};
-    border-radius: ${theme.shape.radius.default};
-    overflow: hidden;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: ${theme.spacing(1)};
   `,
   item: css`
-    padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
+    padding: ${theme.spacing(1.5)};
     background: ${theme.colors.background.secondary};
+    border: 1px solid ${theme.colors.border.weak};
+    border-radius: ${theme.shape.radius.default};
     cursor: pointer;
     transition: background 0.15s ease;
+    display: flex;
+    flex-direction: column;
+    gap: ${theme.spacing(0.75)};
     &:hover {
       background: ${theme.colors.action.hover};
     }
-  `,
-  itemRow: css`
-    display: grid;
-    grid-template-columns: 1fr auto;
-    align-items: center;
-    gap: ${theme.spacing(2)};
-    min-width: 0;
-  `,
-  itemLeft: css`
-    display: flex;
-    flex-direction: column;
-    gap: ${theme.spacing(0.25)};
-    min-width: 0;
   `,
   itemHeader: css`
     display: flex;
@@ -155,6 +139,7 @@ const getStyles = (theme: GrafanaTheme2) => ({
   `,
   itemSparkline: css`
     flex-shrink: 0;
+    margin-left: auto;
   `,
   serviceName: css`
     font-weight: ${theme.typography.fontWeightMedium};
@@ -176,7 +161,6 @@ const getStyles = (theme: GrafanaTheme2) => ({
     display: flex;
     align-items: center;
     gap: ${theme.spacing(2)};
-    padding-left: 18px;
     flex-wrap: wrap;
   `,
   metric: css`

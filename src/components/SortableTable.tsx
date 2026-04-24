@@ -102,7 +102,7 @@ export const getTableStyles = (theme: GrafanaTheme2) => ({
       text-align: right;
     }
     td {
-      padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
+      padding: ${theme.spacing(1.25)} ${theme.spacing(1.5)};
       border-bottom: 1px solid ${theme.colors.border.weak};
       vertical-align: middle;
       overflow: hidden;
@@ -128,6 +128,11 @@ export const getTableStyles = (theme: GrafanaTheme2) => ({
     overflow: hidden;
     text-overflow: ellipsis;
     color: ${theme.colors.text.link};
+  `,
+  nameCellInner: css`
+    display: flex;
+    align-items: center;
+    gap: ${theme.spacing(0.75)};
   `,
   numCell: css`
     text-align: right;
