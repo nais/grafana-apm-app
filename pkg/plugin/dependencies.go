@@ -113,8 +113,8 @@ func (a *App) queryNamespaceDependencies(
 		return []NamespaceDependency{}
 	}
 
-	// Service graph metrics lack deployment_environment, fetch all edges.
-	edges := a.queryServiceGraphEdges(ctx, to, "")
+	// Filter service graph edges by environment when specified.
+	edges := a.queryServiceGraphEdges(ctx, to, filterEnv)
 
 	// Build db_system and messaging_system maps from edge-level labels.
 	// Service graph metrics now carry these directly — no spanmetrics cross-fetch needed.

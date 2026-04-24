@@ -160,11 +160,11 @@ func (a *App) queryServiceMap( //nolint:gocyclo // complex due to filtering + no
 	_, to time.Time,
 	filterService, filterNamespace, filterEnvironment string,
 ) ServiceMapResponse {
-	// Service graph metrics (from Tempo's metrics generator) typically lack
-	// deployment_environment labels, so we fetch all edges unfiltered.
-	// Environment scoping is applied indirectly via the namespace map built
-	// from spanmetrics (which DO carry deployment_environment).
-	edges := a.queryServiceGraphEdges(ctx, to, "")
+	// Pass the environment filter to service graph edge queries so that only
+	// edges matching the selected environment are included. At Nav the
+	// deployment label (k8s_cluster_name) is a resource label present on all
+	// metrics including Tempo service graph metrics.
+	edges := a.queryServiceGraphEdges(ctx, to, filterEnvironment)
 
 	nodeSet := make(map[string]bool)
 	for k := range edges {
