@@ -12,6 +12,7 @@ const MAX_OVERVIEW_OPS = 5;
 
 interface OverviewTabProps {
   scene: EmbeddedScene | null;
+  sceneKey: string;
   operations: OperationSummary[];
   opsLoading: boolean;
   opsError: string | null;
@@ -25,6 +26,7 @@ interface OverviewTabProps {
 
 export function OverviewTab({
   scene,
+  sceneKey,
   operations,
   opsLoading,
   opsError,
@@ -53,7 +55,9 @@ export function OverviewTab({
   return (
     <>
       {/* RED panels + Duration distribution */}
-      <div style={{ marginBottom: 16 }}>{scene && <scene.Component model={scene} />}</div>
+      <div style={{ marginBottom: 16 }}>
+        {scene ? <scene.Component key={sceneKey} model={scene} /> : <LoadingPlaceholder text="Loading metrics..." />}
+      </div>
 
       {/* Operations table */}
       <div className={styles.section}>

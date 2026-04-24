@@ -61,8 +61,11 @@ function ServiceOverview() {
   const metricsUid = ds.metricsUid;
   const tracesUid = ds.tracesUid;
   const logsUid = ds.logsUid;
-  const callsMetric = metrics.callsMetric;
-  const durationBucket = metrics.durationBucket;
+  // Gate metric names on capabilities being loaded so the scene is never
+  // built with wrong default metric names.  When caps is null the scene
+  // will be null (loading state) until the /capabilities response arrives.
+  const callsMetric = caps ? metrics.callsMetric : '';
+  const durationBucket = caps ? metrics.durationBucket : '';
   const durationUnit = metrics.durationUnit;
   const tabParam = searchParams.get('tab') ?? '';
   const activeTab: TabId = VALID_TABS.includes(tabParam as TabId) ? (tabParam as TabId) : 'overview';
@@ -170,7 +173,8 @@ function ServiceOverview() {
     return matches.length === 0 || matches.some((s) => s.hasServerSpans);
   }, [serviceList, service, namespace, envFilter]);
 
-  // Scenes for RED panels — rebuild only when actual values change (not object refs)
+  // Scenes for RED panels — rebuild only when actual values change (not object refs).
+  // The scene is null until capabilities load (callsMetric/durationBucket are gated above).
   const scene = useMemo(
     () =>
       buildServiceScene({
@@ -206,6 +210,10 @@ function ServiceOverview() {
       hasServerSpans,
     ]
   );
+
+  // Key that changes when the scene is rebuilt — forces React to unmount/remount
+  // the Scenes component so it properly re-activates with the new model.
+  const sceneKey = `${metricsUid}|${callsMetric}|${durationBucket}|${hasServerSpans}|${envFilter}|${percentile}`;
 
   const onNavigateService = useCallback(
     (name: string) => {
@@ -316,6 +324,7 @@ function ServiceOverview() {
           <div style={{ display: activeTab === 'overview' ? undefined : 'none' }}>
             <OverviewTab
               scene={scene}
+              sceneKey={sceneKey}
               operations={operations}
               opsLoading={opsLoading}
               opsError={opsError ?? null}

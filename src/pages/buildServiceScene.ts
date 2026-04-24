@@ -54,7 +54,7 @@ export function buildServiceScene(params: BuildServiceSceneParams): EmbeddedScen
     hasServerSpans,
   } = params;
 
-  if (!metricsUid) {
+  if (!metricsUid || !callsMetric || !durationBucket) {
     return null;
   }
 
