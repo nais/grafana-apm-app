@@ -76,15 +76,15 @@ export function healthColor(status: HealthStatus, theme: GrafanaTheme2): string 
   }
 }
 
-/** Map health status to a colored circle emoji. */
-export function healthEmoji(status: HealthStatus): string {
+/** Map health status to a human-readable label (for aria-label / tooltips). */
+export function healthLabel(status: HealthStatus): string {
   switch (status) {
     case 'critical':
-      return '🔴';
+      return 'Critical';
     case 'warning':
-      return '🟡';
+      return 'Warning';
     case 'healthy':
-      return '🟢';
+      return 'Healthy';
   }
 }
 

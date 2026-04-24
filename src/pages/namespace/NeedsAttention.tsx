@@ -1,13 +1,14 @@
 import React, { useMemo } from 'react';
-import { useStyles2, useTheme2 } from '@grafana/ui';
+import { Icon, useStyles2, useTheme2 } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { ServiceSummary } from '../../api/client';
-import { getServiceHealth, healthSeverity, healthColor, healthEmoji, deltaArrow } from '../../utils/health';
+import { getServiceHealth, healthSeverity, deltaArrow } from '../../utils/health';
 import { formatDuration, formatRate } from '../../utils/format';
 import { sparklineColors } from '../../utils/colors';
 import { getSectionStyles } from '../../utils/styles';
 import { Sparkline } from '../../components/Sparkline';
+import { HealthIndicator } from '../../components/HealthIndicator';
 
 const MAX_ITEMS = 5;
 
@@ -59,7 +60,9 @@ export function NeedsAttention({ services, sparklineMap, previousMap, onServiceC
 
   return (
     <div className={sectionStyles.section}>
-      <h3 className={sectionStyles.sectionTitle}>⚠ Needs Attention</h3>
+      <h3 className={sectionStyles.sectionTitle}>
+        <Icon name="exclamation-triangle" size="md" /> Needs Attention
+      </h3>
       <div className={styles.list}>
         {items.map((item) => {
           const { service: svc, health, previous } = item;
@@ -81,24 +84,28 @@ export function NeedsAttention({ services, sparklineMap, previousMap, onServiceC
                 }
               }}
             >
-              <div className={styles.itemHeader}>
-                <span className={styles.healthDot} style={{ color: healthColor(health, theme) }}>
-                  {healthEmoji(health)}
-                </span>
-                <span className={styles.serviceName}>{svc.name}</span>
-                {svc.environment && <span className={styles.envBadge}>{svc.environment}</span>}
-              </div>
-              <div className={styles.itemMetrics}>
-                <span className={styles.metric}>
-                  err: {svc.errorRate.toFixed(1)}%{errArrow && <span className={styles.arrow}> {errArrow}</span>}
-                </span>
-                <span className={styles.metric}>
-                  p95: {formatDuration(svc.p95Duration, svc.durationUnit)}
-                  {p95Arrow && <span className={styles.arrow}> {p95Arrow}</span>}
-                </span>
-                <span className={styles.metricSecondary}>{formatRate(svc.rate)}</span>
+              <div className={styles.itemRow}>
+                <div className={styles.itemLeft}>
+                  <div className={styles.itemHeader}>
+                    <HealthIndicator status={health} size={10} />
+                    <span className={styles.serviceName}>{svc.name}</span>
+                    {svc.environment && <span className={styles.envBadge}>{svc.environment}</span>}
+                  </div>
+                  <div className={styles.itemMetrics}>
+                    <span className={styles.metric}>
+                      err: {svc.errorRate.toFixed(1)}%{errArrow && <span className={styles.arrow}> {errArrow}</span>}
+                    </span>
+                    <span className={styles.metric}>
+                      p95: {formatDuration(svc.p95Duration, svc.durationUnit)}
+                      {p95Arrow && <span className={styles.arrow}> {p95Arrow}</span>}
+                    </span>
+                    <span className={styles.metricSecondary}>{formatRate(svc.rate)}</span>
+                  </div>
+                </div>
                 {spark?.errorSeries && spark.errorSeries.length >= 2 && (
-                  <Sparkline data={spark.errorSeries.map((p) => p.v)} color={sc.error} width={60} height={18} />
+                  <div className={styles.itemSparkline}>
+                    <Sparkline data={spark.errorSeries.map((p) => p.v)} color={sc.error} width={80} height={24} />
+                  </div>
                 )}
               </div>
             </div>
@@ -120,9 +127,6 @@ const getStyles = (theme: GrafanaTheme2) => ({
     overflow: hidden;
   `,
   item: css`
-    display: flex;
-    flex-direction: column;
-    gap: ${theme.spacing(0.5)};
     padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
     background: ${theme.colors.background.secondary};
     cursor: pointer;
@@ -131,20 +135,34 @@ const getStyles = (theme: GrafanaTheme2) => ({
       background: ${theme.colors.action.hover};
     }
   `,
+  itemRow: css`
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: ${theme.spacing(2)};
+    min-width: 0;
+  `,
+  itemLeft: css`
+    display: flex;
+    flex-direction: column;
+    gap: ${theme.spacing(0.25)};
+    min-width: 0;
+  `,
   itemHeader: css`
     display: flex;
     align-items: center;
     gap: ${theme.spacing(0.75)};
   `,
-  healthDot: css`
-    font-size: 12px;
-    line-height: 1;
+  itemSparkline: css`
     flex-shrink: 0;
   `,
   serviceName: css`
     font-weight: ${theme.typography.fontWeightMedium};
     font-size: ${theme.typography.body.fontSize};
     color: ${theme.colors.text.primary};
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   `,
   envBadge: css`
     font-size: ${theme.typography.bodySmall.fontSize};
@@ -152,12 +170,13 @@ const getStyles = (theme: GrafanaTheme2) => ({
     background: ${theme.colors.background.canvas};
     padding: 1px ${theme.spacing(0.75)};
     border-radius: ${theme.shape.radius.default};
+    flex-shrink: 0;
   `,
   itemMetrics: css`
     display: flex;
     align-items: center;
     gap: ${theme.spacing(2)};
-    padding-left: 22px;
+    padding-left: 18px;
     flex-wrap: wrap;
   `,
   metric: css`

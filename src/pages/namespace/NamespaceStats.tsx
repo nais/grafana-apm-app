@@ -150,8 +150,8 @@ const getStyles = (theme: GrafanaTheme2) => ({
   grid: css`
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: ${theme.spacing(2)};
-    margin-bottom: ${theme.spacing(3)};
+    gap: ${theme.spacing(1.5)};
+    margin-bottom: ${theme.spacing(2)};
     @media (max-width: 768px) {
       grid-template-columns: repeat(2, 1fr);
     }
@@ -159,12 +159,12 @@ const getStyles = (theme: GrafanaTheme2) => ({
   card: css`
     display: flex;
     flex-direction: column;
-    align-items: center;
-    padding: ${theme.spacing(2)};
+    align-items: flex-start;
+    padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
     background: ${theme.colors.background.secondary};
     border: 1px solid ${theme.colors.border.weak};
     border-radius: ${theme.shape.radius.default};
-    gap: ${theme.spacing(0.5)};
+    gap: ${theme.spacing(0.25)};
   `,
   cardTitle: css`
     font-size: ${theme.typography.bodySmall.fontSize};
@@ -173,24 +173,24 @@ const getStyles = (theme: GrafanaTheme2) => ({
     letter-spacing: 0.5px;
   `,
   value: css`
-    font-size: ${theme.typography.h3.fontSize};
+    font-size: ${theme.typography.h4.fontSize};
     font-weight: ${theme.typography.fontWeightMedium};
     font-variant-numeric: tabular-nums;
   `,
   valueWarning: css`
-    font-size: ${theme.typography.h3.fontSize};
+    font-size: ${theme.typography.h4.fontSize};
     font-weight: ${theme.typography.fontWeightMedium};
     font-variant-numeric: tabular-nums;
     color: ${theme.colors.warning.text};
   `,
   valueCritical: css`
-    font-size: ${theme.typography.h3.fontSize};
+    font-size: ${theme.typography.h4.fontSize};
     font-weight: ${theme.typography.fontWeightMedium};
     font-variant-numeric: tabular-nums;
     color: ${theme.colors.error.text};
   `,
   valueSuccess: css`
-    font-size: ${theme.typography.h3.fontSize};
+    font-size: ${theme.typography.h4.fontSize};
     font-weight: ${theme.typography.fontWeightMedium};
     font-variant-numeric: tabular-nums;
     color: ${theme.colors.success.text};

@@ -4,7 +4,8 @@ import { NamespaceDependency } from '../../api/client';
 import { useTableSort, SortHeader, getTableStyles } from '../../components/SortableTable';
 import { getSectionStyles } from '../../utils/styles';
 import { DepTypeIcon } from '../../components/DepTypeIcon';
-import { getDependencyHealth, healthEmoji } from '../../utils/health';
+import { getDependencyHealth } from '../../utils/health';
+import { HealthIndicator } from '../../components/HealthIndicator';
 
 const PAGE_SIZE = 10;
 
@@ -66,7 +67,7 @@ export function NamespaceDependencies({ dependencies, page, onPageChange }: Name
           {paginated.map((dep) => (
             <tr key={dep.name}>
               <td className={tableStyles.nameCell} title={dep.name}>
-                {healthEmoji(getDependencyHealth(dep.errorRate))} {dep.displayName || dep.name}
+                <HealthIndicator status={getDependencyHealth(dep.errorRate)} /> {dep.displayName || dep.name}
               </td>
               <td>
                 <DepTypeIcon type={dep.type} />

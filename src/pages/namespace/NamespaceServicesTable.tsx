@@ -8,7 +8,8 @@ import { useTableSort, SortHeader, getTableStyles } from '../../components/Sorta
 import { FrameworkBadge } from '../../components/FrameworkBadge';
 import { Sparkline } from '../../components/Sparkline';
 import { sparklineColors } from '../../utils/colors';
-import { getServiceHealth, healthEmoji, deltaArrow } from '../../utils/health';
+import { getServiceHealth, deltaArrow } from '../../utils/health';
+import { HealthIndicator } from '../../components/HealthIndicator';
 
 const PAGE_SIZE = 10;
 
@@ -125,7 +126,7 @@ export function NamespaceServicesTable({
                 onClick={() => onServiceClick(svc.namespace, svc.name, svc.environment)}
               >
                 <td className={tableStyles.nameCell}>
-                  <span className={styles.healthDot}>{healthEmoji(health)}</span>
+                  <HealthIndicator status={health} />
                   <FrameworkBadge framework={svc.framework} className={styles.badgeBefore} />
                   {svc.name}
                 </td>
@@ -163,10 +164,6 @@ const getLocalStyles = (theme: GrafanaTheme2) => ({
   badgeBefore: css`
     margin-right: ${theme.spacing(0.75)};
     vertical-align: middle;
-  `,
-  healthDot: css`
-    margin-right: ${theme.spacing(0.5)};
-    font-size: 11px;
   `,
   arrow: css`
     color: ${theme.colors.text.secondary};

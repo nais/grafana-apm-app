@@ -245,26 +245,26 @@ function NamespaceOverview() {
                   onClick={handleCopyMermaid}
                 />
               </div>
-              <div
-                style={{
-                  height: Math.min(700, Math.max(400, graphNodes.length * 35)),
-                  borderRadius: 4,
-                  overflow: 'hidden',
-                }}
-              >
-                <ServiceGraph
-                  nodes={graphNodes}
-                  edges={graphEdges}
-                  direction="DOWN"
-                  enableGrouping={false}
-                  enableWrapping={graphNodes.length > 15}
-                  onNodeClick={(nodeId) => {
-                    const svc = services.find((s) => s.name === nodeId);
-                    if (svc) {
-                      handleServiceClick(svc.namespace, svc.name, envFilter || svc.environment);
-                    }
+              <div className={styles.graphPanel}>
+                <div
+                  style={{
+                    height: Math.min(700, Math.max(400, graphNodes.length * 35)),
                   }}
-                />
+                >
+                  <ServiceGraph
+                    nodes={graphNodes}
+                    edges={graphEdges}
+                    direction="DOWN"
+                    enableGrouping={false}
+                    enableWrapping={graphNodes.length > 15}
+                    onNodeClick={(nodeId) => {
+                      const svc = services.find((s) => s.name === nodeId);
+                      if (svc) {
+                        handleServiceClick(svc.namespace, svc.name, envFilter || svc.environment);
+                      }
+                    }}
+                  />
+                </div>
               </div>
             </div>
           )}
@@ -328,6 +328,13 @@ const getStyles = (theme: GrafanaTheme2) => ({
     display: flex;
     align-items: center;
     gap: ${theme.spacing(1)};
+  `,
+  graphPanel: css`
+    background: ${theme.colors.background.secondary};
+    border: 1px solid ${theme.colors.border.weak};
+    border-radius: ${theme.shape.radius.default};
+    padding: ${theme.spacing(1)};
+    overflow: hidden;
   `,
 });
 

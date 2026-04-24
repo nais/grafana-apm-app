@@ -2,7 +2,7 @@ import {
   getServiceHealth,
   getDependencyHealth,
   healthSeverity,
-  healthEmoji,
+  healthLabel,
   deltaArrow,
   SERVICE_THRESHOLDS,
   DEPENDENCY_THRESHOLDS,
@@ -72,11 +72,11 @@ describe('healthSeverity', () => {
   });
 });
 
-describe('healthEmoji', () => {
-  it('maps to correct emojis', () => {
-    expect(healthEmoji('critical')).toBe('🔴');
-    expect(healthEmoji('warning')).toBe('🟡');
-    expect(healthEmoji('healthy')).toBe('🟢');
+describe('healthLabel', () => {
+  it('maps to correct labels', () => {
+    expect(healthLabel('critical')).toBe('Critical');
+    expect(healthLabel('warning')).toBe('Warning');
+    expect(healthLabel('healthy')).toBe('Healthy');
   });
 });
 

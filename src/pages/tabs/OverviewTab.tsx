@@ -113,8 +113,10 @@ export function OverviewTab({
       {graphNodes.length > 0 && (
         <div className={styles.section}>
           <h3 className={styles.sectionTitle}>Service Topology</h3>
-          <div style={{ height: 350, borderRadius: 4, overflow: 'hidden' }}>
-            <ServiceGraph nodes={graphNodes} edges={graphEdges} focusNode={service} direction="RIGHT" />
+          <div className={styles.graphPanel}>
+            <div style={{ height: 350 }}>
+              <ServiceGraph nodes={graphNodes} edges={graphEdges} focusNode={service} direction="RIGHT" />
+            </div>
           </div>
         </div>
       )}
@@ -229,6 +231,13 @@ function ConnectedTable({ title, icon, services, onNavigate }: ConnectedTablePro
 
 const getStyles = (theme: GrafanaTheme2) => ({
   ...getSectionStyles(theme),
+  graphPanel: css`
+    background: ${theme.colors.background.secondary};
+    border: 1px solid ${theme.colors.border.weak};
+    border-radius: ${theme.shape.radius.default};
+    padding: ${theme.spacing(1)};
+    overflow: hidden;
+  `,
   connectedGrid: css`
     display: grid;
     grid-template-columns: 1fr 1fr;
