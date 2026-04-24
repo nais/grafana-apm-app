@@ -5,9 +5,10 @@ a context where **full-stack developers own and operate their own services
 in production** ("you build it, you run it").
 
 This document synthesizes research from Grafana's dashboard best practices,
-Google's SRE Workbook, Brendan Gregg's USE method, Tom Wilkie's RED method,
-Charity Majors' observability writing, Edward Tufte's information design
-principles, and Stephen Few's dashboard design patterns.
+Google's SRE book and SRE Workbook, Brendan Gregg's USE method, Tom Wilkie's
+RED method, Charity Majors' observability writing, the Nielsen Norman Group's
+research on dashboard preattentive processing, Edward Tufte's information
+design principles, and Stephen Few's dashboard design patterns.
 
 ---
 
@@ -15,16 +16,19 @@ principles, and Stephen Few's dashboard design patterns.
 
 1. [Target Audience](#target-audience)
 2. [Core Principles](#core-principles)
-3. [Observability Strategy: RED + Drill-Down](#observability-strategy-red--drill-down)
-4. [Information Hierarchy](#information-hierarchy)
-5. [Cognitive Load Budget](#cognitive-load-budget)
-6. [Visual Design Rules](#visual-design-rules)
-7. [Navigation & Drill-Down](#navigation--drill-down)
-8. [Time & Context Preservation](#time--context-preservation)
-9. [Health Classification Philosophy](#health-classification-philosophy)
-10. [Dashboard Archetypes](#dashboard-archetypes)
-11. [Anti-Patterns to Avoid](#anti-patterns-to-avoid)
-12. [Relationship to Other Docs](#relationship-to-other-docs)
+3. [Monitoring vs Observability](#monitoring-vs-observability)
+4. [Observability Strategy: RED + Drill-Down](#observability-strategy-red--drill-down)
+5. [Information Hierarchy](#information-hierarchy)
+6. [Operational vs Analytical Views](#operational-vs-analytical-views)
+7. [Cognitive Load Budget](#cognitive-load-budget)
+8. [Visual Design Rules](#visual-design-rules)
+9. [Navigation & Drill-Down](#navigation--drill-down)
+10. [Time & Context Preservation](#time--context-preservation)
+11. [Health Classification Philosophy](#health-classification-philosophy)
+12. [Dashboard Archetypes](#dashboard-archetypes)
+13. [Anti-Patterns to Avoid](#anti-patterns-to-avoid)
+14. [Simplicity as a Feature](#simplicity-as-a-feature)
+15. [Relationship to Other Docs](#relationship-to-other-docs)
 
 ---
 
@@ -108,6 +112,64 @@ investigation state, which wastes time during incidents.
 
 ---
 
+## Monitoring vs Observability
+
+Understanding the distinction matters for design decisions. Our plugin sits
+at the intersection of both.
+
+### Monitoring: known-unknowns
+
+Monitoring answers questions you predicted in advance: "Is error rate above
+5%?", "Is P99 latency over 2 seconds?". It relies on pre-aggregated
+metrics, static dashboards, and threshold-based alerts. This is where our
+health classification, stat boxes, and attention lists live.
+
+### Observability: unknown-unknowns
+
+Observability lets you ask arbitrary questions you didn't predict: "Why are
+users in this specific environment seeing slow responses only when the
+request hits this particular endpoint?" This requires high-cardinality,
+high-dimensionality data — distributed traces and structured logs.
+
+> *"If you can't break down by high cardinality dimensions like build IDs,
+> unique IDs, requests, and function names, you cannot inspect the
+> intersection of your code + production + users with the specificity
+> required to associate specific changes with specific behaviors."*
+> — Charity Majors
+
+### How we bridge both
+
+| Capability | Monitoring | Observability |
+|-----------|-----------|---------------|
+| **Namespace page** | ✅ Health dots, attention list, stat boxes | — |
+| **Service RED panels** | ✅ Pre-defined time series | — |
+| **Latency heatmap** | — | ✅ Shows distribution shape, reveals bimodal patterns |
+| **Traces tab** | — | ✅ Individual request inspection, high cardinality |
+| **Logs tab** | — | ✅ Full-text search, structured fields |
+| **Drill-down links** | — | ✅ From symptom to root-cause data |
+
+The plugin's monitoring layer (health, RED panels) catches problems. The
+observability layer (traces, logs, heatmaps) explains them. Navigation
+bridges the two — clicking from a red health dot through to filtered
+traces should be seamless.
+
+### The developer's observability loop
+
+For developers who own their services, the ideal workflow is:
+
+```
+Deploy → Watch → Confirm → Move on
+         ↓ (if something looks wrong)
+       Investigate → Correlate → Fix → Deploy
+```
+
+Our plugin supports both sides: the "watch and confirm" loop (namespace
+page, health indicators) and the "investigate and correlate" loop (service
+detail tabs, trace/log drill-down). The key design goal is that **switching
+between these modes requires minimal clicks and zero context loss**.
+
+---
+
 ## Observability Strategy: RED + Drill-Down
 
 We adopt the **RED method** as our primary observability framework, with
@@ -120,6 +182,22 @@ hierarchical drill-down as the navigation pattern.
 | **USE** (Utilization, Saturation, Errors) | Infrastructure resources | Not used — our users care about services, not machines. K8s handles infrastructure. |
 | **RED** (Rate, Errors, Duration) | Service endpoints | **Primary** — every service shows these three metrics. |
 | **Four Golden Signals** (Latency, Traffic, Errors, Saturation) | Services + capacity | Partially — we show latency, traffic, and errors. Saturation is an infrastructure concern handled by the platform. |
+
+### A note on latency measurement
+
+The Google SRE book emphasizes distinguishing latency of successful requests
+from latency of failed requests:
+
+> *"An HTTP 500 error triggered due to loss of connection to a database
+> might be served very quickly; however, as an HTTP 500 error indicates a
+> failed request, factoring 500s into your overall latency might result in
+> misleading calculations. On the other hand, a slow error is even worse
+> than a fast error!"*
+
+Our backend separates successful and failed request latency in the PromQL
+queries that feed the service detail panels. The health classification uses
+P95 of all requests (including errors), which is conservative — fast errors
+lower the P95, so if P95 is still high, the latency problem is real.
 
 ### RED at every level
 
@@ -168,6 +246,51 @@ Each level answers a more specific question. **No level should display
 information that belongs to a deeper level.** A namespace page should
 never show per-endpoint latency heatmaps. A service overview should never
 show individual trace waterfall diagrams.
+
+---
+
+## Operational vs Analytical Views
+
+The Nielsen Norman Group distinguishes two dashboard types. Our plugin
+uses both, and it's important to know which is which.
+
+### Operational dashboards
+
+**Purpose:** Impart critical information quickly during time-sensitive tasks.
+**Characteristics:** Continuously updating data, immediate action required,
+minimal interaction needed.
+
+> *"Dashboards are not intended as expansive views of complex data: their
+> goal is not to facilitate exploration; instead, they provide information
+> that can be consumed fast, with a minimum of interaction or cognitive
+> processing."*
+> — Nielsen Norman Group
+
+**Our operational views:**
+- Namespace page (health counts, attention list)
+- Service inventory (quick scan for outliers)
+- Status board / TV mode (future, [#29](https://github.com/nais/grafana-apm-app/issues/29))
+
+### Analytical dashboards
+
+**Purpose:** Provide at-a-glance information used for analysis and decision
+making, without the same level of time sensitivity.
+**Characteristics:** Support investigation, exploration, and correlation.
+
+**Our analytical views:**
+- Service detail tabs (RED time series, heatmaps)
+- Traces tab (search and inspect individual requests)
+- Logs tab (structured log exploration)
+
+### Design implications
+
+| Aspect | Operational view | Analytical view |
+|--------|-----------------|----------------|
+| Interactivity | Minimal — scan, click to drill-down | Rich — zoom, hover, filter, inspect |
+| Update cadence | Auto-refresh essential | Manual refresh acceptable |
+| Color usage | Semantic only (health states) | Data-driven (series differentiation) |
+| Chart types | Stat boxes, health dots, sparklines | Time series, heatmaps, tables |
+| Information density | Low — one clear message per section | High — multiple data dimensions |
 
 ---
 
@@ -234,16 +357,43 @@ and sparingly.
 - **No chart borders, shadows, or decorative gradients.**
 - If removing an element doesn't reduce understanding, remove it.
 
-### Preattentive attributes (Stephen Few)
+### Preattentive attributes (Stephen Few, NNG)
 
-Use these sparingly to draw instant attention to problems:
+Preattentive attributes are visual properties the brain processes
+instantly — before conscious attention engages. Not all preattentive
+attributes are equal for conveying quantitative information.
+
+**Best for quantitative comparison** (use these for data):
+- **Length** — bar charts, sparkline height. People accurately estimate
+  "how much more" one bar is than another.
+- **2D position** — line charts, scatter plots. People instantly see which
+  point is highest/lowest.
+
+**Good for categorical distinction** (use these for grouping):
+- **Color hue** — distinguishes categories, but people cannot judge "how
+  much more red" something is. Never use color alone for magnitude.
+- **Shape** — distinguish item types (e.g., 🟢 vs ⚠️).
+- **Spatial grouping** — related items placed close together are perceived
+  as belonging together.
+
+**Poor for quantitative data** (avoid these):
+- **Area** — pie charts, treemaps. People are poor at comparing areas.
+- **Angle** — radial gauges. Consume space, hard to read precisely.
+- **3D** — distorts all other attributes. Never use 3D charts.
+
+> *"Pie charts are notoriously poor at most information-communication
+> tasks and should be avoided most of the time."*
+> — Nielsen Norman Group
+
+Our usage:
 
 | Attribute | Our usage |
 |-----------|-----------|
-| **Color hue** | Health dots (🟢🟡🔴), topology borders |
+| **Length** | Sparklines (height encodes value), bar widths in bullet graphs |
+| **2D position** | Time series panels (Scenes), scatter within heatmaps |
+| **Color hue** | Health dots (🟢🟡🔴), topology borders — categorical only |
 | **Size** | Stat box values are large; supplementary text is small |
 | **Position** | "Needs Attention" section is above the table, not below |
-| **Motion** | Reserved for sparkline animation (not currently used) |
 | **Enclosure** | Card borders on stat boxes group related numbers |
 
 **Rule:** If everything is highlighted, nothing is highlighted. Reserve
@@ -487,6 +637,68 @@ lookback windows.
 
 ---
 
+## Simplicity as a Feature
+
+Google's SRE team found that the most effective monitoring systems are
+the simplest ones. This principle guides our design at every level.
+
+> *"The sources of potential complexity are never-ending. Like all software
+> systems, monitoring can become so complex that it's fragile, complicated
+> to change, and a maintenance burden."*
+> — Google SRE Book, "Monitoring Distributed Systems"
+
+### Guidelines from Google SRE, applied to our context
+
+1. **Rules that catch real incidents should be simple, predictable, and
+   reliable.** Our health classification uses fixed thresholds, not ML-based
+   anomaly detection. A developer can look at the code and immediately
+   understand why a service is marked critical.
+
+2. **Every page should be actionable.** Our "Needs Attention" section only
+   surfaces services where the developer can actually investigate (non-zero
+   error rate, degraded latency). We don't show warnings for theoretical
+   risks or predicted future problems.
+
+3. **Alert on symptoms, not causes.** We surface error rates and latency
+   (symptoms) on overview pages, not CPU spikes or GC pauses (causes).
+   Causes are available on detail tabs for root-cause investigation _after_
+   the symptom is identified.
+
+4. **Monitoring data rarely exercised should be removed.** If a metric or
+   panel doesn't help answer the page's primary question, it doesn't belong
+   there. Every addition should be justified against the cognitive load
+   budget.
+
+### The latency tail matters
+
+> *"If you run a web service with an average latency of 100ms at 1,000
+> requests per second, 1% of requests might easily take 5 seconds."*
+> — Google SRE Book
+
+This is why we show P95/P99 percentiles and latency heatmaps instead of
+averages. The heatmap on the Server tab reveals distribution shape — bimodal
+latency (two clusters of response times) is invisible in a percentile line
+chart but obvious in a heatmap. This directly supports the SRE book's
+recommendation to "collect request counts bucketed by latencies (suitable
+for rendering a histogram), rather than actual latencies."
+
+### Symptoms vs causes, mapped to our pages
+
+| Page | Shows symptoms | Shows causes |
+|------|---------------|-------------|
+| Namespace | ✅ Error counts, health status | ❌ |
+| Service overview | ✅ RED time series | Partial (heatmap hints at cause) |
+| Runtime tab | ❌ | ✅ CPU, memory, GC, threads |
+| Traces tab | ❌ | ✅ Per-request waterfall |
+| Logs tab | ❌ | ✅ Error messages, stack traces |
+
+This separation is intentional. The developer starts with "something is
+broken" (namespace page), moves to "here's the pattern" (service RED
+panels), and ends at "here's the specific cause" (traces/logs). Each
+transition narrows the focus.
+
+---
+
 ## Relationship to Other Docs
 
 | Document | Relationship |
@@ -504,9 +716,12 @@ lookback windows.
 - Tom Wilkie. [The RED Method](https://grafana.com/blog/2018/08/02/the-red-method-how-to-instrument-your-services/)
 - Brendan Gregg. [The USE Method](https://www.brendangregg.com/usemethod.html)
 - Google. [Monitoring Distributed Systems — Four Golden Signals](https://sre.google/sre-book/monitoring-distributed-systems/)
-- Google. [Alerting on SLOs](https://sre.google/workbook/alerting-on-slos/)
+- Google. [Alerting on SLOs — Multiwindow Multi-Burn-Rate](https://sre.google/workbook/alerting-on-slos/)
+- Charity Majors. [Observability Is a Many-Splendored Thing](https://charity.wtf/2020/03/03/observability-is-a-many-splendored-thing/)
 - Charity Majors. [Observability: A 5-Year Retrospective](https://www.honeycomb.io/blog/observability-5-year-retrospective)
+- Nielsen Norman Group. [Dashboard Design: Preattentive Processing and Quantitative Representation](https://www.nngroup.com/articles/dashboards-preattentive/)
 - Edward Tufte. *The Visual Display of Quantitative Information* (2001)
-- Stephen Few. *Information Dashboard Design* (2013)
+- Stephen Few. *Information Dashboard Design: Displaying Data for At-a-Glance Monitoring* (2013)
 - Ben Shneiderman. *The Eyes Have It: A Task by Data Type Taxonomy for Information Visualizations* (1996)
 - KubeCon 2019. [Fool-Proof Kubernetes Dashboards for Sleep-Deprived Oncalls](https://www.youtube.com/watch?v=YE2aQFiMGfY)
+- Peter Bourgon. [Metrics, Tracing, and Logging](https://peter.bourgon.org/blog/2017/02/21/metrics-tracing-and-logging.html)
