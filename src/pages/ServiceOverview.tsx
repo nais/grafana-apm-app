@@ -160,7 +160,7 @@ function ServiceOverview() {
   );
   const { graphNodes, graphEdges } = useMemo(() => toGraphData(mapData), [mapData]);
 
-  // Fetch connected services (inbound/outbound)
+  // Fetch callers (inbound connected services)
   const { data: connected } = useFetch<ConnectedServicesResponse>(
     () => getConnectedServices(namespace, service, fromMs, toMs, envFilter || undefined),
     [service, namespace, fromMs, toMs, envFilter]

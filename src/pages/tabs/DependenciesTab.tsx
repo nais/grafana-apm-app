@@ -50,8 +50,8 @@ export function DependenciesTab({ service, namespace, fromMs, toMs, environment 
   if (deps.length === 0) {
     return (
       <Alert severity="info" title="No dependencies detected">
-        No downstream dependencies found for {service}. Dependencies are detected from client spans in the service
-        graph.
+        No dependencies found for {service}. Dependencies are detected from outbound client spans (HTTP calls, database
+        queries, etc.) in span metrics.
       </Alert>
     );
   }

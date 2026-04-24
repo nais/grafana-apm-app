@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { useStyles2, Icon, LoadingPlaceholder, Alert, Badge } from '@grafana/ui';
+import { useStyles2, LoadingPlaceholder, Alert, Badge } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { EmbeddedScene } from '@grafana/scenes';
@@ -147,31 +147,17 @@ export function OverviewTab({
         </div>
       )}
 
-      {/* Connected services & Dependencies — side by side */}
+      {/* Callers & Dependencies — side by side */}
       {((connected && (connected.inbound.length > 0 || connected.outbound.length > 0)) ||
         (dependencies && dependencies.length > 0)) && (
         <div className={styles.section}>
           <div className={styles.connectedGrid}>
-            {/* Connected Services column */}
-            {connected && (connected.inbound.length > 0 || connected.outbound.length > 0) && (
+            {/* Callers column */}
+            {connected && connected.inbound.length > 0 && (
               <div>
-                <h3 className={styles.sectionTitle}>Connected Services</h3>
-                {connected.inbound.length > 0 && (
-                  <ConnectedTable
-                    title="Inbound"
-                    icon="arrow-down"
-                    services={connected.inbound}
-                    onNavigate={onNavigateService}
-                  />
-                )}
-                {connected.outbound.length > 0 && (
-                  <ConnectedTable
-                    title="Outbound"
-                    icon="arrow-up"
-                    services={connected.outbound}
-                    onNavigate={onNavigateService}
-                  />
-                )}
+                <h3 className={styles.sectionTitle}>Callers ({connected.inbound.length})</h3>
+                <p className={styles.sectionSubtitle}>Services that call this service.</p>
+                <ConnectedTable services={connected.inbound} onNavigate={onNavigateService} />
               </div>
             )}
 
@@ -179,6 +165,7 @@ export function OverviewTab({
             {dependencies && dependencies.length > 0 && (
               <div>
                 <h3 className={styles.sectionTitle}>Dependencies ({dependencies.length})</h3>
+                <p className={styles.sectionSubtitle}>Databases, APIs, and services this service calls.</p>
                 <DependenciesCompact dependencies={dependencies} onNavigate={onNavigateDependency} />
               </div>
             )}
@@ -212,58 +199,51 @@ function ConnectionTypeBadge({ type }: { type?: string }) {
 }
 
 interface ConnectedTableProps {
-  title: string;
-  icon: 'arrow-down' | 'arrow-up';
   services: ConnectedServicesResponse['inbound'];
   onNavigate: (name: string) => void;
 }
 
-function ConnectedTable({ title, icon, services, onNavigate }: ConnectedTableProps) {
+function ConnectedTable({ services, onNavigate }: ConnectedTableProps) {
   const styles = useStyles2(getStyles);
   return (
-    <div>
-      <h4 className={styles.connectedSubtitle}>
-        <Icon name={icon} /> {title} ({services.length})
-      </h4>
-      <table className={styles.opsTable}>
-        <thead>
-          <tr>
-            <th>Service</th>
-            <th>Type</th>
-            <th>Rate</th>
-            <th>Error %</th>
-            <th>P95</th>
+    <table className={styles.opsTable}>
+      <thead>
+        <tr>
+          <th>Service</th>
+          <th>Type</th>
+          <th>Rate</th>
+          <th>Error %</th>
+          <th>P95</th>
+        </tr>
+      </thead>
+      <tbody>
+        {services.map((s) => (
+          <tr
+            key={s.name + (s.connectionType ?? '')}
+            className={s.connectionType ? undefined : styles.clickableRow}
+            style={s.isSidecar ? { opacity: 0.6 } : undefined}
+            onClick={
+              s.connectionType
+                ? undefined
+                : () => {
+                    onNavigate(s.name);
+                  }
+            }
+          >
+            <td className={s.connectionType ? undefined : styles.linkCell}>
+              {s.name}
+              {s.isSidecar && <Badge text="sidecar" color="orange" icon="cog" className={styles.sidecarBadge} />}
+            </td>
+            <td>
+              <ConnectionTypeBadge type={s.connectionType} />
+            </td>
+            <td className={styles.opNumCell}>{s.rate.toFixed(2)} req/s</td>
+            <td className={s.errorRate > 0 ? styles.opErrorCell : styles.opNumCell}>{s.errorRate.toFixed(1)}%</td>
+            <td className={styles.opNumCell}>{formatDuration(s.p95Duration, s.durationUnit)}</td>
           </tr>
-        </thead>
-        <tbody>
-          {services.map((s) => (
-            <tr
-              key={s.name + (s.connectionType ?? '')}
-              className={s.connectionType ? undefined : styles.clickableRow}
-              style={s.isSidecar ? { opacity: 0.6 } : undefined}
-              onClick={
-                s.connectionType
-                  ? undefined
-                  : () => {
-                      onNavigate(s.name);
-                    }
-              }
-            >
-              <td className={s.connectionType ? undefined : styles.linkCell}>
-                {s.name}
-                {s.isSidecar && <Badge text="sidecar" color="orange" icon="cog" className={styles.sidecarBadge} />}
-              </td>
-              <td>
-                <ConnectionTypeBadge type={s.connectionType} />
-              </td>
-              <td className={styles.opNumCell}>{s.rate.toFixed(2)} req/s</td>
-              <td className={s.errorRate > 0 ? styles.opErrorCell : styles.opNumCell}>{s.errorRate.toFixed(1)}%</td>
-              <td className={styles.opNumCell}>{formatDuration(s.p95Duration, s.durationUnit)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
@@ -331,15 +311,6 @@ const getStyles = (theme: GrafanaTheme2) => ({
     @media (max-width: 768px) {
       grid-template-columns: 1fr;
     }
-  `,
-  connectedSubtitle: css`
-    font-size: ${theme.typography.body.fontSize};
-    font-weight: ${theme.typography.fontWeightMedium};
-    color: ${theme.colors.text.secondary};
-    margin-bottom: ${theme.spacing(1)};
-    display: flex;
-    align-items: center;
-    gap: ${theme.spacing(0.5)};
   `,
   clickableRow: css`
     cursor: pointer;
