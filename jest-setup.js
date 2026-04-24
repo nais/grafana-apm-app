@@ -6,3 +6,11 @@ import './.config/jest-setup';
 HTMLCanvasElement.prototype.getContext = () => ({
   measureText: (text) => ({ width: text.length * 8 }),
 });
+
+// @grafana/scenes uses IntersectionObserver (LazyLoader) which jsdom lacks.
+global.IntersectionObserver = class IntersectionObserver {
+  constructor() {}
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -48,6 +49,42 @@ func mockPromServer(t *testing.T, resultsMap map[string][]queries.PromResult) *h
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
 	}))
+}
+
+// queryCapturingPromServer returns a mock Prometheus server that records all
+// queries it receives. It serves canned responses (like mockPromServer) but
+// also appends each query string to the returned slice for later assertion.
+func queryCapturingPromServer(t *testing.T, resultsMap map[string][]queries.PromResult) (*httptest.Server, *[]string) {
+	t.Helper()
+	var mu sync.Mutex
+	captured := &[]string{}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query().Get("query")
+		mu.Lock()
+		*captured = append(*captured, query)
+		mu.Unlock()
+
+		for key, results := range resultsMap {
+			if strings.Contains(query, key) {
+				resp := queries.PromResponse{
+					Status: "success",
+					Data:   queries.PromData{ResultType: "vector", Result: results},
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(resp)
+				return
+			}
+		}
+
+		resp := queries.PromResponse{
+			Status: "success",
+			Data:   queries.PromData{ResultType: "vector", Result: []queries.PromResult{}},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	return srv, captured
 }
 
 // newTestApp creates an App with a mock Prometheus backend and pre-set capabilities.
@@ -548,6 +585,217 @@ func TestHelperFunctions(t *testing.T) {
 		env := parseEnvironment(req)
 		if strings.Contains(env, `"`) {
 			t.Errorf("expected sanitized environment, got %q", env)
+		}
+	})
+}
+
+func TestHandleServiceMapScopedQueries(t *testing.T) {
+	cfg := otelconfig.Default()
+	now := time.Now()
+	from := fmt.Sprintf("%d", now.Add(-1*time.Hour).Unix())
+	to := fmt.Sprintf("%d", now.Unix())
+
+	makeEdge := func(client, server string, rate string) queries.PromResult {
+		return queries.PromResult{
+			Metric: map[string]string{
+				cfg.Labels.Client: client,
+				cfg.Labels.Server: server,
+			},
+			Value: queries.PromValue{float64(now.Unix()), rate},
+		}
+	}
+
+	t.Run("uses scoped queries when service filter is provided", func(t *testing.T) {
+		results := map[string][]queries.PromResult{
+			// Outbound: backend→database (backend is client)
+			`request_total{client="backend"`: {makeEdge("backend", "database", "50")},
+			// Inbound: frontend→backend (backend is server)
+			`request_total{server="backend"`: {makeEdge("frontend", "backend", "100")},
+		}
+
+		promSrv, captured := queryCapturingPromServer(t, results)
+		defer promSrv.Close()
+
+		app := newTestApp(t, promSrv.URL, defaultCaps())
+		req := httptest.NewRequest(http.MethodGet,
+			"/service-map?service=backend&from="+from+"&to="+to, nil)
+		w := httptest.NewRecorder()
+		app.handleServiceMap(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+
+		var resp ServiceMapResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("invalid JSON: %s", err)
+		}
+
+		// Verify the graph has both inbound and outbound neighbors
+		if len(resp.Nodes) < 3 {
+			t.Errorf("expected at least 3 nodes (frontend, backend, database), got %d", len(resp.Nodes))
+		}
+		if len(resp.Edges) < 2 {
+			t.Errorf("expected at least 2 edges, got %d", len(resp.Edges))
+		}
+
+		// All queries must contain either client="backend" or server="backend"
+		queriesWithServiceFilter := 0
+		for _, q := range *captured {
+			if strings.Contains(q, `client="backend"`) || strings.Contains(q, `server="backend"`) {
+				queriesWithServiceFilter++
+			}
+		}
+		// Scoped path sends 6 queries: out/in × rate/error/p95
+		if queriesWithServiceFilter < 6 {
+			t.Errorf("expected at least 6 scoped queries with service filter, got %d out of %d total",
+				queriesWithServiceFilter, len(*captured))
+			for i, q := range *captured {
+				t.Logf("  query[%d]: %s", i, q)
+			}
+		}
+	})
+
+	t.Run("service only as client returns outbound edges", func(t *testing.T) {
+		results := map[string][]queries.PromResult{
+			`request_total{client="leaf"`: {makeEdge("leaf", "database", "25")},
+		}
+
+		promSrv := mockPromServer(t, results)
+		defer promSrv.Close()
+
+		app := newTestApp(t, promSrv.URL, defaultCaps())
+		req := httptest.NewRequest(http.MethodGet,
+			"/service-map?service=leaf&from="+from+"&to="+to, nil)
+		w := httptest.NewRecorder()
+		app.handleServiceMap(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", w.Code)
+		}
+
+		var resp ServiceMapResponse
+		_ = json.Unmarshal(w.Body.Bytes(), &resp)
+		if len(resp.Nodes) < 2 {
+			t.Errorf("expected at least 2 nodes (leaf, database), got %d", len(resp.Nodes))
+		}
+	})
+
+	t.Run("service only as server returns inbound edges", func(t *testing.T) {
+		results := map[string][]queries.PromResult{
+			`request_total{server="api"`: {makeEdge("frontend", "api", "200")},
+		}
+
+		promSrv := mockPromServer(t, results)
+		defer promSrv.Close()
+
+		app := newTestApp(t, promSrv.URL, defaultCaps())
+		req := httptest.NewRequest(http.MethodGet,
+			"/service-map?service=api&from="+from+"&to="+to, nil)
+		w := httptest.NewRecorder()
+		app.handleServiceMap(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", w.Code)
+		}
+
+		var resp ServiceMapResponse
+		_ = json.Unmarshal(w.Body.Bytes(), &resp)
+		if len(resp.Nodes) < 2 {
+			t.Errorf("expected at least 2 nodes (frontend, api), got %d", len(resp.Nodes))
+		}
+	})
+
+	t.Run("empty scoped result returns empty graph", func(t *testing.T) {
+		promSrv := mockPromServer(t, map[string][]queries.PromResult{})
+		defer promSrv.Close()
+
+		app := newTestApp(t, promSrv.URL, defaultCaps())
+		req := httptest.NewRequest(http.MethodGet,
+			"/service-map?service=nonexistent&from="+from+"&to="+to, nil)
+		w := httptest.NewRecorder()
+		app.handleServiceMap(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", w.Code)
+		}
+
+		var resp ServiceMapResponse
+		_ = json.Unmarshal(w.Body.Bytes(), &resp)
+		if len(resp.Nodes) != 0 {
+			t.Errorf("expected 0 nodes, got %d", len(resp.Nodes))
+		}
+	})
+}
+
+func TestServiceMapEnvironmentFilter(t *testing.T) {
+	now := time.Now()
+	from := fmt.Sprintf("%d", now.Add(-1*time.Hour).Unix())
+	to := fmt.Sprintf("%d", now.Unix())
+
+	t.Run("passes environment filter to all edge queries", func(t *testing.T) {
+		promSrv, captured := queryCapturingPromServer(t, map[string][]queries.PromResult{})
+		defer promSrv.Close()
+
+		app := newTestApp(t, promSrv.URL, defaultCaps())
+		req := httptest.NewRequest(http.MethodGet,
+			"/service-map?environment=production&from="+from+"&to="+to, nil)
+		w := httptest.NewRecorder()
+		app.handleServiceMap(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+
+		envFilter := `k8s_cluster_name="production"`
+		sgQueries := 0
+		sgQueriesWithEnv := 0
+		for _, q := range *captured {
+			if strings.Contains(q, "traces_service_graph") {
+				sgQueries++
+				if strings.Contains(q, envFilter) {
+					sgQueriesWithEnv++
+				}
+			}
+		}
+
+		if sgQueries == 0 {
+			t.Fatal("expected at least some service graph queries")
+		}
+		if sgQueriesWithEnv != sgQueries {
+			t.Errorf("expected all %d service graph queries to contain %q, but only %d did",
+				sgQueries, envFilter, sgQueriesWithEnv)
+			for i, q := range *captured {
+				t.Logf("  query[%d]: %s", i, q)
+			}
+		}
+	})
+
+	t.Run("scoped queries include both service and environment filters", func(t *testing.T) {
+		promSrv, captured := queryCapturingPromServer(t, map[string][]queries.PromResult{})
+		defer promSrv.Close()
+
+		app := newTestApp(t, promSrv.URL, defaultCaps())
+		req := httptest.NewRequest(http.MethodGet,
+			"/service-map?service=myapp&environment=prod-gcp&from="+from+"&to="+to, nil)
+		w := httptest.NewRecorder()
+		app.handleServiceMap(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", w.Code)
+		}
+
+		envFilter := `k8s_cluster_name="prod-gcp"`
+		for i, q := range *captured {
+			if strings.Contains(q, "traces_service_graph") {
+				if !strings.Contains(q, envFilter) {
+					t.Errorf("query[%d] missing env filter %q: %s", i, envFilter, q)
+				}
+				hasServiceFilter := strings.Contains(q, `client="myapp"`) || strings.Contains(q, `server="myapp"`)
+				if !hasServiceFilter {
+					t.Errorf("query[%d] missing service filter: %s", i, q)
+				}
+			}
 		}
 	})
 }
