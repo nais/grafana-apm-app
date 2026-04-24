@@ -799,3 +799,220 @@ func TestServiceMapEnvironmentFilter(t *testing.T) {
 		}
 	})
 }
+
+func TestServiceMapSpanmetricsFallback(t *testing.T) {
+	cfg := otelconfig.Default()
+	now := time.Now()
+	from := fmt.Sprintf("%d", now.Add(-1*time.Hour).Unix())
+	to := fmt.Sprintf("%d", now.Unix())
+
+	t.Run("uses spanmetrics when service graph returns empty", func(t *testing.T) {
+		// No service graph results → triggers fallback.
+		// Spanmetrics inbound: caller-a calls our service via server_address.
+		// Spanmetrics outbound: our service calls target-db via server_address.
+		results := map[string][]queries.PromResult{
+			// Inbound fallback: caller-a → myservice (via server_address match)
+			`server_address=~"myservice`: {
+				{
+					Metric: map[string]string{
+						cfg.Labels.ServiceName:      "caller-a",
+						cfg.Labels.ServiceNamespace: "team-a",
+					},
+					Value: queries.PromValue{float64(now.Unix()), "42"},
+				},
+			},
+			// Outbound fallback: myservice → target-db (via server_address)
+			`service_name="myservice"`: {
+				{
+					Metric: map[string]string{
+						cfg.Labels.ServerAddress: "target-db.team-b.svc.cluster.local:5432",
+						cfg.Labels.DBSystem:     "postgresql",
+					},
+					Value: queries.PromValue{float64(now.Unix()), "15"},
+				},
+			},
+		}
+
+		promSrv, captured := queryCapturingPromServer(t, results)
+		defer promSrv.Close()
+
+		app := newTestApp(t, promSrv.URL, defaultCaps())
+		req := httptest.NewRequest(http.MethodGet,
+			"/service-map?service=myservice&from="+from+"&to="+to, nil)
+		w := httptest.NewRecorder()
+		app.handleServiceMap(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+
+		var resp ServiceMapResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("invalid JSON: %s", err)
+		}
+
+		// Should have edges from spanmetrics fallback
+		if len(resp.Nodes) < 2 {
+			t.Errorf("expected at least 2 nodes from fallback, got %d", len(resp.Nodes))
+			for _, n := range resp.Nodes {
+				t.Logf("  node: %s", n.ID)
+			}
+		}
+		if len(resp.Edges) < 1 {
+			t.Errorf("expected at least 1 edge from fallback, got %d", len(resp.Edges))
+		}
+
+		// Verify spanmetrics queries were sent (calls_total queries)
+		smQueries := 0
+		for _, q := range *captured {
+			if strings.Contains(q, "calls_total") {
+				smQueries++
+			}
+		}
+		if smQueries == 0 {
+			t.Error("expected spanmetrics fallback queries (calls_total), but none were sent")
+			for i, q := range *captured {
+				t.Logf("  query[%d]: %s", i, q)
+			}
+		}
+	})
+
+	t.Run("skips fallback when service graph has results", func(t *testing.T) {
+		// Service graph returns data → no fallback needed
+		results := map[string][]queries.PromResult{
+			`request_total{client="myservice"`: {
+				{
+					Metric: map[string]string{
+						cfg.Labels.Client: "myservice",
+						cfg.Labels.Server: "backend",
+					},
+					Value: queries.PromValue{float64(now.Unix()), "100"},
+				},
+			},
+			`request_total{server="myservice"`: {
+				{
+					Metric: map[string]string{
+						cfg.Labels.Client: "frontend",
+						cfg.Labels.Server: "myservice",
+					},
+					Value: queries.PromValue{float64(now.Unix()), "200"},
+				},
+			},
+		}
+
+		promSrv, captured := queryCapturingPromServer(t, results)
+		defer promSrv.Close()
+
+		app := newTestApp(t, promSrv.URL, defaultCaps())
+		req := httptest.NewRequest(http.MethodGet,
+			"/service-map?service=myservice&from="+from+"&to="+to, nil)
+		w := httptest.NewRecorder()
+		app.handleServiceMap(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", w.Code)
+		}
+
+		// No spanmetrics queries should have been sent
+		for _, q := range *captured {
+			if strings.Contains(q, "calls_total") {
+				t.Errorf("expected no spanmetrics fallback queries, but got: %s", q)
+			}
+		}
+	})
+
+	t.Run("per-direction fallback: only inbound missing", func(t *testing.T) {
+		// outRate has results (service graph), inRate is empty → only inbound fallback
+		results := map[string][]queries.PromResult{
+			`request_total{client="myservice"`: {
+				{
+					Metric: map[string]string{
+						cfg.Labels.Client: "myservice",
+						cfg.Labels.Server: "database",
+					},
+					Value: queries.PromValue{float64(now.Unix()), "50"},
+				},
+			},
+			// Inbound via spanmetrics
+			`server_address=~"myservice`: {
+				{
+					Metric: map[string]string{
+						cfg.Labels.ServiceName:      "caller-x",
+						cfg.Labels.ServiceNamespace: "ns-x",
+					},
+					Value: queries.PromValue{float64(now.Unix()), "30"},
+				},
+			},
+		}
+
+		promSrv, captured := queryCapturingPromServer(t, results)
+		defer promSrv.Close()
+
+		app := newTestApp(t, promSrv.URL, defaultCaps())
+		req := httptest.NewRequest(http.MethodGet,
+			"/service-map?service=myservice&from="+from+"&to="+to, nil)
+		w := httptest.NewRecorder()
+		app.handleServiceMap(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", w.Code)
+		}
+
+		var resp ServiceMapResponse
+		_ = json.Unmarshal(w.Body.Bytes(), &resp)
+
+		// Should have: myservice, database (from SG), caller-x (from fallback)
+		if len(resp.Nodes) < 3 {
+			t.Errorf("expected at least 3 nodes, got %d", len(resp.Nodes))
+			for _, n := range resp.Nodes {
+				t.Logf("  node: %s", n.ID)
+			}
+		}
+
+		// Should NOT have outbound spanmetrics queries (outRate was populated)
+		for _, q := range *captured {
+			if strings.Contains(q, "calls_total") && strings.Contains(q, `service_name="myservice"`) {
+				t.Errorf("outbound fallback should not fire when outRate has data, but got: %s", q)
+			}
+		}
+	})
+
+	t.Run("FQDN addresses are collapsed to service names", func(t *testing.T) {
+		results := map[string][]queries.PromResult{
+			`service_name="myservice"`: {
+				{
+					Metric: map[string]string{
+						cfg.Labels.ServerAddress: "backend.team.svc.cluster.local:8080",
+					},
+					Value: queries.PromValue{float64(now.Unix()), "25"},
+				},
+			},
+		}
+
+		promSrv := mockPromServer(t, results)
+		defer promSrv.Close()
+
+		app := newTestApp(t, promSrv.URL, defaultCaps())
+		req := httptest.NewRequest(http.MethodGet,
+			"/service-map?service=myservice&from="+from+"&to="+to, nil)
+		w := httptest.NewRecorder()
+		app.handleServiceMap(w, req)
+
+		var resp ServiceMapResponse
+		_ = json.Unmarshal(w.Body.Bytes(), &resp)
+
+		// The FQDN should be collapsed to "backend"
+		found := false
+		for _, n := range resp.Nodes {
+			if n.ID == "backend" {
+				found = true
+			}
+		}
+		if !found {
+			t.Error("expected FQDN 'backend.team.svc.cluster.local:8080' to be collapsed to node 'backend'")
+			for _, n := range resp.Nodes {
+				t.Logf("  node: %s", n.ID)
+			}
+		}
+	})
+}

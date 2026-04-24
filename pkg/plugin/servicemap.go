@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
@@ -282,7 +284,246 @@ func (a *App) queryServiceGraphEdgesScoped(ctx context.Context, to time.Time, ba
 		}
 	}
 
+	// Spanmetrics fallback: if service graph metrics are missing for a direction,
+	// use CLIENT spanmetrics (calls_total) to discover edges. This handles
+	// environments where the Tempo service graph processor is not running.
+	outEmpty := len(resultMap["outRate"]) == 0
+	inEmpty := len(resultMap["inRate"]) == 0
+	if outEmpty || inEmpty {
+		smEdges := a.querySpanmetricsTopologyFallback(ctx, to, baseLabelFilter, service, outEmpty, inEmpty)
+		for k, v := range smEdges {
+			if _, exists := edges[k]; !exists {
+				edges[k] = v
+			}
+		}
+	}
+
 	return edges
+}
+
+// querySpanmetricsTopologyFallback discovers service edges using CLIENT spanmetrics
+// when service graph metrics are unavailable (e.g., environments without the
+// Tempo service graph processor). It queries calls_total with server_address and
+// http_host labels to find outbound and inbound connections.
+func (a *App) querySpanmetricsTopologyFallback(
+	ctx context.Context, to time.Time, baseLabelFilter, service string,
+	needOutbound, needInbound bool,
+) map[sgEdgeKey]*sgEdgeData {
+	logger := log.DefaultLogger.With("handler", "servicegraph-sm-fallback", "service", service)
+	rangeStr := "[5m]"
+	cfg := a.otelCfg
+	callsMetric := a.callsMetric(ctx)
+
+	envFilter := ""
+	if baseLabelFilter != "" {
+		envFilter = ", " + baseLabelFilter
+	}
+
+	escapedSvc := promQLEscape(service)
+
+	var jobs []QueryJob
+
+	if needOutbound {
+		// Outbound: our service as client, find what it calls via server_address / http_host
+		outRateQ := fmt.Sprintf(
+			`sum by (%s, %s, %s) (rate(%s{%s="%s", %s="%s"%s}%s))`,
+			cfg.Labels.ServerAddress, cfg.Labels.DBSystem, cfg.Labels.MessagingSystem,
+			callsMetric, cfg.Labels.SpanKind, cfg.SpanKinds.Client,
+			cfg.Labels.ServiceName, service, envFilter, rangeStr,
+		)
+		outRateHostQ := fmt.Sprintf(
+			`sum by (%s, %s, %s) (rate(%s{%s="%s", %s="%s", %s=""%s}%s))`,
+			cfg.Labels.HTTPHost, cfg.Labels.DBSystem, cfg.Labels.MessagingSystem,
+			callsMetric, cfg.Labels.SpanKind, cfg.SpanKinds.Client,
+			cfg.Labels.ServiceName, service,
+			cfg.Labels.ServerAddress, envFilter, rangeStr,
+		)
+		outErrQ := fmt.Sprintf(
+			`sum by (%s) (rate(%s{%s="%s", %s="%s", %s="%s"%s}%s))`,
+			cfg.Labels.ServerAddress,
+			callsMetric, cfg.Labels.SpanKind, cfg.SpanKinds.Client,
+			cfg.Labels.ServiceName, service,
+			cfg.Labels.StatusCode, cfg.StatusCodes.Error, envFilter, rangeStr,
+		)
+		outErrHostQ := fmt.Sprintf(
+			`sum by (%s) (rate(%s{%s="%s", %s="%s", %s="%s", %s=""%s}%s))`,
+			cfg.Labels.HTTPHost,
+			callsMetric, cfg.Labels.SpanKind, cfg.SpanKinds.Client,
+			cfg.Labels.ServiceName, service,
+			cfg.Labels.StatusCode, cfg.StatusCodes.Error,
+			cfg.Labels.ServerAddress, envFilter, rangeStr,
+		)
+		jobs = append(jobs,
+			QueryJob{"smOutRate", outRateQ},
+			QueryJob{"smOutRateHost", outRateHostQ},
+			QueryJob{"smOutErr", outErrQ},
+			QueryJob{"smOutErrHost", outErrHostQ},
+		)
+	}
+
+	if needInbound {
+		// Inbound: other services calling us, found via their CLIENT spans
+		// targeting our service by server_address or http_host
+		inRateQ := fmt.Sprintf(
+			`sum by (%s, %s) (rate(%s{%s="%s", %s=~"%s($|[.:].*?)"%s}%s))`,
+			cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
+			callsMetric, cfg.Labels.SpanKind, cfg.SpanKinds.Client,
+			cfg.Labels.ServerAddress, escapedSvc, envFilter, rangeStr,
+		)
+		inRateHostQ := fmt.Sprintf(
+			`sum by (%s, %s) (rate(%s{%s="%s", %s=~"%s($|[.:].*?)"%s}%s))`,
+			cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
+			callsMetric, cfg.Labels.SpanKind, cfg.SpanKinds.Client,
+			cfg.Labels.HTTPHost, escapedSvc, envFilter, rangeStr,
+		)
+		inErrQ := fmt.Sprintf(
+			`sum by (%s, %s) (rate(%s{%s="%s", %s=~"%s($|[.:].*?)", %s="%s"%s}%s))`,
+			cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
+			callsMetric, cfg.Labels.SpanKind, cfg.SpanKinds.Client,
+			cfg.Labels.ServerAddress, escapedSvc,
+			cfg.Labels.StatusCode, cfg.StatusCodes.Error, envFilter, rangeStr,
+		)
+		inErrHostQ := fmt.Sprintf(
+			`sum by (%s, %s) (rate(%s{%s="%s", %s=~"%s($|[.:].*?)", %s="%s"%s}%s))`,
+			cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
+			callsMetric, cfg.Labels.SpanKind, cfg.SpanKinds.Client,
+			cfg.Labels.HTTPHost, escapedSvc,
+			cfg.Labels.StatusCode, cfg.StatusCodes.Error, envFilter, rangeStr,
+		)
+		jobs = append(jobs,
+			QueryJob{"smInRate", inRateQ},
+			QueryJob{"smInRateHost", inRateHostQ},
+			QueryJob{"smInErr", inErrQ},
+			QueryJob{"smInErrHost", inErrHostQ},
+		)
+	}
+
+	if len(jobs) == 0 {
+		return nil
+	}
+
+	resultMap := a.runInstantQueries(ctx, to, jobs, logger)
+
+	edges := make(map[sgEdgeKey]*sgEdgeData)
+	getEdge := func(client, server string) *sgEdgeData {
+		k := sgEdgeKey{client, server}
+		if e, ok := edges[k]; ok {
+			return e
+		}
+		e := &sgEdgeData{}
+		edges[k] = e
+		return e
+	}
+
+	// Process outbound edges (our service → targets via server_address/http_host)
+	for _, key := range []string{"smOutRate", "smOutRateHost"} {
+		addrLabel := cfg.Labels.ServerAddress
+		if key == "smOutRateHost" {
+			addrLabel = cfg.Labels.HTTPHost
+		}
+		for _, r := range resultMap[key] {
+			addr := r.Metric[addrLabel]
+			if addr == "" {
+				continue
+			}
+			serverName := extractTopologyNodeName(addr)
+			if serverName == "" || serverName == service {
+				continue
+			}
+			e := getEdge(service, serverName)
+			e.rate += r.Value.Float()
+			if ds := r.Metric[cfg.Labels.DBSystem]; ds != "" {
+				e.dbSystem = ds
+			}
+			if ms := r.Metric[cfg.Labels.MessagingSystem]; ms != "" {
+				e.messagingSystem = ms
+			}
+		}
+	}
+
+	// Process outbound errors
+	for _, key := range []string{"smOutErr", "smOutErrHost"} {
+		addrLabel := cfg.Labels.ServerAddress
+		if key == "smOutErrHost" {
+			addrLabel = cfg.Labels.HTTPHost
+		}
+		for _, r := range resultMap[key] {
+			addr := r.Metric[addrLabel]
+			if addr == "" {
+				continue
+			}
+			serverName := extractTopologyNodeName(addr)
+			if serverName == "" || serverName == service {
+				continue
+			}
+			getEdge(service, serverName).errorRate += r.Value.Float()
+		}
+	}
+
+	// Process inbound edges (callers → our service)
+	for _, key := range []string{"smInRate", "smInRateHost"} {
+		for _, r := range resultMap[key] {
+			caller := r.Metric[cfg.Labels.ServiceName]
+			if caller == "" || caller == service {
+				continue
+			}
+			e := getEdge(caller, service)
+			e.rate += r.Value.Float()
+		}
+	}
+
+	// Process inbound errors
+	for _, key := range []string{"smInErr", "smInErrHost"} {
+		for _, r := range resultMap[key] {
+			caller := r.Metric[cfg.Labels.ServiceName]
+			if caller == "" || caller == service {
+				continue
+			}
+			getEdge(caller, service).errorRate += r.Value.Float()
+		}
+	}
+
+	logger.Info("Spanmetrics fallback results",
+		"outbound", needOutbound, "inbound", needInbound,
+		"edges", len(edges))
+
+	return edges
+}
+
+// extractTopologyNodeName converts a server_address/http_host value into a
+// clean node name for the topology graph. Internal Kubernetes FQDNs are
+// collapsed to their service name; IPs and external hosts are normalized.
+func extractTopologyNodeName(addr string) string {
+	if addr == "" {
+		return ""
+	}
+	host, port, hasPort := strings.Cut(addr, ":")
+	host = strings.TrimRight(host, ".")
+	host = strings.ToLower(host)
+
+	// Keep IP addresses as-is (with port if non-standard)
+	if net.ParseIP(host) != nil {
+		if hasPort && port != "443" && port != "80" {
+			return host + ":" + port
+		}
+		return host
+	}
+
+	// Kubernetes FQDN: extract the service name (first component)
+	if strings.Contains(host, ".svc") {
+		if idx := strings.Index(host, "."); idx > 0 {
+			return host[:idx]
+		}
+	}
+
+	// Short names with port (e.g., "mydb:5432") — extract just the name
+	// if the name looks like a K8s service (no dots)
+	if hasPort && !strings.Contains(host, ".") {
+		return host
+	}
+
+	// External hostnames: normalize (strip standard ports)
+	return normalizeAddress(addr)
 }
 
 func (a *App) queryServiceMap( //nolint:gocyclo // complex due to filtering + node/edge assembly
