@@ -161,13 +161,17 @@ function ServiceOverview() {
   const { graphNodes, graphEdges } = useMemo(() => toGraphData(mapData), [mapData]);
 
   // Fetch callers (inbound connected services)
-  const { data: connected } = useFetch<ConnectedServicesResponse>(
+  const { data: connected, loading: connectedLoading } = useFetch<ConnectedServicesResponse>(
     () => getConnectedServices(namespace, service, fromMs, toMs, envFilter || undefined),
     [service, namespace, fromMs, toMs, envFilter]
   );
 
-  // Fetch dependencies for overview tab
-  const { data: depsResp } = useFetch<DependenciesResponse>(
+  // Fetch dependencies (outbound)
+  const {
+    data: depsResp,
+    loading: depsLoading,
+    error: depsError,
+  } = useFetch<DependenciesResponse>(
     () => getServiceDependencies(namespace, service, fromMs, toMs, envFilter || undefined),
     [service, namespace, fromMs, toMs, envFilter]
   );
@@ -408,10 +412,15 @@ function ServiceOverview() {
             <div style={{ display: activeTab === 'dependencies' ? undefined : 'none' }}>
               <DependenciesTab
                 service={service}
-                namespace={namespace}
-                fromMs={fromMs}
-                toMs={toMs}
-                environment={envFilter || undefined}
+                callers={connected?.inbound}
+                callersLoading={connectedLoading}
+                dependencies={depsResp?.dependencies}
+                depsLoading={depsLoading}
+                depsError={depsError}
+                onNavigateService={onNavigateService}
+                onNavigateDependency={(name: string) => {
+                  appNavigate(`dependencies/${encodeURIComponent(name)}`);
+                }}
               />
             </div>
           )}
