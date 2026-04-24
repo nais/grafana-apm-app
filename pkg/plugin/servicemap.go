@@ -307,7 +307,12 @@ func (a *App) queryServiceMap( //nolint:gocyclo // complex due to filtering + no
 	// Apply namespace filter: keep edges where at least one end belongs to the namespace.
 	// Service graph metrics lack namespace labels, so we build a name→namespace mapping
 	// from spanmetrics (which DO carry service_namespace).
-	if filterNamespace != "" {
+	//
+	// Skip the namespace filter when a service filter is active: the scoped queries
+	// already return only that service's direct neighbors, and the namespace filter
+	// would incorrectly remove cross-namespace callers/callees (or all edges if
+	// the nsMap query fails in large environments).
+	if filterNamespace != "" && filterService == "" {
 		nsMap := a.buildServiceNamespaceMap(ctx, to, filterEnvironment)
 		filtered := make(map[sgEdgeKey]*sgEdgeData)
 		filteredNodes := make(map[string]bool)
