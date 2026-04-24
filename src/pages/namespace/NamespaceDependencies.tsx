@@ -6,6 +6,7 @@ import { getSectionStyles } from '../../utils/styles';
 import { DepTypeIcon } from '../../components/DepTypeIcon';
 import { getDependencyHealth } from '../../utils/health';
 import { HealthIndicator } from '../../components/HealthIndicator';
+import { formatErrorRate } from '../../utils/format';
 
 const PAGE_SIZE = 10;
 
@@ -76,7 +77,7 @@ export function NamespaceDependencies({ dependencies, page, onPageChange }: Name
                 {dep.callerCount} {dep.callerCount === 1 ? 'service' : 'services'}
               </td>
               <td className={tableStyles.numCell}>{dep.rate.toFixed(2)} req/s</td>
-              <td className={tableStyles.numCell}>{(dep.errorRate * 100).toFixed(1)}%</td>
+              <td className={tableStyles.numCell}>{formatErrorRate(dep.errorRate)}</td>
               <td className={tableStyles.numCell}>{dep.p95Duration > 0 ? `${dep.p95Duration.toFixed(0)}ms` : '—'}</td>
             </tr>
           ))}

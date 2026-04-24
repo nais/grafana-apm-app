@@ -14,10 +14,10 @@ export const SERVICE_THRESHOLDS = {
 
 /** Default thresholds for dependency health classification. */
 export const DEPENDENCY_THRESHOLDS = {
-  /** Error rate (fraction 0–1) above which a dependency is critical. */
-  errorCritical: 0.05,
-  /** Error rate (fraction 0–1) above which a dependency is warning. */
-  errorWarning: 0.01,
+  /** Error rate (percent) above which a dependency is critical. */
+  errorCritical: 5,
+  /** Error rate (percent) above which a dependency is warning. */
+  errorWarning: 1,
 };
 
 /**
@@ -42,11 +42,11 @@ export function getServiceHealth(errorRatePercent: number, p95Duration: number, 
  * Classify dependency health based on error rate as a fraction (0–1).
  * Thresholds: >5% = critical, >1% = warning.
  */
-export function getDependencyHealth(errorRateFraction: number): HealthStatus {
-  if (errorRateFraction > DEPENDENCY_THRESHOLDS.errorCritical) {
+export function getDependencyHealth(errorRatePercent: number): HealthStatus {
+  if (errorRatePercent > DEPENDENCY_THRESHOLDS.errorCritical) {
     return 'critical';
   }
-  if (errorRateFraction > DEPENDENCY_THRESHOLDS.errorWarning) {
+  if (errorRatePercent > DEPENDENCY_THRESHOLDS.errorWarning) {
     return 'warning';
   }
   return 'healthy';

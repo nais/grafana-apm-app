@@ -48,19 +48,19 @@ describe('getServiceHealth', () => {
 });
 
 describe('getDependencyHealth', () => {
-  it('returns critical for fraction > 0.05', () => {
-    expect(getDependencyHealth(0.06)).toBe('critical');
-    expect(getDependencyHealth(1.0)).toBe('critical');
+  it('returns critical for error rate > 5%', () => {
+    expect(getDependencyHealth(6)).toBe('critical');
+    expect(getDependencyHealth(100)).toBe('critical');
   });
 
-  it('returns warning for fraction > 0.01', () => {
-    expect(getDependencyHealth(0.02)).toBe('warning');
-    expect(getDependencyHealth(0.05)).toBe('warning');
+  it('returns warning for error rate > 1%', () => {
+    expect(getDependencyHealth(2)).toBe('warning');
+    expect(getDependencyHealth(5)).toBe('warning');
   });
 
-  it('returns healthy for low fraction', () => {
+  it('returns healthy for low error rate', () => {
     expect(getDependencyHealth(0)).toBe('healthy');
-    expect(getDependencyHealth(0.005)).toBe('healthy');
+    expect(getDependencyHealth(0.5)).toBe('healthy');
     expect(getDependencyHealth(DEPENDENCY_THRESHOLDS.errorWarning)).toBe('healthy');
   });
 });
