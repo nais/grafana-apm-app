@@ -17,7 +17,15 @@ const mockCallers: ConnectedService[] = [
 ];
 
 const mockDeps: DependencySummary[] = [
-  { name: 'postgres:5432', type: 'database', rate: 25, errorRate: 0.2, p95Duration: 15, durationUnit: 'ms', impact: 0.9 },
+  {
+    name: 'postgres:5432',
+    type: 'database',
+    rate: 25,
+    errorRate: 0.2,
+    p95Duration: 15,
+    durationUnit: 'ms',
+    impact: 0.9,
+  },
   { name: 'redis:6379', type: 'database', rate: 50, errorRate: 0, p95Duration: 2, durationUnit: 'ms', impact: 0.5 },
 ];
 
@@ -42,9 +50,7 @@ describe('DependenciesTab', () => {
   });
 
   it('shows empty state when both sections are empty', () => {
-    render(
-      <DependenciesTab service="my-service" callers={[]} dependencies={[]} onNavigateService={noop} />
-    );
+    render(<DependenciesTab service="my-service" callers={[]} dependencies={[]} onNavigateService={noop} />);
 
     expect(screen.getByText('No callers or dependencies detected')).toBeInTheDocument();
   });
@@ -65,42 +71,21 @@ describe('DependenciesTab', () => {
   });
 
   it('shows only callers when no dependencies', () => {
-    render(
-      <DependenciesTab
-        service="my-service"
-        callers={mockCallers}
-        dependencies={[]}
-        onNavigateService={noop}
-      />
-    );
+    render(<DependenciesTab service="my-service" callers={mockCallers} dependencies={[]} onNavigateService={noop} />);
 
     expect(screen.getByText(/Callers \(3\)/)).toBeInTheDocument();
     expect(screen.queryByText(/Dependencies \(/)).not.toBeInTheDocument();
   });
 
   it('shows loading when both are loading', () => {
-    render(
-      <DependenciesTab
-        service="my-service"
-        callersLoading={true}
-        depsLoading={true}
-        onNavigateService={noop}
-      />
-    );
+    render(<DependenciesTab service="my-service" callersLoading={true} depsLoading={true} onNavigateService={noop} />);
 
     expect(screen.getByText(/Loading callers and dependencies/)).toBeInTheDocument();
   });
 
   it('navigates on caller row click (service rows only)', () => {
     const onNav = jest.fn();
-    render(
-      <DependenciesTab
-        service="my-service"
-        callers={mockCallers}
-        dependencies={[]}
-        onNavigateService={onNav}
-      />
-    );
+    render(<DependenciesTab service="my-service" callers={mockCallers} dependencies={[]} onNavigateService={onNav} />);
 
     // Click navigable service row
     fireEvent.click(screen.getByText('frontend'));
@@ -129,26 +114,13 @@ describe('DependenciesTab', () => {
   });
 
   it('shows sidecar badge on sidecar callers', () => {
-    render(
-      <DependenciesTab
-        service="my-service"
-        callers={mockCallers}
-        dependencies={[]}
-        onNavigateService={noop}
-      />
-    );
+    render(<DependenciesTab service="my-service" callers={mockCallers} dependencies={[]} onNavigateService={noop} />);
 
     expect(screen.getByText('sidecar')).toBeInTheDocument();
   });
 
   it('shows error state', () => {
-    render(
-      <DependenciesTab
-        service="my-service"
-        depsError="Network error"
-        onNavigateService={noop}
-      />
-    );
+    render(<DependenciesTab service="my-service" depsError="Network error" onNavigateService={noop} />);
 
     expect(screen.getByText('Network error')).toBeInTheDocument();
   });

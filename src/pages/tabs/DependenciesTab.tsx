@@ -123,9 +123,7 @@ function CallersTable({ callers, onNavigate }: { callers: ConnectedService[]; on
                 <ConnectionTypeBadge type={s.connectionType} />
               </td>
               <td className={styles.numCell}>{formatRate(s.rate)}</td>
-              <td className={s.errorRate > 0 ? styles.errorCell : styles.numCell}>
-                {formatErrorRate(s.errorRate)}
-              </td>
+              <td className={s.errorRate > 0 ? styles.errorCell : styles.numCell}>{formatErrorRate(s.errorRate)}</td>
               <td className={styles.numCell}>{formatDuration(s.p95Duration, s.durationUnit)}</td>
             </tr>
           );
@@ -180,9 +178,7 @@ function DepsTable({
             </td>
             <td className={styles.kindCell}>{formatDepType(dep.type)}</td>
             <td className={styles.numCell}>{formatRate(dep.rate)}</td>
-            <td className={dep.errorRate > 0 ? styles.errorCell : styles.numCell}>
-              {formatErrorRate(dep.errorRate)}
-            </td>
+            <td className={dep.errorRate > 0 ? styles.errorCell : styles.numCell}>{formatErrorRate(dep.errorRate)}</td>
             <td className={styles.numCell}>{formatDuration(dep.p95Duration, dep.durationUnit)}</td>
             <td className={styles.numCell}>
               <ImpactBar impact={dep.impact} />

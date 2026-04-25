@@ -58,6 +58,8 @@ docker compose -f docker-compose.demo.yaml up  # With OTel Demo traffic
 ## Constraints
 
 - **Do not push** — git credential helper (`osxkeychain`) is unavailable in agent sessions. Stage and commit freely; the user will push.
+- **Never amend pushed commits** — if a commit has been pushed to `origin`, do not `git commit --amend` it. Create a new fixup commit instead.
+- **Never force push** — do not use `git push --force` or `--force-with-lease`. Always create forward-only history.
 - **No co-author trailers** — do not add `Co-authored-by` lines to commit messages.
 - **Always run `mise run all` after every coding session** — before committing or marking a task complete, run the full check+test+build pipeline to catch regressions.
 
