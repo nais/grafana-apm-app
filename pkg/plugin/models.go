@@ -131,3 +131,26 @@ type ServiceMapResponse struct {
 	Nodes []ServiceMapNode `json:"nodes"`
 	Edges []ServiceMapEdge `json:"edges"`
 }
+
+// ---------------------------------------------------------------------------
+// API response models — alert endpoints
+// ---------------------------------------------------------------------------
+
+// AlertRuleSummary is a simplified alert rule for the namespace page.
+type AlertRuleSummary struct {
+	Name        string `json:"name"`
+	State       string `json:"state"`       // "firing", "pending", "inactive"
+	Severity    string `json:"severity"`    // from labels.severity
+	Summary     string `json:"summary"`     // from annotations.summary
+	Description string `json:"description"` // from annotations.description
+	ActiveSince string `json:"activeSince,omitempty"`
+	ActiveCount int    `json:"activeCount"`
+	GroupName   string `json:"groupName"`
+}
+
+// NamespaceAlertsResponse wraps alert rules for a namespace.
+type NamespaceAlertsResponse struct {
+	Rules        []AlertRuleSummary `json:"rules"`
+	Unavailable  bool               `json:"unavailable,omitempty"`
+	ErrorMessage string             `json:"errorMessage,omitempty"`
+}

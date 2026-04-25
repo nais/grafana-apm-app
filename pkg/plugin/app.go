@@ -294,5 +294,6 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/dependencies", a.handleGlobalDependencies)
 	mux.HandleFunc("/dependencies/{name}", a.handleDependencyDetail)
 	mux.HandleFunc("/namespaces/{namespace}/dependencies", a.handleNamespaceDependencies)
+	mux.HandleFunc("/namespaces/{namespace}/alerts", a.handleNamespaceAlerts)
 	mux.HandleFunc("/ping", a.handlePing)
 }

@@ -309,6 +309,29 @@ export async function getNamespaceDependencies(
   );
 }
 
+// ---- Namespace Alerts ----
+
+export interface AlertRuleSummary {
+  name: string;
+  state: 'firing' | 'pending' | 'inactive';
+  severity: string;
+  summary: string;
+  description: string;
+  activeSince: string;
+  activeCount: number;
+  groupName: string;
+}
+
+export interface NamespaceAlertsResponse {
+  rules: AlertRuleSummary[];
+  unavailable?: boolean;
+  errorMessage?: string;
+}
+
+export async function getNamespaceAlerts(namespace: string): Promise<NamespaceAlertsResponse> {
+  return fetchResource<NamespaceAlertsResponse>(`/namespaces/${encodeURIComponent(namespace)}/alerts`);
+}
+
 export async function getDependencyDetail(
   name: string,
   from: number,

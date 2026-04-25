@@ -8,9 +8,11 @@ import {
   getServices,
   getServiceMap,
   getNamespaceDependencies,
+  getNamespaceAlerts,
   ServiceSummary,
   ServiceMapResponse,
   NamespaceDependenciesResponse,
+  NamespaceAlertsResponse,
 } from '../api/client';
 import { useTimeRange } from '../utils/timeRange';
 import { QUICK_TIME_RANGES } from '../utils/timeRangeOptions';
@@ -26,6 +28,7 @@ import { NamespaceStats } from './namespace/NamespaceStats';
 import { NeedsAttention } from './namespace/NeedsAttention';
 import { NamespaceServicesTable } from './namespace/NamespaceServicesTable';
 import { NamespaceDependencies } from './namespace/NamespaceDependencies';
+import { NamespaceAlerts } from './namespace/NamespaceAlerts';
 
 function NamespaceOverview() {
   const { namespace = '' } = useParams<{ namespace: string }>();
@@ -85,6 +88,9 @@ function NamespaceOverview() {
     () => getNamespaceDependencies(decodedNs, fromMs, toMs, envFilter || undefined),
     [fromMs, toMs, decodedNs, envFilter]
   );
+
+  // Fetch alert rules for this namespace (current state, no time range dependency)
+  const { data: alertsResult } = useFetch<NamespaceAlertsResponse>(() => getNamespaceAlerts(decodedNs), [decodedNs]);
 
   const services = useMemo(() => (fetchResult ?? []).filter((s) => !s.isSidecar), [fetchResult]);
 
@@ -232,6 +238,9 @@ function NamespaceOverview() {
             previousMap={previousMap}
             onServiceClick={handleServiceClick}
           />
+
+          {/* Alert rules */}
+          {alertsResult && <NamespaceAlerts rules={alertsResult.rules} unavailable={alertsResult.unavailable} />}
 
           {/* Topology graph */}
           {graphNodes.length > 0 && (
