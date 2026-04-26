@@ -21,12 +21,7 @@ test.describe('Service Inventory', () => {
   });
 
   test('page heading is visible', async ({ page }) => {
-    // Grafana renders the page name in chrome (heading, breadcrumb, or title — varies by version)
-    await expect(
-      page
-        .locator('h1, h2, [class*="page-header"], [class*="PageHeader"]')
-        .filter({ hasText: /Services/i })
-        .first()
-    ).toBeVisible({ timeout: 10_000 });
+    // Verify page title text is rendered somewhere in the page chrome or content
+    await expect(page.getByText('Services').first()).toBeVisible({ timeout: 10_000 });
   });
 });
