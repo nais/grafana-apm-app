@@ -95,12 +95,14 @@ function StatusBoard() {
     [filterKey]
   );
 
-  // Viewport measurement
-  const gridRef = useRef<HTMLDivElement>(null);
+  // Viewport measurement via callback ref (works even when element mounts later)
   const [gridDims, setGridDims] = useState({ width: 0, height: 0 });
-
-  useEffect(() => {
-    const el = gridRef.current;
+  const observerRef = useRef<ResizeObserver | null>(null);
+  const gridRef = useCallback((el: HTMLDivElement | null) => {
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+      observerRef.current = null;
+    }
     if (!el) {
       return;
     }
@@ -114,7 +116,7 @@ function StatusBoard() {
       }
     });
     observer.observe(el);
-    return () => observer.disconnect();
+    observerRef.current = observer;
   }, []);
 
   // Calculate pagination
@@ -400,28 +402,30 @@ function StatusBoard() {
           }
         />
 
-        <DataState
-          loading={servicesLoading}
-          error={servicesError}
-          errorTitle="Error loading services"
-          empty={!servicesLoading && cardItems.length === 0}
-          emptyTitle="No services found"
-          emptyMessage={
-            <>
-              No services found for namespace <strong>{decodedNs}</strong>
-              {envFilters.length > 0
-                ? ` in environment${envFilters.length > 1 ? 's' : ''} ${envFilters.join(', ')}`
-                : ''}
-              .
-            </>
-          }
-          loadingText="Loading status board..."
-        >
-          <div className={styles.gridViewport} ref={gridRef}>
+        <div className={styles.gridViewport} ref={gridRef}>
+          <DataState
+            loading={servicesLoading}
+            error={servicesError}
+            errorTitle="Error loading services"
+            empty={!servicesLoading && cardItems.length === 0}
+            emptyTitle="No services found"
+            emptyMessage={
+              <>
+                No services found for namespace <strong>{decodedNs}</strong>
+                {envFilters.length > 0
+                  ? ` in environment${envFilters.length > 1 ? 's' : ''} ${envFilters.join(', ')}`
+                  : ''}
+                .
+              </>
+            }
+            loadingText="Loading status board..."
+          >
             <div
               className={styles.grid}
               style={{
-                gridTemplateColumns: `repeat(${columns}, 1fr)`,
+                gridTemplateColumns: isMeasured
+                  ? `repeat(${columns}, 1fr)`
+                  : `repeat(auto-fill, minmax(${CARD_DIMENSIONS[cardSize].width}px, 1fr))`,
               }}
             >
               {pageItems.map((item) => (
@@ -439,25 +443,25 @@ function StatusBoard() {
                 />
               ))}
             </div>
-          </div>
+          </DataState>
+        </div>
 
-          {/* Page indicator */}
-          {totalPages > 1 && (
-            <div className={styles.pager}>
-              {Array.from({ length: totalPages }, (_, i) => (
-                <button
-                  key={i}
-                  className={i === clampedPage ? styles.dotActive : styles.dot}
-                  onClick={() => setCurrentPage(i)}
-                  aria-label={`Page ${i + 1}`}
-                />
-              ))}
-              <span className={styles.pageLabel}>
-                {clampedPage + 1} / {totalPages}
-              </span>
-            </div>
-          )}
-        </DataState>
+        {/* Page indicator */}
+        {totalPages > 1 && (
+          <div className={styles.pager}>
+            {Array.from({ length: totalPages }, (_, i) => (
+              <button
+                key={i}
+                className={i === clampedPage ? styles.dotActive : styles.dot}
+                onClick={() => setCurrentPage(i)}
+                aria-label={`Page ${i + 1}`}
+              />
+            ))}
+            <span className={styles.pageLabel}>
+              {clampedPage + 1} / {totalPages}
+            </span>
+          </div>
+        )}
       </div>
     </PluginPage>
   );
