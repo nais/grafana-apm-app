@@ -251,11 +251,11 @@ function ServiceInventory() {
                 placeholder="All namespaces"
                 isClearable
               />
-              {envOptions.length > 1 && (
+              {(envOptions.length > 1 || envFilters.length > 0) && (
                 <MultiCombobox
                   options={envOptions}
                   value={envFilters}
-                  onChange={(selected) => setEnvFilters(selected.map((o) => o.value ?? ''))}
+                  onChange={(selected) => setEnvFilters(selected.map((o) => o.value).filter(Boolean) as string[])}
                   width={20}
                   placeholder="All environments"
                 />

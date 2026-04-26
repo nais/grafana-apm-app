@@ -210,7 +210,7 @@ function NamespaceOverview() {
                 <MultiCombobox
                   options={envOptions}
                   value={envFilters}
-                  onChange={(selected) => setEnvFilters(selected.map((o) => o.value ?? ''))}
+                  onChange={(selected) => setEnvFilters(selected.map((o) => o.value).filter(Boolean) as string[])}
                   placeholder="All environments"
                   width={28}
                 />

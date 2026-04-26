@@ -167,17 +167,17 @@ function StatusBoard() {
 
   const { secondsUntilRefresh } = useAutoRefresh(handleRefresh, refreshInterval);
 
-  // Environment options (derived from fetched services)
-  const envOptions = useMemo(() => extractEnvironmentOptions(fetchResult ?? []), [fetchResult]);
+  // Environment options (derived from sidecar-filtered services)
+  const allServices = useMemo(() => (fetchResult ?? []).filter((s) => !s.isSidecar), [fetchResult]);
+  const envOptions = useMemo(() => extractEnvironmentOptions(allServices), [allServices]);
 
-  // Filter out sidecars, then apply env multi-select filter
+  // Apply env multi-select filter
   const services = useMemo(() => {
-    const all = (fetchResult ?? []).filter((s) => !s.isSidecar);
     if (envFilters.length === 0) {
-      return all;
+      return allServices;
     }
-    return all.filter((s) => s.environment && envFilters.includes(s.environment));
-  }, [fetchResult, envFilters]);
+    return allServices.filter((s) => s.environment != null && envFilters.includes(s.environment));
+  }, [allServices, envFilters]);
 
   // Previous-period map
   const previousMap = useMemo(() => {
@@ -343,8 +343,8 @@ function StatusBoard() {
 
   const handleBack = useCallback(() => {
     const params: Record<string, string> = {};
-    if (envFilters.length === 1) {
-      params.environment = envFilters[0];
+    if (envFilters.length > 0) {
+      params.environment = envFilters.join(',');
     }
     appNavigate(`namespaces/${encodeURIComponent(decodedNs)}`, Object.keys(params).length > 0 ? params : undefined);
   }, [appNavigate, decodedNs, envFilters]);
@@ -360,11 +360,11 @@ function StatusBoard() {
           onBack={handleBack}
           controls={
             <>
-              {envOptions.length > 1 && (
+              {(envOptions.length > 1 || envFilters.length > 0) && (
                 <MultiCombobox
                   options={envOptions}
                   value={envFilters}
-                  onChange={(selected) => setEnvFilters(selected.map((o) => o.value ?? ''))}
+                  onChange={(selected) => setEnvFilters(selected.map((o) => o.value).filter(Boolean) as string[])}
                   placeholder="All environments"
                   width={28}
                 />
