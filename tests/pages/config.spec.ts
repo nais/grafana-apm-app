@@ -4,7 +4,7 @@ test.describe('Configuration', () => {
   test('renders all configuration sections', async ({ appConfigPage, page }) => {
     await expect(page.getByText('Data Sources')).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText('Per-Environment Datasources')).toBeVisible();
-    await expect(page.getByText('Authentication')).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Authentication' })).toBeVisible();
     await expect(page.getByText('Detection & Overrides')).toBeVisible();
   });
 
@@ -41,6 +41,6 @@ test.describe('Configuration', () => {
 
   test('detection overrides has namespace and duration fields', async ({ appConfigPage, page }) => {
     await expect(page.getByText('Metric Namespace')).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText('Duration Unit')).toBeVisible();
+    await expect(page.getByText('Duration Unit', { exact: true })).toBeVisible();
   });
 });

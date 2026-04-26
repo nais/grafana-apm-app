@@ -28,8 +28,9 @@ test.describe('smoke: app navigation', () => {
   test('sidebar navigation links are present', async ({ gotoPage, page }) => {
     await gotoPage(`/${ROUTES.Services}`);
 
-    const nav = page.locator('nav');
-    await expect(nav.getByRole('link', { name: /Services/i }).first()).toBeVisible({ timeout: 10_000 });
-    await expect(nav.getByRole('link', { name: /Dependencies/i }).first()).toBeVisible();
+    // Plugin nav links appear in the sidebar — structure varies by Grafana version
+    const sidebar = page.locator('[class*="sidemenu"], [aria-label*="Nav"], nav').first();
+    await expect(sidebar.getByRole('link', { name: /Services/i }).first()).toBeVisible({ timeout: 10_000 });
+    await expect(sidebar.getByRole('link', { name: /Dependencies/i }).first()).toBeVisible();
   });
 });

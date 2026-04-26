@@ -16,6 +16,12 @@ test.describe('Dependencies', () => {
   });
 
   test('page heading is visible', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: /Dependencies/i }).first()).toBeVisible({ timeout: 10_000 });
+    // Grafana renders the page name in chrome (heading, breadcrumb, or title — varies by version)
+    await expect(
+      page
+        .locator('h1, h2, [class*="page-header"], [class*="PageHeader"]')
+        .filter({ hasText: /Dependencies/i })
+        .first()
+    ).toBeVisible({ timeout: 10_000 });
   });
 });
