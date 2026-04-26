@@ -84,12 +84,18 @@ func (a *App) handleNamespaceAlerts(w http.ResponseWriter, req *http.Request) {
 	// Deduplicate rules with the same name (same rule in multiple clusters).
 	// Keep the most severe state and merge instance counts.
 	stateOrder := map[string]int{"firing": 0, "pending": 1, "inactive": 2}
+	orderOf := func(state string) int {
+		if o, ok := stateOrder[state]; ok {
+			return o
+		}
+		return 99 // unknown states get lowest priority
+	}
 	deduped := make(map[string]*AlertRuleSummary)
 	for i := range filtered {
 		r := &filtered[i]
 		if existing, ok := deduped[r.Name]; ok {
 			// Merge: keep most severe state, sum counts, keep earliest activeSince
-			if stateOrder[r.State] < stateOrder[existing.State] {
+			if orderOf(r.State) < orderOf(existing.State) {
 				existing.State = r.State
 			}
 			existing.ActiveCount += r.ActiveCount
@@ -101,6 +107,9 @@ func (a *App) handleNamespaceAlerts(w http.ResponseWriter, req *http.Request) {
 			}
 			if existing.Summary == "" && r.Summary != "" {
 				existing.Summary = r.Summary
+			}
+			if existing.Description == "" && r.Description != "" {
+				existing.Description = r.Description
 			}
 		} else {
 			copy := *r
@@ -114,7 +123,7 @@ func (a *App) handleNamespaceAlerts(w http.ResponseWriter, req *http.Request) {
 
 	// Sort: firing first, then pending, then inactive; within each group by name
 	sort.Slice(merged, func(i, j int) bool {
-		oi, oj := stateOrder[merged[i].State], stateOrder[merged[j].State]
+		oi, oj := orderOf(merged[i].State), orderOf(merged[j].State)
 		if oi != oj {
 			return oi < oj
 		}

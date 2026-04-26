@@ -119,6 +119,9 @@ function formatRelativeTime(isoString: string): string {
     const date = new Date(isoString);
     const now = Date.now();
     const diffMs = now - date.getTime();
+    if (isNaN(diffMs) || diffMs < 0) {
+      return isoString;
+    }
     if (diffMs < 60_000) {
       return 'just now';
     }
