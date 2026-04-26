@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.5.4 (2026-04-26)
+
+### Features
+
+- **Namespace Alert Rules** — Namespace page now shows Prometheus alerting rules for the team, fetched from the Mimir ruler API. Displays firing, pending, and inactive rules with severity badges, instance counts, and relative timestamps. Source is labeled "Prometheus Alerts" so teams know where rules come from.
+- **Cross-Cluster Alert Deduplication** — Same alert rule defined in multiple clusters (e.g., `dev` and `dev-fss`) is automatically merged into a single entry with combined instance counts and the earliest active timestamp.
+
+### Improvements
+
+- **Alerts 2-Column Layout** — Alert cards use a responsive two-column grid with subtle state-colored backgrounds instead of heavy bordered boxes.
+- **Stat Panels De-Boxed** — Namespace stats (Services, Rate, Errors, Healthy) now render without borders for a cleaner look.
+- **Inactive Rules Collapsed** — Inactive alert rules are collapsed by default with an expandable toggle to reduce noise.
+
+### Bug Fixes
+
+- **Mimir Compatibility** — Removed `type=alerting` query parameter from ruler API call (unsupported by some Mimir versions); filter alerting rules client-side instead.
+- **Ruler File Path Extraction** — Fixed namespace extraction from NAIS ruler file paths (`{cluster}/{namespace}/{name}/{uuid}` format — was incorrectly extracting the cluster segment).
+- **Unknown Alert States** — Unknown/unexpected alert states now sort to the bottom instead of being treated as highest priority (firing).
+- **Invalid Date Handling** — Invalid or future `activeSince` timestamps now display the raw ISO string instead of "NaNd ago".
+- **Description Merge** — Alert description field is now properly merged during cross-cluster deduplication.
+
 ## 0.5.3 (2026-04-25)
 
 ### Features
