@@ -52,7 +52,7 @@ export function NamespaceAlerts({ rules, unavailable }: NamespaceAlertsProps) {
     <div className={styles.section}>
       <h3 className={styles.sectionTitle}>
         <Icon name="bell" className={styles.titleIcon} />
-        Alert Rules ({stateLabel})
+        Alert Rules ({stateLabel})<span className={styles.sourceLabel}>Source: Mimir</span>
       </h3>
 
       {active.length > 0 && (
@@ -136,8 +136,20 @@ function formatRelativeTime(isoString: string): string {
 
 const getStyles = (theme: GrafanaTheme2) => ({
   ...getSectionStyles(theme),
+  sectionTitle: css`
+    margin-bottom: ${theme.spacing(1)};
+    font-size: ${theme.typography.h4.fontSize};
+    display: flex;
+    align-items: center;
+  `,
   titleIcon: css`
     margin-right: ${theme.spacing(0.75)};
+  `,
+  sourceLabel: css`
+    margin-left: auto;
+    font-size: ${theme.typography.bodySmall.fontSize};
+    font-weight: ${theme.typography.fontWeightRegular};
+    color: ${theme.colors.text.disabled};
   `,
   rulesList: css`
     display: grid;
