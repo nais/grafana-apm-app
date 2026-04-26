@@ -147,3 +147,28 @@ run = "rm -rf dist/ coverage/"
 [tasks.release]
 description = "Cut a release: bump version, update changelog, commit + tag"
 run = "bash scripts/release.sh {{arg(i=0, name='bump', default='patch')}}"
+
+# --- E2E tasks ---
+
+[tasks.e2e]
+description = "Run Playwright e2e tests (requires local stack running)"
+run = """
+# Ensure Grafana is reachable
+if ! curl -sf http://localhost:3000/api/health >/dev/null 2>&1; then
+  echo "❌ Grafana not reachable at localhost:3000"
+  echo "   Start the stack first: mise run deploy:up"
+  exit 1
+fi
+pnpm run e2e
+"""
+
+[tasks."e2e:ui"]
+description = "Run Playwright e2e tests with interactive UI"
+run = """
+if ! curl -sf http://localhost:3000/api/health >/dev/null 2>&1; then
+  echo "❌ Grafana not reachable at localhost:3000"
+  echo "   Start the stack first: mise run deploy:up"
+  exit 1
+fi
+pnpm exec playwright test --ui
+"""
