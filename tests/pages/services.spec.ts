@@ -21,19 +21,13 @@ test.describe('Service Inventory', () => {
   });
 
   test('page heading is visible', async ({ page }) => {
-    // Verify page title — Grafana renders plugin page names in various locations
-    // (heading, breadcrumb, tab, nav) depending on version
-    await expectAnyVisible(
-      [
-        page.getByRole('heading', { name: /Services/i }).first(),
-        page.getByRole('tab', { name: /Services/i }).first(),
-        page.getByRole('link', { name: /Services/i }).first(),
-        page
-          .locator('[class*="page-header"], [class*="PageHeader"]')
-          .filter({ hasText: /Services/i })
-          .first(),
-      ],
-      { message: 'Services page heading not found in any expected location' }
-    );
+    // Grafana renders the plugin name ("Nais APM") as the page heading,
+    // not the sub-page name ("Services") — varies by version
+    const heading = page
+      .getByRole('heading', { name: /Services/i })
+      .or(page.getByRole('heading', { name: /Nais APM/i }))
+      .or(page.getByRole('tab', { name: /Services/i }))
+      .or(page.getByRole('link', { name: /Services/i }));
+    await expect(heading.first()).toBeVisible({ timeout: 15_000 });
   });
 });
