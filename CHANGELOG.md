@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.6.0 (2026-04-26)
+
+### Features
+
+- **Status Board** — New TV-friendly dashboard view showing all services in a namespace as color-coded health cards (green/yellow/red/grey). Auto-refreshes, tracks last-seen services, and auto-paginates through cards when they exceed the viewport. Accessible from the namespace page via "Status Board" button. (#29)
+- **Card Size Selector** — Status Board supports S/M/L card sizes to fit more or fewer services on screen. Small cards show name + status only; large cards include sparkline trends.
+- **Auto-Pagination** — Status Board automatically rotates through pages at a configurable interval (10s/30s/60s) when services exceed the viewport, perfect for wall-mounted displays.
+- **Multi-Select Environment Filter** — All pages (Services, Namespace, Status Board) now support filtering by multiple environments simultaneously using a multi-select combobox.
+- **Mise E2E Tasks** — Added `mise run e2e` and `mise run e2e:ui` for running Playwright tests locally with a health check gate.
+
+### Improvements
+
+- **Explicit Route Redirect** — Plugin root URL now properly redirects to `/services` instead of rendering the page at the root path.
+- **Sandbox-Resilient Build** — `mise run all` now works in sandboxed environments (macOS sandbox, CI) by auto-detecting inaccessible parent configs and gracefully falling back for coverage/mage tools.
+- **Quieter Build Output** — `mise run all` shows brief `✓ passed` on success and full output only on failure.
+
+### Bug Fixes
+
+- **Grid Layout** — Fixed Status Board showing 1 card per row when data loaded asynchronously (ResizeObserver now attached via callback ref outside conditional rendering).
+- **Filter Trap** — Fixed issue where hiding the environment filter when only one environment existed could trap users with an active but invisible filter.
+- **E2E Test Stability** — Tests now use Playwright `.or()` locator chains to handle Grafana nav rendering differences across versions 12–13.
+
 ## 0.5.4 (2026-04-26)
 
 ### Features
