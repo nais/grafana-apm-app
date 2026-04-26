@@ -1,5 +1,5 @@
 import React, { Suspense } from 'react';
-import { Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppRootProps } from '@grafana/data';
 import { LoadingPlaceholder } from '@grafana/ui';
 import { ROUTES } from '../../constants';
@@ -21,7 +21,9 @@ function App(props: AppRootProps) {
         <Route path={ROUTES.NamespaceOverview} element={<NamespaceOverview />} />
         <Route path={ROUTES.DependencyDetail} element={<DependencyDetail />} />
         <Route path={ROUTES.Dependencies} element={<Dependencies />} />
-        <Route path="*" element={<ServiceInventory />} />
+        <Route path={ROUTES.Services} element={<ServiceInventory />} />
+        <Route path="/" element={<Navigate to={ROUTES.Services} replace />} />
+        <Route path="*" element={<Navigate to={ROUTES.Services} replace />} />
       </Routes>
     </Suspense>
   );

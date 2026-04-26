@@ -3,5 +3,6 @@
 # Install with: git config core.hooksPath .githooks
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 echo "🔍 Running mise run all (check + test + build)..."
-mise run all
+exec "$SCRIPT_DIR/scripts/mise-run.sh" all

@@ -21,7 +21,19 @@ test.describe('Service Inventory', () => {
   });
 
   test('page heading is visible', async ({ page }) => {
-    // Verify page title text is rendered somewhere in the page chrome or content
-    await expect(page.getByText('Services').first()).toBeVisible({ timeout: 10_000 });
+    // Verify page title — Grafana renders plugin page names in various locations
+    // (heading, breadcrumb, tab, nav) depending on version
+    await expectAnyVisible(
+      [
+        page.getByRole('heading', { name: /Services/i }).first(),
+        page.getByRole('tab', { name: /Services/i }).first(),
+        page.getByRole('link', { name: /Services/i }).first(),
+        page
+          .locator('[class*="page-header"], [class*="PageHeader"]')
+          .filter({ hasText: /Services/i })
+          .first(),
+      ],
+      { message: 'Services page heading not found in any expected location' }
+    );
   });
 });

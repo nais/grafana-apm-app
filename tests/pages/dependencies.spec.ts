@@ -20,7 +20,18 @@ test.describe('Dependencies', () => {
   });
 
   test('page heading is visible', async ({ page }) => {
-    // Verify page title text is rendered somewhere in the page chrome or content
-    await expect(page.getByText('Dependencies').first()).toBeVisible({ timeout: 10_000 });
+    // Verify page title — Grafana renders plugin page names in various locations
+    await expectAnyVisible(
+      [
+        page.getByRole('heading', { name: /Dependencies/i }).first(),
+        page.getByRole('tab', { name: /Dependencies/i }).first(),
+        page.getByRole('link', { name: /Dependencies/i }).first(),
+        page
+          .locator('[class*="page-header"], [class*="PageHeader"]')
+          .filter({ hasText: /Dependencies/i })
+          .first(),
+      ],
+      { message: 'Dependencies page heading not found in any expected location' }
+    );
   });
 });
