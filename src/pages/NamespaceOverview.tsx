@@ -177,6 +177,13 @@ function NamespaceOverview() {
     appNavigate('');
   }, [appNavigate]);
 
+  const handleStatusBoard = useCallback(() => {
+    appNavigate(
+      `namespaces/${encodeURIComponent(decodedNs)}/status`,
+      envFilter ? { environment: envFilter } : undefined
+    );
+  }, [appNavigate, decodedNs, envFilter]);
+
   const [mermaidCopied, setMermaidCopied] = useState(false);
   const handleCopyMermaid = useCallback(() => {
     const mermaid = toMermaidGraph(graphNodes, graphEdges, 'DOWN');
@@ -195,6 +202,7 @@ function NamespaceOverview() {
           onBack={handleBack}
           controls={
             <>
+              <IconButton name="monitor" tooltip="Status Board" size="lg" onClick={handleStatusBoard} />
               {(envOptions.length > 1 || envFilter) && (
                 <Combobox
                   options={[{ label: 'All environments', value: '' }, ...envOptions]}
