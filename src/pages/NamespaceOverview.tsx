@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { PluginPage } from '@grafana/runtime';
-import { Combobox, IconButton, useStyles2 } from '@grafana/ui';
+import { Combobox, IconButton, MultiCombobox, useStyles2 } from '@grafana/ui';
 import { GrafanaTheme2, PageLayoutType } from '@grafana/data';
 import { css } from '@emotion/css';
 import {
@@ -36,21 +36,22 @@ function NamespaceOverview() {
   const appNavigate = useAppNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const styles = useStyles2(getStyles);
-  const envFilter = sanitizeParam(searchParams.get('environment') ?? '');
+  const envParam = sanitizeParam(searchParams.get('environment') ?? '');
+  const envFilters = useMemo(() => (envParam ? envParam.split(',').filter(Boolean) : []), [envParam]);
   const svcSearch = searchParams.get('svcSearch') ?? '';
   const svcPage = Math.max(1, parseInt(searchParams.get('svcPage') ?? '1', 10) || 1);
   const depPage = Math.max(1, parseInt(searchParams.get('depPage') ?? '1', 10) || 1);
   const { from, fromMs, toMs, setTimeRange } = useTimeRange();
   const healthFilter = searchParams.get('healthFilter') ?? '';
 
-  // Fetch services for this namespace (fast, no sparklines)
+  // Fetch all services for this namespace (filter by env client-side for multi-select)
   const {
     data: fetchResult,
     loading: servicesLoading,
     error: servicesError,
   } = useFetch<ServiceSummary[]>(
-    () => getServices(fromMs, toMs, 60, false, { namespace: decodedNs, environment: envFilter || undefined }),
-    [fromMs, toMs, decodedNs, envFilter]
+    () => getServices(fromMs, toMs, 60, false, { namespace: decodedNs }),
+    [fromMs, toMs, decodedNs]
   );
 
   // Fetch previous period for change deltas (only for relative time ranges, summary only)
@@ -59,40 +60,42 @@ function NamespaceOverview() {
   const prevFromMs = fromMs - rangeDuration;
   const prevToMs = fromMs;
   const { data: prevServices } = useFetch<ServiceSummary[]>(
-    () => getServices(prevFromMs, prevToMs, 60, false, { namespace: decodedNs, environment: envFilter || undefined }),
-    [prevFromMs, prevToMs, decodedNs, envFilter],
+    () => getServices(prevFromMs, prevToMs, 60, false, { namespace: decodedNs }),
+    [prevFromMs, prevToMs, decodedNs],
     { skip: !isRelativeRange }
-  );
-
-  // Separate fetch without env filter to discover available environments
-  const { data: allEnvServices } = useFetch<ServiceSummary[]>(
-    () => getServices(fromMs, toMs, 60, false, { namespace: decodedNs }),
-    [fromMs, toMs, decodedNs]
   );
 
   // Lazy-load sparklines after initial data is on screen
   const { data: sparklineResult } = useFetch<ServiceSummary[]>(
-    () => getServices(fromMs, toMs, 60, true, { namespace: decodedNs, environment: envFilter || undefined }),
-    [fromMs, toMs, decodedNs, envFilter],
+    () => getServices(fromMs, toMs, 60, true, { namespace: decodedNs }),
+    [fromMs, toMs, decodedNs],
     { skip: !fetchResult }
   );
 
-  // Fetch service map filtered by namespace (backend filters via spanmetrics namespace mapping)
+  // Fetch service map filtered by namespace
   const { data: mapData } = useFetch<ServiceMapResponse>(
-    () => getServiceMap(fromMs, toMs, undefined, decodedNs, envFilter || undefined),
-    [fromMs, toMs, decodedNs, envFilter]
+    () => getServiceMap(fromMs, toMs, undefined, decodedNs, undefined),
+    [fromMs, toMs, decodedNs]
   );
 
   // Fetch namespace dependencies from dedicated backend endpoint
   const { data: depsResult, loading: depsLoading } = useFetch<NamespaceDependenciesResponse>(
-    () => getNamespaceDependencies(decodedNs, fromMs, toMs, envFilter || undefined),
-    [fromMs, toMs, decodedNs, envFilter]
+    () => getNamespaceDependencies(decodedNs, fromMs, toMs, undefined),
+    [fromMs, toMs, decodedNs]
   );
 
   // Fetch alert rules for this namespace (current state, no time range dependency)
   const { data: alertsResult } = useFetch<NamespaceAlertsResponse>(() => getNamespaceAlerts(decodedNs), [decodedNs]);
 
-  const services = useMemo(() => (fetchResult ?? []).filter((s) => !s.isSidecar), [fetchResult]);
+  const allServices = useMemo(() => (fetchResult ?? []).filter((s) => !s.isSidecar), [fetchResult]);
+
+  // Apply multi-select env filter client-side
+  const services = useMemo(() => {
+    if (envFilters.length === 0) {
+      return allServices;
+    }
+    return allServices.filter((s) => s.environment != null && envFilters.includes(s.environment));
+  }, [allServices, envFilters]);
 
   const sparklineMap = useMemo(() => {
     if (!sparklineResult) {
@@ -101,8 +104,8 @@ function NamespaceOverview() {
     return new Map(sparklineResult.map((s) => [`${s.namespace}/${s.name}/${s.environment ?? ''}`, s]));
   }, [sparklineResult]);
 
-  // Compute unique environments for dropdown (from unfiltered data to prevent dropdown disappearing)
-  const envOptions = useMemo(() => extractEnvironmentOptions(allEnvServices ?? []), [allEnvServices]);
+  // Compute unique environments for dropdown (from unfiltered data)
+  const envOptions = useMemo(() => extractEnvironmentOptions(allServices), [allServices]);
 
   // Build lookup map of previous period services for delta comparison
   const previousMap = useMemo(() => {
@@ -124,13 +127,13 @@ function NamespaceOverview() {
     return toGraphData(mapData);
   }, [mapData]);
 
-  const setEnvFilter = useCallback(
-    (env: string) => {
+  const setEnvFilters = useCallback(
+    (envs: string[]) => {
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
-          if (env) {
-            next.set('environment', env);
+          if (envs.length > 0) {
+            next.set('environment', envs.join(','));
           } else {
             next.delete('environment');
           }
@@ -180,9 +183,9 @@ function NamespaceOverview() {
   const handleStatusBoard = useCallback(() => {
     appNavigate(
       `namespaces/${encodeURIComponent(decodedNs)}/status`,
-      envFilter ? { environment: envFilter } : undefined
+      envFilters.length > 0 ? { environment: envFilters.join(',') } : undefined
     );
-  }, [appNavigate, decodedNs, envFilter]);
+  }, [appNavigate, decodedNs, envFilters]);
 
   const [mermaidCopied, setMermaidCopied] = useState(false);
   const handleCopyMermaid = useCallback(() => {
@@ -203,11 +206,11 @@ function NamespaceOverview() {
           controls={
             <>
               <IconButton name="monitor" tooltip="Status Board" size="lg" onClick={handleStatusBoard} />
-              {(envOptions.length > 1 || envFilter) && (
-                <Combobox
-                  options={[{ label: 'All environments', value: '' }, ...envOptions]}
-                  value={envFilter}
-                  onChange={(v) => setEnvFilter(v.value ?? '')}
+              {(envOptions.length > 1 || envFilters.length > 0) && (
+                <MultiCombobox
+                  options={envOptions}
+                  value={envFilters}
+                  onChange={(selected) => setEnvFilters(selected.map((o) => o.value ?? ''))}
                   placeholder="All environments"
                   width={28}
                 />
@@ -231,7 +234,10 @@ function NamespaceOverview() {
           emptyMessage={
             <>
               No services found for namespace <strong>{decodedNs}</strong>
-              {envFilter ? ` in environment ${envFilter}` : ''}.
+              {envFilters.length > 0
+                ? ` in environment${envFilters.length > 1 ? 's' : ''} ${envFilters.join(', ')}`
+                : ''}
+              .
             </>
           }
           loadingText="Loading namespace data..."
@@ -277,7 +283,7 @@ function NamespaceOverview() {
                     onNodeClick={(nodeId) => {
                       const svc = services.find((s) => s.name === nodeId);
                       if (svc) {
-                        handleServiceClick(svc.namespace, svc.name, envFilter || svc.environment);
+                        handleServiceClick(svc.namespace, svc.name, svc.environment);
                       }
                     }}
                   />
@@ -293,7 +299,7 @@ function NamespaceOverview() {
               services={services}
               sparklineMap={sparklineMap}
               previousMap={previousMap}
-              showEnvironment={!envFilter && envOptions.length > 1}
+              showEnvironment={envFilters.length === 0 && envOptions.length > 1}
               search={svcSearch}
               healthFilter={healthFilter}
               page={svcPage}

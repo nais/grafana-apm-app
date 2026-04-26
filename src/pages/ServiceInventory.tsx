@@ -8,6 +8,7 @@ import {
   InlineSwitch,
   Input,
   LoadingPlaceholder,
+  MultiCombobox,
   Pagination,
   Combobox,
   Tooltip,
@@ -72,7 +73,7 @@ function ServiceInventory() {
   // Read all UI state from query params (persisted across navigation)
   const namespaceFilter = searchParams.get('namespace') ?? '';
   const rawEnvFilter = searchParams.get('environment') ?? '';
-  const envFilter = sanitizeParam(rawEnvFilter);
+  const envFilters = useMemo(() => sanitizeParam(rawEnvFilter).split(',').filter(Boolean), [rawEnvFilter]);
   const search = searchParams.get('q') ?? '';
   const hideSidecars = searchParams.get('hideSidecars') !== 'false'; // default: true
   const sortField: SortField = (searchParams.get('sort') as SortField) || 'name';
@@ -102,7 +103,8 @@ function ServiceInventory() {
   );
 
   const setNamespaceFilter = (ns: string) => updateParams({ namespace: ns || null, page: null });
-  const setEnvFilter = (env: string) => updateParams({ environment: env || null, page: null });
+  const setEnvFilters = (envs: string[]) =>
+    updateParams({ environment: envs.length > 0 ? envs.join(',') : null, page: null });
   const setSearch = (q: string) => updateParams({ q: q || null, page: null });
   const setPage = (p: number) => updateParams({ page: p > 1 ? String(p) : null });
   const setPageSize = (sz: number) => updateParams({ pageSize: sz !== 25 ? String(sz) : null, page: null });
@@ -122,8 +124,8 @@ function ServiceInventory() {
   if (namespaceFilter) {
     filtered = filtered.filter((s) => s.namespace === namespaceFilter);
   }
-  if (envFilter) {
-    filtered = filtered.filter((s) => s.environment === envFilter);
+  if (envFilters.length > 0) {
+    filtered = filtered.filter((s) => s.environment != null && envFilters.includes(s.environment));
   }
   if (search) {
     const q = search.toLowerCase();
@@ -171,7 +173,7 @@ function ServiceInventory() {
 
   // When viewing a single namespace with multiple envs, group rows by environment
   // with section headers instead of showing a flat environment column.
-  const groupByEnv = !!namespaceFilter && !envFilter && envOptions.length > 1;
+  const groupByEnv = !!namespaceFilter && envFilters.length === 0 && envOptions.length > 1;
 
   // When grouping by environment, ensure rows are grouped by env while
   // preserving the user's chosen sort order within each group (stable sort).
@@ -191,7 +193,7 @@ function ServiceInventory() {
   // Hide namespace column when a single namespace is selected (redundant info)
   const showNsColumn = !namespaceFilter;
   // Show environment column only when there are multiple envs, no env filter, and not grouping
-  const showEnvColumn = envOptions.length > 1 && !envFilter && !groupByEnv;
+  const showEnvColumn = envOptions.length > 1 && envFilters.length === 0 && !groupByEnv;
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
@@ -250,13 +252,12 @@ function ServiceInventory() {
                 isClearable
               />
               {envOptions.length > 1 && (
-                <Combobox
+                <MultiCombobox
                   options={envOptions}
-                  value={envFilter || null}
-                  onChange={(v) => setEnvFilter(v?.value ?? '')}
+                  value={envFilters}
+                  onChange={(selected) => setEnvFilters(selected.map((o) => o.value ?? ''))}
                   width={20}
                   placeholder="All environments"
-                  isClearable
                 />
               )}
               <div className={styles.toolbarSpacer} />
