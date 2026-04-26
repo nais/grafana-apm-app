@@ -161,9 +161,6 @@ const getStyles = (theme: GrafanaTheme2) => ({
     flex-direction: column;
     align-items: flex-start;
     padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
-    background: ${theme.colors.background.secondary};
-    border: 1px solid ${theme.colors.border.weak};
-    border-radius: ${theme.shape.radius.default};
     gap: ${theme.spacing(0.25)};
   `,
   cardTitle: css`

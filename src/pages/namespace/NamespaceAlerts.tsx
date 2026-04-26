@@ -96,16 +96,20 @@ function AlertRuleCard({ rule }: { rule: AlertRuleSummary }) {
         <Badge text={rule.state} color={config.color} icon={config.icon as any} />
         <span className={styles.ruleName}>{rule.name}</span>
         {rule.severity && <Badge text={rule.severity} color={rule.severity === 'critical' ? 'red' : 'orange'} />}
+      </div>
+      <div className={styles.ruleMeta}>
+        {(rule.summary || rule.description) && (
+          <span className={styles.ruleSummary}>{rule.summary || rule.description}</span>
+        )}
         {rule.activeCount > 0 && (
           <span className={styles.activeCount}>
             {rule.activeCount} instance{rule.activeCount !== 1 ? 's' : ''}
           </span>
         )}
+        {rule.activeSince && (
+          <span className={styles.activeSince}>· Active since {formatRelativeTime(rule.activeSince)}</span>
+        )}
       </div>
-      {(rule.summary || rule.description) && <p className={styles.ruleSummary}>{rule.summary || rule.description}</p>}
-      {rule.activeSince && (
-        <span className={styles.activeSince}>Active since {formatRelativeTime(rule.activeSince)}</span>
-      )}
     </div>
   );
 }
@@ -136,20 +140,29 @@ const getStyles = (theme: GrafanaTheme2) => ({
     margin-right: ${theme.spacing(0.75)};
   `,
   rulesList: css`
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
     gap: ${theme.spacing(1)};
+    @media (max-width: 900px) {
+      grid-template-columns: 1fr;
+    }
   `,
   ruleCard: css`
-    padding: ${theme.spacing(1.5)} ${theme.spacing(2)};
-    background: ${theme.colors.background.secondary};
-    border: 1px solid ${theme.colors.border.weak};
+    display: flex;
+    flex-direction: column;
+    gap: ${theme.spacing(0.5)};
+    padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
     border-radius: ${theme.shape.radius.default};
     &[data-state='firing'] {
       border-left: 3px solid ${theme.colors.error.main};
+      background: ${theme.colors.error.transparent};
     }
     &[data-state='pending'] {
       border-left: 3px solid ${theme.colors.warning.main};
+      background: ${theme.colors.warning.transparent};
+    }
+    &[data-state='inactive'] {
+      border-left: 3px solid ${theme.colors.border.weak};
     }
   `,
   ruleHeader: css`
@@ -166,8 +179,13 @@ const getStyles = (theme: GrafanaTheme2) => ({
     font-size: ${theme.typography.bodySmall.fontSize};
     color: ${theme.colors.text.secondary};
   `,
+  ruleMeta: css`
+    display: flex;
+    align-items: center;
+    gap: ${theme.spacing(0.75)};
+    flex-wrap: wrap;
+  `,
   ruleSummary: css`
-    margin: ${theme.spacing(0.5)} 0 0 0;
     font-size: ${theme.typography.bodySmall.fontSize};
     color: ${theme.colors.text.secondary};
   `,

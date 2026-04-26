@@ -253,6 +253,100 @@ func TestHandleNamespaceAlerts(t *testing.T) {
 	})
 }
 
+func TestHandleNamespaceAlerts_Deduplication(t *testing.T) {
+	// Same rule name in two different clusters — should be merged
+	groups := []queries.RuleGroup{
+		{
+			Name: "myteam-alerts",
+			File: "dev/myteam/myteam-alerts/abc123",
+			Rules: []queries.Rule{
+				{
+					Type:  "alerting",
+					Name:  "HighErrorRate",
+					State: "firing",
+					Labels: map[string]string{
+						"namespace": "myteam",
+						"severity":  "critical",
+					},
+					Annotations: map[string]string{
+						"summary": "Error rate too high",
+					},
+					Alerts: []queries.Alert{
+						{State: "firing", ActiveAt: "2026-04-25T10:00:00Z"},
+					},
+				},
+			},
+		},
+		{
+			Name: "myteam-alerts",
+			File: "dev-fss/myteam/myteam-alerts/def456",
+			Rules: []queries.Rule{
+				{
+					Type:  "alerting",
+					Name:  "HighErrorRate",
+					State: "firing",
+					Labels: map[string]string{
+						"namespace": "myteam",
+						"severity":  "critical",
+					},
+					Annotations: map[string]string{
+						"summary": "Error rate too high",
+					},
+					Alerts: []queries.Alert{
+						{State: "firing", ActiveAt: "2026-04-25T09:00:00Z"},
+					},
+				},
+				{
+					Type:  "alerting",
+					Name:  "DiskUsage",
+					State: "inactive",
+					Labels: map[string]string{
+						"namespace": "myteam",
+						"severity":  "warning",
+					},
+					Alerts: []queries.Alert{},
+				},
+			},
+		},
+	}
+
+	srv := mockRulerServer(t, groups)
+	defer srv.Close()
+	app := newTestApp(t, srv.URL, queries.Capabilities{})
+
+	req := httptest.NewRequest("GET", "/namespaces/myteam/alerts", nil)
+	req.SetPathValue("namespace", "myteam")
+	w := httptest.NewRecorder()
+
+	app.handleNamespaceAlerts(w, req)
+
+	var resp NamespaceAlertsResponse
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+
+	// HighErrorRate should be deduped into 1, plus DiskUsage = 2 total
+	if len(resp.Rules) != 2 {
+		t.Fatalf("expected 2 rules after dedup, got %d: %+v", len(resp.Rules), resp.Rules)
+	}
+
+	// Find the merged HighErrorRate
+	var her *AlertRuleSummary
+	for i := range resp.Rules {
+		if resp.Rules[i].Name == "HighErrorRate" {
+			her = &resp.Rules[i]
+			break
+		}
+	}
+	if her == nil {
+		t.Fatal("HighErrorRate not found in response")
+	}
+	if her.ActiveCount != 2 {
+		t.Errorf("expected merged activeCount=2, got %d", her.ActiveCount)
+	}
+	if her.ActiveSince != "2026-04-25T09:00:00Z" {
+		t.Errorf("expected earliest activeSince, got %s", her.ActiveSince)
+	}
+}
+
 func TestHandleNamespaceAlerts_RulerUnavailable(t *testing.T) {
 	// Server that returns 404 for rules API
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

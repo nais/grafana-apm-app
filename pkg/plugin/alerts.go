@@ -81,17 +81,47 @@ func (a *App) handleNamespaceAlerts(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	// Sort: firing first, then pending, then inactive; within each group by name
+	// Deduplicate rules with the same name (same rule in multiple clusters).
+	// Keep the most severe state and merge instance counts.
 	stateOrder := map[string]int{"firing": 0, "pending": 1, "inactive": 2}
-	sort.Slice(filtered, func(i, j int) bool {
-		oi, oj := stateOrder[filtered[i].State], stateOrder[filtered[j].State]
+	deduped := make(map[string]*AlertRuleSummary)
+	for i := range filtered {
+		r := &filtered[i]
+		if existing, ok := deduped[r.Name]; ok {
+			// Merge: keep most severe state, sum counts, keep earliest activeSince
+			if stateOrder[r.State] < stateOrder[existing.State] {
+				existing.State = r.State
+			}
+			existing.ActiveCount += r.ActiveCount
+			if r.ActiveSince != "" && (existing.ActiveSince == "" || r.ActiveSince < existing.ActiveSince) {
+				existing.ActiveSince = r.ActiveSince
+			}
+			if existing.Severity == "" && r.Severity != "" {
+				existing.Severity = r.Severity
+			}
+			if existing.Summary == "" && r.Summary != "" {
+				existing.Summary = r.Summary
+			}
+		} else {
+			copy := *r
+			deduped[r.Name] = &copy
+		}
+	}
+	merged := make([]AlertRuleSummary, 0, len(deduped))
+	for _, r := range deduped {
+		merged = append(merged, *r)
+	}
+
+	// Sort: firing first, then pending, then inactive; within each group by name
+	sort.Slice(merged, func(i, j int) bool {
+		oi, oj := stateOrder[merged[i].State], stateOrder[merged[j].State]
 		if oi != oj {
 			return oi < oj
 		}
-		return filtered[i].Name < filtered[j].Name
+		return merged[i].Name < merged[j].Name
 	})
 
-	writeJSON(w, NamespaceAlertsResponse{Rules: filtered})
+	writeJSON(w, NamespaceAlertsResponse{Rules: merged})
 }
 
 // extractNamespaceFromGroupFile extracts namespace from Mimir ruler file path.
