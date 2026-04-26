@@ -24,4 +24,12 @@ if [ -n "$ignored_paths" ]; then
   export MISE_IGNORED_CONFIG_PATHS="${MISE_IGNORED_CONFIG_PATHS:+$MISE_IGNORED_CONFIG_PATHS:}$ignored_paths"
 fi
 
-exec mise run "$@"
+# Run mise with interleaved output so errors are visible, but capture it
+# to only display on failure (keeping success quiet with a short summary).
+output=$(mise run "$@" 2>&1) && {
+  echo "✓ mise run $* passed"
+} || {
+  rc=$?
+  echo "$output"
+  exit $rc
+}

@@ -1,6 +1,6 @@
 [settings]
 # Only show task output on failure (keeps `mise run all` quiet on success)
-task_output = "silent"
+task_output = "interleave"
 
 [tools]
 node = "22"
