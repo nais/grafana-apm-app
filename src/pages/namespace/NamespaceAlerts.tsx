@@ -52,7 +52,7 @@ export function NamespaceAlerts({ rules, unavailable }: NamespaceAlertsProps) {
     <div className={styles.section}>
       <h3 className={styles.sectionTitle}>
         <Icon name="bell" className={styles.titleIcon} />
-        Alert Rules ({stateLabel})<span className={styles.sourceLabel}>Source: Mimir</span>
+        Alert Rules ({stateLabel})<span className={styles.sourceLabel}>Source: Prometheus Alerts</span>
       </h3>
 
       {active.length > 0 && (
