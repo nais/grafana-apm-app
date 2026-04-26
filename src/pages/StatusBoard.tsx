@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { PluginPage } from '@grafana/runtime';
-import { Combobox, Icon, useStyles2 } from '@grafana/ui';
+import { Combobox, Icon, MultiCombobox, useStyles2 } from '@grafana/ui';
 import { GrafanaTheme2, PageLayoutType } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getServices, ServiceSummary } from '../api/client';
@@ -35,20 +35,21 @@ function StatusBoard() {
   const appNavigate = useAppNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const styles = useStyles2(getStyles);
-  const envFilter = sanitizeParam(searchParams.get('environment') ?? '');
+  const envParam = sanitizeParam(searchParams.get('environment') ?? '');
+  const envFilters = useMemo(() => (envParam ? envParam.split(',').filter(Boolean) : []), [envParam]);
   const { from, fromMs, toMs, setTimeRange } = useTimeRange();
 
   const [refreshInterval, setRefreshInterval] = useState(60000);
 
-  // Fetch services
+  // Fetch all services for the namespace (filter by env client-side for multi-select)
   const {
     data: fetchResult,
     loading: servicesLoading,
     error: servicesError,
     refetch,
   } = useFetch<ServiceSummary[]>(
-    () => getServices(fromMs, toMs, 60, false, { namespace: decodedNs, environment: envFilter || undefined }),
-    [fromMs, toMs, decodedNs, envFilter]
+    () => getServices(fromMs, toMs, 60, false, { namespace: decodedNs }),
+    [fromMs, toMs, decodedNs]
   );
 
   // Fetch previous period for delta arrows
@@ -57,21 +58,15 @@ function StatusBoard() {
   const prevFromMs = fromMs - rangeDuration;
   const prevToMs = fromMs;
   const { data: prevServices, refetch: refetchPrev } = useFetch<ServiceSummary[]>(
-    () => getServices(prevFromMs, prevToMs, 60, false, { namespace: decodedNs, environment: envFilter || undefined }),
-    [prevFromMs, prevToMs, decodedNs, envFilter],
+    () => getServices(prevFromMs, prevToMs, 60, false, { namespace: decodedNs }),
+    [prevFromMs, prevToMs, decodedNs],
     { skip: !isRelativeRange }
   );
 
-  // Fetch all-env services for the environment dropdown
-  const { data: allEnvServices } = useFetch<ServiceSummary[]>(
-    () => getServices(fromMs, toMs, 60, false, { namespace: decodedNs }),
-    [fromMs, toMs, decodedNs]
-  );
-
-  // Lazy-load sparklines
+  // Lazy-load sparklines (fetch all, filter client-side)
   const { data: sparklineResult, refetch: refetchSparklines } = useFetch<ServiceSummary[]>(
-    () => getServices(fromMs, toMs, 60, true, { namespace: decodedNs, environment: envFilter || undefined }),
-    [fromMs, toMs, decodedNs, envFilter],
+    () => getServices(fromMs, toMs, 60, true, { namespace: decodedNs }),
+    [fromMs, toMs, decodedNs],
     { skip: !fetchResult }
   );
 
@@ -84,11 +79,17 @@ function StatusBoard() {
 
   const { secondsUntilRefresh } = useAutoRefresh(handleRefresh, refreshInterval);
 
-  // Environment options
-  const envOptions = useMemo(() => extractEnvironmentOptions(allEnvServices ?? []), [allEnvServices]);
+  // Environment options (derived from fetched services)
+  const envOptions = useMemo(() => extractEnvironmentOptions(fetchResult ?? []), [fetchResult]);
 
-  // Filter out sidecars
-  const services = useMemo(() => (fetchResult ?? []).filter((s) => !s.isSidecar), [fetchResult]);
+  // Filter out sidecars, then apply env multi-select filter
+  const services = useMemo(() => {
+    const all = (fetchResult ?? []).filter((s) => !s.isSidecar);
+    if (envFilters.length === 0) {
+      return all;
+    }
+    return all.filter((s) => s.environment && envFilters.includes(s.environment));
+  }, [fetchResult, envFilters]);
 
   // Previous-period map
   const previousMap = useMemo(() => {
@@ -186,13 +187,13 @@ function StatusBoard() {
     return items;
   }, [services, previousMap, sparklineMap, lastSeenSnapshot]);
 
-  const setEnvFilter = useCallback(
-    (env: string) => {
+  const setEnvFilters = useCallback(
+    (envs: string[]) => {
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
-          if (env) {
-            next.set('environment', env);
+          if (envs.length > 0) {
+            next.set('environment', envs.join(','));
           } else {
             next.delete('environment');
           }
@@ -215,8 +216,12 @@ function StatusBoard() {
   );
 
   const handleBack = useCallback(() => {
-    appNavigate(`namespaces/${encodeURIComponent(decodedNs)}`, envFilter ? { environment: envFilter } : undefined);
-  }, [appNavigate, decodedNs, envFilter]);
+    const params: Record<string, string> = {};
+    if (envFilters.length === 1) {
+      params.environment = envFilters[0];
+    }
+    appNavigate(`namespaces/${encodeURIComponent(decodedNs)}`, Object.keys(params).length > 0 ? params : undefined);
+  }, [appNavigate, decodedNs, envFilters]);
 
   const refreshOptions = useMemo(() => REFRESH_INTERVALS.map((r) => ({ label: r.label, value: String(r.value) })), []);
 
@@ -229,11 +234,11 @@ function StatusBoard() {
           onBack={handleBack}
           controls={
             <>
-              {(envOptions.length > 1 || envFilter) && (
-                <Combobox
-                  options={[{ label: 'All environments', value: '' }, ...envOptions]}
-                  value={envFilter}
-                  onChange={(v) => setEnvFilter(v.value ?? '')}
+              {envOptions.length > 1 && (
+                <MultiCombobox
+                  options={envOptions}
+                  value={envFilters}
+                  onChange={(selected) => setEnvFilters(selected.map((o) => o.value ?? ''))}
                   placeholder="All environments"
                   width={28}
                 />
@@ -267,7 +272,10 @@ function StatusBoard() {
           emptyMessage={
             <>
               No services found for namespace <strong>{decodedNs}</strong>
-              {envFilter ? ` in environment ${envFilter}` : ''}.
+              {envFilters.length > 0
+                ? ` in environment${envFilters.length > 1 ? 's' : ''} ${envFilters.join(', ')}`
+                : ''}
+              .
             </>
           }
           loadingText="Loading status board..."
