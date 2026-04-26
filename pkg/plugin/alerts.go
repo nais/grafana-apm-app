@@ -95,10 +95,13 @@ func (a *App) handleNamespaceAlerts(w http.ResponseWriter, req *http.Request) {
 }
 
 // extractNamespaceFromGroupFile extracts namespace from Mimir ruler file path.
-// In NAIS, ruler groups are stored as "namespace/filename", e.g. "myteam/alerts.yaml".
+// In NAIS, ruler groups are stored as "{cluster}/{namespace}/{rulename}/{uuid}",
+// e.g. "dev-fss/teamfrikort/frikort-alerts/869209f5-...".
+// The namespace is the second path segment.
 func extractNamespaceFromGroupFile(file string) string {
-	if idx := strings.IndexByte(file, '/'); idx > 0 {
-		return file[:idx]
+	parts := strings.SplitN(file, "/", 3)
+	if len(parts) >= 2 && parts[1] != "" {
+		return parts[1]
 	}
 	return ""
 }

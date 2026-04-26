@@ -45,9 +45,11 @@ type Alert struct {
 	Value       string            `json:"value"`
 }
 
-// GetAlertRules fetches all alerting rules from the Prometheus /api/v1/rules endpoint.
+// GetAlertRules fetches all rules from the Prometheus /api/v1/rules endpoint.
+// We omit the type=alerting param because some Mimir versions don't support it;
+// callers should filter by rule.Type == "alerting" instead.
 func (c *PrometheusClient) GetAlertRules(ctx context.Context) (*RulesResponse, error) {
-	reqURL := c.baseURL + "/api/v1/rules?type=alerting"
+	reqURL := c.baseURL + "/api/v1/rules"
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {

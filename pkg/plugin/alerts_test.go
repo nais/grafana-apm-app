@@ -14,11 +14,16 @@ func TestExtractNamespaceFromGroupFile(t *testing.T) {
 		file     string
 		expected string
 	}{
-		{"myteam/alerts.yaml", "myteam"},
-		{"nais-system/sla-rules.yml", "nais-system"},
+		// NAIS format: {cluster}/{namespace}/{rulename}/{uuid}
+		{"dev-fss/teamfrikort/frikort-alerts/869209f5-6602-4ebc-85c2-4ae3df3fd3ee", "teamfrikort"},
+		{"dev/amt/amt-prometheus-alerts/24842d8c-7800-493c-ad4e-a4ba94c71c27", "amt"},
+		{"prod-gcp/nais-system/sla-rules/abc123", "nais-system"},
+		// Legacy simple format: {namespace}/{filename}
+		{"myteam/alerts.yaml", "alerts.yaml"},
+		// Edge cases
 		{"alerts.yaml", ""},
 		{"", ""},
-		{"a/b/c.yaml", "a"},
+		{"single/", ""},
 	}
 	for _, tc := range tests {
 		got := extractNamespaceFromGroupFile(tc.file)
@@ -60,7 +65,7 @@ func TestHandleNamespaceAlerts(t *testing.T) {
 	groups := []queries.RuleGroup{
 		{
 			Name: "myteam-alerts",
-			File: "myteam/alerts.yaml",
+			File: "dev/myteam/myteam-alerts/abc123",
 			Rules: []queries.Rule{
 				{
 					Type:  "alerting",
@@ -91,11 +96,19 @@ func TestHandleNamespaceAlerts(t *testing.T) {
 					},
 					Alerts: []queries.Alert{},
 				},
+				{
+					Type:  "recording",
+					Name:  "some:recording:rule",
+					State: "",
+					Labels: map[string]string{
+						"namespace": "myteam",
+					},
+				},
 			},
 		},
 		{
 			Name: "otherteam-alerts",
-			File: "otherteam/alerts.yaml",
+			File: "dev/otherteam/otherteam-alerts/def456",
 			Rules: []queries.Rule{
 				{
 					Type:  "alerting",
@@ -114,7 +127,7 @@ func TestHandleNamespaceAlerts(t *testing.T) {
 		{
 			// Group with no namespace label — relies on file path extraction
 			Name: "infra-rules",
-			File: "myteam/infra.yaml",
+			File: "dev-fss/myteam/infra-alerts/ghi789",
 			Rules: []queries.Rule{
 				{
 					Type:  "alerting",
@@ -155,7 +168,8 @@ func TestHandleNamespaceAlerts(t *testing.T) {
 			t.Fatalf("unmarshal: %v", err)
 		}
 
-		// Should get 3 rules: HighErrorRate (firing), PodCrashLoop (pending, via file path), DiskUsage (inactive)
+		// Should get 3 alerting rules: HighErrorRate (firing), PodCrashLoop (pending, via file path), DiskUsage (inactive)
+		// The recording rule should be excluded
 		if len(resp.Rules) != 3 {
 			t.Fatalf("expected 3 rules, got %d: %+v", len(resp.Rules), resp.Rules)
 		}
@@ -282,7 +296,7 @@ func TestHandleNamespaceAlerts_CaseInsensitive(t *testing.T) {
 	groups := []queries.RuleGroup{
 		{
 			Name: "MyTeam-alerts",
-			File: "MyTeam/alerts.yaml",
+			File: "dev/MyTeam/myteam-alerts/abc123",
 			Rules: []queries.Rule{
 				{
 					Type:        "alerting",
