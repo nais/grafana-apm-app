@@ -30,6 +30,7 @@ import {
   VITAL_THRESHOLDS,
   BROWSER_FILTER,
   WebVitalsBullets,
+  buildStatPanel,
   makePromQuery,
   makeLokiQuery,
   normalizePageUrlExpr,
@@ -138,30 +139,6 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
       )}
     </div>
   );
-}
-
-// ---- helpers ----
-
-function statPanel(
-  title: string,
-  description: string,
-  query: SceneQueryRunner,
-  unit: string,
-  thresholds: Array<{ value: number; color: string }>,
-  decimals?: number
-) {
-  const builder = PanelBuilders.stat().setTitle(title).setDescription(description).setData(query).setUnit(unit);
-  if (decimals !== undefined) {
-    builder.setDecimals(decimals);
-  }
-  return builder
-    .setOverrides((b) =>
-      b.matchFieldsWithName(title).overrideThresholds({
-        mode: ThresholdsMode.Absolute,
-        steps: thresholds.map((t) => ({ value: t.value, color: t.color })),
-      })
-    )
-    .build();
 }
 
 // ========================================================================
@@ -886,23 +863,23 @@ function MimirWebVitalsPanels({
       children: [
         new SceneFlexItem({
           minHeight: 130,
-          body: statPanel('LCP', 'Largest Contentful Paint — target < 2500ms', lcpQ, 'ms', VITAL_THRESHOLDS.lcp),
+          body: buildStatPanel('LCP', 'Largest Contentful Paint — target < 2500ms', lcpQ, 'ms', VITAL_THRESHOLDS.lcp),
         }),
         new SceneFlexItem({
           minHeight: 130,
-          body: statPanel('FCP', 'First Contentful Paint — target < 1800ms', fcpQ, 'ms', VITAL_THRESHOLDS.fcp),
+          body: buildStatPanel('FCP', 'First Contentful Paint — target < 1800ms', fcpQ, 'ms', VITAL_THRESHOLDS.fcp),
         }),
         new SceneFlexItem({
           minHeight: 130,
-          body: statPanel('CLS', 'Cumulative Layout Shift — target < 0.1', clsQ, 'none', VITAL_THRESHOLDS.cls, 3),
+          body: buildStatPanel('CLS', 'Cumulative Layout Shift — target < 0.1', clsQ, 'none', VITAL_THRESHOLDS.cls, 3),
         }),
         new SceneFlexItem({
           minHeight: 130,
-          body: statPanel('INP', 'Interaction to Next Paint — target < 200ms', inpQ, 'ms', VITAL_THRESHOLDS.inp),
+          body: buildStatPanel('INP', 'Interaction to Next Paint — target < 200ms', inpQ, 'ms', VITAL_THRESHOLDS.inp),
         }),
         new SceneFlexItem({
           minHeight: 130,
-          body: statPanel('TTFB', 'Time to First Byte — target < 800ms', ttfbQ, 'ms', VITAL_THRESHOLDS.ttfb),
+          body: buildStatPanel('TTFB', 'Time to First Byte — target < 800ms', ttfbQ, 'ms', VITAL_THRESHOLDS.ttfb),
         }),
       ],
     });
@@ -1249,23 +1226,23 @@ function AlloyWebVitalsPanels({
       children: [
         new SceneFlexItem({
           minHeight: 130,
-          body: statPanel('LCP', 'Largest Contentful Paint — target < 2500ms', lcpQ, 'ms', VITAL_THRESHOLDS.lcp),
+          body: buildStatPanel('LCP', 'Largest Contentful Paint — target < 2500ms', lcpQ, 'ms', VITAL_THRESHOLDS.lcp),
         }),
         new SceneFlexItem({
           minHeight: 130,
-          body: statPanel('FCP', 'First Contentful Paint — target < 1800ms', fcpQ, 'ms', VITAL_THRESHOLDS.fcp),
+          body: buildStatPanel('FCP', 'First Contentful Paint — target < 1800ms', fcpQ, 'ms', VITAL_THRESHOLDS.fcp),
         }),
         new SceneFlexItem({
           minHeight: 130,
-          body: statPanel('CLS', 'Cumulative Layout Shift — target < 0.1', clsQ, 'none', VITAL_THRESHOLDS.cls, 3),
+          body: buildStatPanel('CLS', 'Cumulative Layout Shift — target < 0.1', clsQ, 'none', VITAL_THRESHOLDS.cls, 3),
         }),
         new SceneFlexItem({
           minHeight: 130,
-          body: statPanel('INP', 'Interaction to Next Paint — target < 200ms', inpQ, 'ms', VITAL_THRESHOLDS.inp),
+          body: buildStatPanel('INP', 'Interaction to Next Paint — target < 200ms', inpQ, 'ms', VITAL_THRESHOLDS.inp),
         }),
         new SceneFlexItem({
           minHeight: 130,
-          body: statPanel('TTFB', 'Time to First Byte — target < 800ms', ttfbQ, 'ms', VITAL_THRESHOLDS.ttfb),
+          body: buildStatPanel('TTFB', 'Time to First Byte — target < 800ms', ttfbQ, 'ms', VITAL_THRESHOLDS.ttfb),
         }),
       ],
     });
