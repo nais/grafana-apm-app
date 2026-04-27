@@ -72,8 +72,8 @@ function NamespaceOverview() {
     { skip: !fetchResult }
   );
 
-  // Fetch service map filtered by namespace (and environment when a single env is selected)
-  const mapEnv = envFilters.length === 1 ? envFilters[0] : undefined;
+  // Fetch service map filtered by namespace and selected environments
+  const mapEnv = envFilters.length > 0 ? envFilters.join(',') : undefined;
   const { data: mapData } = useFetch<ServiceMapResponse>(
     () => getServiceMap(fromMs, toMs, undefined, decodedNs, mapEnv),
     [fromMs, toMs, decodedNs, mapEnv]

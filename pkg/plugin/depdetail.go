@@ -23,8 +23,8 @@ func (a *App) queryDependencyDetail(
 	sgp := a.serviceGraphPrefix()
 	cfg := a.otelCfg
 	labelFilter := fmt.Sprintf(`%s=~"%s"`, cfg.Labels.Server, addressMatchRegex(depName))
-	if filterEnvironment != "" {
-		labelFilter += fmt.Sprintf(`, %s="%s"`, cfg.Labels.DeploymentEnv, filterEnvironment)
+	if m := envMatcher(cfg.Labels.DeploymentEnv, filterEnvironment); m != "" {
+		labelFilter += ", " + m
 	}
 
 	// Query upstream services (by client) — service graph.
@@ -50,8 +50,8 @@ func (a *App) queryDependencyDetail(
 	// normalization (e.g., "idporten.no" must match "idporten.no:443" in labels).
 	addrRegex := addressMatchRegex(depName)
 	envFilter := ""
-	if filterEnvironment != "" {
-		envFilter = fmt.Sprintf(`, %s="%s"`, cfg.Labels.DeploymentEnv, filterEnvironment)
+	if m := envMatcher(cfg.Labels.DeploymentEnv, filterEnvironment); m != "" {
+		envFilter = ", " + m
 	}
 	smKindFilter := fmt.Sprintf(`%s="%s"`, cfg.Labels.SpanKind, cfg.SpanKinds.Client)
 	smAddrMatch := fmt.Sprintf(`%s=~"%s"`, cfg.Labels.ServerAddress, addrRegex)
@@ -299,8 +299,8 @@ func (a *App) queryDependencyOperations(
 	rangeStr := "[5m]"
 
 	envFilter := ""
-	if filterEnvironment != "" {
-		envFilter = fmt.Sprintf(`, %s="%s"`, cfg.Labels.DeploymentEnv, filterEnvironment)
+	if m := envMatcher(cfg.Labels.DeploymentEnv, filterEnvironment); m != "" {
+		envFilter = ", " + m
 	}
 
 	// Primary filter: peer_service (from spanmetrics connector dimensions)

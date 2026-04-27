@@ -48,8 +48,8 @@ func (a *App) queryConnectedServices(ctx context.Context, to time.Time, service,
 	cfg := a.otelCfg
 
 	envLabelFilter := ""
-	if filterEnvironment != "" {
-		envLabelFilter = fmt.Sprintf(`, %s="%s"`, cfg.Labels.DeploymentEnv, filterEnvironment)
+	if m := envMatcher(cfg.Labels.DeploymentEnv, filterEnvironment); m != "" {
+		envLabelFilter = ", " + m
 	}
 
 	// Outbound: where service is the client

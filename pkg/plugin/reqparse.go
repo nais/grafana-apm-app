@@ -1,8 +1,10 @@
 package plugin
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/nais/grafana-otel-plugin/pkg/plugin/queries"
@@ -16,8 +18,37 @@ func parseServiceRef(req *http.Request) (namespace, service string) {
 }
 
 // parseEnvironment extracts the optional environment query parameter.
+// Supports comma-separated values for multi-select (e.g. "prod,prod-fss").
 func parseEnvironment(req *http.Request) string {
-	return queries.MustSanitizeLabel(req.URL.Query().Get("environment"))
+	raw := req.URL.Query().Get("environment")
+	if raw == "" {
+		return ""
+	}
+	parts := strings.Split(raw, ",")
+	var sanitized []string
+	for _, p := range parts {
+		s := queries.MustSanitizeLabel(strings.TrimSpace(p))
+		if s != "" {
+			sanitized = append(sanitized, s)
+		}
+	}
+	return strings.Join(sanitized, ",")
+}
+
+// envMatcher builds a PromQL label matcher for one or more comma-separated
+// environment values. Returns:
+//   - "" if envs is empty
+//   - `label="value"` for a single environment
+//   - `label=~"val1|val2"` for multiple environments
+func envMatcher(label, envs string) string {
+	if envs == "" {
+		return ""
+	}
+	parts := strings.Split(envs, ",")
+	if len(parts) == 1 {
+		return fmt.Sprintf(`%s="%s"`, label, parts[0])
+	}
+	return fmt.Sprintf(`%s=~"%s"`, label, strings.Join(parts, "|"))
 }
 
 // parseTimeRange extracts from/to timestamps from query parameters,

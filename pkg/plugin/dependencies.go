@@ -255,7 +255,7 @@ func (a *App) queryDependencies(
 		filters = append(filters, fmt.Sprintf(`%s="%s"`, a.otelCfg.Labels.Server, filterServer))
 	}
 	if filterEnvironment != "" {
-		filters = append(filters, fmt.Sprintf(`%s="%s"`, a.otelCfg.Labels.DeploymentEnv, filterEnvironment))
+		filters = append(filters, envMatcher(a.otelCfg.Labels.DeploymentEnv, filterEnvironment))
 	}
 
 	labelFilter := ""
@@ -433,8 +433,8 @@ func (a *App) buildSpanmetricsDepsQueries(ctx context.Context, filterClient, fil
 
 	// Environment filter on spanmetrics (these carry k8s_cluster_name from resource_to_telemetry_conversion).
 	envFilter := ""
-	if filterEnvironment != "" {
-		envFilter = fmt.Sprintf(`, %s="%s"`, cfg.Labels.DeploymentEnv, filterEnvironment)
+	if m := envMatcher(cfg.Labels.DeploymentEnv, filterEnvironment); m != "" {
+		envFilter = ", " + m
 	}
 
 	// Rate by (server_address, http_host, db_system, messaging_system, messaging_destination_name)

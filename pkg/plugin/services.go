@@ -83,8 +83,8 @@ func (a *App) fetchServiceSummaries(
 	if filterNamespace != "" {
 		extraFilters += fmt.Sprintf(`, %s="%s"`, a.otelCfg.Labels.ServiceNamespace, filterNamespace)
 	}
-	if filterEnvironment != "" {
-		extraFilters += fmt.Sprintf(`, %s="%s"`, a.otelCfg.Labels.DeploymentEnv, filterEnvironment)
+	if m := envMatcher(a.otelCfg.Labels.DeploymentEnv, filterEnvironment); m != "" {
+		extraFilters += ", " + m
 	}
 
 	// Queries: rate, error rate, P95 duration (all grouped by service_name, service_namespace, environment)

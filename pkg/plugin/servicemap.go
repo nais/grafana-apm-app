@@ -83,10 +83,7 @@ func (a *App) queryServiceGraphEdges(ctx context.Context, to time.Time, filterEn
 	rangeStr := "[5m]"
 	sgp := a.serviceGraphPrefix()
 
-	labelFilter := ""
-	if filterEnv != "" {
-		labelFilter = fmt.Sprintf(`%s="%s"`, a.otelCfg.Labels.DeploymentEnv, filterEnv)
-	}
+	labelFilter := envMatcher(a.otelCfg.Labels.DeploymentEnv, filterEnv)
 
 	// When a service filter is provided, run two scoped queries (client=X OR
 	// server=X) and merge results. This is dramatically faster than fetching
@@ -706,8 +703,8 @@ func (a *App) buildServiceNamespaceMap(ctx context.Context, to time.Time, filter
 
 	callsMetric := a.callsMetric(ctx)
 	envFilter := ""
-	if filterEnv != "" {
-		envFilter = fmt.Sprintf(`, %s="%s"`, a.otelCfg.Labels.DeploymentEnv, filterEnv)
+	if m := envMatcher(a.otelCfg.Labels.DeploymentEnv, filterEnv); m != "" {
+		envFilter = ", " + m
 	}
 	query := fmt.Sprintf(`group by (%s, %s) (%s{%s!=""%s})`,
 		a.otelCfg.Labels.ServiceName, a.otelCfg.Labels.ServiceNamespace,
