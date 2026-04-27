@@ -18,7 +18,7 @@ import {
   SceneReactObject,
   behaviors,
 } from '@grafana/scenes';
-import { DashboardCursorSync, GraphThresholdsStyleMode } from '@grafana/schema';
+import { DashboardCursorSync, GraphThresholdsStyleMode, StackingMode, VizOrientation } from '@grafana/schema';
 import { getFrontendMetrics } from '../../api/client';
 import { usePluginDatasources } from '../../utils/datasources';
 import { useTimeRange } from '../../utils/timeRange';
@@ -424,7 +424,169 @@ function UnifiedFrontendPanels({
     const lDs = { uid: ds.logsUid };
     const mDs = { uid: ds.metricsUid };
 
-    // --- Section 1: Web Vitals time series trends ---
+    // --- Section 1: CWV Rating Breakdown + Navigation Type (histogram only) ---
+    // CWV Rating: % good / needs-improvement / poor per vital from bucket math
+    // Nav Type: 100% stacked timeseries showing navigate/reload/back_forward distribution
+    let insightsRow: SceneFlexLayout | null = null;
+    if (isHistogram) {
+      // CWV Rating Breakdown — stacked bar per vital
+      // Uses bucket boundaries aligned with CWV thresholds
+      const cwvRatingQ = new SceneQueryRunner({
+        datasource: { uid: ds.metricsUid, type: 'prometheus' },
+        queries: [
+          {
+            refId: 'lcp_good',
+            expr: `increase(${ah.lcp}_bucket{${svcFilter}, le="2500"}[$__range]) / increase(${ah.lcp}_bucket{${svcFilter}, le="+Inf"}[$__range])`,
+            legendFormat: 'LCP Good',
+            instant: true,
+          },
+          {
+            refId: 'lcp_ni',
+            expr: `(increase(${ah.lcp}_bucket{${svcFilter}, le="4000"}[$__range]) - increase(${ah.lcp}_bucket{${svcFilter}, le="2500"}[$__range])) / increase(${ah.lcp}_bucket{${svcFilter}, le="+Inf"}[$__range])`,
+            legendFormat: 'LCP Needs Improvement',
+            instant: true,
+          },
+          {
+            refId: 'lcp_poor',
+            expr: `1 - increase(${ah.lcp}_bucket{${svcFilter}, le="4000"}[$__range]) / increase(${ah.lcp}_bucket{${svcFilter}, le="+Inf"}[$__range])`,
+            legendFormat: 'LCP Poor',
+            instant: true,
+          },
+          {
+            refId: 'fcp_good',
+            expr: `increase(${ah.fcp}_bucket{${svcFilter}, le="1800"}[$__range]) / increase(${ah.fcp}_bucket{${svcFilter}, le="+Inf"}[$__range])`,
+            legendFormat: 'FCP Good',
+            instant: true,
+          },
+          {
+            refId: 'fcp_ni',
+            expr: `(increase(${ah.fcp}_bucket{${svcFilter}, le="3000"}[$__range]) - increase(${ah.fcp}_bucket{${svcFilter}, le="1800"}[$__range])) / increase(${ah.fcp}_bucket{${svcFilter}, le="+Inf"}[$__range])`,
+            legendFormat: 'FCP Needs Improvement',
+            instant: true,
+          },
+          {
+            refId: 'fcp_poor',
+            expr: `1 - increase(${ah.fcp}_bucket{${svcFilter}, le="3000"}[$__range]) / increase(${ah.fcp}_bucket{${svcFilter}, le="+Inf"}[$__range])`,
+            legendFormat: 'FCP Poor',
+            instant: true,
+          },
+          {
+            refId: 'cls_good',
+            expr: `increase(${ah.cls}_bucket{${svcFilter}, le="0.1"}[$__range]) / increase(${ah.cls}_bucket{${svcFilter}, le="+Inf"}[$__range])`,
+            legendFormat: 'CLS Good',
+            instant: true,
+          },
+          {
+            refId: 'cls_ni',
+            expr: `(increase(${ah.cls}_bucket{${svcFilter}, le="0.25"}[$__range]) - increase(${ah.cls}_bucket{${svcFilter}, le="0.1"}[$__range])) / increase(${ah.cls}_bucket{${svcFilter}, le="+Inf"}[$__range])`,
+            legendFormat: 'CLS Needs Improvement',
+            instant: true,
+          },
+          {
+            refId: 'cls_poor',
+            expr: `1 - increase(${ah.cls}_bucket{${svcFilter}, le="0.25"}[$__range]) / increase(${ah.cls}_bucket{${svcFilter}, le="+Inf"}[$__range])`,
+            legendFormat: 'CLS Poor',
+            instant: true,
+          },
+          {
+            refId: 'inp_good',
+            expr: `increase(${ah.inp}_bucket{${svcFilter}, le="200"}[$__range]) / increase(${ah.inp}_bucket{${svcFilter}, le="+Inf"}[$__range])`,
+            legendFormat: 'INP Good',
+            instant: true,
+          },
+          {
+            refId: 'inp_ni',
+            expr: `(increase(${ah.inp}_bucket{${svcFilter}, le="500"}[$__range]) - increase(${ah.inp}_bucket{${svcFilter}, le="200"}[$__range])) / increase(${ah.inp}_bucket{${svcFilter}, le="+Inf"}[$__range])`,
+            legendFormat: 'INP Needs Improvement',
+            instant: true,
+          },
+          {
+            refId: 'inp_poor',
+            expr: `1 - increase(${ah.inp}_bucket{${svcFilter}, le="500"}[$__range]) / increase(${ah.inp}_bucket{${svcFilter}, le="+Inf"}[$__range])`,
+            legendFormat: 'INP Poor',
+            instant: true,
+          },
+          {
+            refId: 'ttfb_good',
+            expr: `increase(${ah.ttfb}_bucket{${svcFilter}, le="800"}[$__range]) / increase(${ah.ttfb}_bucket{${svcFilter}, le="+Inf"}[$__range])`,
+            legendFormat: 'TTFB Good',
+            instant: true,
+          },
+          {
+            refId: 'ttfb_ni',
+            expr: `(increase(${ah.ttfb}_bucket{${svcFilter}, le="2000"}[$__range]) - increase(${ah.ttfb}_bucket{${svcFilter}, le="800"}[$__range])) / increase(${ah.ttfb}_bucket{${svcFilter}, le="+Inf"}[$__range])`,
+            legendFormat: 'TTFB Needs Improvement',
+            instant: true,
+          },
+          {
+            refId: 'ttfb_poor',
+            expr: `1 - increase(${ah.ttfb}_bucket{${svcFilter}, le="2000"}[$__range]) / increase(${ah.ttfb}_bucket{${svcFilter}, le="+Inf"}[$__range])`,
+            legendFormat: 'TTFB Poor',
+            instant: true,
+          },
+        ],
+      });
+
+      const cwvRatingPanel = new SceneFlexItem({
+        minHeight: 200,
+        body: PanelBuilders.barchart()
+          .setTitle('CWV Rating Breakdown')
+          .setDescription('Percentage of page loads rated Good / Needs Improvement / Poor per Core Web Vital')
+          .setData(cwvRatingQ)
+          .setUnit('percentunit')
+          .setOption('stacking', StackingMode.Normal)
+          .setOption('orientation', VizOrientation.Horizontal)
+          .setOverrides((b) => {
+            b.matchFieldsByQuery('lcp_good').overrideColor({ mode: 'fixed', fixedColor: 'green' });
+            b.matchFieldsByQuery('lcp_ni').overrideColor({ mode: 'fixed', fixedColor: 'orange' });
+            b.matchFieldsByQuery('lcp_poor').overrideColor({ mode: 'fixed', fixedColor: 'red' });
+            b.matchFieldsByQuery('fcp_good').overrideColor({ mode: 'fixed', fixedColor: 'green' });
+            b.matchFieldsByQuery('fcp_ni').overrideColor({ mode: 'fixed', fixedColor: 'orange' });
+            b.matchFieldsByQuery('fcp_poor').overrideColor({ mode: 'fixed', fixedColor: 'red' });
+            b.matchFieldsByQuery('cls_good').overrideColor({ mode: 'fixed', fixedColor: 'green' });
+            b.matchFieldsByQuery('cls_ni').overrideColor({ mode: 'fixed', fixedColor: 'orange' });
+            b.matchFieldsByQuery('cls_poor').overrideColor({ mode: 'fixed', fixedColor: 'red' });
+            b.matchFieldsByQuery('inp_good').overrideColor({ mode: 'fixed', fixedColor: 'green' });
+            b.matchFieldsByQuery('inp_ni').overrideColor({ mode: 'fixed', fixedColor: 'orange' });
+            b.matchFieldsByQuery('inp_poor').overrideColor({ mode: 'fixed', fixedColor: 'red' });
+            b.matchFieldsByQuery('ttfb_good').overrideColor({ mode: 'fixed', fixedColor: 'green' });
+            b.matchFieldsByQuery('ttfb_ni').overrideColor({ mode: 'fixed', fixedColor: 'orange' });
+            b.matchFieldsByQuery('ttfb_poor').overrideColor({ mode: 'fixed', fixedColor: 'red' });
+          })
+          .build(),
+      });
+
+      // Navigation Type — 100% stacked timeseries
+      const navTypeQ = makePromQuery(
+        mDs,
+        `sum by (${ah.navTypeLabel}) (rate(${ah.pageLoadsByNav}{${svcFilter}}[$__rate_interval]))`,
+        `{{${ah.navTypeLabel}}}`
+      );
+      const navTypePanel = new SceneFlexItem({
+        minHeight: 200,
+        body: PanelBuilders.timeseries()
+          .setTitle('Navigation Type')
+          .setDescription('Page load distribution by navigation type (navigate, reload, back/forward)')
+          .setData(navTypeQ)
+          .setUnit('short')
+          .setCustomFieldConfig('fillOpacity', 80)
+          .setCustomFieldConfig('stacking', { mode: 'percent' as any })
+          .setOverrides((b) => {
+            b.matchFieldsWithName('navigate').overrideColor({ mode: 'fixed', fixedColor: 'blue' });
+            b.matchFieldsWithName('reload').overrideColor({ mode: 'fixed', fixedColor: 'orange' });
+            b.matchFieldsWithName('back_forward').overrideColor({ mode: 'fixed', fixedColor: 'purple' });
+            b.matchFieldsWithName('prerender').overrideColor({ mode: 'fixed', fixedColor: 'green' });
+          })
+          .build(),
+      });
+
+      insightsRow = new SceneFlexLayout({
+        direction: 'row',
+        children: [cwvRatingPanel, navTypePanel],
+      });
+    }
+
+    // --- Section 2: Web Vitals time series trends ---
     let pageLoadVitalsQ: SceneQueryRunner;
     let inpTrendQ: SceneQueryRunner;
     let clsTrendQ: SceneQueryRunner;
@@ -670,33 +832,58 @@ function UnifiedFrontendPanels({
         .build(),
     });
 
-    // Browser breakdown table (always Loki for per-browser vitals — consistent across sources)
+    // Browser breakdown table — Loki for per-browser vitals, Mimir for volume (histogram source)
+    const browserQueries: Array<{
+      refId: string;
+      expr: string;
+      legendFormat: string;
+      format: string;
+      instant: boolean;
+    }> = [
+      {
+        refId: 'lcp',
+        expr: lokiVitalByGroupExpr(service, otel.faroLoki.lcp, otel.faroLoki.browserName, '[$__range]'),
+        legendFormat: '__auto',
+        format: 'table',
+        instant: true,
+      },
+      {
+        refId: 'fcp',
+        expr: lokiVitalByGroupExpr(service, otel.faroLoki.fcp, otel.faroLoki.browserName, '[$__range]'),
+        legendFormat: '__auto',
+        format: 'table',
+        instant: true,
+      },
+      {
+        refId: 'ttfb',
+        expr: lokiVitalByGroupExpr(service, otel.faroLoki.ttfb, otel.faroLoki.browserName, '[$__range]'),
+        legendFormat: '__auto',
+        format: 'table',
+        instant: true,
+      },
+    ];
     const browserQ = new SceneQueryRunner({
       datasource: { uid: ds.logsUid, type: 'loki' },
-      queries: [
-        {
-          refId: 'lcp',
-          expr: lokiVitalByGroupExpr(service, otel.faroLoki.lcp, otel.faroLoki.browserName, '[$__range]'),
-          legendFormat: '__auto',
-          format: 'table',
-          instant: true,
-        },
-        {
-          refId: 'fcp',
-          expr: lokiVitalByGroupExpr(service, otel.faroLoki.fcp, otel.faroLoki.browserName, '[$__range]'),
-          legendFormat: '__auto',
-          format: 'table',
-          instant: true,
-        },
-        {
-          refId: 'ttfb',
-          expr: lokiVitalByGroupExpr(service, otel.faroLoki.ttfb, otel.faroLoki.browserName, '[$__range]'),
-          legendFormat: '__auto',
-          format: 'table',
-          instant: true,
-        },
-      ],
+      queries: browserQueries,
     });
+
+    // When histogram source, add a separate Mimir query for browser volume
+    let browserVolumeQ: SceneQueryRunner | null = null;
+    if (isHistogram) {
+      browserVolumeQ = new SceneQueryRunner({
+        datasource: { uid: ds.metricsUid, type: 'prometheus' },
+        queries: [
+          {
+            refId: 'volume',
+            expr: `sum by (${ah.browserLabel}) (increase(${ah.pageLoads}{${svcFilter}, ${ah.browserLabel}!=""}[$__range]))`,
+            legendFormat: '__auto',
+            format: 'table',
+            instant: true,
+          },
+        ],
+      });
+    }
+
     const browserData = new SceneDataTransformer({
       $data: browserQ,
       transformations: [{ id: 'merge', options: {} }],
@@ -705,7 +892,7 @@ function UnifiedFrontendPanels({
       minHeight: 250,
       body: PanelBuilders.table()
         .setTitle('Browser Breakdown')
-        .setDescription('Average Web Vitals by browser')
+        .setDescription('Average Web Vitals by browser' + (isHistogram ? ' (volume from Mimir)' : ''))
         .setData(browserData)
         .setOverrides((b) => {
           b.matchFieldsWithName(otel.faroLoki.browserName).overrideDisplayName('Browser');
@@ -729,45 +916,67 @@ function UnifiedFrontendPanels({
         .build(),
     });
 
+    // Mimir browser volume panel (shown alongside browser table when histogram source)
+    const browserVolumePanel = browserVolumeQ
+      ? new SceneFlexItem({
+          minHeight: 250,
+          body: PanelBuilders.piechart()
+            .setTitle('Browser Volume')
+            .setDescription('Measurement volume per browser (from Mimir)')
+            .setData(browserVolumeQ)
+            .build(),
+        })
+      : null;
+
     const errorsRow = new SceneFlexLayout({
       direction: 'row',
-      children: [topExceptionsPanel, browserTable],
+      children: [topExceptionsPanel, browserTable, ...(browserVolumePanel ? [browserVolumePanel] : [])],
     });
 
-    // --- Section 4: Rating Distribution + Console Errors ---
-    const fl = otel.faroLoki;
-    const ratingStream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindMeasurement}"}`;
-    const ratingQ = makeLokiQuery(
-      lDs,
-      `sum by (${fl.rating}) (count_over_time(${ratingStream} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" | ${fl.rating}!="" ${BROWSER_FILTER} | keep ${fl.rating} [$__range]))`,
-      `{{${fl.rating}}}`,
-      { instant: true }
-    );
-    const ratingData = new SceneDataTransformer({
-      $data: ratingQ,
-      transformations: [
-        { id: 'reduce', options: { reducers: ['sum'] } },
-        { id: 'organize', options: { excludeByName: { Field: true }, renameByName: { Sum: '' } } },
-      ],
-    });
-    const ratingPanel = new SceneFlexItem({
-      minHeight: 250,
-      body: PanelBuilders.piechart()
-        .setTitle('Web Vitals Rating Distribution')
-        .setDescription('Distribution of good / needs-improvement / poor ratings')
-        .setData(ratingData)
-        .setOverrides((b) => {
-          b.matchFieldsWithName('good').overrideColor({ mode: 'fixed', fixedColor: 'green' });
-          b.matchFieldsWithName('needs-improvement').overrideColor({ mode: 'fixed', fixedColor: 'orange' });
-          b.matchFieldsWithName('poor').overrideColor({ mode: 'fixed', fixedColor: 'red' });
-        })
-        .build(),
-    });
-
-    const supportRow = new SceneFlexLayout({
-      direction: 'row',
-      children: [ratingPanel, consoleErrorsPanel],
-    });
+    // --- Section 4: Support row ---
+    // For histogram source: CWV rating is already shown via bucket breakdown above,
+    // so only show console errors (full width).
+    // For Loki source: keep Loki-based rating pie alongside console errors.
+    let supportRow: SceneFlexLayout;
+    if (isHistogram) {
+      supportRow = new SceneFlexLayout({
+        direction: 'row',
+        children: [consoleErrorsPanel],
+      });
+    } else {
+      const fl = otel.faroLoki;
+      const ratingStream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindMeasurement}"}`;
+      const ratingQ = makeLokiQuery(
+        lDs,
+        `sum by (${fl.rating}) (count_over_time(${ratingStream} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" | ${fl.rating}!="" ${BROWSER_FILTER} | keep ${fl.rating} [$__range]))`,
+        `{{${fl.rating}}}`,
+        { instant: true }
+      );
+      const ratingData = new SceneDataTransformer({
+        $data: ratingQ,
+        transformations: [
+          { id: 'reduce', options: { reducers: ['sum'] } },
+          { id: 'organize', options: { excludeByName: { Field: true }, renameByName: { Sum: '' } } },
+        ],
+      });
+      const ratingPanel = new SceneFlexItem({
+        minHeight: 250,
+        body: PanelBuilders.piechart()
+          .setTitle('Web Vitals Rating Distribution')
+          .setDescription('Distribution of good / needs-improvement / poor ratings')
+          .setData(ratingData)
+          .setOverrides((b) => {
+            b.matchFieldsWithName('good').overrideColor({ mode: 'fixed', fixedColor: 'green' });
+            b.matchFieldsWithName('needs-improvement').overrideColor({ mode: 'fixed', fixedColor: 'orange' });
+            b.matchFieldsWithName('poor').overrideColor({ mode: 'fixed', fixedColor: 'red' });
+          })
+          .build(),
+      });
+      supportRow = new SceneFlexLayout({
+        direction: 'row',
+        children: [ratingPanel, consoleErrorsPanel],
+      });
+    }
 
     // --- Row 7: Traffic trends over time ---
     let measurementCountQ: SceneQueryRunner;
@@ -847,7 +1056,15 @@ function UnifiedFrontendPanels({
       controls: [new VariableValueSelectors({}), new SceneTimePicker({}), new SceneRefreshPicker({})],
       body: new SceneFlexLayout({
         direction: 'column',
-        children: [...(bulletsItem ? [bulletsItem] : []), trendsRow, errorsRow, perPageTable, trafficRow, supportRow],
+        children: [
+          ...(bulletsItem ? [bulletsItem] : []),
+          ...(insightsRow ? [insightsRow] : []),
+          trendsRow,
+          errorsRow,
+          perPageTable,
+          trafficRow,
+          supportRow,
+        ],
       }),
     });
   }, [from, to, ds, service, namespace, svcFilter, ah, isHistogram, vitals]);
