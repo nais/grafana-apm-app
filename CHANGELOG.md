@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.2
+
+### Bug Fixes
+
+- **Multi-environment filtering in topology graph** — Backend now supports comma-separated environment values using PromQL regex matching (`=~"prod|prod-fss"`). The namespace page service map and dependencies correctly filter when multiple environments are selected.
+- **E2E test reliability** — Replaced `networkidle` wait with `load` state in test fixtures to prevent timeouts from Grafana's persistent WebSocket connections.
+
 ## 0.6.1 (2026-04-27)
 
 ### Bug Fixes
