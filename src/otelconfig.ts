@@ -58,33 +58,6 @@ export const otel = {
     serviceNamespace: 'resource.service.namespace',
   },
 
-  browser: {
-    lcp: 'browser_web_vitals_lcp_milliseconds',
-    fcp: 'browser_web_vitals_fcp_milliseconds',
-    cls: 'browser_web_vitals_cls',
-    inp: 'browser_web_vitals_inp_milliseconds',
-    ttfb: 'browser_web_vitals_ttfb_milliseconds',
-    pageLoads: 'browser_page_loads_total',
-    errors: 'browser_errors_total',
-    pageLoadDuration: 'browser_page_load_duration_milliseconds_bucket',
-    pageRoute: 'page_route',
-    browserName: 'browser_name',
-  },
-
-  /** Faro telemetry from Grafana Alloy pipeline (loki.process custom metrics). */
-  alloyBrowser: {
-    lcp: 'loki_process_custom_browser_web_vitals_lcp_milliseconds',
-    fcp: 'loki_process_custom_browser_web_vitals_fcp_milliseconds',
-    cls: 'loki_process_custom_browser_web_vitals_cls',
-    inp: 'loki_process_custom_browser_web_vitals_inp_milliseconds',
-    ttfb: 'loki_process_custom_browser_web_vitals_ttfb_milliseconds',
-    pageLoads: 'loki_process_custom_browser_page_loads_total',
-    errors: 'loki_process_custom_browser_errors_total',
-    appLabel: 'app_name',
-    job: 'alloy-faro',
-    lookback: '30m',
-  },
-
   /** Faro histogram metrics from improved Alloy pipeline.
    * The loki_process_custom_ prefix is hardcoded by Alloy's loki.process stage. */
   alloyHistogram: {

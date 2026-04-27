@@ -89,36 +89,6 @@ type TraceQL struct {
 // Browser / Faro metrics
 // ---------------------------------------------------------------------------
 
-// BrowserMetrics defines Prometheus metric names for browser/Faro Web Vitals.
-type BrowserMetrics struct {
-	LCP              string
-	FCP              string
-	CLS              string
-	INP              string
-	TTFB             string
-	PageLoads        string
-	Errors           string
-	PageLoadDuration string
-	PageRoute        string
-	BrowserName      string
-}
-
-// AlloyBrowserMetrics defines metric names for Faro telemetry processed by
-// the Grafana Alloy pipeline. Alloy produces metrics with a
-// "loki_process_custom_" prefix and uses "app_name" as the service identifier.
-type AlloyBrowserMetrics struct {
-	LCP       string
-	FCP       string
-	CLS       string
-	INP       string
-	TTFB      string
-	PageLoads string
-	Errors    string
-	AppLabel  string
-	Job       string // job label for detection (e.g. "alloy-faro")
-	Lookback  string // lookback window for sparse gauges (e.g. "30m")
-}
-
 // AlloyHistogramMetrics defines histogram-based metric names for Faro
 // telemetry. These are the improved metrics that use histograms instead of
 // gauges, enabling proper percentile computation. The base metric name is
@@ -321,8 +291,6 @@ type Config struct {
 	SpanKinds             SpanKinds
 	StatusCodes           StatusCodes
 	TraceQL               TraceQL
-	BrowserMetrics        BrowserMetrics
-	AlloyBrowserMetrics   AlloyBrowserMetrics
 	AlloyHistogramMetrics AlloyHistogramMetrics
 	FaroLoki              FaroLoki
 	ServiceGraph          ServiceGraph
@@ -385,19 +353,6 @@ func Default() Config {
 			ServiceNamespace: "resource.service.namespace",
 		},
 
-		BrowserMetrics: BrowserMetrics{
-			LCP:              "browser_web_vitals_lcp_milliseconds",
-			FCP:              "browser_web_vitals_fcp_milliseconds",
-			CLS:              "browser_web_vitals_cls",
-			INP:              "browser_web_vitals_inp_milliseconds",
-			TTFB:             "browser_web_vitals_ttfb_milliseconds",
-			PageLoads:        "browser_page_loads_total",
-			Errors:           "browser_errors_total",
-			PageLoadDuration: "browser_page_load_duration_milliseconds_bucket",
-			PageRoute:        "page_route",
-			BrowserName:      "browser_name",
-		},
-
 		FaroLoki: FaroLoki{
 			ServiceName: "service_name",
 			Kind:        "kind",
@@ -420,19 +375,6 @@ func Default() Config {
 			Rating:      "context_rating",
 			BrowserName: "browser_name",
 			PageURL:     "page_url",
-		},
-
-		AlloyBrowserMetrics: AlloyBrowserMetrics{
-			LCP:       "loki_process_custom_browser_web_vitals_lcp_milliseconds",
-			FCP:       "loki_process_custom_browser_web_vitals_fcp_milliseconds",
-			CLS:       "loki_process_custom_browser_web_vitals_cls",
-			INP:       "loki_process_custom_browser_web_vitals_inp_milliseconds",
-			TTFB:      "loki_process_custom_browser_web_vitals_ttfb_milliseconds",
-			PageLoads: "loki_process_custom_browser_page_loads_total",
-			Errors:    "loki_process_custom_browser_errors_total",
-			AppLabel:  "app_name",
-			Job:       "alloy-faro",
-			Lookback:  "30m",
 		},
 
 		AlloyHistogramMetrics: AlloyHistogramMetrics{
@@ -574,16 +516,6 @@ func (c *Config) ServerFilter(service, namespace string) string {
 // ErrorFilter appends status_code=ERROR to an existing filter string.
 func (c *Config) ErrorFilter(base string) string {
 	return base + fmt.Sprintf(`, %s="%s"`, c.Labels.StatusCode, c.StatusCodes.Error)
-}
-
-// AlloyFilter returns a PromQL label matcher for Alloy Faro metrics.
-// It matches by app_name, job, and optionally environment (k8s_cluster_name).
-func (c *Config) AlloyFilter(service, environment string) string {
-	f := fmt.Sprintf(`%s="%s", job="%s"`, c.AlloyBrowserMetrics.AppLabel, service, c.AlloyBrowserMetrics.Job)
-	if environment != "" {
-		f += fmt.Sprintf(`, %s="%s"`, c.Labels.DeploymentEnv, environment)
-	}
-	return f
 }
 
 // Rate wraps a metric{filter}[range] in a sum-by rate expression.
