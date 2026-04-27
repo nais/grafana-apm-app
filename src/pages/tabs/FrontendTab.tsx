@@ -77,12 +77,21 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
     return <SetupPlaceholder namespace={namespace} service={service} />;
   }
 
+  // Detect "instrumented but no recent data" — available=true with source set but no vitals
+  const noRecentData = !vitals || Object.keys(vitals).length === 0;
+
   // hasAllVitals only needed for legacy Mimir/Alloy views that still use conditional stat panels
   const REQUIRED_VITALS = ['lcp', 'fcp', 'cls', 'inp', 'ttfb'];
   const hasAllVitals = vitals != null && REQUIRED_VITALS.every((k) => k in vitals);
 
   return (
     <div className={styles.container}>
+      {noRecentData && (
+        <Alert severity="info" title="No recent measurements">
+          This service is instrumented but has no browser telemetry in the current time range. Try widening the time
+          range or wait for new traffic.
+        </Alert>
+      )}
       {(source === 'loki' || source === 'alloy-histogram') && (
         <UnifiedFrontendPanels source={source} service={service} environment={environment} vitals={vitals} />
       )}

@@ -209,8 +209,22 @@ func (a *App) queryFrontendFromAlloyHistogram(ctx context.Context, service, envi
 	// their dashboard. The unified frontend view handles partial data gracefully.
 	checkQ := fmt.Sprintf(`sum(increase(%s_bucket{%s, le="+Inf"}[6h]))`, h.LCP, filter)
 	results, err := a.prom(ctx).InstantQuery(ctx, checkQ, at)
-	if err != nil || len(results) == 0 || !isValidMetricValue(results[0].Value.Float()) || results[0].Value.Float() < 1 {
-		return FrontendMetricsResponse{Available: false}
+	hasRecentData := err == nil && len(results) > 0 && isValidMetricValue(results[0].Value.Float()) && results[0].Value.Float() >= 1
+
+	if !hasRecentData {
+		// No recent data — check if the metric series exists at all (instrumented but idle).
+		existsQ := fmt.Sprintf(`count(%s_bucket{%s})`, h.LCP, filter)
+		existsR, existsErr := a.prom(ctx).InstantQuery(ctx, existsQ, at)
+		if existsErr != nil || len(existsR) == 0 || existsR[0].Value.Float() == 0 {
+			// Metric doesn't exist → not instrumented at all.
+			return FrontendMetricsResponse{Available: false}
+		}
+		// Metric exists but no recent observations → instrumented but idle.
+		return FrontendMetricsResponse{
+			Available:     true,
+			Source:        "alloy-histogram",
+			MetricsSource: "alloy-histogram",
+		}
 	}
 
 	resp := FrontendMetricsResponse{
@@ -263,10 +277,10 @@ func (a *App) queryFrontendFromAlloyHistogram(ctx context.Context, service, envi
 
 	wg.Wait()
 
-	// If all vitals are NaN (e.g., no new measurements in the rate window),
-	// treat as unavailable so we fall through to Loki.
+	// If all vitals are NaN (e.g., sparse data in the window), return as instrumented
+	// but with no vitals — the frontend will show the dashboard with empty panels.
 	if len(resp.Vitals) == 0 {
-		return FrontendMetricsResponse{Available: false}
+		resp.Vitals = nil
 	}
 
 	return resp
