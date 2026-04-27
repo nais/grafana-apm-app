@@ -85,16 +85,17 @@ export const otel = {
     lookback: '30m',
   },
 
-  /** Faro histogram metrics from improved Alloy pipeline. */
+  /** Faro histogram metrics from improved Alloy pipeline.
+   * The loki_process_custom_ prefix is hardcoded by Alloy's loki.process stage. */
   alloyHistogram: {
-    lcp: 'faro_web_vitals_lcp_milliseconds',
-    fcp: 'faro_web_vitals_fcp_milliseconds',
-    cls: 'faro_web_vitals_cls',
-    inp: 'faro_web_vitals_inp_milliseconds',
-    ttfb: 'faro_web_vitals_ttfb_milliseconds',
-    pageLoads: 'faro_web_vital_measurements_total',
-    pageLoadsByNav: 'faro_web_vital_measurements_by_nav_total',
-    errors: 'faro_errors_total',
+    lcp: 'loki_process_custom_faro_web_vitals_lcp_milliseconds',
+    fcp: 'loki_process_custom_faro_web_vitals_fcp_milliseconds',
+    cls: 'loki_process_custom_faro_web_vitals_cls',
+    inp: 'loki_process_custom_faro_web_vitals_inp_milliseconds',
+    ttfb: 'loki_process_custom_faro_web_vitals_ttfb_milliseconds',
+    pageLoads: 'loki_process_custom_faro_web_vital_measurements_total',
+    pageLoadsByNav: 'loki_process_custom_faro_web_vital_measurements_by_nav_total',
+    errors: 'loki_process_custom_faro_errors_total',
     appLabel: 'app_name',
     envLabel: 'env',
     browserLabel: 'browser_name',
