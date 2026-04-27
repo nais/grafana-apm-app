@@ -204,10 +204,10 @@ func (a *App) queryFrontendFromAlloyHistogram(ctx context.Context, service, envi
 	h := a.otelCfg.AlloyHistogramMetrics
 	filter := a.otelCfg.AlloyHistogramFilter(service, environment)
 
-	// Detection: check that any histogram data exists (at least 1 observation in the last hour).
-	// The unified frontend view renders the same layout regardless of sample count,
-	// so even sparse data is usable.
-	checkQ := fmt.Sprintf(`sum(increase(%s_bucket{%s, le="+Inf"}[1h]))`, h.LCP, filter)
+	// Detection: check that any histogram data exists (at least 1 observation in the last 6 hours).
+	// Use a wide window so apps with sparse traffic (e.g., dev environments) still show
+	// their dashboard. The unified frontend view handles partial data gracefully.
+	checkQ := fmt.Sprintf(`sum(increase(%s_bucket{%s, le="+Inf"}[6h]))`, h.LCP, filter)
 	results, err := a.prom(ctx).InstantQuery(ctx, checkQ, at)
 	if err != nil || len(results) == 0 || !isValidMetricValue(results[0].Value.Float()) || results[0].Value.Float() < 1 {
 		return FrontendMetricsResponse{Available: false}
@@ -232,13 +232,13 @@ func (a *App) queryFrontendFromAlloyHistogram(ctx context.Context, service, envi
 	var mu sync.Mutex
 
 	// Compute p75 for each vital using histogram_quantile.
-	// Use increase over 1h for the detection/stat value — rate with a short window
-	// often returns 0 for apps with sporadic traffic.
+	// Use increase over 6h to match the detection window — this ensures bullet charts
+	// show meaningful values even for apps with sporadic traffic.
 	for key, metric := range vitalMetrics {
 		wg.Add(1)
 		go func(k, m string) {
 			defer wg.Done()
-			q := fmt.Sprintf(`histogram_quantile(0.75, sum(increase(%s_bucket{%s}[1h])) by (le))`, m, filter)
+			q := fmt.Sprintf(`histogram_quantile(0.75, sum(increase(%s_bucket{%s}[6h])) by (le))`, m, filter)
 			r, err := a.prom(ctx).InstantQuery(ctx, q, at)
 			if err == nil && len(r) > 0 && isValidMetricValue(r[0].Value.Float()) {
 				mu.Lock()
@@ -252,7 +252,7 @@ func (a *App) queryFrontendFromAlloyHistogram(ctx context.Context, service, envi
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		errQ := fmt.Sprintf(`sum(rate(%s{%s}[1h]))`, h.Errors, filter)
+		errQ := fmt.Sprintf(`sum(rate(%s{%s}[6h]))`, h.Errors, filter)
 		r, err := a.prom(ctx).InstantQuery(ctx, errQ, at)
 		if err == nil && len(r) > 0 && isValidMetricValue(r[0].Value.Float()) {
 			mu.Lock()
