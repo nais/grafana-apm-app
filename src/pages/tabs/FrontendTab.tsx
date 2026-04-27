@@ -24,7 +24,7 @@ import { usePluginDatasources } from '../../utils/datasources';
 import { useTimeRange } from '../../utils/timeRange';
 import { sanitizeLabelValue } from '../../utils/sanitize';
 import { otel } from '../../otelconfig';
-import { buildExploreUrl } from '../../utils/explore';
+import { PLUGIN_BASE_URL } from '../../constants';
 import { BulletGraph, BulletGraphThreshold } from '../../components/BulletGraph';
 
 interface FrontendTabProps {
@@ -93,7 +93,13 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
         </Alert>
       )}
       {(source === 'loki' || source === 'alloy-histogram') && (
-        <UnifiedFrontendPanels source={source} service={service} environment={environment} vitals={vitals} />
+        <UnifiedFrontendPanels
+          source={source}
+          service={service}
+          namespace={namespace}
+          environment={environment}
+          vitals={vitals}
+        />
       )}
       {source === 'mimir' && (
         <MimirWebVitalsPanels
@@ -390,11 +396,13 @@ function lokiMeasurementCountExpr(service: string, window: string): string {
 function UnifiedFrontendPanels({
   source,
   service,
+  namespace,
   environment,
   vitals,
 }: {
   source: 'loki' | 'alloy-histogram';
   service: string;
+  namespace: string;
   environment?: string;
   vitals?: Record<string, number>;
 }) {
@@ -416,62 +424,7 @@ function UnifiedFrontendPanels({
     const lDs = { uid: ds.logsUid };
     const mDs = { uid: ds.metricsUid };
 
-    // --- Row 1: Overview stats (page views, sessions, errors) ---
-    let pageViewsQ: SceneQueryRunner;
-    let errorsStatQ: SceneQueryRunner;
-
-    if (isHistogram) {
-      pageViewsQ = makePromQuery(mDs, `sum(increase(${ah.pageLoads}{${svcFilter}}[$__range]))`, 'Page Views', {
-        instant: true,
-      });
-      errorsStatQ = makePromQuery(mDs, `sum(increase(${ah.errors}{${svcFilter}}[$__range]))`, 'Errors', {
-        instant: true,
-      });
-    } else {
-      pageViewsQ = makeLokiQuery(lDs, lokiMeasurementCountExpr(service, '[$__range]'), 'Page Views', { instant: true });
-      errorsStatQ = makeLokiQuery(lDs, lokiExceptionExpr(service, '[$__range]'), 'Errors', { instant: true });
-    }
-    const sessionsStatQ = makeLokiQuery(lDs, lokiSessionStartExpr(service, '[$__range]'), 'Sessions', {
-      instant: true,
-    });
-
-    const overviewRow = new SceneFlexLayout({
-      direction: 'row',
-      children: [
-        new SceneFlexItem({
-          minHeight: 100,
-          body: PanelBuilders.stat()
-            .setTitle('Page Views')
-            .setDescription('Total Web Vitals measurements in time range')
-            .setData(pageViewsQ)
-            .setUnit('short')
-            .setColor({ mode: 'fixed', fixedColor: 'blue' } as any)
-            .build(),
-        }),
-        new SceneFlexItem({
-          minHeight: 100,
-          body: PanelBuilders.stat()
-            .setTitle('Sessions')
-            .setDescription('Unique user sessions started in time range')
-            .setData(sessionsStatQ)
-            .setUnit('short')
-            .setColor({ mode: 'fixed', fixedColor: 'purple' } as any)
-            .build(),
-        }),
-        new SceneFlexItem({
-          minHeight: 100,
-          body: PanelBuilders.stat()
-            .setTitle('JS Errors')
-            .setDescription('Total JavaScript exceptions in time range')
-            .setData(errorsStatQ)
-            .setUnit('short')
-            .setColor({ mode: 'fixed', fixedColor: 'red' } as any)
-            .build(),
-        }),
-      ],
-    });
-
-    // --- Row 3: Web Vitals time series trends ---
+    // --- Section 1: Web Vitals time series trends ---
     let pageLoadVitalsQ: SceneQueryRunner;
     let inpTrendQ: SceneQueryRunner;
     let clsTrendQ: SceneQueryRunner;
@@ -682,7 +635,7 @@ function UnifiedFrontendPanels({
       minHeight: 300,
       body: PanelBuilders.table()
         .setTitle('Top Exceptions')
-        .setDescription('Most frequent JS exceptions — click an error to explore in Loki')
+        .setDescription('Most frequent JS exceptions — click to view in Logs tab')
         .setData(topExceptionsData)
         .setOverrides((b) => {
           b.matchFieldsWithName('value').overrideDisplayName('Error').overrideCustomFieldConfig('width', 500);
@@ -691,18 +644,9 @@ function UnifiedFrontendPanels({
           b.matchFieldsWithName('Time').overrideCustomFieldConfig('hidden' as any, true);
           b.matchFieldsWithName('value').overrideLinks([
             {
-              title: 'Explore in Loki',
-              url: buildExploreUrl({
-                datasourceUid: ds.logsUid,
-                queries: [
-                  {
-                    refId: 'A',
-                    expr: `{${otel.faroLoki.serviceName}="${sanitizeLabelValue(service)}", ${otel.faroLoki.kind}="${otel.faroLoki.kindException}"} | logfmt | value=\`\${__data.fields.value}\``,
-                  },
-                ],
-                range: { from: '${__from:date:iso}', to: '${__to:date:iso}' },
-              }),
-              targetBlank: true,
+              title: 'View in Logs',
+              url: `${PLUGIN_BASE_URL}/services/${encodeURIComponent(namespace)}/${encodeURIComponent(service)}/logs?from=\${__from}&to=\${__to}`,
+              targetBlank: false,
             } as any,
           ]);
         })
@@ -722,41 +666,6 @@ function UnifiedFrontendPanels({
           b.matchFieldsWithName('value').overrideDisplayName('Error Message');
           b.matchFieldsWithName('Value').overrideDisplayName('Count');
           b.matchFieldsWithName('Time').overrideCustomFieldConfig('hidden' as any, true);
-        })
-        .build(),
-    });
-
-    const errorsRow = new SceneFlexLayout({
-      direction: 'row',
-      children: [topExceptionsPanel, consoleErrorsPanel],
-    });
-
-    // --- Row 6: Rating Distribution + Browser Breakdown ---
-    const fl = otel.faroLoki;
-    const ratingStream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindMeasurement}"}`;
-    const ratingQ = makeLokiQuery(
-      lDs,
-      `sum by (${fl.rating}) (count_over_time(${ratingStream} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" | ${fl.rating}!="" ${BROWSER_FILTER} | keep ${fl.rating} [$__range]))`,
-      `{{${fl.rating}}}`,
-      { instant: true }
-    );
-    const ratingData = new SceneDataTransformer({
-      $data: ratingQ,
-      transformations: [
-        { id: 'reduce', options: { reducers: ['sum'] } },
-        { id: 'organize', options: { excludeByName: { Field: true }, renameByName: { Sum: '' } } },
-      ],
-    });
-    const ratingPanel = new SceneFlexItem({
-      minHeight: 250,
-      body: PanelBuilders.piechart()
-        .setTitle('Web Vitals Rating Distribution')
-        .setDescription('Distribution of good / needs-improvement / poor ratings')
-        .setData(ratingData)
-        .setOverrides((b) => {
-          b.matchFieldsWithName('good').overrideColor({ mode: 'fixed', fixedColor: 'green' });
-          b.matchFieldsWithName('needs-improvement').overrideColor({ mode: 'fixed', fixedColor: 'orange' });
-          b.matchFieldsWithName('poor').overrideColor({ mode: 'fixed', fixedColor: 'red' });
         })
         .build(),
     });
@@ -820,9 +729,44 @@ function UnifiedFrontendPanels({
         .build(),
     });
 
+    const errorsRow = new SceneFlexLayout({
+      direction: 'row',
+      children: [topExceptionsPanel, browserTable],
+    });
+
+    // --- Section 4: Rating Distribution + Console Errors ---
+    const fl = otel.faroLoki;
+    const ratingStream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindMeasurement}"}`;
+    const ratingQ = makeLokiQuery(
+      lDs,
+      `sum by (${fl.rating}) (count_over_time(${ratingStream} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" | ${fl.rating}!="" ${BROWSER_FILTER} | keep ${fl.rating} [$__range]))`,
+      `{{${fl.rating}}}`,
+      { instant: true }
+    );
+    const ratingData = new SceneDataTransformer({
+      $data: ratingQ,
+      transformations: [
+        { id: 'reduce', options: { reducers: ['sum'] } },
+        { id: 'organize', options: { excludeByName: { Field: true }, renameByName: { Sum: '' } } },
+      ],
+    });
+    const ratingPanel = new SceneFlexItem({
+      minHeight: 250,
+      body: PanelBuilders.piechart()
+        .setTitle('Web Vitals Rating Distribution')
+        .setDescription('Distribution of good / needs-improvement / poor ratings')
+        .setData(ratingData)
+        .setOverrides((b) => {
+          b.matchFieldsWithName('good').overrideColor({ mode: 'fixed', fixedColor: 'green' });
+          b.matchFieldsWithName('needs-improvement').overrideColor({ mode: 'fixed', fixedColor: 'orange' });
+          b.matchFieldsWithName('poor').overrideColor({ mode: 'fixed', fixedColor: 'red' });
+        })
+        .build(),
+    });
+
     const supportRow = new SceneFlexLayout({
       direction: 'row',
-      children: [ratingPanel, browserTable],
+      children: [ratingPanel, consoleErrorsPanel],
     });
 
     // --- Row 7: Traffic trends over time ---
@@ -903,18 +847,10 @@ function UnifiedFrontendPanels({
       controls: [new VariableValueSelectors({}), new SceneTimePicker({}), new SceneRefreshPicker({})],
       body: new SceneFlexLayout({
         direction: 'column',
-        children: [
-          ...(bulletsItem ? [bulletsItem] : []),
-          overviewRow,
-          perPageTable,
-          trendsRow,
-          errorsRow,
-          supportRow,
-          trafficRow,
-        ],
+        children: [...(bulletsItem ? [bulletsItem] : []), trendsRow, errorsRow, perPageTable, trafficRow, supportRow],
       }),
     });
-  }, [from, to, ds, service, svcFilter, ah, isHistogram, vitals]);
+  }, [from, to, ds, service, namespace, svcFilter, ah, isHistogram, vitals]);
 
   return <scene.Component model={scene} />;
 }
