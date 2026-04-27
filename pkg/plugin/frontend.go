@@ -259,6 +259,12 @@ func (a *App) queryFrontendFromAlloyHistogram(ctx context.Context, service, envi
 
 	wg.Wait()
 
+	// If all vitals are NaN (e.g., no new measurements in the rate window),
+	// treat as unavailable so we fall through to Loki.
+	if len(resp.Vitals) == 0 {
+		return FrontendMetricsResponse{Available: false}
+	}
+
 	return resp
 }
 
