@@ -93,10 +93,12 @@ export const otel = {
     inp: 'faro_web_vitals_inp_milliseconds',
     ttfb: 'faro_web_vitals_ttfb_milliseconds',
     pageLoads: 'faro_page_loads_total',
+    pageLoadsByNav: 'faro_page_loads_by_nav_total',
     errors: 'faro_errors_total',
-    sessions: 'faro_sessions_total',
     appLabel: 'app_name',
     envLabel: 'env',
+    browserLabel: 'browser_name',
+    navTypeLabel: 'nav_type',
     job: 'alloy-faro',
   },
 

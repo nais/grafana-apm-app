@@ -124,17 +124,19 @@ type AlloyBrowserMetrics struct {
 // gauges, enabling proper percentile computation. The base metric name is
 // stored; "_bucket" suffix is appended in queries.
 type AlloyHistogramMetrics struct {
-	LCP       string // base name for histogram (e.g. "faro_web_vitals_lcp_milliseconds")
-	FCP       string
-	CLS       string
-	INP       string
-	TTFB      string
-	PageLoads string // counter: page loads total
-	Errors    string // counter: errors total
-	Sessions  string // counter: sessions total
-	AppLabel  string // label for app name (e.g. "app_name")
-	EnvLabel  string // label for environment (e.g. "env")
-	Job       string // job label for filtering (e.g. "alloy-faro")
+	LCP            string // base name for histogram (e.g. "faro_web_vitals_lcp_milliseconds")
+	FCP            string
+	CLS            string
+	INP            string
+	TTFB           string
+	PageLoads      string // counter: page loads total (labels: app_name, env, browser_name)
+	PageLoadsByNav string // counter: page loads by navigation type (labels: app_name, env, nav_type)
+	Errors         string // counter: errors total
+	AppLabel       string // label for app name (e.g. "app_name")
+	EnvLabel       string // label for environment (e.g. "env")
+	BrowserLabel   string // label for browser on page_loads counter
+	NavTypeLabel   string // label for navigation type on page_loads_by_nav counter
+	Job            string // job label for filtering (e.g. "alloy-faro")
 }
 
 // ---------------------------------------------------------------------------
@@ -434,17 +436,19 @@ func Default() Config {
 		},
 
 		AlloyHistogramMetrics: AlloyHistogramMetrics{
-			LCP:       "faro_web_vitals_lcp_milliseconds",
-			FCP:       "faro_web_vitals_fcp_milliseconds",
-			CLS:       "faro_web_vitals_cls",
-			INP:       "faro_web_vitals_inp_milliseconds",
-			TTFB:      "faro_web_vitals_ttfb_milliseconds",
-			PageLoads: "faro_page_loads_total",
-			Errors:    "faro_errors_total",
-			Sessions:  "faro_sessions_total",
-			AppLabel:  "app_name",
-			EnvLabel:  "env",
-			Job:       "alloy-faro",
+			LCP:            "faro_web_vitals_lcp_milliseconds",
+			FCP:            "faro_web_vitals_fcp_milliseconds",
+			CLS:            "faro_web_vitals_cls",
+			INP:            "faro_web_vitals_inp_milliseconds",
+			TTFB:           "faro_web_vitals_ttfb_milliseconds",
+			PageLoads:      "faro_page_loads_total",
+			PageLoadsByNav: "faro_page_loads_by_nav_total",
+			Errors:         "faro_errors_total",
+			AppLabel:       "app_name",
+			EnvLabel:       "env",
+			BrowserLabel:   "browser_name",
+			NavTypeLabel:   "nav_type",
+			Job:            "alloy-faro",
 		},
 
 		ServiceGraph: ServiceGraph{

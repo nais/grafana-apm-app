@@ -1482,6 +1482,38 @@ function HistogramWebVitalsPanels({
       ],
     });
 
+    // --- Row 5: Browser distribution from counter metrics ---
+    const browserPieQ = makePromQuery(
+      mDs,
+      `sum by (${ah.browserLabel}) (increase(${ah.pageLoads}{${svcFilter}}[$__range]))`,
+      '{{browser_name}}'
+    );
+    const browserPie = new SceneFlexItem({
+      minHeight: 200,
+      body: PanelBuilders.piechart()
+        .setTitle('Browser Distribution')
+        .setDescription('Page loads by browser (from metrics counter)')
+        .setData(browserPieQ)
+        .build(),
+    });
+
+    // Navigation type distribution
+    const navPieQ = makePromQuery(
+      mDs,
+      `sum by (${ah.navTypeLabel}) (increase(${ah.pageLoadsByNav}{${svcFilter}}[$__range]))`,
+      '{{nav_type}}'
+    );
+    const navPie = new SceneFlexItem({
+      minHeight: 200,
+      body: PanelBuilders.piechart()
+        .setTitle('Navigation Type')
+        .setDescription('Page loads by navigation type (navigate, reload, back-forward)')
+        .setData(navPieQ)
+        .build(),
+    });
+
+    const breakdownRow = new SceneFlexLayout({ direction: 'row', children: [browserPie, navPie] });
+
     // --- Loki-backed enrichment rows (only if Loki data available) ---
     const lokiRows: Array<SceneFlexLayout | SceneFlexItem> = [];
 
@@ -1611,55 +1643,6 @@ function HistogramWebVitalsPanels({
           ],
         })
       );
-
-      // Browser Breakdown
-      const browserQ = new SceneQueryRunner({
-        datasource: { uid: ds.logsUid, type: 'loki' },
-        queries: [
-          {
-            refId: 'lcp',
-            expr: lokiVitalByGroupExpr(service, otel.faroLoki.lcp, otel.faroLoki.browserName, '[$__range]'),
-            legendFormat: '__auto',
-            format: 'table',
-            instant: true,
-          },
-          {
-            refId: 'fcp',
-            expr: lokiVitalByGroupExpr(service, otel.faroLoki.fcp, otel.faroLoki.browserName, '[$__range]'),
-            legendFormat: '__auto',
-            format: 'table',
-            instant: true,
-          },
-        ],
-      });
-      const browserData = new SceneDataTransformer({
-        $data: browserQ,
-        transformations: [{ id: 'merge', options: {} }],
-      });
-      lokiRows.push(
-        new SceneFlexItem({
-          minHeight: 200,
-          body: PanelBuilders.table()
-            .setTitle('Browser Breakdown')
-            .setDescription('Average Web Vitals by browser (from Loki)')
-            .setData(browserData)
-            .setOverrides((b) => {
-              b.matchFieldsWithName(otel.faroLoki.browserName).overrideDisplayName('Browser');
-              b.matchFieldsWithName('Value #lcp')
-                .overrideDisplayName('Avg LCP (ms)')
-                .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.lcp })
-                .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
-                .overrideDecimals(0);
-              b.matchFieldsWithName('Value #fcp')
-                .overrideDisplayName('Avg FCP (ms)')
-                .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.fcp })
-                .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
-                .overrideDecimals(0);
-              b.matchFieldsWithName('Time').overrideCustomFieldConfig('hidden' as any, true);
-            })
-            .build(),
-        })
-      );
     }
 
     const bulletsItem = vitals
@@ -1680,6 +1663,7 @@ function HistogramWebVitalsPanels({
           overviewRow,
           trendsRow,
           trafficRow,
+          breakdownRow,
           ...lokiRows,
         ],
       }),
