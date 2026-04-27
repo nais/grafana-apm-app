@@ -13,12 +13,11 @@ export const PLUGIN_ROOT = `/a/${PLUGIN_ID}`;
  * that block plugin content. Idempotent — safe to call multiple times.
  */
 export async function dismissOverlays(page: Page): Promise<void> {
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('load');
   const closeBtn = page.locator('button[aria-label="Close"]').first();
   try {
     await closeBtn.waitFor({ state: 'visible', timeout: 3000 });
     await closeBtn.click();
-    // Wait until the overlay is actually gone
     await closeBtn.waitFor({ state: 'hidden', timeout: 2000 });
   } catch {
     // No overlay present — nothing to dismiss
