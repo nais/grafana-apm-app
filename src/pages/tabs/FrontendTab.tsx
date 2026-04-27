@@ -33,7 +33,7 @@ interface FrontendTabProps {
   environment?: string;
 }
 
-type FrontendSource = 'mimir' | 'loki';
+type FrontendSource = 'mimir' | 'loki' | 'alloy';
 
 export function FrontendTab({ service, namespace, environment }: FrontendTabProps) {
   const styles = useStyles2(getStyles);
@@ -96,6 +96,14 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
         <MimirWebVitalsPanels
           service={service}
           namespace={namespace}
+          environment={environment}
+          showVitalsRow={!hasAllVitals}
+          vitals={hasAllVitals ? vitals : undefined}
+        />
+      )}
+      {source === 'alloy' && (
+        <AlloyWebVitalsPanels
+          service={service}
           environment={environment}
           showVitalsRow={!hasAllVitals}
           vitals={hasAllVitals ? vitals : undefined}
@@ -1231,6 +1239,200 @@ function MimirWebVitalsPanels({
       }),
     });
   }, [from, to, ds, svcFilter, showVitalsRow, vitals]);
+
+  return <scene.Component model={scene} />;
+}
+
+// ========================================================================
+// Alloy Faro pipeline panels (loki_process_custom_* metrics in Mimir)
+// ========================================================================
+
+function AlloyWebVitalsPanels({
+  service,
+  environment,
+  showVitalsRow = true,
+  vitals,
+}: {
+  service: string;
+  environment?: string;
+  showVitalsRow?: boolean;
+  vitals?: Record<string, number>;
+}) {
+  const ds = usePluginDatasources(environment || undefined);
+  const { from, to } = useTimeRange();
+
+  const ab = otel.alloyBrowser;
+  const envLabel = otel.labels.deploymentEnv;
+  const svcFilter = environment
+    ? `${ab.appLabel}="${sanitizeLabelValue(service)}", job="${ab.job}", ${envLabel}="${sanitizeLabelValue(environment)}"`
+    : `${ab.appLabel}="${sanitizeLabelValue(service)}", job="${ab.job}"`;
+  const lookback = ab.lookback;
+
+  const scene = useMemo(() => {
+    const timeRange = new SceneTimeRange({ from, to });
+    const mDs = { uid: ds.metricsUid };
+
+    // --- Row 1: Core Web Vitals stat panels (use last_over_time for sparse gauges) ---
+    const lcpQ = makePromQuery(mDs, `avg(last_over_time(${ab.lcp}{${svcFilter}}[${lookback}]))`, 'LCP', {
+      instant: true,
+    });
+    const fcpQ = makePromQuery(mDs, `avg(last_over_time(${ab.fcp}{${svcFilter}}[${lookback}]))`, 'FCP', {
+      instant: true,
+    });
+    const clsQ = makePromQuery(mDs, `avg(last_over_time(${ab.cls}{${svcFilter}}[${lookback}]))`, 'CLS', {
+      instant: true,
+    });
+    const inpQ = makePromQuery(mDs, `avg(last_over_time(${ab.inp}{${svcFilter}}[${lookback}]))`, 'INP', {
+      instant: true,
+    });
+    const ttfbQ = makePromQuery(mDs, `avg(last_over_time(${ab.ttfb}{${svcFilter}}[${lookback}]))`, 'TTFB', {
+      instant: true,
+    });
+
+    const vitalsRow = new SceneFlexLayout({
+      direction: 'row',
+      children: [
+        new SceneFlexItem({
+          minHeight: 130,
+          body: statPanel('LCP', 'Largest Contentful Paint — target < 2500ms', lcpQ, 'ms', VITAL_THRESHOLDS.lcp),
+        }),
+        new SceneFlexItem({
+          minHeight: 130,
+          body: statPanel('FCP', 'First Contentful Paint — target < 1800ms', fcpQ, 'ms', VITAL_THRESHOLDS.fcp),
+        }),
+        new SceneFlexItem({
+          minHeight: 130,
+          body: statPanel('CLS', 'Cumulative Layout Shift — target < 0.1', clsQ, 'none', VITAL_THRESHOLDS.cls, 3),
+        }),
+        new SceneFlexItem({
+          minHeight: 130,
+          body: statPanel('INP', 'Interaction to Next Paint — target < 200ms', inpQ, 'ms', VITAL_THRESHOLDS.inp),
+        }),
+        new SceneFlexItem({
+          minHeight: 130,
+          body: statPanel('TTFB', 'Time to First Byte — target < 800ms', ttfbQ, 'ms', VITAL_THRESHOLDS.ttfb),
+        }),
+      ],
+    });
+
+    // --- Row 2: Web Vitals time series (range vectors with last_over_time) ---
+    const pageLoadVitalsQ = new SceneQueryRunner({
+      datasource: { uid: ds.metricsUid, type: 'prometheus' },
+      queries: [
+        {
+          refId: 'A',
+          expr: `avg(last_over_time(${ab.ttfb}{${svcFilter}}[${lookback}]))`,
+          legendFormat: 'TTFB',
+        },
+        {
+          refId: 'B',
+          expr: `avg(last_over_time(${ab.fcp}{${svcFilter}}[${lookback}]))`,
+          legendFormat: 'FCP',
+        },
+        {
+          refId: 'C',
+          expr: `avg(last_over_time(${ab.lcp}{${svcFilter}}[${lookback}]))`,
+          legendFormat: 'LCP',
+        },
+      ],
+    });
+    const inpTrendQ = makePromQuery(mDs, `avg(last_over_time(${ab.inp}{${svcFilter}}[${lookback}]))`, 'INP');
+    const clsTrendQ = makePromQuery(mDs, `avg(last_over_time(${ab.cls}{${svcFilter}}[${lookback}]))`, 'CLS');
+
+    const trendsRow = new SceneFlexLayout({
+      direction: 'row',
+      children: [
+        new SceneFlexItem({
+          minHeight: 200,
+          body: PanelBuilders.timeseries()
+            .setTitle('Page Load Vitals')
+            .setDescription('TTFB → FCP → LCP loading sequence over time')
+            .setData(pageLoadVitalsQ)
+            .setUnit('ms')
+            .build(),
+        }),
+        new SceneFlexItem({
+          minHeight: 200,
+          body: PanelBuilders.timeseries()
+            .setTitle('Interactivity (INP)')
+            .setDescription('Interaction to Next Paint trend')
+            .setData(inpTrendQ)
+            .setUnit('ms')
+            .setCustomFieldConfig('thresholdsStyle', { mode: GraphThresholdsStyleMode.Area })
+            .setThresholds({
+              mode: ThresholdsMode.Absolute,
+              steps: VITAL_THRESHOLDS.inp,
+            })
+            .build(),
+        }),
+        new SceneFlexItem({
+          minHeight: 200,
+          body: PanelBuilders.timeseries()
+            .setTitle('Layout Stability (CLS)')
+            .setDescription('Cumulative Layout Shift trend')
+            .setData(clsTrendQ)
+            .setUnit('none')
+            .setDecimals(3)
+            .setCustomFieldConfig('thresholdsStyle', { mode: GraphThresholdsStyleMode.Area })
+            .setThresholds({
+              mode: ThresholdsMode.Absolute,
+              steps: VITAL_THRESHOLDS.cls,
+            })
+            .build(),
+        }),
+      ],
+    });
+
+    // --- Row 3: Page Loads + JS Errors over time ---
+    const pageLoadsQ = makePromQuery(mDs, `sum(rate(${ab.pageLoads}{${svcFilter}}[${lookback}]))`, 'Page Loads/s', {
+      minInterval: '1m',
+    });
+    const errQ = makePromQuery(mDs, `sum(rate(${ab.errors}{${svcFilter}}[${lookback}]))`, 'JS Errors/s', {
+      minInterval: '1m',
+    });
+
+    const trafficRow = new SceneFlexLayout({
+      direction: 'row',
+      children: [
+        new SceneFlexItem({
+          minHeight: 200,
+          body: PanelBuilders.timeseries()
+            .setTitle('Page Loads')
+            .setDescription('Page load rate over time')
+            .setData(pageLoadsQ)
+            .setUnit('short')
+            .setCustomFieldConfig('fillOpacity', 30)
+            .build(),
+        }),
+        new SceneFlexItem({
+          minHeight: 200,
+          body: PanelBuilders.timeseries()
+            .setTitle('JavaScript Errors')
+            .setDescription('JS error rate over time')
+            .setData(errQ)
+            .setUnit('short')
+            .setCustomFieldConfig('fillOpacity', 15)
+            .build(),
+        }),
+      ],
+    });
+
+    const bulletsItem = vitals
+      ? new SceneFlexItem({
+          body: new SceneReactObject({ reactNode: <WebVitalsBullets vitals={vitals} /> }),
+        })
+      : null;
+
+    return new EmbeddedScene({
+      $timeRange: timeRange,
+      $behaviors: [new behaviors.CursorSync({ sync: DashboardCursorSync.Crosshair })],
+      controls: [new SceneTimePicker({}), new SceneRefreshPicker({})],
+      body: new SceneFlexLayout({
+        direction: 'column',
+        children: [...(bulletsItem ? [bulletsItem] : []), ...(showVitalsRow ? [vitalsRow] : []), trendsRow, trafficRow],
+      }),
+    });
+  }, [from, to, ds, svcFilter, lookback, ab, showVitalsRow, vitals]);
 
   return <scene.Component model={scene} />;
 }

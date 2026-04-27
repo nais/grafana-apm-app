@@ -71,6 +71,20 @@ export const otel = {
     browserName: 'browser_name',
   },
 
+  /** Faro telemetry from Grafana Alloy pipeline (loki.process custom metrics). */
+  alloyBrowser: {
+    lcp: 'loki_process_custom_browser_web_vitals_lcp_milliseconds',
+    fcp: 'loki_process_custom_browser_web_vitals_fcp_milliseconds',
+    cls: 'loki_process_custom_browser_web_vitals_cls',
+    inp: 'loki_process_custom_browser_web_vitals_inp_milliseconds',
+    ttfb: 'loki_process_custom_browser_web_vitals_ttfb_milliseconds',
+    pageLoads: 'loki_process_custom_browser_page_loads_total',
+    errors: 'loki_process_custom_browser_errors_total',
+    appLabel: 'app_name',
+    job: 'alloy-faro',
+    lookback: '30m',
+  },
+
   /** Faro telemetry stored as structured logs in Loki (logfmt format). */
   faroLoki: {
     // Stream labels

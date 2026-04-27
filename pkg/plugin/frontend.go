@@ -31,7 +31,7 @@ func (a *App) handleFrontendMetrics(w http.ResponseWriter, req *http.Request) {
 // FrontendMetricsResponse → models.go
 
 func (a *App) queryFrontendMetrics(ctx context.Context, namespace, service, env string, at time.Time, headers http.Header) FrontendMetricsResponse {
-	// 1. Try Mimir first
+	// 1. Try Mimir first (standard Faro SDK metrics)
 	if a.promClient != nil {
 		resp := a.queryFrontendFromMimir(ctx, namespace, service, env, at)
 		if resp.Available {
@@ -39,7 +39,15 @@ func (a *App) queryFrontendMetrics(ctx context.Context, namespace, service, env 
 		}
 	}
 
-	// 2. Fall back to Loki (Faro structured logs)
+	// 2. Try Alloy Faro pipeline metrics (loki_process_custom_* prefix)
+	if a.promClient != nil {
+		resp := a.queryFrontendFromAlloy(ctx, service, env, at)
+		if resp.Available {
+			return resp
+		}
+	}
+
+	// 3. Fall back to Loki (Faro structured logs)
 	lokiResp := a.queryFrontendFromLoki(ctx, service, env, at, headers)
 	if lokiResp.Available {
 		return lokiResp
@@ -97,6 +105,70 @@ func (a *App) queryFrontendFromMimir(ctx context.Context, namespace, service, en
 	go func() {
 		defer wg.Done()
 		errQ := fmt.Sprintf(`sum(rate(%s{%s}[5m]))`, a.otelCfg.BrowserMetrics.Errors, filter)
+		r, err := a.prom(ctx).InstantQuery(ctx, errQ, at)
+		if err == nil && len(r) > 0 {
+			mu.Lock()
+			resp.ErrorRate = roundTo(r[0].Value.Float(), 4)
+			mu.Unlock()
+		}
+	}()
+
+	wg.Wait()
+
+	return resp
+}
+
+// queryFrontendFromAlloy checks Prometheus/Mimir for Alloy Faro pipeline metrics.
+// These use "loki_process_custom_" prefix and "app_name" label instead of "service_name".
+// Samples are sparse (5–15 min intervals), so we use last_over_time with a wide lookback.
+func (a *App) queryFrontendFromAlloy(ctx context.Context, service, environment string, at time.Time) FrontendMetricsResponse {
+	alloy := a.otelCfg.AlloyBrowserMetrics
+	filter := a.otelCfg.AlloyFilter(service, environment)
+	lookback := alloy.Lookback
+
+	// Detection: check if any LCP data exists within the lookback window
+	checkQ := fmt.Sprintf(`count(last_over_time(%s{%s}[%s]))`, alloy.LCP, filter, lookback)
+	results, err := a.prom(ctx).InstantQuery(ctx, checkQ, at)
+	if err != nil || len(results) == 0 || results[0].Value.Float() == 0 {
+		return FrontendMetricsResponse{Available: false}
+	}
+
+	resp := FrontendMetricsResponse{
+		Available: true,
+		Source:    "alloy",
+		Vitals:    make(map[string]float64),
+	}
+
+	vitalMetrics := map[string]string{
+		"lcp":  alloy.LCP,
+		"fcp":  alloy.FCP,
+		"cls":  alloy.CLS,
+		"inp":  alloy.INP,
+		"ttfb": alloy.TTFB,
+	}
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+	for key, metric := range vitalMetrics {
+		wg.Add(1)
+		go func(k, m string) {
+			defer wg.Done()
+			q := fmt.Sprintf(`avg(last_over_time(%s{%s}[%s]))`, m, filter, lookback)
+			r, err := a.prom(ctx).InstantQuery(ctx, q, at)
+			if err == nil && len(r) > 0 {
+				mu.Lock()
+				resp.Vitals[k] = roundTo(r[0].Value.Float(), 2)
+				mu.Unlock()
+			}
+		}(key, metric)
+	}
+
+	// Error rate: use increase over a wider window due to sparse samples
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		errQ := fmt.Sprintf(`sum(increase(%s{%s}[%s])) / %d`, alloy.Errors, filter, lookback, 1800)
 		r, err := a.prom(ctx).InstantQuery(ctx, errQ, at)
 		if err == nil && len(r) > 0 {
 			mu.Lock()
