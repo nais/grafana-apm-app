@@ -39,18 +39,20 @@ func (a *App) queryFrontendMetrics(ctx context.Context, namespace, service, env 
 		}
 	}
 
-	// 2. Try Alloy Faro pipeline metrics (loki_process_custom_* prefix)
+	// 2. Try Loki (Faro structured logs — proper weighted mean across all measurements)
+	lokiResp := a.queryFrontendFromLoki(ctx, service, env, at, headers)
+	if lokiResp.Available {
+		return lokiResp
+	}
+
+	// 3. Fall back to Alloy Faro pipeline metrics (loki_process_custom_* prefix).
+	// These gauges are last-writer-wins (only ~10 samples/hr vs thousands of actual
+	// measurements), so data is less representative. Only used when Loki is unavailable.
 	if a.promClient != nil {
 		resp := a.queryFrontendFromAlloy(ctx, service, env, at)
 		if resp.Available {
 			return resp
 		}
-	}
-
-	// 3. Fall back to Loki (Faro structured logs)
-	lokiResp := a.queryFrontendFromLoki(ctx, service, env, at, headers)
-	if lokiResp.Available {
-		return lokiResp
 	}
 
 	return FrontendMetricsResponse{Available: false}
@@ -150,11 +152,14 @@ func (a *App) queryFrontendFromAlloy(ctx context.Context, service, environment s
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
+	// Use avg_over_time to average across available gauge samples.
+	// Note: these gauges are last-writer-wins, so each sample is a single
+	// user's measurement. The average is over ~10 samples/hr, not thousands.
 	for key, metric := range vitalMetrics {
 		wg.Add(1)
 		go func(k, m string) {
 			defer wg.Done()
-			q := fmt.Sprintf(`avg(last_over_time(%s{%s}[%s]))`, m, filter, lookback)
+			q := fmt.Sprintf(`avg(avg_over_time(%s{%s}[%s]))`, m, filter, lookback)
 			r, err := a.prom(ctx).InstantQuery(ctx, q, at)
 			if err == nil && len(r) > 0 {
 				mu.Lock()

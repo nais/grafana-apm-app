@@ -1272,20 +1272,20 @@ function AlloyWebVitalsPanels({
     const timeRange = new SceneTimeRange({ from, to });
     const mDs = { uid: ds.metricsUid };
 
-    // --- Row 1: Core Web Vitals stat panels (use last_over_time for sparse gauges) ---
-    const lcpQ = makePromQuery(mDs, `avg(last_over_time(${ab.lcp}{${svcFilter}}[${lookback}]))`, 'LCP', {
+    // --- Row 1: Core Web Vitals stat panels (avg_over_time for sparse gauge samples) ---
+    const lcpQ = makePromQuery(mDs, `avg(avg_over_time(${ab.lcp}{${svcFilter}}[${lookback}]))`, 'LCP', {
       instant: true,
     });
-    const fcpQ = makePromQuery(mDs, `avg(last_over_time(${ab.fcp}{${svcFilter}}[${lookback}]))`, 'FCP', {
+    const fcpQ = makePromQuery(mDs, `avg(avg_over_time(${ab.fcp}{${svcFilter}}[${lookback}]))`, 'FCP', {
       instant: true,
     });
-    const clsQ = makePromQuery(mDs, `avg(last_over_time(${ab.cls}{${svcFilter}}[${lookback}]))`, 'CLS', {
+    const clsQ = makePromQuery(mDs, `avg(avg_over_time(${ab.cls}{${svcFilter}}[${lookback}]))`, 'CLS', {
       instant: true,
     });
-    const inpQ = makePromQuery(mDs, `avg(last_over_time(${ab.inp}{${svcFilter}}[${lookback}]))`, 'INP', {
+    const inpQ = makePromQuery(mDs, `avg(avg_over_time(${ab.inp}{${svcFilter}}[${lookback}]))`, 'INP', {
       instant: true,
     });
-    const ttfbQ = makePromQuery(mDs, `avg(last_over_time(${ab.ttfb}{${svcFilter}}[${lookback}]))`, 'TTFB', {
+    const ttfbQ = makePromQuery(mDs, `avg(avg_over_time(${ab.ttfb}{${svcFilter}}[${lookback}]))`, 'TTFB', {
       instant: true,
     });
 
@@ -1315,29 +1315,29 @@ function AlloyWebVitalsPanels({
       ],
     });
 
-    // --- Row 2: Web Vitals time series (range vectors with last_over_time) ---
+    // --- Row 2: Web Vitals time series (range vectors with avg_over_time) ---
     const pageLoadVitalsQ = new SceneQueryRunner({
       datasource: { uid: ds.metricsUid, type: 'prometheus' },
       queries: [
         {
           refId: 'A',
-          expr: `avg(last_over_time(${ab.ttfb}{${svcFilter}}[${lookback}]))`,
+          expr: `avg(avg_over_time(${ab.ttfb}{${svcFilter}}[${lookback}]))`,
           legendFormat: 'TTFB',
         },
         {
           refId: 'B',
-          expr: `avg(last_over_time(${ab.fcp}{${svcFilter}}[${lookback}]))`,
+          expr: `avg(avg_over_time(${ab.fcp}{${svcFilter}}[${lookback}]))`,
           legendFormat: 'FCP',
         },
         {
           refId: 'C',
-          expr: `avg(last_over_time(${ab.lcp}{${svcFilter}}[${lookback}]))`,
+          expr: `avg(avg_over_time(${ab.lcp}{${svcFilter}}[${lookback}]))`,
           legendFormat: 'LCP',
         },
       ],
     });
-    const inpTrendQ = makePromQuery(mDs, `avg(last_over_time(${ab.inp}{${svcFilter}}[${lookback}]))`, 'INP');
-    const clsTrendQ = makePromQuery(mDs, `avg(last_over_time(${ab.cls}{${svcFilter}}[${lookback}]))`, 'CLS');
+    const inpTrendQ = makePromQuery(mDs, `avg(avg_over_time(${ab.inp}{${svcFilter}}[${lookback}]))`, 'INP');
+    const clsTrendQ = makePromQuery(mDs, `avg(avg_over_time(${ab.cls}{${svcFilter}}[${lookback}]))`, 'CLS');
 
     const trendsRow = new SceneFlexLayout({
       direction: 'row',
@@ -1434,10 +1434,16 @@ function AlloyWebVitalsPanels({
     });
   }, [from, to, ds, svcFilter, lookback, ab, showVitalsRow, vitals]);
 
-  return <scene.Component model={scene} />;
+  return (
+    <>
+      <Alert title="Limited data source" severity="info">
+        Using Alloy pipeline metrics (sampled). Values are averaged from a small number of gauge samples and may differ
+        from the full measurement population.
+      </Alert>
+      <scene.Component model={scene} />
+    </>
+  );
 }
-
-// ---- Setup placeholder (no Faro data) ----
 
 function SetupPlaceholder({ namespace, service }: { namespace: string; service: string }) {
   const styles = useStyles2(getStyles);
