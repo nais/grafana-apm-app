@@ -305,12 +305,13 @@ const getBulletStyles = (theme: GrafanaTheme2) => ({
 // The trailing `|` also matches empty string, so services using older Faro SDKs
 // that don't populate browser_name still return data.
 const BROWSER_FILTER = `| browser_name=~"$browser|"`;
-
-function lokiVitalPipeline(service: string, vital: string, extraKeep?: string): string {
+// Empty filter for views without the $browser variable (e.g., histogram view).
+const NO_BROWSER_FILTER = '';
+function lokiVitalPipeline(service: string, vital: string, extraKeep?: string, browserFilter = BROWSER_FILTER): string {
   const fl = otel.faroLoki;
   const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindMeasurement}"}`;
   const keepFields = extraKeep ? `${vital}, ${extraKeep}` : vital;
-  return `${stream} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" | ${vital}!="" ${BROWSER_FILTER} | keep ${keepFields}`;
+  return `${stream} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" | ${vital}!="" ${browserFilter} | keep ${keepFields}`;
 }
 
 // Weighted mean: sum(values) / count(lines) across all streams.
@@ -341,8 +342,14 @@ function normalizePageUrlExpr(innerExpr: string, label: string): string {
   )`;
 }
 
-function lokiVitalByPageExpr(service: string, vital: string, pageLabel: string, window: string): string {
-  const pipeline = lokiVitalPipeline(service, vital, pageLabel);
+function lokiVitalByPageExpr(
+  service: string,
+  vital: string,
+  pageLabel: string,
+  window: string,
+  browserFilter = BROWSER_FILTER
+): string {
+  const pipeline = lokiVitalPipeline(service, vital, pageLabel, browserFilter);
   const sumExpr = `sum by (${pageLabel}) (sum_over_time(${pipeline} | unwrap ${vital} ${window}))`;
   const countExpr = `sum by (${pageLabel}) (count_over_time(${pipeline} ${window}))`;
   return `${normalizePageUrlExpr(sumExpr, pageLabel)} / ${normalizePageUrlExpr(countExpr, pageLabel)}`;
@@ -354,10 +361,10 @@ function lokiExceptionExpr(service: string, window: string): string {
   return `sum(count_over_time(${stream} | logfmt ${BROWSER_FILTER} ${window}))`;
 }
 
-function lokiTopExceptionsExpr(service: string, window: string): string {
+function lokiTopExceptionsExpr(service: string, window: string, browserFilter = BROWSER_FILTER): string {
   const fl = otel.faroLoki;
   const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindException}"}`;
-  return `topk(20, sum by (value) (count_over_time(${stream} | logfmt | value!="" ${BROWSER_FILTER} | keep value ${window})))`;
+  return `topk(20, sum by (value) (count_over_time(${stream} | logfmt | value!="" ${browserFilter} | keep value ${window})))`;
 }
 
 function lokiExceptionSessionsExpr(service: string, window: string): string {
@@ -366,16 +373,16 @@ function lokiExceptionSessionsExpr(service: string, window: string): string {
   return `topk(20, count by (value) (sum by (value, session_id) (count_over_time(${stream} | logfmt | value!="" | session_id!="" ${BROWSER_FILTER} | keep value, session_id ${window}))))`;
 }
 
-function lokiSessionStartExpr(service: string, window: string): string {
+function lokiSessionStartExpr(service: string, window: string, browserFilter = BROWSER_FILTER): string {
   const fl = otel.faroLoki;
   const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindEvent}"}`;
-  return `sum(count_over_time(${stream} | logfmt | event_name="session_start" ${BROWSER_FILTER} ${window}))`;
+  return `sum(count_over_time(${stream} | logfmt | event_name="session_start" ${browserFilter} ${window}))`;
 }
 
-function lokiConsoleErrorsExpr(service: string, window: string): string {
+function lokiConsoleErrorsExpr(service: string, window: string, browserFilter = BROWSER_FILTER): string {
   const fl = otel.faroLoki;
   const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindLog}"}`;
-  return `topk(10, sum by (value) (count_over_time(${stream} | logfmt | level="error" | value!="" ${BROWSER_FILTER} | keep value ${window})))`;
+  return `topk(10, sum by (value) (count_over_time(${stream} | logfmt | level="error" | value!="" ${browserFilter} | keep value ${window})))`;
 }
 
 function lokiMeasurementCountExpr(service: string, window: string): string {
@@ -1374,7 +1381,11 @@ function HistogramWebVitalsPanels({
           body: PanelBuilders.stat()
             .setTitle('Sessions')
             .setDescription('Unique user sessions started (from Loki)')
-            .setData(makeLokiQuery(lDs, lokiSessionStartExpr(service, '[$__range]'), 'Sessions', { instant: true }))
+            .setData(
+              makeLokiQuery(lDs, lokiSessionStartExpr(service, '[$__range]', NO_BROWSER_FILTER), 'Sessions', {
+                instant: true,
+              })
+            )
             .setUnit('short')
             .setColor({ mode: 'fixed', fixedColor: 'purple' } as any)
             .build(),
@@ -1526,14 +1537,14 @@ function HistogramWebVitalsPanels({
         queries: [
           {
             refId: 'lcp',
-            expr: lokiVitalByPageExpr(service, otel.faroLoki.lcp, pageUrl, '[$__range]'),
+            expr: lokiVitalByPageExpr(service, otel.faroLoki.lcp, pageUrl, '[$__range]', NO_BROWSER_FILTER),
             legendFormat: '__auto',
             format: 'table',
             instant: true,
           },
           {
             refId: 'fcp',
-            expr: lokiVitalByPageExpr(service, otel.faroLoki.fcp, pageUrl, '[$__range]'),
+            expr: lokiVitalByPageExpr(service, otel.faroLoki.fcp, pageUrl, '[$__range]', NO_BROWSER_FILTER),
             legendFormat: '__auto',
             format: 'table',
             instant: true,
@@ -1584,16 +1595,21 @@ function HistogramWebVitalsPanels({
         queries: [
           {
             refId: 'count',
-            expr: lokiTopExceptionsExpr(service, '[$__range]'),
+            expr: lokiTopExceptionsExpr(service, '[$__range]', NO_BROWSER_FILTER),
             legendFormat: '__auto',
             format: 'table',
             instant: true,
           },
         ],
       });
-      const consoleErrorsQ = makeLokiQuery(lDs, lokiConsoleErrorsExpr(service, '[$__range]'), '{{value}}', {
-        instant: true,
-      });
+      const consoleErrorsQ = makeLokiQuery(
+        lDs,
+        lokiConsoleErrorsExpr(service, '[$__range]', NO_BROWSER_FILTER),
+        '{{value}}',
+        {
+          instant: true,
+        }
+      );
       lokiRows.push(
         new SceneFlexLayout({
           direction: 'row',
