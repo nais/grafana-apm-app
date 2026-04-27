@@ -25,7 +25,25 @@ import { useTimeRange } from '../../utils/timeRange';
 import { sanitizeLabelValue } from '../../utils/sanitize';
 import { otel } from '../../otelconfig';
 import { PLUGIN_BASE_URL } from '../../constants';
-import { BulletGraph, BulletGraphThreshold } from '../../components/BulletGraph';
+
+import {
+  VITAL_THRESHOLDS,
+  BROWSER_FILTER,
+  WebVitalsBullets,
+  makePromQuery,
+  makeLokiQuery,
+  normalizePageUrlExpr,
+  lokiVitalExpr,
+  lokiVitalByGroupExpr,
+  lokiVitalByPageExpr,
+  lokiExceptionExpr,
+  lokiTopExceptionsExpr,
+  lokiExceptionSessionsExpr,
+  lokiSessionStartExpr,
+  lokiConsoleErrorsExpr,
+  lokiMeasurementCountExpr,
+  histogramFilter,
+} from './frontend';
 
 interface FrontendTabProps {
   service: string;
@@ -146,246 +164,6 @@ function statPanel(
     .build();
 }
 
-function makePromQuery(
-  ds: { uid: string },
-  expr: string,
-  legendFormat: string,
-  opts?: { minInterval?: string; format?: string; instant?: boolean }
-) {
-  return new SceneQueryRunner({
-    datasource: { uid: ds.uid, type: 'prometheus' },
-    ...(opts?.minInterval ? { minInterval: opts.minInterval } : {}),
-    queries: [
-      {
-        refId: 'A',
-        expr,
-        legendFormat,
-        ...(opts?.format ? { format: opts.format } : {}),
-        ...(opts?.instant ? { instant: true } : {}),
-      },
-    ],
-  });
-}
-
-function makeLokiQuery(ds: { uid: string }, expr: string, legendFormat: string, opts?: { instant?: boolean }) {
-  return new SceneQueryRunner({
-    datasource: { uid: ds.uid, type: 'loki' },
-    queries: [
-      {
-        refId: 'A',
-        expr,
-        legendFormat,
-        ...(opts?.instant ? { instant: true } : {}),
-      },
-    ],
-  });
-}
-
-// ---- Vital thresholds (shared between Mimir and Loki panels) ----
-
-const VITAL_THRESHOLDS = {
-  lcp: [
-    { value: 0, color: 'green' },
-    { value: 2500, color: 'orange' },
-    { value: 4000, color: 'red' },
-  ],
-  fcp: [
-    { value: 0, color: 'green' },
-    { value: 1800, color: 'orange' },
-    { value: 3000, color: 'red' },
-  ],
-  cls: [
-    { value: 0, color: 'green' },
-    { value: 0.1, color: 'orange' },
-    { value: 0.25, color: 'red' },
-  ],
-  inp: [
-    { value: 0, color: 'green' },
-    { value: 200, color: 'orange' },
-    { value: 500, color: 'red' },
-  ],
-  ttfb: [
-    { value: 0, color: 'green' },
-    { value: 800, color: 'orange' },
-    { value: 1800, color: 'red' },
-  ],
-};
-
-// ---- Web Vitals bullet graph summary ----
-
-interface VitalDef {
-  key: string;
-  label: string;
-  description: string;
-  tooltip: string;
-  unit?: string;
-  decimals?: number;
-  thresholds: BulletGraphThreshold[];
-}
-
-const VITAL_DEFS: VitalDef[] = [
-  {
-    key: 'ttfb',
-    label: 'TTFB',
-    description: 'Time to First Byte',
-    tooltip: 'Time from request start until the first byte of the response is received. Target < 800 ms.',
-    unit: 'ms',
-    thresholds: VITAL_THRESHOLDS.ttfb,
-  },
-  {
-    key: 'fcp',
-    label: 'FCP',
-    description: 'First Contentful Paint',
-    tooltip: 'Time until the first text or image is painted. Target < 1800 ms.',
-    unit: 'ms',
-    thresholds: VITAL_THRESHOLDS.fcp,
-  },
-  {
-    key: 'lcp',
-    label: 'LCP',
-    description: 'Largest Contentful Paint',
-    tooltip: 'Time until the largest text or image element is rendered. Target < 2500 ms.',
-    unit: 'ms',
-    thresholds: VITAL_THRESHOLDS.lcp,
-  },
-  {
-    key: 'cls',
-    label: 'CLS',
-    description: 'Cumulative Layout Shift',
-    tooltip: 'Total of all unexpected layout shift scores. Target < 0.1.',
-    decimals: 2,
-    thresholds: VITAL_THRESHOLDS.cls,
-  },
-  {
-    key: 'inp',
-    label: 'INP',
-    description: 'Interaction to Next Paint',
-    tooltip: 'Latency of the slowest interaction during the page visit. Target < 200 ms.',
-    unit: 'ms',
-    thresholds: VITAL_THRESHOLDS.inp,
-  },
-];
-
-function WebVitalsBullets({ vitals }: { vitals: Record<string, number> }) {
-  const styles = useStyles2(getBulletStyles);
-
-  return (
-    <div className={styles.grid}>
-      {VITAL_DEFS.map((def) => (
-        <BulletGraph
-          key={def.key}
-          value={vitals[def.key] ?? null}
-          thresholds={def.thresholds}
-          label={def.label}
-          description={def.description}
-          tooltip={def.tooltip}
-          unit={def.unit}
-          decimals={def.decimals}
-        />
-      ))}
-    </div>
-  );
-}
-
-const getBulletStyles = (theme: GrafanaTheme2) => ({
-  grid: css`
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: ${theme.spacing(1)};
-  `,
-});
-
-// ---- LogQL helper for Faro vital queries ----
-
-// Browser filter — Scenes interpolates $browser at query time.
-// When "All" is selected, allValue is '.*' so the regex matches everything.
-// The trailing `|` also matches empty string, so services using older Faro SDKs
-// that don't populate browser_name still return data.
-const BROWSER_FILTER = `| browser_name=~"$browser|"`;
-function lokiVitalPipeline(service: string, vital: string, extraKeep?: string, browserFilter = BROWSER_FILTER): string {
-  const fl = otel.faroLoki;
-  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindMeasurement}"}`;
-  const keepFields = extraKeep ? `${vital}, ${extraKeep}` : vital;
-  return `${stream} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" | ${vital}!="" ${browserFilter} | keep ${keepFields}`;
-}
-
-// Weighted mean: sum(values) / count(lines) across all streams.
-function lokiVitalExpr(service: string, vital: string, window: string): string {
-  const pipeline = lokiVitalPipeline(service, vital);
-  return `sum(sum_over_time(${pipeline} | unwrap ${vital} ${window})) / sum(count_over_time(${pipeline} ${window}))`;
-}
-
-function lokiVitalByGroupExpr(service: string, vital: string, groupBy: string, window: string): string {
-  const pipeline = lokiVitalPipeline(service, vital, groupBy);
-  return `sum by (${groupBy}) (sum_over_time(${pipeline} | unwrap ${vital} ${window})) / sum by (${groupBy}) (count_over_time(${pipeline} ${window}))`;
-}
-
-// URL normalization: collapse UUIDs and long numeric IDs into wildcards, strip query params.
-// Applied via label_replace + re-aggregation so multiple raw URLs map to one route pattern.
-function normalizePageUrlExpr(innerExpr: string, label: string): string {
-  return `sum by (${label}) (
-    label_replace(
-      label_replace(
-        label_replace(
-          ${innerExpr},
-          "${label}", "$1", "${label}", "([^?]*)\\\\?.*"
-        ),
-        "${label}", "\${1}*\${2}", "${label}", "(.*?)/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(.*)"
-      ),
-      "${label}", "\${1}*\${2}", "${label}", "(.*?)/[0-9]{5,}(.*)"
-    )
-  )`;
-}
-
-function lokiVitalByPageExpr(
-  service: string,
-  vital: string,
-  pageLabel: string,
-  window: string,
-  browserFilter = BROWSER_FILTER
-): string {
-  const pipeline = lokiVitalPipeline(service, vital, pageLabel, browserFilter);
-  const sumExpr = `sum by (${pageLabel}) (sum_over_time(${pipeline} | unwrap ${vital} ${window}))`;
-  const countExpr = `sum by (${pageLabel}) (count_over_time(${pipeline} ${window}))`;
-  return `${normalizePageUrlExpr(sumExpr, pageLabel)} / ${normalizePageUrlExpr(countExpr, pageLabel)}`;
-}
-
-function lokiExceptionExpr(service: string, window: string): string {
-  const fl = otel.faroLoki;
-  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindException}"}`;
-  return `sum(count_over_time(${stream} | logfmt ${BROWSER_FILTER} ${window}))`;
-}
-
-function lokiTopExceptionsExpr(service: string, window: string, browserFilter = BROWSER_FILTER): string {
-  const fl = otel.faroLoki;
-  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindException}"}`;
-  return `topk(20, sum by (value) (count_over_time(${stream} | logfmt | value!="" ${browserFilter} | keep value ${window})))`;
-}
-
-function lokiExceptionSessionsExpr(service: string, window: string): string {
-  const fl = otel.faroLoki;
-  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindException}"}`;
-  return `topk(20, count by (value) (sum by (value, session_id) (count_over_time(${stream} | logfmt | value!="" | session_id!="" ${BROWSER_FILTER} | keep value, session_id ${window}))))`;
-}
-
-function lokiSessionStartExpr(service: string, window: string, browserFilter = BROWSER_FILTER): string {
-  const fl = otel.faroLoki;
-  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindEvent}"}`;
-  return `sum(count_over_time(${stream} | logfmt | event_name="session_start" ${browserFilter} ${window}))`;
-}
-
-function lokiConsoleErrorsExpr(service: string, window: string, browserFilter = BROWSER_FILTER): string {
-  const fl = otel.faroLoki;
-  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindLog}"}`;
-  return `topk(10, sum by (value) (count_over_time(${stream} | logfmt | level="error" | value!="" ${browserFilter} | keep value ${window})))`;
-}
-
-function lokiMeasurementCountExpr(service: string, window: string): string {
-  const fl = otel.faroLoki;
-  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindMeasurement}"}`;
-  return `sum(count_over_time(${stream} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" ${BROWSER_FILTER} ${window}))`;
-}
-
 // ========================================================================
 // Unified Frontend Panels — one layout for both histogram (Mimir) and Loki sources.
 // The layout matches the established Loki design (bullet charts, per-page table,
@@ -414,9 +192,7 @@ function UnifiedFrontendPanels({
 
   // Mimir filter for histogram queries
   const svcFilter = isHistogram
-    ? environment
-      ? `${ah.appLabel}="${sanitizeLabelValue(service)}", job="${ah.job}", ${ah.envLabel}="${sanitizeLabelValue(environment)}"`
-      : `${ah.appLabel}="${sanitizeLabelValue(service)}", job="${ah.job}"`
+    ? histogramFilter(sanitizeLabelValue(service), environment ? sanitizeLabelValue(environment) : undefined)
     : '';
 
   const scene = useMemo(() => {
