@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.1 (2026-04-27)
+
+### Bug Fixes
+
+- **Service topology graph respects environment filter** — The service map and namespace dependencies on the namespace page were ignoring the multi-select environment filter. Now correctly passes the selected environment to the backend when a single environment is chosen.
+
 ## 0.6.0 (2026-04-26)
 
 ### Features
