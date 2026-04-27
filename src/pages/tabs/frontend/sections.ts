@@ -12,7 +12,7 @@ import { otel } from '../../../otelconfig';
 import { sanitizeLabelValue } from '../../../utils/sanitize';
 import { PLUGIN_BASE_URL } from '../../../constants';
 import { VITAL_THRESHOLDS, BROWSER_FILTER, CWV_BUCKET_BOUNDARIES, VitalKey } from './constants';
-import { makePromQuery, makeLokiQuery, normalizePageUrlExpr } from './panel-helpers';
+import { makePromQuery, makeLokiQuery } from './panel-helpers';
 import {
   lokiVitalExpr,
   lokiVitalByGroupExpr,
@@ -268,7 +268,7 @@ export function buildPerPageSection(ctx: FrontendSceneContext): SceneFlexItem | 
       },
       {
         refId: 'count',
-        expr: normalizePageUrlExpr(`sum by (${pageUrl}) (count_over_time(${countPipeline} [$__range]))`, pageUrl),
+        expr: `sum by (${pageUrl}) (count_over_time(${countPipeline} [$__range]))`,
         legendFormat: '__auto',
         format: 'table',
         instant: true,
@@ -280,7 +280,14 @@ export function buildPerPageSection(ctx: FrontendSceneContext): SceneFlexItem | 
     $data: perPageQ,
     transformations: [
       { id: 'merge', options: {} },
+      {
+        id: 'organize',
+        options: {
+          excludeByName: { Time: true },
+        },
+      },
       { id: 'sortBy', options: { sort: [{ field: 'Value #count', desc: true }] } },
+      { id: 'limit', options: { maxRows: 20 } },
     ],
   });
 
@@ -318,7 +325,6 @@ export function buildPerPageSection(ctx: FrontendSceneContext): SceneFlexItem | 
           .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
           .overrideDecimals(0);
         b.matchFieldsWithName('Value #count').overrideDisplayName('Measurements').overrideDecimals(0);
-        b.matchFieldsWithName('Time').overrideCustomFieldConfig('hidden' as any, true);
       })
       .build(),
   });
@@ -375,7 +381,7 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout |
         b.matchFieldsWithName('value').overrideLinks([
           {
             title: 'View in Logs',
-            url: `${PLUGIN_BASE_URL}/services/${encodeURIComponent(namespace)}/${encodeURIComponent(service)}/logs?from=\${__from}&to=\${__to}`,
+            url: `${PLUGIN_BASE_URL}/services/${encodeURIComponent(namespace)}/${encodeURIComponent(service)}?tab=logs&from=\${__from}&to=\${__to}`,
             targetBlank: false,
           } as any,
         ]);

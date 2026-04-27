@@ -401,23 +401,36 @@ export interface FrontendMetricsResponse {
   source?: string; // "mimir", "loki", "alloy", or "alloy-histogram"
   vitals?: Record<string, number>;
   errorRate: number;
-  metricsSource?: string; // "mimir", "alloy-histogram", "alloy", or ""
+  metricsSource?: string; // "alloy-histogram" or ""
   hasLoki?: boolean; // true if Loki has Faro data for hybrid rendering
 }
+
+// Client-side cache for frontend metrics (avoids redundant backend calls on re-renders)
+const frontendMetricsCache = new Map<string, { data: FrontendMetricsResponse; ts: number }>();
+const FRONTEND_CACHE_TTL = 30_000; // 30 seconds
 
 export async function getFrontendMetrics(
   namespace: string,
   service: string,
   environment?: string
 ): Promise<FrontendMetricsResponse> {
+  const cacheKey = `${namespace}|${service}|${environment ?? ''}`;
+  const cached = frontendMetricsCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < FRONTEND_CACHE_TTL) {
+    return cached.data;
+  }
+
   const params: Record<string, string> = {};
   if (environment) {
     params.environment = environment;
   }
-  return fetchResource<FrontendMetricsResponse>(
+  const data = await fetchResource<FrontendMetricsResponse>(
     `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/frontend`,
     Object.keys(params).length > 0 ? params : undefined
   );
+
+  frontendMetricsCache.set(cacheKey, { data, ts: Date.now() });
+  return data;
 }
 
 export interface GraphQLOperation {

@@ -66,14 +66,12 @@ describe('loki-builders', () => {
   });
 
   describe('lokiVitalByPageExpr', () => {
-    it('applies URL normalization via label_replace', () => {
+    it('returns raw per-page average without URL normalization', () => {
       const result = lokiVitalByPageExpr(service, 'lcp', 'page_url', '[$__range]');
-      expect(result).toContain('label_replace');
       expect(result).toContain('page_url');
-      // UUID pattern
-      expect(result).toContain('[0-9a-f]{8}');
-      // Numeric ID pattern
-      expect(result).toContain('[0-9]{5,}');
+      expect(result).toContain('sum by (page_url)');
+      expect(result).toContain('unwrap lcp');
+      expect(result).not.toContain('label_replace');
     });
   });
 
@@ -98,7 +96,7 @@ describe('loki-builders', () => {
     it('counts unique sessions per exception', () => {
       const result = lokiExceptionSessionsExpr(service, '[$__range]');
       expect(result).toContain('count by (value)');
-      expect(result).toContain('sum by (value, session_id)');
+      expect(result).toContain('keep value, session_id');
       expect(result).toContain('session_id!=""');
     });
   });

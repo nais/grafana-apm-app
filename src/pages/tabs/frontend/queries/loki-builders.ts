@@ -8,7 +8,6 @@
 import { otel } from '../../../../otelconfig';
 import { sanitizeLabelValue } from '../../../../utils/sanitize';
 import { BROWSER_FILTER } from '../constants';
-import { normalizePageUrlExpr } from '../panel-helpers';
 
 /**
  * Base pipeline for extracting a vital from Faro measurement logs.
@@ -39,7 +38,7 @@ export function lokiVitalByGroupExpr(service: string, vital: string, groupBy: st
   return `sum by (${groupBy}) (sum_over_time(${pipeline} | unwrap ${vital} ${window})) / sum by (${groupBy}) (count_over_time(${pipeline} ${window}))`;
 }
 
-/** Weighted mean of a vital grouped by page URL, with URL normalization applied. */
+/** Weighted mean of a vital grouped by page URL (raw URLs, no normalization). */
 export function lokiVitalByPageExpr(
   service: string,
   vital: string,
@@ -48,9 +47,7 @@ export function lokiVitalByPageExpr(
   browserFilter = BROWSER_FILTER
 ): string {
   const pipeline = lokiVitalPipeline(service, vital, pageLabel, browserFilter);
-  const sumExpr = `sum by (${pageLabel}) (sum_over_time(${pipeline} | unwrap ${vital} ${window}))`;
-  const countExpr = `sum by (${pageLabel}) (count_over_time(${pipeline} ${window}))`;
-  return `${normalizePageUrlExpr(sumExpr, pageLabel)} / ${normalizePageUrlExpr(countExpr, pageLabel)}`;
+  return `sum by (${pageLabel}) (sum_over_time(${pipeline} | unwrap ${vital} ${window})) / sum by (${pageLabel}) (count_over_time(${pipeline} ${window}))`;
 }
 
 /** Total exception count over time (for timeseries). */
@@ -71,7 +68,8 @@ export function lokiTopExceptionsExpr(service: string, window: string, browserFi
 export function lokiExceptionSessionsExpr(service: string, window: string): string {
   const fl = otel.faroLoki;
   const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindException}"}`;
-  return `topk(20, count by (value) (sum by (value, session_id) (count_over_time(${stream} | logfmt | value!="" | session_id!="" ${BROWSER_FILTER} | keep value, session_id ${window}))))`;
+  // Count distinct sessions: group by (value, session_id) to deduplicate, then count by value
+  return `topk(20, count by (value) (count_over_time(${stream} | logfmt | value!="" | session_id!="" ${BROWSER_FILTER} | keep value, session_id ${window})))`;
 }
 
 /** Session start events over time. */

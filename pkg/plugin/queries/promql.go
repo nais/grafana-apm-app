@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -13,6 +14,18 @@ import (
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 )
+
+// sharedTransport is a connection-pooled HTTP transport reused across all query clients.
+// This avoids repeated TCP/TLS handshakes when querying the same datasource.
+var sharedTransport = &http.Transport{
+	MaxIdleConns:        50,
+	MaxIdleConnsPerHost: 10,
+	IdleConnTimeout:     90 * time.Second,
+	DialContext: (&net.Dialer{
+		Timeout:   10 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}).DialContext,
+}
 
 // PrometheusClient queries a Prometheus-compatible API (Mimir).
 type PrometheusClient struct {
@@ -29,7 +42,8 @@ func NewPrometheusClient(baseURL string, serviceToken string) *PrometheusClient 
 		baseURL:      strings.TrimRight(baseURL, "/"),
 		serviceToken: serviceToken,
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout:   30 * time.Second,
+			Transport: sharedTransport,
 		},
 		logger: log.DefaultLogger.With("component", "promClient"),
 	}
@@ -43,7 +57,8 @@ func NewLokiMetricClient(proxyURL string, serviceToken string) *PrometheusClient
 		baseURL:      strings.TrimRight(proxyURL, "/") + "/loki",
 		serviceToken: serviceToken,
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout:   30 * time.Second,
+			Transport: sharedTransport,
 		},
 		logger: log.DefaultLogger.With("component", "lokiMetricClient"),
 	}
