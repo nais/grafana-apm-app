@@ -166,7 +166,7 @@ function UnifiedFrontendPanels({
 
   const ah = otel.alloyHistogram;
   const isHistogram = source === 'alloy-histogram';
-  const showLokiPanels = hasLoki || source === 'loki';
+  const showLokiPanels = true; // Always show Loki panels — they display "No data" gracefully
   const svcFilter = isHistogram
     ? histogramFilter(sanitizeLabelValue(service), environment ? sanitizeLabelValue(environment) : undefined)
     : '';
