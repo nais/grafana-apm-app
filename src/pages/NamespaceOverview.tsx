@@ -72,16 +72,17 @@ function NamespaceOverview() {
     { skip: !fetchResult }
   );
 
-  // Fetch service map filtered by namespace
+  // Fetch service map filtered by namespace (and environment when a single env is selected)
+  const mapEnv = envFilters.length === 1 ? envFilters[0] : undefined;
   const { data: mapData } = useFetch<ServiceMapResponse>(
-    () => getServiceMap(fromMs, toMs, undefined, decodedNs, undefined),
-    [fromMs, toMs, decodedNs]
+    () => getServiceMap(fromMs, toMs, undefined, decodedNs, mapEnv),
+    [fromMs, toMs, decodedNs, mapEnv]
   );
 
   // Fetch namespace dependencies from dedicated backend endpoint
   const { data: depsResult, loading: depsLoading } = useFetch<NamespaceDependenciesResponse>(
-    () => getNamespaceDependencies(decodedNs, fromMs, toMs, undefined),
-    [fromMs, toMs, decodedNs]
+    () => getNamespaceDependencies(decodedNs, fromMs, toMs, mapEnv),
+    [fromMs, toMs, decodedNs, mapEnv]
   );
 
   // Fetch alert rules for this namespace (current state, no time range dependency)
