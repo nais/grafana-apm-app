@@ -71,7 +71,7 @@ info "Bumped package.json → ${next}"
 
 # --- Run full check + test + build ---
 info "Running ${BOLD}mise run all${RESET} …"
-mise run all
+"${ROOT}/scripts/mise-run.sh" all
 info "All checks passed ✓"
 
 # --- Commit and tag ---
