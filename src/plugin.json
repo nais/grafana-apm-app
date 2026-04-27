@@ -72,8 +72,6 @@
     "plugins": []
   },
   "iam": {
-    "permissions": [
-      { "action": "datasources:query", "scope": "datasources:*" }
-    ]
+    "permissions": [{ "action": "datasources:query", "scope": "datasources:*" }]
   }
 }
