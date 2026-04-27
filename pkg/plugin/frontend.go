@@ -106,7 +106,7 @@ func (a *App) queryFrontendFromMimir(ctx context.Context, namespace, service, en
 			defer wg.Done()
 			q := fmt.Sprintf(`avg(%s{%s})`, m, filter)
 			r, err := a.prom(ctx).InstantQuery(ctx, q, at)
-			if err == nil && len(r) > 0 {
+			if err == nil && len(r) > 0 && isValidMetricValue(r[0].Value.Float()) {
 				mu.Lock()
 				resp.Vitals[k] = roundTo(r[0].Value.Float(), 2)
 				mu.Unlock()
@@ -119,7 +119,7 @@ func (a *App) queryFrontendFromMimir(ctx context.Context, namespace, service, en
 		defer wg.Done()
 		errQ := fmt.Sprintf(`sum(rate(%s{%s}[5m]))`, a.otelCfg.BrowserMetrics.Errors, filter)
 		r, err := a.prom(ctx).InstantQuery(ctx, errQ, at)
-		if err == nil && len(r) > 0 {
+		if err == nil && len(r) > 0 && isValidMetricValue(r[0].Value.Float()) {
 			mu.Lock()
 			resp.ErrorRate = roundTo(r[0].Value.Float(), 4)
 			mu.Unlock()
@@ -172,7 +172,7 @@ func (a *App) queryFrontendFromAlloy(ctx context.Context, service, environment s
 			defer wg.Done()
 			q := fmt.Sprintf(`avg(avg_over_time(%s{%s}[%s]))`, m, filter, lookback)
 			r, err := a.prom(ctx).InstantQuery(ctx, q, at)
-			if err == nil && len(r) > 0 {
+			if err == nil && len(r) > 0 && isValidMetricValue(r[0].Value.Float()) {
 				mu.Lock()
 				resp.Vitals[k] = roundTo(r[0].Value.Float(), 2)
 				mu.Unlock()
@@ -186,7 +186,7 @@ func (a *App) queryFrontendFromAlloy(ctx context.Context, service, environment s
 		defer wg.Done()
 		errQ := fmt.Sprintf(`sum(increase(%s{%s}[%s])) / %d`, alloy.Errors, filter, lookback, 1800)
 		r, err := a.prom(ctx).InstantQuery(ctx, errQ, at)
-		if err == nil && len(r) > 0 {
+		if err == nil && len(r) > 0 && isValidMetricValue(r[0].Value.Float()) {
 			mu.Lock()
 			resp.ErrorRate = roundTo(r[0].Value.Float(), 4)
 			mu.Unlock()
@@ -236,7 +236,7 @@ func (a *App) queryFrontendFromAlloyHistogram(ctx context.Context, service, envi
 			defer wg.Done()
 			q := fmt.Sprintf(`histogram_quantile(0.75, sum(rate(%s_bucket{%s}[5m])) by (le))`, m, filter)
 			r, err := a.prom(ctx).InstantQuery(ctx, q, at)
-			if err == nil && len(r) > 0 {
+			if err == nil && len(r) > 0 && isValidMetricValue(r[0].Value.Float()) {
 				mu.Lock()
 				resp.Vitals[k] = roundTo(r[0].Value.Float(), 2)
 				mu.Unlock()
@@ -250,7 +250,7 @@ func (a *App) queryFrontendFromAlloyHistogram(ctx context.Context, service, envi
 		defer wg.Done()
 		errQ := fmt.Sprintf(`sum(rate(%s{%s}[5m]))`, h.Errors, filter)
 		r, err := a.prom(ctx).InstantQuery(ctx, errQ, at)
-		if err == nil && len(r) > 0 {
+		if err == nil && len(r) > 0 && isValidMetricValue(r[0].Value.Float()) {
 			mu.Lock()
 			resp.ErrorRate = roundTo(r[0].Value.Float(), 4)
 			mu.Unlock()
