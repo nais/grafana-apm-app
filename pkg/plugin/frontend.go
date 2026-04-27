@@ -229,12 +229,14 @@ func (a *App) queryFrontendFromAlloyHistogram(ctx context.Context, service, envi
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
-	// Compute p75 for each vital using histogram_quantile
+	// Compute p75 for each vital using histogram_quantile.
+	// Use increase over 1h for the detection/stat value — rate with a short window
+	// often returns 0 for apps with sporadic traffic.
 	for key, metric := range vitalMetrics {
 		wg.Add(1)
 		go func(k, m string) {
 			defer wg.Done()
-			q := fmt.Sprintf(`histogram_quantile(0.75, sum(rate(%s_bucket{%s}[5m])) by (le))`, m, filter)
+			q := fmt.Sprintf(`histogram_quantile(0.75, sum(increase(%s_bucket{%s}[1h])) by (le))`, m, filter)
 			r, err := a.prom(ctx).InstantQuery(ctx, q, at)
 			if err == nil && len(r) > 0 && isValidMetricValue(r[0].Value.Float()) {
 				mu.Lock()
@@ -248,7 +250,7 @@ func (a *App) queryFrontendFromAlloyHistogram(ctx context.Context, service, envi
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		errQ := fmt.Sprintf(`sum(rate(%s{%s}[5m]))`, h.Errors, filter)
+		errQ := fmt.Sprintf(`sum(rate(%s{%s}[1h]))`, h.Errors, filter)
 		r, err := a.prom(ctx).InstantQuery(ctx, errQ, at)
 		if err == nil && len(r) > 0 && isValidMetricValue(r[0].Value.Float()) {
 			mu.Lock()

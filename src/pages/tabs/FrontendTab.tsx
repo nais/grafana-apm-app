@@ -1285,34 +1285,34 @@ function HistogramWebVitalsPanels({
     const mDs = { uid: ds.metricsUid };
     const lDs = { uid: ds.logsUid };
 
-    // --- Row 1: Core Web Vitals stat panels (p75 from histograms) ---
+    // --- Row 1: Core Web Vitals stat panels (p75 from histograms over full range) ---
     const lcpQ = makePromQuery(
       mDs,
-      `histogram_quantile(0.75, sum(rate(${ah.lcp}_bucket{${svcFilter}}[$__rate_interval])) by (le))`,
+      `histogram_quantile(0.75, sum(increase(${ah.lcp}_bucket{${svcFilter}}[$__range])) by (le))`,
       'LCP',
       { instant: true }
     );
     const fcpQ = makePromQuery(
       mDs,
-      `histogram_quantile(0.75, sum(rate(${ah.fcp}_bucket{${svcFilter}}[$__rate_interval])) by (le))`,
+      `histogram_quantile(0.75, sum(increase(${ah.fcp}_bucket{${svcFilter}}[$__range])) by (le))`,
       'FCP',
       { instant: true }
     );
     const clsQ = makePromQuery(
       mDs,
-      `histogram_quantile(0.75, sum(rate(${ah.cls}_bucket{${svcFilter}}[$__rate_interval])) by (le))`,
+      `histogram_quantile(0.75, sum(increase(${ah.cls}_bucket{${svcFilter}}[$__range])) by (le))`,
       'CLS',
       { instant: true }
     );
     const inpQ = makePromQuery(
       mDs,
-      `histogram_quantile(0.75, sum(rate(${ah.inp}_bucket{${svcFilter}}[$__rate_interval])) by (le))`,
+      `histogram_quantile(0.75, sum(increase(${ah.inp}_bucket{${svcFilter}}[$__range])) by (le))`,
       'INP',
       { instant: true }
     );
     const ttfbQ = makePromQuery(
       mDs,
-      `histogram_quantile(0.75, sum(rate(${ah.ttfb}_bucket{${svcFilter}}[$__rate_interval])) by (le))`,
+      `histogram_quantile(0.75, sum(increase(${ah.ttfb}_bucket{${svcFilter}}[$__range])) by (le))`,
       'TTFB',
       { instant: true }
     );
@@ -1350,7 +1350,7 @@ function HistogramWebVitalsPanels({
         body: PanelBuilders.stat()
           .setTitle('Page Loads/s')
           .setDescription('Page load rate from histogram counter')
-          .setData(makePromQuery(mDs, `sum(rate(${ah.pageLoads}{${svcFilter}}[$__rate_interval]))`, 'Rate'))
+          .setData(makePromQuery(mDs, `sum(rate(${ah.pageLoads}{${svcFilter}}[$__range]))`, 'Rate'))
           .setUnit('reqps')
           .setColor({ mode: 'fixed', fixedColor: 'blue' } as any)
           .build(),
@@ -1360,7 +1360,7 @@ function HistogramWebVitalsPanels({
         body: PanelBuilders.stat()
           .setTitle('JS Errors/s')
           .setDescription('JavaScript error rate from counter')
-          .setData(makePromQuery(mDs, `sum(rate(${ah.errors}{${svcFilter}}[$__rate_interval]))`, 'Rate'))
+          .setData(makePromQuery(mDs, `sum(rate(${ah.errors}{${svcFilter}}[$__range]))`, 'Rate'))
           .setUnit('reqps')
           .setColor({ mode: 'fixed', fixedColor: 'red' } as any)
           .build(),
