@@ -58,6 +58,7 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
   const styles = useStyles2(getStyles);
   const [available, setAvailable] = useState<boolean | null>(null);
   const [source, setSource] = useState<FrontendSource | null>(null);
+  const [hasLoki, setHasLoki] = useState<boolean>(false);
   const [vitals, setVitals] = useState<Record<string, number> | undefined>();
 
   useEffect(() => {
@@ -70,12 +71,14 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
         }
         setAvailable(r.available);
         setSource((r.source as FrontendSource) ?? null);
+        setHasLoki(r.hasLoki ?? false);
         setVitals(r.vitals);
       })
       .catch(() => {
         if (!cancelled) {
           setAvailable(false);
           setSource(null);
+          setHasLoki(false);
           setVitals(undefined);
         }
       });
@@ -84,6 +87,7 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
       cancelled = true;
       setAvailable(null);
       setSource(null);
+      setHasLoki(false);
       setVitals(undefined);
     };
   }, [service, namespace, environment]);
@@ -118,6 +122,7 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
           namespace={namespace}
           environment={environment}
           vitals={vitals}
+          hasLoki={hasLoki}
         />
       )}
       {source === 'mimir' && (
@@ -154,18 +159,22 @@ function UnifiedFrontendPanels({
   namespace,
   environment,
   vitals,
+  hasLoki,
 }: {
   source: 'loki' | 'alloy-histogram';
   service: string;
   namespace: string;
   environment?: string;
   vitals?: Record<string, number>;
+  hasLoki: boolean;
 }) {
   const ds = usePluginDatasources(environment || undefined);
   const { from, to } = useTimeRange();
 
   const ah = otel.alloyHistogram;
   const isHistogram = source === 'alloy-histogram';
+  // Loki panels: only render when Loki is actually available (fixes contract drift)
+  const showLokiPanels = hasLoki || source === 'loki';
 
   // Mimir filter for histogram queries
   const svcFilter = isHistogram
@@ -813,14 +822,14 @@ function UnifiedFrontendPanels({
           ...(bulletsItem ? [bulletsItem] : []),
           ...(insightsRow ? [insightsRow] : []),
           trendsRow,
-          errorsRow,
-          perPageTable,
+          ...(showLokiPanels ? [errorsRow] : []),
+          ...(showLokiPanels ? [perPageTable] : []),
           trafficRow,
-          supportRow,
+          ...(showLokiPanels ? [supportRow] : []),
         ],
       }),
     });
-  }, [from, to, ds, service, namespace, svcFilter, ah, isHistogram, vitals]);
+  }, [from, to, ds, service, namespace, svcFilter, ah, isHistogram, showLokiPanels, vitals]);
 
   return <scene.Component model={scene} />;
 }
