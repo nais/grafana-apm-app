@@ -204,10 +204,12 @@ func (a *App) queryFrontendFromAlloyHistogram(ctx context.Context, service, envi
 	h := a.otelCfg.AlloyHistogramMetrics
 	filter := a.otelCfg.AlloyHistogramFilter(service, environment)
 
-	// Detection: check if LCP histogram buckets exist
-	checkQ := fmt.Sprintf(`count(%s_bucket{%s, le="+Inf"})`, h.LCP, filter)
+	// Detection: check that any histogram data exists (at least 1 observation in the last hour).
+	// The unified frontend view renders the same layout regardless of sample count,
+	// so even sparse data is usable.
+	checkQ := fmt.Sprintf(`sum(increase(%s_bucket{%s, le="+Inf"}[1h]))`, h.LCP, filter)
 	results, err := a.prom(ctx).InstantQuery(ctx, checkQ, at)
-	if err != nil || len(results) == 0 || results[0].Value.Float() == 0 {
+	if err != nil || len(results) == 0 || !isValidMetricValue(results[0].Value.Float()) || results[0].Value.Float() < 1 {
 		return FrontendMetricsResponse{Available: false}
 	}
 
