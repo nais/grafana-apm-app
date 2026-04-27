@@ -2,6 +2,8 @@ export { VITAL_THRESHOLDS, VITAL_DEFS, BROWSER_FILTER, CWV_BUCKET_BOUNDARIES } f
 export type { VitalKey, VitalDef, VitalThreshold } from './constants';
 export { buildStatPanel, makePromQuery, makeLokiQuery, normalizePageUrlExpr } from './panel-helpers';
 export type { DsRef } from './panel-helpers';
+export { resolveCapabilities } from './capabilities';
+export type { FrontendCapabilities, FrontendFeature, MetricsEngine, LogsEngine } from './capabilities';
 export { WebVitalsBullets } from './components/WebVitalsBullets';
 export * from './queries/loki-builders';
 export * from './queries/histogram-builders';
