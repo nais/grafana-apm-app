@@ -14,7 +14,7 @@ export type CardSize = 'sm' | 'md' | 'lg';
 /** Fixed outer dimensions per card size (including border + padding). */
 export const CARD_DIMENSIONS: Record<CardSize, { width: number; height: number }> = {
   sm: { width: 180, height: 72 },
-  md: { width: 220, height: 120 },
+  md: { width: 220, height: 140 },
   lg: { width: 260, height: 164 },
 };
 
@@ -227,6 +227,7 @@ const getStyles = (theme: GrafanaTheme2) => ({
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    flex-shrink: 0;
   `,
   serviceNameSm: css`
     font-weight: ${theme.typography.fontWeightBold};
