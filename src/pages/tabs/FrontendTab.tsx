@@ -39,12 +39,9 @@ interface FrontendTabProps {
   environment?: string;
 }
 
-type FrontendSource = 'loki' | 'alloy-histogram';
-
 export function FrontendTab({ service, namespace, environment }: FrontendTabProps) {
   const styles = useStyles2(getStyles);
   const [available, setAvailable] = useState<boolean | null>(null);
-  const [source, setSource] = useState<FrontendSource | null>(null);
   const [hasLoki, setHasLoki] = useState<boolean>(false);
   const [vitals, setVitals] = useState<Record<string, number> | undefined>();
 
@@ -57,14 +54,12 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
           return;
         }
         setAvailable(r.available);
-        setSource((r.source as FrontendSource) ?? null);
         setHasLoki(r.hasLoki ?? false);
         setVitals(r.vitals);
       })
       .catch(() => {
         if (!cancelled) {
           setAvailable(false);
-          setSource(null);
           setHasLoki(false);
           setVitals(undefined);
         }
@@ -73,7 +68,6 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
     return () => {
       cancelled = true;
       setAvailable(null);
-      setSource(null);
       setHasLoki(false);
       setVitals(undefined);
     };
@@ -83,7 +77,7 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
     return <LoadingPlaceholder text="Checking for browser telemetry..." />;
   }
 
-  if (!available || !source) {
+  if (!available) {
     return <SetupPlaceholder namespace={namespace} service={service} />;
   }
 
@@ -97,8 +91,7 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
           range or wait for new traffic.
         </Alert>
       )}
-      <UnifiedFrontendPanels
-        source={source}
+      <FrontendPanels
         service={service}
         namespace={namespace}
         environment={environment}
@@ -110,20 +103,18 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
 }
 
 // ========================================================================
-// Unified Frontend Panels — one layout for both histogram (Mimir) and Loki sources.
-// Section builders handle the per-source query construction; this component
-// composes them into an EmbeddedScene with shared time range and variables.
+// Frontend Panels — Mimir-first layout with optional Loki enrichment.
+// All core metrics (vitals, ratings, traffic) come from Mimir histograms.
+// Loki adds per-page breakdowns, full error messages, and session data.
 // ========================================================================
 
-function UnifiedFrontendPanels({
-  source,
+function FrontendPanels({
   service,
   namespace,
   environment,
   vitals,
   hasLoki,
 }: {
-  source: 'loki' | 'alloy-histogram';
   service: string;
   namespace: string;
   environment?: string;
@@ -133,10 +124,10 @@ function UnifiedFrontendPanels({
   const ds = usePluginDatasources(environment || undefined);
 
   const ah = otel.alloyHistogram;
-  const isHistogram = source === 'alloy-histogram';
-  const svcFilter = isHistogram
-    ? histogramFilter(sanitizeLabelValue(service), environment ? sanitizeLabelValue(environment) : undefined)
-    : '';
+  const svcFilter = histogramFilter(
+    sanitizeLabelValue(service),
+    environment ? sanitizeLabelValue(environment) : undefined
+  );
 
   const scene = useMemo(() => {
     const ctx: FrontendSceneContext = {
@@ -146,12 +137,11 @@ function UnifiedFrontendPanels({
       namespace,
       environment,
       svcFilter,
-      isHistogram,
-      showLokiPanels: true,
+      hasLoki,
       ah,
     };
 
-    // Build sections using capability-gated builders
+    // Build sections — core metrics always render, Loki enrichment is optional
     const insightsRow = buildInsightsSection(ctx);
     const trendsRow = buildTrendsSection(ctx);
     const perPageTable = buildPerPageSection(ctx);
@@ -167,7 +157,7 @@ function UnifiedFrontendPanels({
       includeAll: true,
       allValue: '.*',
       query: 'Chrome,Firefox,Safari,Edge,Opera,Samsung Internet',
-      value: '',
+      value: '$__all',
     });
 
     // Bullet chart summary (pre-computed by backend)
@@ -186,16 +176,16 @@ function UnifiedFrontendPanels({
         direction: 'column',
         children: [
           ...(bulletsItem ? [bulletsItem] : []),
-          ...(insightsRow ? [insightsRow] : []),
+          insightsRow,
           trendsRow,
-          ...(errorsRow ? [errorsRow] : []),
+          errorsRow,
           ...(perPageTable ? [perPageTable] : []),
           trafficRow,
           ...(supportRow ? [supportRow] : []),
         ],
       }),
     });
-  }, [ds, service, namespace, environment, svcFilter, ah, isHistogram, vitals]);
+  }, [ds, service, namespace, environment, svcFilter, ah, hasLoki, vitals]);
 
   return <scene.Component model={scene} />;
 }

@@ -1,10 +1,9 @@
-export { VITAL_THRESHOLDS, VITAL_DEFS, BROWSER_FILTER, CWV_BUCKET_BOUNDARIES } from './constants';
+export { VITAL_THRESHOLDS, VITAL_DEFS, CWV_BUCKET_BOUNDARIES } from './constants';
 export type { VitalKey, VitalDef, VitalThreshold } from './constants';
-export { buildStatPanel, makePromQuery, makeLokiQuery, normalizePageUrlExpr } from './panel-helpers';
+export { buildStatPanel, makePromQuery, makeLokiQuery } from './panel-helpers';
 export type { DsRef } from './panel-helpers';
 export { resolveCapabilities } from './capabilities';
-export type { FrontendCapabilities, FrontendFeature, MetricsEngine, LogsEngine } from './capabilities';
-export type { FrontendQueryAdapter } from './adapter';
+export type { FrontendCapabilities } from './capabilities';
 export type { FrontendSceneContext } from './scene-context';
 export {
   buildInsightsSection,

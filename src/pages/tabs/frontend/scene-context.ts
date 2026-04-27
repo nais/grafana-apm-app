@@ -2,12 +2,15 @@ import { DsRef } from './panel-helpers';
 
 /**
  * Shared context passed to all section builders.
- * Replaces scattered parameter passing throughout the scene construction.
+ *
+ * The Mimir pipeline is the canonical source for all frontend telemetry.
+ * Loki provides enrichment (per-page breakdowns, full error messages,
+ * console logs, sessions) but is not required for the core dashboard.
  */
 export interface FrontendSceneContext {
-  /** Prometheus datasource for Mimir/histogram queries. */
+  /** Prometheus datasource for Mimir histogram queries. */
   metricsDs: DsRef;
-  /** Loki datasource for log-based queries. */
+  /** Loki datasource for log-based enrichment queries. */
   logsDs: DsRef;
   /** Service name (already sanitized for label values). */
   service: string;
@@ -15,12 +18,10 @@ export interface FrontendSceneContext {
   namespace: string;
   /** Environment (for datasource selection and filtering). */
   environment?: string;
-  /** Pre-computed PromQL label filter for histogram queries (empty string for non-histogram). */
+  /** Pre-computed PromQL label filter for histogram queries. */
   svcFilter: string;
-  /** Whether the source is alloy-histogram (enables histogram-specific features). */
-  isHistogram: boolean;
-  /** Whether Loki is available for log-based panels. */
-  showLokiPanels: boolean;
+  /** Whether Loki has data for this service (enables enrichment panels). */
+  hasLoki: boolean;
   /** Alloy histogram config reference. */
   ah: typeof import('../../../otelconfig').otel.alloyHistogram;
 }

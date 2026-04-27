@@ -69,10 +69,17 @@ export const otel = {
     pageLoads: 'loki_process_custom_faro_web_vital_measurements_total',
     pageLoadsByNav: 'loki_process_custom_faro_web_vital_measurements_by_nav_total',
     errors: 'loki_process_custom_faro_errors_total',
+    /** Per-vital CWV rating counters (labels: app_name, env, rating) */
+    ratingLcp: 'loki_process_custom_faro_cwv_lcp_rating_total',
+    ratingFcp: 'loki_process_custom_faro_cwv_fcp_rating_total',
+    ratingCls: 'loki_process_custom_faro_cwv_cls_rating_total',
+    ratingInp: 'loki_process_custom_faro_cwv_inp_rating_total',
+    ratingTtfb: 'loki_process_custom_faro_cwv_ttfb_rating_total',
     appLabel: 'app_name',
     envLabel: 'env',
     browserLabel: 'browser_name',
     navTypeLabel: 'nav_type',
+    exceptionTypeLabel: 'exception_type',
     job: 'alloy-faro',
   },
 

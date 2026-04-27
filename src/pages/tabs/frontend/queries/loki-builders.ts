@@ -38,7 +38,7 @@ export function lokiVitalByGroupExpr(service: string, vital: string, groupBy: st
   return `sum by (${groupBy}) (sum_over_time(${pipeline} | unwrap ${vital} ${window})) / sum by (${groupBy}) (count_over_time(${pipeline} ${window}))`;
 }
 
-/** Weighted mean of a vital grouped by page URL (raw URLs, no normalization). */
+/** Weighted mean of a vital grouped by page URL, limited to top pages by volume. */
 export function lokiVitalByPageExpr(
   service: string,
   vital: string,
@@ -47,7 +47,8 @@ export function lokiVitalByPageExpr(
   browserFilter = BROWSER_FILTER
 ): string {
   const pipeline = lokiVitalPipeline(service, vital, pageLabel, browserFilter);
-  return `sum by (${pageLabel}) (sum_over_time(${pipeline} | unwrap ${vital} ${window})) / sum by (${pageLabel}) (count_over_time(${pipeline} ${window}))`;
+  // Use topk to limit cardinality — only compute averages for the top 20 pages by volume
+  return `topk(20, sum by (${pageLabel}) (sum_over_time(${pipeline} | unwrap ${vital} ${window})) / sum by (${pageLabel}) (count_over_time(${pipeline} ${window})))`;
 }
 
 /** Total exception count over time (for timeseries). */

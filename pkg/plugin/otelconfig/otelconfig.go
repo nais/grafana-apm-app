@@ -101,12 +101,19 @@ type AlloyHistogramMetrics struct {
 	TTFB           string
 	PageLoads      string // counter: page loads total (labels: app_name, env, browser_name)
 	PageLoadsByNav string // counter: page loads by navigation type (labels: app_name, env, nav_type)
-	Errors         string // counter: errors total
-	AppLabel       string // label for app name (e.g. "app_name")
-	EnvLabel       string // label for environment (e.g. "env")
-	BrowserLabel   string // label for browser on page_loads counter
-	NavTypeLabel   string // label for navigation type on page_loads_by_nav counter
-	Job            string // job label for filtering (e.g. "alloy-faro")
+	Errors         string // counter: errors total (labels: app_name, env, exception_type)
+	// Per-vital CWV rating counters (labels: app_name, env, rating)
+	RatingLCP  string
+	RatingFCP  string
+	RatingCLS  string
+	RatingINP  string
+	RatingTTFB string
+	AppLabel           string // label for app name (e.g. "app_name")
+	EnvLabel           string // label for environment (e.g. "env")
+	BrowserLabel       string // label for browser on page_loads counter
+	NavTypeLabel       string // label for navigation type on page_loads_by_nav counter
+	ExceptionTypeLabel string // label for exception type on errors counter
+	Job                string // job label for filtering (e.g. "alloy-faro")
 }
 
 // ---------------------------------------------------------------------------
@@ -386,11 +393,17 @@ func Default() Config {
 			PageLoads:      "loki_process_custom_faro_web_vital_measurements_total",
 			PageLoadsByNav: "loki_process_custom_faro_web_vital_measurements_by_nav_total",
 			Errors:         "loki_process_custom_faro_errors_total",
-			AppLabel:       "app_name",
-			EnvLabel:       "env",
-			BrowserLabel:   "browser_name",
-			NavTypeLabel:   "nav_type",
-			Job:            "alloy-faro",
+			RatingLCP:      "loki_process_custom_faro_cwv_lcp_rating_total",
+			RatingFCP:      "loki_process_custom_faro_cwv_fcp_rating_total",
+			RatingCLS:      "loki_process_custom_faro_cwv_cls_rating_total",
+			RatingINP:      "loki_process_custom_faro_cwv_inp_rating_total",
+			RatingTTFB:     "loki_process_custom_faro_cwv_ttfb_rating_total",
+			AppLabel:           "app_name",
+			EnvLabel:           "env",
+			BrowserLabel:       "browser_name",
+			NavTypeLabel:       "nav_type",
+			ExceptionTypeLabel: "exception_type",
+			Job:                "alloy-faro",
 		},
 
 		ServiceGraph: ServiceGraph{

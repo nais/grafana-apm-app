@@ -1,92 +1,80 @@
 /**
- * Section builders for the Unified Frontend dashboard.
+ * Section builders for the Frontend dashboard.
  *
- * Each function builds one logical section (row) of the dashboard given
- * a FrontendSceneContext. Returns a SceneFlexLayout or SceneFlexItem,
- * or null if the section should not render for the current capabilities.
+ * All core metrics come from Mimir (alloy-histogram pipeline).
+ * Loki provides enrichment panels (per-page, full error messages, console logs,
+ * sessions) when available. Each function builds one logical section (row).
  */
 import { SceneFlexLayout, SceneFlexItem, SceneQueryRunner, SceneDataTransformer, PanelBuilders } from '@grafana/scenes';
-import { ThresholdsMode, GraphThresholdsStyleMode, StackingMode, VizOrientation } from '@grafana/schema';
+import { ThresholdsMode, GraphThresholdsStyleMode } from '@grafana/schema';
 
 import { otel } from '../../../otelconfig';
 import { sanitizeLabelValue } from '../../../utils/sanitize';
 import { PLUGIN_BASE_URL } from '../../../constants';
-import { VITAL_THRESHOLDS, BROWSER_FILTER, CWV_BUCKET_BOUNDARIES, VitalKey } from './constants';
+import { VITAL_THRESHOLDS } from './constants';
 import { makePromQuery, makeLokiQuery } from './panel-helpers';
 import {
-  lokiVitalExpr,
   lokiVitalByGroupExpr,
   lokiVitalByPageExpr,
   lokiTopExceptionsExpr,
   lokiExceptionSessionsExpr,
-  lokiExceptionExpr,
   lokiSessionStartExpr,
   lokiConsoleErrorsExpr,
-  lokiMeasurementCountExpr,
 } from './queries/loki-builders';
 import { FrontendSceneContext } from './scene-context';
 
 // ---------------------------------------------------------------------------
-// Section 1: Histogram Insights (CWV Rating Breakdown + Navigation Type)
-// Only shown when source is alloy-histogram.
+// Section 1: CWV Rating Breakdown + Navigation Type
 // ---------------------------------------------------------------------------
 
-/** Build CWV Rating Breakdown + Navigation Type row (histogram-only). */
-export function buildInsightsSection(ctx: FrontendSceneContext): SceneFlexLayout | null {
-  if (!ctx.isHistogram) {
-    return null;
-  }
-
+/** CWV Rating Breakdown (from Mimir rating counters) + Navigation Type. */
+export function buildInsightsSection(ctx: FrontendSceneContext): SceneFlexLayout {
   const { metricsDs, svcFilter, ah } = ctx;
-  const vitals: VitalKey[] = ['lcp', 'fcp', 'cls', 'inp', 'ttfb'];
 
-  // Build rating queries for each vital (good/needs-improvement/poor)
-  const ratingQueries = vitals.flatMap((vital) => {
-    const metric = ah[vital];
-    const { good, poor } = CWV_BUCKET_BOUNDARIES[vital];
-    const label = vital.toUpperCase();
-    return [
-      {
-        refId: `${vital}_good`,
-        expr: `increase(${metric}_bucket{${svcFilter}, le="${good}"}[$__range]) / increase(${metric}_bucket{${svcFilter}, le="+Inf"}[$__range])`,
-        legendFormat: `${label} Good`,
-        instant: true,
-      },
-      {
-        refId: `${vital}_ni`,
-        expr: `(increase(${metric}_bucket{${svcFilter}, le="${poor}"}[$__range]) - increase(${metric}_bucket{${svcFilter}, le="${good}"}[$__range])) / increase(${metric}_bucket{${svcFilter}, le="+Inf"}[$__range])`,
-        legendFormat: `${label} Needs Improvement`,
-        instant: true,
-      },
-      {
-        refId: `${vital}_poor`,
-        expr: `1 - increase(${metric}_bucket{${svcFilter}, le="${poor}"}[$__range]) / increase(${metric}_bucket{${svcFilter}, le="+Inf"}[$__range])`,
-        legendFormat: `${label} Poor`,
-        instant: true,
-      },
-    ];
-  });
-
+  // CWV Rating Breakdown — uses dedicated per-vital rating counters from the pipeline.
+  // Each counter has rating="good"|"needs-improvement"|"poor" pre-computed by the Faro SDK.
+  const ratingMetrics: Array<{ vital: string; metric: string }> = [
+    { vital: 'LCP', metric: ah.ratingLcp },
+    { vital: 'FCP', metric: ah.ratingFcp },
+    { vital: 'CLS', metric: ah.ratingCls },
+    { vital: 'INP', metric: ah.ratingInp },
+    { vital: 'TTFB', metric: ah.ratingTtfb },
+  ];
+  const ratingQueries = ratingMetrics.flatMap(({ vital, metric }) => [
+    {
+      refId: `${vital}_good`,
+      expr: `sum(increase(${metric}{${svcFilter}, rating="good"}[$__range]))`,
+      legendFormat: `${vital} Good`,
+      instant: true,
+    },
+    {
+      refId: `${vital}_ni`,
+      expr: `sum(increase(${metric}{${svcFilter}, rating="needs-improvement"}[$__range]))`,
+      legendFormat: `${vital} Needs Improvement`,
+      instant: true,
+    },
+    {
+      refId: `${vital}_poor`,
+      expr: `sum(increase(${metric}{${svcFilter}, rating="poor"}[$__range]))`,
+      legendFormat: `${vital} Poor`,
+      instant: true,
+    },
+  ]);
   const cwvRatingQ = new SceneQueryRunner({
     datasource: { uid: metricsDs.uid, type: 'prometheus' },
     queries: ratingQueries,
   });
-
   const cwvRatingPanel = new SceneFlexItem({
     minHeight: 200,
     body: PanelBuilders.barchart()
       .setTitle('CWV Rating Breakdown')
-      .setDescription('Percentage of page loads rated Good / Needs Improvement / Poor per Core Web Vital')
+      .setDescription('Percentage of measurements rated Good / Needs Improvement / Poor per Core Web Vital')
       .setData(cwvRatingQ)
-      .setUnit('percentunit')
-      .setOption('stacking', StackingMode.Normal)
-      .setOption('orientation', VizOrientation.Horizontal)
+      .setCustomFieldConfig('stacking' as any, { mode: 'percent' })
       .setOverrides((b) => {
-        for (const v of vitals) {
-          b.matchFieldsByQuery(`${v}_good`).overrideColor({ mode: 'fixed', fixedColor: 'green' });
-          b.matchFieldsByQuery(`${v}_ni`).overrideColor({ mode: 'fixed', fixedColor: 'orange' });
-          b.matchFieldsByQuery(`${v}_poor`).overrideColor({ mode: 'fixed', fixedColor: 'red' });
-        }
+        b.matchFieldsWithNameByRegex('Good$').overrideColor({ mode: 'fixed', fixedColor: 'green' });
+        b.matchFieldsWithNameByRegex('Needs Improvement$').overrideColor({ mode: 'fixed', fixedColor: 'orange' });
+        b.matchFieldsWithNameByRegex('Poor$').overrideColor({ mode: 'fixed', fixedColor: 'red' });
       })
       .build(),
   });
@@ -122,63 +110,43 @@ export function buildInsightsSection(ctx: FrontendSceneContext): SceneFlexLayout
 }
 
 // ---------------------------------------------------------------------------
-// Section 2: Web Vitals Trends (TTFB → FCP → LCP timeseries + INP + CLS)
+// Section 2: Web Vitals Trends (p75 timeseries from Mimir histograms)
 // ---------------------------------------------------------------------------
 
-/** Build Web Vitals trends timeseries row. */
+/** Web Vitals p75 trends: TTFB → FCP → LCP + INP + CLS. */
 export function buildTrendsSection(ctx: FrontendSceneContext): SceneFlexLayout {
-  const { metricsDs, logsDs, service, svcFilter, ah, isHistogram } = ctx;
-  const fl = otel.faroLoki;
+  const { metricsDs, svcFilter, ah } = ctx;
 
-  let pageLoadVitalsQ: SceneQueryRunner;
-  let inpTrendQ: SceneQueryRunner;
-  let clsTrendQ: SceneQueryRunner;
-
-  if (isHistogram) {
-    pageLoadVitalsQ = new SceneQueryRunner({
-      datasource: { uid: metricsDs.uid, type: 'prometheus' },
-      queries: [
-        {
-          refId: 'A',
-          expr: `histogram_quantile(0.75, sum(rate(${ah.ttfb}_bucket{${svcFilter}}[$__rate_interval])) by (le))`,
-          legendFormat: 'TTFB',
-        },
-        {
-          refId: 'B',
-          expr: `histogram_quantile(0.75, sum(rate(${ah.fcp}_bucket{${svcFilter}}[$__rate_interval])) by (le))`,
-          legendFormat: 'FCP',
-        },
-        {
-          refId: 'C',
-          expr: `histogram_quantile(0.75, sum(rate(${ah.lcp}_bucket{${svcFilter}}[$__rate_interval])) by (le))`,
-          legendFormat: 'LCP',
-        },
-      ],
-    });
-    inpTrendQ = makePromQuery(
-      metricsDs,
-      `histogram_quantile(0.75, sum(rate(${ah.inp}_bucket{${svcFilter}}[$__rate_interval])) by (le))`,
-      'INP'
-    );
-    clsTrendQ = makePromQuery(
-      metricsDs,
-      `histogram_quantile(0.75, sum(rate(${ah.cls}_bucket{${svcFilter}}[$__rate_interval])) by (le))`,
-      'CLS'
-    );
-  } else {
-    pageLoadVitalsQ = new SceneQueryRunner({
-      datasource: { uid: logsDs.uid, type: 'loki' },
-      queries: [
-        { refId: 'A', expr: lokiVitalExpr(service, fl.ttfb, '[$__auto]'), legendFormat: 'TTFB' },
-        { refId: 'B', expr: lokiVitalExpr(service, fl.fcp, '[$__auto]'), legendFormat: 'FCP' },
-        { refId: 'C', expr: lokiVitalExpr(service, fl.lcp, '[$__auto]'), legendFormat: 'LCP' },
-      ],
-    });
-    inpTrendQ = makeLokiQuery(logsDs, lokiVitalExpr(service, fl.inp, '[$__auto]'), 'INP');
-    clsTrendQ = makeLokiQuery(logsDs, lokiVitalExpr(service, fl.cls, '[$__auto]'), 'CLS');
-  }
-
-  const trendTitle = isHistogram ? 'p75' : 'avg';
+  const pageLoadVitalsQ = new SceneQueryRunner({
+    datasource: { uid: metricsDs.uid, type: 'prometheus' },
+    queries: [
+      {
+        refId: 'A',
+        expr: `histogram_quantile(0.75, sum(rate(${ah.ttfb}_bucket{${svcFilter}}[$__rate_interval])) by (le))`,
+        legendFormat: 'TTFB',
+      },
+      {
+        refId: 'B',
+        expr: `histogram_quantile(0.75, sum(rate(${ah.fcp}_bucket{${svcFilter}}[$__rate_interval])) by (le))`,
+        legendFormat: 'FCP',
+      },
+      {
+        refId: 'C',
+        expr: `histogram_quantile(0.75, sum(rate(${ah.lcp}_bucket{${svcFilter}}[$__rate_interval])) by (le))`,
+        legendFormat: 'LCP',
+      },
+    ],
+  });
+  const inpTrendQ = makePromQuery(
+    metricsDs,
+    `histogram_quantile(0.75, sum(rate(${ah.inp}_bucket{${svcFilter}}[$__rate_interval])) by (le))`,
+    'INP'
+  );
+  const clsTrendQ = makePromQuery(
+    metricsDs,
+    `histogram_quantile(0.75, sum(rate(${ah.cls}_bucket{${svcFilter}}[$__rate_interval])) by (le))`,
+    'CLS'
+  );
 
   return new SceneFlexLayout({
     direction: 'row',
@@ -186,7 +154,7 @@ export function buildTrendsSection(ctx: FrontendSceneContext): SceneFlexLayout {
       new SceneFlexItem({
         minHeight: 200,
         body: PanelBuilders.timeseries()
-          .setTitle(`Page Load Vitals (${trendTitle})`)
+          .setTitle('Page Load Vitals (p75)')
           .setDescription('TTFB → FCP → LCP loading sequence over time')
           .setData(pageLoadVitalsQ)
           .setUnit('ms')
@@ -195,7 +163,7 @@ export function buildTrendsSection(ctx: FrontendSceneContext): SceneFlexLayout {
       new SceneFlexItem({
         minHeight: 200,
         body: PanelBuilders.timeseries()
-          .setTitle(`Interactivity (INP ${trendTitle})`)
+          .setTitle('Interactivity (INP p75)')
           .setDescription('Interaction to Next Paint trend')
           .setData(inpTrendQ)
           .setUnit('ms')
@@ -206,7 +174,7 @@ export function buildTrendsSection(ctx: FrontendSceneContext): SceneFlexLayout {
       new SceneFlexItem({
         minHeight: 200,
         body: PanelBuilders.timeseries()
-          .setTitle(`Layout Stability (CLS ${trendTitle})`)
+          .setTitle('Layout Stability (CLS p75)')
           .setDescription('Cumulative Layout Shift trend')
           .setData(clsTrendQ)
           .setUnit('none')
@@ -220,12 +188,12 @@ export function buildTrendsSection(ctx: FrontendSceneContext): SceneFlexLayout {
 }
 
 // ---------------------------------------------------------------------------
-// Section 3: Per-Page Performance Table (Loki-only)
+// Section 3: Per-Page Performance Table (Loki enrichment)
 // ---------------------------------------------------------------------------
 
-/** Build per-page performance table (requires Loki). */
+/** Per-page performance table — requires Loki for page_url breakdown. */
 export function buildPerPageSection(ctx: FrontendSceneContext): SceneFlexItem | null {
-  if (!ctx.showLokiPanels) {
+  if (!ctx.hasLoki) {
     return null;
   }
 
@@ -268,7 +236,7 @@ export function buildPerPageSection(ctx: FrontendSceneContext): SceneFlexItem | 
       },
       {
         refId: 'count',
-        expr: `sum by (${pageUrl}) (count_over_time(${countPipeline} [$__range]))`,
+        expr: `topk(20, sum by (${pageUrl}) (count_over_time(${countPipeline} [$__range])))`,
         legendFormat: '__auto',
         format: 'table',
         instant: true,
@@ -331,149 +299,178 @@ export function buildPerPageSection(ctx: FrontendSceneContext): SceneFlexItem | 
 }
 
 // ---------------------------------------------------------------------------
-// Section 4: Errors Row (Top Exceptions + Browser Breakdown + optional Volume)
+// Section 4: Errors Row (Exception Types + Top Exceptions + Browser)
 // ---------------------------------------------------------------------------
 
-/** Build errors row with exceptions table, browser breakdown, and optional volume pie. */
-export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout | null {
-  if (!ctx.showLokiPanels) {
-    return null;
-  }
-
-  const { logsDs, metricsDs, service, namespace, svcFilter, ah, isHistogram } = ctx;
+/** Errors row — Mimir exception types always shown, Loki detail when available. */
+export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
+  const { logsDs, metricsDs, service, namespace, svcFilter, ah, hasLoki } = ctx;
   const fl = otel.faroLoki;
+  const children: SceneFlexItem[] = [];
 
-  // Top Exceptions table
-  const topExceptionsQ = new SceneQueryRunner({
-    datasource: { uid: logsDs.uid, type: 'loki' },
+  // Exception Types from Mimir counter (fast PromQL)
+  const exceptionTypeQ = new SceneQueryRunner({
+    datasource: { uid: metricsDs.uid, type: 'prometheus' },
     queries: [
       {
-        refId: 'count',
-        expr: lokiTopExceptionsExpr(service, '[$__range]'),
-        legendFormat: '__auto',
-        format: 'table',
-        instant: true,
-      },
-      {
-        refId: 'sessions',
-        expr: lokiExceptionSessionsExpr(service, '[$__range]'),
-        legendFormat: '__auto',
+        refId: 'types',
+        expr: `topk(10, sum by (${ah.exceptionTypeLabel}) (increase(${ah.errors}{${svcFilter}, ${ah.exceptionTypeLabel}!=""}[$__range])))`,
+        legendFormat: `{{${ah.exceptionTypeLabel}}}`,
         format: 'table',
         instant: true,
       },
     ],
   });
-  const topExceptionsData = new SceneDataTransformer({
-    $data: topExceptionsQ,
-    transformations: [{ id: 'merge', options: {} }],
-  });
-  const topExceptionsPanel = new SceneFlexItem({
-    minHeight: 300,
-    body: PanelBuilders.table()
-      .setTitle('Top Exceptions')
-      .setDescription('Most frequent JS exceptions — click to view in Logs tab')
-      .setData(topExceptionsData)
-      .setOverrides((b) => {
-        b.matchFieldsWithName('value').overrideDisplayName('Error').overrideCustomFieldConfig('width', 500);
-        b.matchFieldsWithName('Value #count').overrideDisplayName('Occurrences');
-        b.matchFieldsWithName('Value #sessions').overrideDisplayName('Sessions Affected');
-        b.matchFieldsWithName('Time').overrideCustomFieldConfig('hidden' as any, true);
-        b.matchFieldsWithName('value').overrideLinks([
-          {
-            title: 'View in Logs',
-            url: `${PLUGIN_BASE_URL}/services/${encodeURIComponent(namespace)}/${encodeURIComponent(service)}?tab=logs&from=\${__from}&to=\${__to}`,
-            targetBlank: false,
-          } as any,
-        ]);
-      })
-      .build(),
-  });
+  children.push(
+    new SceneFlexItem({
+      minHeight: 300,
+      body: PanelBuilders.table()
+        .setTitle('Exception Types')
+        .setDescription('Top exception types by volume')
+        .setData(exceptionTypeQ)
+        .setOverrides((b) => {
+          b.matchFieldsWithName(ah.exceptionTypeLabel).overrideDisplayName('Exception Type');
+          b.matchFieldsWithName('Value').overrideDisplayName('Count').overrideDecimals(0);
+          b.matchFieldsWithName('Time').overrideCustomFieldConfig('hidden' as any, true);
+        })
+        .build(),
+    })
+  );
 
-  // Browser breakdown table (Loki vitals per browser)
-  const browserQ = new SceneQueryRunner({
-    datasource: { uid: logsDs.uid, type: 'loki' },
-    queries: [
-      {
-        refId: 'lcp',
-        expr: lokiVitalByGroupExpr(service, fl.lcp, fl.browserName, '[$__range]'),
-        legendFormat: '__auto',
-        format: 'table',
-        instant: true,
-      },
-      {
-        refId: 'fcp',
-        expr: lokiVitalByGroupExpr(service, fl.fcp, fl.browserName, '[$__range]'),
-        legendFormat: '__auto',
-        format: 'table',
-        instant: true,
-      },
-      {
-        refId: 'ttfb',
-        expr: lokiVitalByGroupExpr(service, fl.ttfb, fl.browserName, '[$__range]'),
-        legendFormat: '__auto',
-        format: 'table',
-        instant: true,
-      },
-    ],
-  });
-  const browserData = new SceneDataTransformer({
-    $data: browserQ,
-    transformations: [{ id: 'merge', options: {} }],
-  });
-  const browserTable = new SceneFlexItem({
-    minHeight: 250,
-    body: PanelBuilders.table()
-      .setTitle('Browser Breakdown')
-      .setDescription('Average Web Vitals by browser' + (isHistogram ? ' (volume from Mimir)' : ''))
-      .setData(browserData)
-      .setOverrides((b) => {
-        b.matchFieldsWithName(fl.browserName).overrideDisplayName('Browser');
-        b.matchFieldsWithName('Value #lcp')
-          .overrideDisplayName('Avg LCP (ms)')
-          .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.lcp })
-          .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
-          .overrideDecimals(0);
-        b.matchFieldsWithName('Value #fcp')
-          .overrideDisplayName('Avg FCP (ms)')
-          .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.fcp })
-          .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
-          .overrideDecimals(0);
-        b.matchFieldsWithName('Value #ttfb')
-          .overrideDisplayName('Avg TTFB (ms)')
-          .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.ttfb })
-          .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
-          .overrideDecimals(0);
-        b.matchFieldsWithName('Time').overrideCustomFieldConfig('hidden' as any, true);
-      })
-      .build(),
-  });
-
-  // Optional browser volume pie (histogram source only)
-  const children: SceneFlexItem[] = [topExceptionsPanel, browserTable];
-  if (isHistogram) {
-    const browserVolumeQ = new SceneQueryRunner({
-      datasource: { uid: metricsDs.uid, type: 'prometheus' },
+  // Top Exceptions with full messages and session count (Loki enrichment)
+  if (hasLoki) {
+    const topExceptionsQ = new SceneQueryRunner({
+      datasource: { uid: logsDs.uid, type: 'loki' },
       queries: [
         {
-          refId: 'volume',
-          expr: `sum by (${ah.browserLabel}) (increase(${ah.pageLoads}{${svcFilter}, ${ah.browserLabel}!=""}[$__range]))`,
+          refId: 'count',
+          expr: lokiTopExceptionsExpr(service, '[$__range]'),
+          legendFormat: '__auto',
+          format: 'table',
+          instant: true,
+        },
+        {
+          refId: 'sessions',
+          expr: lokiExceptionSessionsExpr(service, '[$__range]'),
           legendFormat: '__auto',
           format: 'table',
           instant: true,
         },
       ],
     });
+    const topExceptionsData = new SceneDataTransformer({
+      $data: topExceptionsQ,
+      transformations: [{ id: 'merge', options: {} }],
+    });
+    children.push(
+      new SceneFlexItem({
+        minHeight: 300,
+        body: PanelBuilders.table()
+          .setTitle('Top Exceptions')
+          .setDescription('Most frequent JS exceptions — click to view in Logs tab')
+          .setData(topExceptionsData)
+          .setOverrides((b) => {
+            b.matchFieldsWithName('value').overrideDisplayName('Error').overrideCustomFieldConfig('width', 500);
+            b.matchFieldsWithName('Value #count').overrideDisplayName('Occurrences');
+            b.matchFieldsWithName('Value #sessions').overrideDisplayName('Sessions Affected');
+            b.matchFieldsWithName('Time').overrideCustomFieldConfig('hidden' as any, true);
+            b.matchFieldsWithName('value').overrideLinks([
+              {
+                title: 'View in Logs',
+                url: `${PLUGIN_BASE_URL}/services/${encodeURIComponent(namespace)}/${encodeURIComponent(service)}?tab=logs&from=\${__from}&to=\${__to}`,
+                targetBlank: false,
+              } as any,
+            ]);
+          })
+          .build(),
+      })
+    );
+
+    // Browser breakdown (Loki vitals per browser)
+    const browserQ = new SceneQueryRunner({
+      datasource: { uid: logsDs.uid, type: 'loki' },
+      queries: [
+        {
+          refId: 'lcp',
+          expr: lokiVitalByGroupExpr(service, fl.lcp, fl.browserName, '[$__range]'),
+          legendFormat: '__auto',
+          format: 'table',
+          instant: true,
+        },
+        {
+          refId: 'fcp',
+          expr: lokiVitalByGroupExpr(service, fl.fcp, fl.browserName, '[$__range]'),
+          legendFormat: '__auto',
+          format: 'table',
+          instant: true,
+        },
+        {
+          refId: 'ttfb',
+          expr: lokiVitalByGroupExpr(service, fl.ttfb, fl.browserName, '[$__range]'),
+          legendFormat: '__auto',
+          format: 'table',
+          instant: true,
+        },
+      ],
+    });
+    const browserData = new SceneDataTransformer({
+      $data: browserQ,
+      transformations: [{ id: 'merge', options: {} }],
+    });
     children.push(
       new SceneFlexItem({
         minHeight: 250,
-        body: PanelBuilders.piechart()
-          .setTitle('Browser Volume')
-          .setDescription('Measurement volume per browser (from Mimir)')
-          .setData(browserVolumeQ)
+        body: PanelBuilders.table()
+          .setTitle('Browser Breakdown')
+          .setDescription('Average Web Vitals by browser')
+          .setData(browserData)
+          .setOverrides((b) => {
+            b.matchFieldsWithName(fl.browserName).overrideDisplayName('Browser');
+            b.matchFieldsWithName('Value #lcp')
+              .overrideDisplayName('Avg LCP (ms)')
+              .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.lcp })
+              .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
+              .overrideDecimals(0);
+            b.matchFieldsWithName('Value #fcp')
+              .overrideDisplayName('Avg FCP (ms)')
+              .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.fcp })
+              .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
+              .overrideDecimals(0);
+            b.matchFieldsWithName('Value #ttfb')
+              .overrideDisplayName('Avg TTFB (ms)')
+              .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.ttfb })
+              .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
+              .overrideDecimals(0);
+            b.matchFieldsWithName('Time').overrideCustomFieldConfig('hidden' as any, true);
+          })
           .build(),
       })
     );
   }
+
+  // Browser volume pie (Mimir)
+  const browserVolumeQ = new SceneQueryRunner({
+    datasource: { uid: metricsDs.uid, type: 'prometheus' },
+    queries: [
+      {
+        refId: 'volume',
+        expr: `sum by (${ah.browserLabel}) (increase(${ah.pageLoads}{${svcFilter}, ${ah.browserLabel}!=""}[$__range]))`,
+        legendFormat: '__auto',
+        format: 'table',
+        instant: true,
+      },
+    ],
+  });
+  children.push(
+    new SceneFlexItem({
+      minHeight: 250,
+      body: PanelBuilders.piechart()
+        .setTitle('Browser Volume')
+        .setDescription('Measurement volume per browser')
+        .setData(browserVolumeQ)
+        .build(),
+    })
+  );
 
   return new SceneFlexLayout({
     direction: 'row',
@@ -482,111 +479,66 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout |
 }
 
 // ---------------------------------------------------------------------------
-// Section 5: Support Row (Console Errors + optional Rating Pie)
+// Section 5: Console Errors (Loki enrichment)
 // ---------------------------------------------------------------------------
 
-/** Build support row with console errors and optional Loki rating pie. */
+/** Console errors table — requires Loki. */
 export function buildSupportSection(ctx: FrontendSceneContext): SceneFlexLayout | null {
-  if (!ctx.showLokiPanels) {
+  if (!ctx.hasLoki) {
     return null;
   }
 
-  const { logsDs, service, isHistogram } = ctx;
+  const { logsDs, service } = ctx;
 
   const consoleErrorsQ = makeLokiQuery(logsDs, lokiConsoleErrorsExpr(service, '[$__range]'), '{{value}}', {
     instant: true,
   });
-  const consoleErrorsPanel = new SceneFlexItem({
-    minHeight: 250,
-    body: PanelBuilders.table()
-      .setTitle('Console Errors')
-      .setDescription('Most frequent console.error messages from Faro logs')
-      .setData(consoleErrorsQ)
-      .setOverrides((b) => {
-        b.matchFieldsWithName('value').overrideDisplayName('Error Message');
-        b.matchFieldsWithName('Value').overrideDisplayName('Count');
-        b.matchFieldsWithName('Time').overrideCustomFieldConfig('hidden' as any, true);
-      })
-      .build(),
-  });
-
-  if (isHistogram) {
-    // Histogram source already shows CWV rating breakdown above — just console errors
-    return new SceneFlexLayout({
-      direction: 'row',
-      children: [consoleErrorsPanel],
-    });
-  }
-
-  // Loki source: add rating pie alongside console errors
-  const fl = otel.faroLoki;
-  const ratingStream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindMeasurement}"}`;
-  const ratingQ = makeLokiQuery(
-    logsDs,
-    `sum by (${fl.rating}) (count_over_time(${ratingStream} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" | ${fl.rating}!="" ${BROWSER_FILTER} | keep ${fl.rating} [$__range]))`,
-    `{{${fl.rating}}}`,
-    { instant: true }
-  );
-  const ratingData = new SceneDataTransformer({
-    $data: ratingQ,
-    transformations: [
-      { id: 'reduce', options: { reducers: ['sum'] } },
-      { id: 'organize', options: { excludeByName: { Field: true }, renameByName: { Sum: '' } } },
-    ],
-  });
-  const ratingPanel = new SceneFlexItem({
-    minHeight: 250,
-    body: PanelBuilders.piechart()
-      .setTitle('Web Vitals Rating Distribution')
-      .setDescription('Distribution of good / needs-improvement / poor ratings')
-      .setData(ratingData)
-      .setOverrides((b) => {
-        b.matchFieldsWithName('good').overrideColor({ mode: 'fixed', fixedColor: 'green' });
-        b.matchFieldsWithName('needs-improvement').overrideColor({ mode: 'fixed', fixedColor: 'orange' });
-        b.matchFieldsWithName('poor').overrideColor({ mode: 'fixed', fixedColor: 'red' });
-      })
-      .build(),
-  });
 
   return new SceneFlexLayout({
     direction: 'row',
-    children: [ratingPanel, consoleErrorsPanel],
+    children: [
+      new SceneFlexItem({
+        minHeight: 250,
+        body: PanelBuilders.table()
+          .setTitle('Console Errors')
+          .setDescription('Most frequent console.error messages from Faro logs')
+          .setData(consoleErrorsQ)
+          .setOverrides((b) => {
+            b.matchFieldsWithName('value').overrideDisplayName('Error Message');
+            b.matchFieldsWithName('Value').overrideDisplayName('Count');
+            b.matchFieldsWithName('Time').overrideCustomFieldConfig('hidden' as any, true);
+          })
+          .build(),
+      }),
+    ],
   });
 }
 
 // ---------------------------------------------------------------------------
-// Section 6: Traffic Row (Measurements + Exceptions + Sessions timeseries)
+// Section 6: Traffic (Page Loads + Errors + Sessions timeseries)
 // ---------------------------------------------------------------------------
 
-/** Build traffic trends timeseries row. */
+/** Traffic timeseries — Mimir rate counters + optional Loki sessions. */
 export function buildTrafficSection(ctx: FrontendSceneContext): SceneFlexLayout {
-  const { metricsDs, logsDs, service, svcFilter, ah, isHistogram, showLokiPanels } = ctx;
+  const { metricsDs, logsDs, service, svcFilter, ah, hasLoki } = ctx;
 
-  let measurementCountQ: SceneQueryRunner;
-  let exceptionCountQ: SceneQueryRunner;
-
-  if (isHistogram) {
-    measurementCountQ = makePromQuery(
-      metricsDs,
-      `sum(rate(${ah.pageLoads}{${svcFilter}}[$__rate_interval]))`,
-      'Page Loads/s'
-    );
-    exceptionCountQ = makePromQuery(
-      metricsDs,
-      `sum(rate(${ah.errors}{${svcFilter}}[$__rate_interval]))`,
-      'JS Errors/s'
-    );
-  } else {
-    measurementCountQ = makeLokiQuery(logsDs, lokiMeasurementCountExpr(service, '[$__auto]'), 'Measurements');
-    exceptionCountQ = makeLokiQuery(logsDs, lokiExceptionExpr(service, '[$__auto]'), 'JS Exceptions');
-  }
+  const measurementCountQ = makePromQuery(
+    metricsDs,
+    `sum(rate(${ah.pageLoads}{${svcFilter}}[$__rate_interval]))`,
+    'Page Loads/s'
+  );
+  const exceptionCountQ = makePromQuery(
+    metricsDs,
+    `sum(rate(${ah.errors}{${svcFilter}}[$__rate_interval]))`,
+    'JS Errors/s'
+  );
 
   const children: SceneFlexItem[] = [
     new SceneFlexItem({
       minHeight: 200,
       body: PanelBuilders.timeseries()
         .setTitle('Web Vitals Measurements')
-        .setDescription('Number of Faro measurement reports over time')
+        .setDescription('Page load measurement rate over time')
         .setData(measurementCountQ)
         .setUnit('short')
         .setCustomFieldConfig('fillOpacity', 15)
@@ -596,7 +548,7 @@ export function buildTrafficSection(ctx: FrontendSceneContext): SceneFlexLayout 
       minHeight: 200,
       body: PanelBuilders.timeseries()
         .setTitle('JavaScript Exceptions')
-        .setDescription('JS exception count over time')
+        .setDescription('JS exception rate over time')
         .setData(exceptionCountQ)
         .setUnit('short')
         .setCustomFieldConfig('fillOpacity', 15)
@@ -604,8 +556,8 @@ export function buildTrafficSection(ctx: FrontendSceneContext): SceneFlexLayout 
     }),
   ];
 
-  // Sessions panel (always Loki)
-  if (showLokiPanels) {
+  // Sessions (Loki enrichment — session_start events)
+  if (hasLoki) {
     const sessionQ = makeLokiQuery(logsDs, lokiSessionStartExpr(service, '[$__auto]'), 'Sessions');
     children.push(
       new SceneFlexItem({

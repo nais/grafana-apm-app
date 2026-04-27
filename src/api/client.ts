@@ -398,11 +398,10 @@ export async function getEndpoints(
 
 export interface FrontendMetricsResponse {
   available: boolean;
-  source?: string; // "mimir", "loki", "alloy", or "alloy-histogram"
+  source?: string;
   vitals?: Record<string, number>;
   errorRate: number;
-  metricsSource?: string; // "alloy-histogram" or ""
-  hasLoki?: boolean; // true if Loki has Faro data for hybrid rendering
+  hasLoki?: boolean;
 }
 
 // Client-side cache for frontend metrics (avoids redundant backend calls on re-renders)

@@ -42,19 +42,13 @@ func (a *App) handleFrontendMetrics(w http.ResponseWriter, req *http.Request) {
 // FrontendMetricsResponse → models.go
 
 func (a *App) queryFrontendMetrics(ctx context.Context, service, env string, at time.Time, headers http.Header) FrontendMetricsResponse {
-	// 1. Try Alloy histograms (proper percentile-capable metrics) + Loki for enrichment
+	// Mimir is the canonical source for frontend metrics.
 	if a.promClient != nil {
-		histResp := a.queryFrontendFromAlloyHistogram(ctx, service, env, at)
-		if histResp.Available {
-			histResp.HasLoki = a.hasLokiFaroData(ctx, service, env, at, headers)
-			return histResp
+		resp := a.queryFrontendFromAlloyHistogram(ctx, service, env, at)
+		if resp.Available {
+			resp.HasLoki = a.hasLokiFaroData(ctx, service, env, at, headers)
+			return resp
 		}
-	}
-
-	// 2. Fall back to Loki (structured logs from grafana-agent or alloy-faro)
-	lokiResp := a.queryFrontendFromLoki(ctx, service, env, at, headers)
-	if lokiResp.Available {
-		return lokiResp
 	}
 
 	return FrontendMetricsResponse{Available: false}
@@ -83,17 +77,15 @@ func (a *App) queryFrontendFromAlloyHistogram(ctx context.Context, service, envi
 		}
 		// Metric exists but no recent observations → instrumented but idle.
 		return FrontendMetricsResponse{
-			Available:     true,
-			Source:        "alloy-histogram",
-			MetricsSource: "alloy-histogram",
+			Available: true,
+			Source:    "alloy-histogram",
 		}
 	}
 
 	resp := FrontendMetricsResponse{
-		Available:     true,
-		Source:        "alloy-histogram",
-		MetricsSource: "alloy-histogram",
-		Vitals:        make(map[string]float64),
+		Available: true,
+		Source:    "alloy-histogram",
+		Vitals:   make(map[string]float64),
 	}
 
 	vitalMetrics := map[string]string{
@@ -176,70 +168,4 @@ func (a *App) hasLokiFaroData(ctx context.Context, service, env string, at time.
 	return total > 0
 }
 
-// queryFrontendFromLoki checks Loki for Faro measurement logs.
-func (a *App) queryFrontendFromLoki(ctx context.Context, service, env string, at time.Time, headers http.Header) FrontendMetricsResponse {
-	lokiURL := a.lokiURL(env)
-	if lokiURL == "" {
-		return FrontendMetricsResponse{Available: false}
-	}
 
-	lokiClient := queries.NewLokiMetricClient(lokiURL, a.resolveServiceToken(ctx))
-	if headers != nil {
-		lokiClient = lokiClient.WithAuthHeaders(headers)
-	}
-
-	// Existence check: are there any measurement logs in the last hour?
-	checkQ := fmt.Sprintf(
-		`count_over_time(%s [1h])`,
-		a.otelCfg.LokiStreamSelector(service, a.otelCfg.FaroLoki.KindMeasurement),
-	)
-	results, err := lokiClient.InstantQuery(ctx, checkQ, at)
-	if err != nil || len(results) == 0 {
-		return FrontendMetricsResponse{Available: false}
-	}
-
-	// Sum all streams to get total count
-	total := 0.0
-	for _, r := range results {
-		total += r.Value.Float()
-	}
-	if total == 0 {
-		return FrontendMetricsResponse{Available: false}
-	}
-
-	resp := FrontendMetricsResponse{
-		Available: true,
-		Source:    "loki",
-		Vitals:    make(map[string]float64),
-	}
-
-	// Query vital values in parallel
-	vitalFields := map[string]string{
-		"lcp":  a.otelCfg.FaroLoki.LCP,
-		"fcp":  a.otelCfg.FaroLoki.FCP,
-		"cls":  a.otelCfg.FaroLoki.CLS,
-		"inp":  a.otelCfg.FaroLoki.INP,
-		"ttfb": a.otelCfg.FaroLoki.TTFB,
-	}
-
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-
-	for key, field := range vitalFields {
-		wg.Add(1)
-		go func(k, f string) {
-			defer wg.Done()
-			q := a.otelCfg.LokiVitalQuery(service, f, "[1h]")
-			r, err := lokiClient.InstantQuery(ctx, q, at)
-			if err == nil && len(r) > 0 && r[0].Value.Float() > 0 {
-				mu.Lock()
-				resp.Vitals[k] = roundTo(r[0].Value.Float(), 2)
-				mu.Unlock()
-			}
-		}(key, field)
-	}
-
-	wg.Wait()
-
-	return resp
-}
