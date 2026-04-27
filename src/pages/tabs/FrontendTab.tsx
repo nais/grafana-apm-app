@@ -237,6 +237,8 @@ function UnifiedFrontendPanels({
 
 // ========================================================================
 // Mimir-based Web Vitals panels (standard Prometheus/Faro metrics)
+// @deprecated — Legacy component for environments without alloy-histogram.
+// New features go in UnifiedFrontendPanels via section builders.
 // ========================================================================
 
 function MimirWebVitalsPanels({
@@ -587,6 +589,8 @@ function MimirWebVitalsPanels({
 
 // ========================================================================
 // Alloy Faro pipeline panels (loki_process_custom_* metrics in Mimir)
+// @deprecated — Legacy component for alloy-only environments without histograms.
+// New features go in UnifiedFrontendPanels via section builders.
 // ========================================================================
 
 function AlloyWebVitalsPanels({
