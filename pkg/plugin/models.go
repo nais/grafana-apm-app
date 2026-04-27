@@ -94,9 +94,13 @@ type GraphQLMetricsResponse struct {
 // FrontendMetricsResponse contains browser/Faro metrics for a service.
 type FrontendMetricsResponse struct {
 	Available bool               `json:"available"`
-	Source    string             `json:"source,omitempty"` // "mimir" or "loki"
+	Source    string             `json:"source,omitempty"` // "mimir", "loki", "alloy", or "alloy-histogram"
 	Vitals    map[string]float64 `json:"vitals,omitempty"`
 	ErrorRate float64            `json:"errorRate"`
+	// Capabilities for hybrid rendering — when set, frontend uses both
+	// metrics and Loki datasources for the richest possible view.
+	MetricsSource string `json:"metricsSource,omitempty"` // "mimir", "alloy-histogram", "alloy", or ""
+	HasLoki       bool   `json:"hasLoki,omitempty"`       // true if Loki has Faro data for this service
 }
 
 // ---------------------------------------------------------------------------

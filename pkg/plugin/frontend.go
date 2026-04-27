@@ -39,18 +39,29 @@ func (a *App) queryFrontendMetrics(ctx context.Context, namespace, service, env 
 		}
 	}
 
-	// 2. Try Loki (Faro structured logs — proper weighted mean across all measurements)
+	// 2. Try Alloy histograms (proper percentile-capable metrics) + Loki for enrichment
+	if a.promClient != nil {
+		histResp := a.queryFrontendFromAlloyHistogram(ctx, service, env, at)
+		if histResp.Available {
+			// Check if Loki also has data for hybrid rendering
+			histResp.HasLoki = a.hasLokiFaroData(ctx, service, env, at, headers)
+			return histResp
+		}
+	}
+
+	// 3. Try Loki (Faro structured logs — proper weighted mean across all measurements)
 	lokiResp := a.queryFrontendFromLoki(ctx, service, env, at, headers)
 	if lokiResp.Available {
 		return lokiResp
 	}
 
-	// 3. Fall back to Alloy Faro pipeline metrics (loki_process_custom_* prefix).
-	// These gauges are last-writer-wins (only ~10 samples/hr vs thousands of actual
-	// measurements), so data is less representative. Only used when Loki is unavailable.
+	// 4. Fall back to Alloy Faro pipeline gauge metrics (last-writer-wins).
+	// Only used when no better source is available.
 	if a.promClient != nil {
 		resp := a.queryFrontendFromAlloy(ctx, service, env, at)
 		if resp.Available {
+			// Check if Loki also has data for hybrid rendering
+			resp.HasLoki = a.hasLokiFaroData(ctx, service, env, at, headers)
 			return resp
 		}
 	}
@@ -185,6 +196,98 @@ func (a *App) queryFrontendFromAlloy(ctx context.Context, service, environment s
 	wg.Wait()
 
 	return resp
+}
+
+// queryFrontendFromAlloyHistogram checks for histogram-based Alloy Faro metrics.
+// These provide proper percentile computation via histogram_quantile.
+func (a *App) queryFrontendFromAlloyHistogram(ctx context.Context, service, environment string, at time.Time) FrontendMetricsResponse {
+	h := a.otelCfg.AlloyHistogramMetrics
+	filter := a.otelCfg.AlloyHistogramFilter(service, environment)
+
+	// Detection: check if LCP histogram buckets exist
+	checkQ := fmt.Sprintf(`count(%s_bucket{%s, le="+Inf"})`, h.LCP, filter)
+	results, err := a.prom(ctx).InstantQuery(ctx, checkQ, at)
+	if err != nil || len(results) == 0 || results[0].Value.Float() == 0 {
+		return FrontendMetricsResponse{Available: false}
+	}
+
+	resp := FrontendMetricsResponse{
+		Available:     true,
+		Source:        "alloy-histogram",
+		MetricsSource: "alloy-histogram",
+		Vitals:        make(map[string]float64),
+	}
+
+	vitalMetrics := map[string]string{
+		"lcp":  h.LCP,
+		"fcp":  h.FCP,
+		"cls":  h.CLS,
+		"inp":  h.INP,
+		"ttfb": h.TTFB,
+	}
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+	// Compute p75 for each vital using histogram_quantile
+	for key, metric := range vitalMetrics {
+		wg.Add(1)
+		go func(k, m string) {
+			defer wg.Done()
+			q := fmt.Sprintf(`histogram_quantile(0.75, sum(rate(%s_bucket{%s}[5m])) by (le))`, m, filter)
+			r, err := a.prom(ctx).InstantQuery(ctx, q, at)
+			if err == nil && len(r) > 0 {
+				mu.Lock()
+				resp.Vitals[k] = roundTo(r[0].Value.Float(), 2)
+				mu.Unlock()
+			}
+		}(key, metric)
+	}
+
+	// Error rate from counter
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		errQ := fmt.Sprintf(`sum(rate(%s{%s}[5m]))`, h.Errors, filter)
+		r, err := a.prom(ctx).InstantQuery(ctx, errQ, at)
+		if err == nil && len(r) > 0 {
+			mu.Lock()
+			resp.ErrorRate = roundTo(r[0].Value.Float(), 4)
+			mu.Unlock()
+		}
+	}()
+
+	wg.Wait()
+
+	return resp
+}
+
+// hasLokiFaroData performs a lightweight check for Loki Faro measurement logs.
+func (a *App) hasLokiFaroData(ctx context.Context, service, env string, at time.Time, headers http.Header) bool {
+	lokiURL := a.lokiURL(env)
+	if lokiURL == "" {
+		return false
+	}
+
+	lokiClient := queries.NewLokiMetricClient(lokiURL, a.resolveServiceToken(ctx))
+	if headers != nil {
+		lokiClient = lokiClient.WithAuthHeaders(headers)
+	}
+
+	checkQ := fmt.Sprintf(
+		`count_over_time(%s [1h])`,
+		a.otelCfg.LokiStreamSelector(service, a.otelCfg.FaroLoki.KindMeasurement),
+	)
+	results, err := lokiClient.InstantQuery(ctx, checkQ, at)
+	if err != nil || len(results) == 0 {
+		return false
+	}
+
+	total := 0.0
+	for _, r := range results {
+		total += r.Value.Float()
+	}
+	return total > 0
 }
 
 // queryFrontendFromLoki checks Loki for Faro measurement logs.

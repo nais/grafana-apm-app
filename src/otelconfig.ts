@@ -85,6 +85,21 @@ export const otel = {
     lookback: '30m',
   },
 
+  /** Faro histogram metrics from improved Alloy pipeline. */
+  alloyHistogram: {
+    lcp: 'faro_web_vitals_lcp_milliseconds',
+    fcp: 'faro_web_vitals_fcp_milliseconds',
+    cls: 'faro_web_vitals_cls',
+    inp: 'faro_web_vitals_inp_milliseconds',
+    ttfb: 'faro_web_vitals_ttfb_milliseconds',
+    pageLoads: 'faro_page_loads_total',
+    errors: 'faro_errors_total',
+    sessions: 'faro_sessions_total',
+    appLabel: 'app_name',
+    envLabel: 'env',
+    job: 'alloy-faro',
+  },
+
   /** Faro telemetry stored as structured logs in Loki (logfmt format). */
   faroLoki: {
     // Stream labels

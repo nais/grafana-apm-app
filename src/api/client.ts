@@ -398,9 +398,11 @@ export async function getEndpoints(
 
 export interface FrontendMetricsResponse {
   available: boolean;
-  source?: string; // "mimir" or "loki"
+  source?: string; // "mimir", "loki", "alloy", or "alloy-histogram"
   vitals?: Record<string, number>;
   errorRate: number;
+  metricsSource?: string; // "mimir", "alloy-histogram", "alloy", or ""
+  hasLoki?: boolean; // true if Loki has Faro data for hybrid rendering
 }
 
 export async function getFrontendMetrics(

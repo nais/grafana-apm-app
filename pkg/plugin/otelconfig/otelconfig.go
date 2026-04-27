@@ -119,6 +119,24 @@ type AlloyBrowserMetrics struct {
 	Lookback  string // lookback window for sparse gauges (e.g. "30m")
 }
 
+// AlloyHistogramMetrics defines histogram-based metric names for Faro
+// telemetry. These are the improved metrics that use histograms instead of
+// gauges, enabling proper percentile computation. The base metric name is
+// stored; "_bucket" suffix is appended in queries.
+type AlloyHistogramMetrics struct {
+	LCP       string // base name for histogram (e.g. "faro_web_vitals_lcp_milliseconds")
+	FCP       string
+	CLS       string
+	INP       string
+	TTFB      string
+	PageLoads string // counter: page loads total
+	Errors    string // counter: errors total
+	Sessions  string // counter: sessions total
+	AppLabel  string // label for app name (e.g. "app_name")
+	EnvLabel  string // label for environment (e.g. "env")
+	Job       string // job label for filtering (e.g. "alloy-faro")
+}
+
 // ---------------------------------------------------------------------------
 // FaroLoki — field names for Faro telemetry stored as structured logs in Loki.
 // Some environments (e.g. Nav) store Faro data as logfmt lines in Loki
@@ -297,15 +315,16 @@ type RuntimeMetrics struct {
 // via Default() and store it on the App struct.  All query-building code
 // should reference fields on this struct rather than using string literals.
 type Config struct {
-	Labels              Labels
-	SpanKinds           SpanKinds
-	StatusCodes         StatusCodes
-	TraceQL             TraceQL
-	BrowserMetrics      BrowserMetrics
-	AlloyBrowserMetrics AlloyBrowserMetrics
-	FaroLoki            FaroLoki
-	ServiceGraph        ServiceGraph
-	Runtime             RuntimeMetrics
+	Labels                Labels
+	SpanKinds             SpanKinds
+	StatusCodes           StatusCodes
+	TraceQL               TraceQL
+	BrowserMetrics        BrowserMetrics
+	AlloyBrowserMetrics   AlloyBrowserMetrics
+	AlloyHistogramMetrics AlloyHistogramMetrics
+	FaroLoki              FaroLoki
+	ServiceGraph          ServiceGraph
+	Runtime               RuntimeMetrics
 }
 
 // Default returns the standard OTel + Grafana Faro naming conventions.
@@ -412,6 +431,20 @@ func Default() Config {
 			AppLabel:  "app_name",
 			Job:       "alloy-faro",
 			Lookback:  "30m",
+		},
+
+		AlloyHistogramMetrics: AlloyHistogramMetrics{
+			LCP:       "faro_web_vitals_lcp_milliseconds",
+			FCP:       "faro_web_vitals_fcp_milliseconds",
+			CLS:       "faro_web_vitals_cls",
+			INP:       "faro_web_vitals_inp_milliseconds",
+			TTFB:      "faro_web_vitals_ttfb_milliseconds",
+			PageLoads: "faro_page_loads_total",
+			Errors:    "faro_errors_total",
+			Sessions:  "faro_sessions_total",
+			AppLabel:  "app_name",
+			EnvLabel:  "env",
+			Job:       "alloy-faro",
 		},
 
 		ServiceGraph: ServiceGraph{
@@ -573,6 +606,19 @@ func (c *Config) ContainerFilter(service, namespace string) string {
 	f := fmt.Sprintf(`%s="%s"`, c.Runtime.Container.ContainerLabel, service)
 	if namespace != "" {
 		f += fmt.Sprintf(`, %s="%s"`, c.Runtime.Labels.Namespace, namespace)
+	}
+	return f
+}
+
+// AlloyHistogramFilter returns a PromQL label matcher for Alloy histogram metrics.
+func (c *Config) AlloyHistogramFilter(service, environment string) string {
+	h := c.AlloyHistogramMetrics
+	f := fmt.Sprintf(`%s="%s"`, h.AppLabel, service)
+	if h.Job != "" {
+		f += fmt.Sprintf(`, job="%s"`, h.Job)
+	}
+	if environment != "" {
+		f += fmt.Sprintf(`, %s="%s"`, h.EnvLabel, environment)
 	}
 	return f
 }
