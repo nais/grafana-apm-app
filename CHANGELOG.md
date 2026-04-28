@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.7.3 (2026-04-28)
+
+### Features
+
+- **Pageloads & Sessions stats** — New stat panels showing total page loads (from FCP histogram) and unique sessions for the selected time range.
+
+### Improvements
+
+- **Accurate Pageloads count** — Uses FCP histogram bucket instead of generic measurements counter, giving a true per-page-load count.
+- **Panel descriptions in plain language** — All tooltip descriptions rewritten to be understandable without prior CWV knowledge.
+- **Grafana-native tooltips on bullet charts** — Help icons now use styled Grafana popovers instead of browser title attributes.
+- **Per-Page Performance table** — Removed empty Measurements/TTFB columns; table auto-sizes to fill available width.
+- **Top Exceptions table** — Error column auto-expands to fill table; count columns stay narrow.
+- **Insights row layout** — CWV Rating, Pageloads, and Sessions panels equal width (15% each); Navigation Type gets remaining space.
+
 ## 0.7.2 (2026-04-28)
 
 ### Features
