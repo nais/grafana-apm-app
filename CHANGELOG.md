@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.7.0 (2026-04-28)
+
+### Breaking Changes
+
+- **Mimir-first architecture** — Removed all Loki fallback logic. The Frontend tab now requires the Alloy Faro histogram pipeline in Mimir. Legacy gauge-based and raw-Loki-only pipelines are no longer supported.
+
+### Features
+
+- **CWV Rating panel** — Stat panels showing "% Good" for each Core Web Vital (LCP, FCP, CLS, INP, TTFB) computed from histogram bucket boundaries.
+- **Browser Volume panel** — Pie chart showing measurement distribution by browser (Loki-based, visible when Loki data available).
+- **Per-Page Performance table** — Top 20 pages ranked by traffic volume with color-coded vital thresholds.
+- **Console Errors panel** — Shows top `console.error` messages when apps enable Faro `ConsoleInstrumentation`.
+- **Traffic timeseries** — Combined page loads, error rate, and session starts over time.
+
+### Improvements
+
+- **Simplified capabilities model** — Reduced to `{ available, hasLoki, vitals, errorRate }`, removing multi-source adapter abstraction.
+- **1-hour default time range** — Frontend tab defaults to `now-1h` instead of inheriting global range (prevents Loki timeouts).
+- **Centralized metric definitions** — All Mimir counter/histogram names and Loki field names in `otelconfig.ts`.
+- **Section builder architecture** — Six composable builders (`buildCwvRatingSection`, `buildHistogramSection`, `buildPerPageSection`, `buildErrorsSection`, `buildSupportSection`, `buildTrafficSection`).
+
+### Bug Fixes
+
+- **CWV Rating "Bar charts require a string field"** — Switched from barchart (needs string x-axis) to stat panels.
+- **Browser Volume "Value #volume"** — Range queries resolve `legendFormat` templates; instant queries don't.
+- **hasLoki detection** — Widened detection window from 1h to 6h to avoid false negatives on low-traffic apps.
+- **Exception links** — Corrected navigation to use `?tab=logs` instead of `/logs` path.
+
+### Removed
+
+- Legacy Alloy gauge pipeline support
+- Loki-only fallback path (`adapter.ts`, multi-source resolution)
+- `metricsSource` field from backend response
+
 ## 0.6.2 (2026-04-27)
 
 ### Bug Fixes
