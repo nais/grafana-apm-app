@@ -13,6 +13,8 @@
 - **Per-Page Performance table** — Top 20 pages ranked by traffic volume with color-coded vital thresholds.
 - **Console Errors panel** — Shows top `console.error` messages when apps enable Faro `ConsoleInstrumentation`.
 - **Traffic timeseries** — Combined page loads, error rate, and session starts over time.
+- **Faro Kind filter in Logs tab** — When "Include browser telemetry" is on, filter by kind (Exceptions, Console Logs, Measurements, Events) using the indexed `kind` stream label.
+- **Exception drill-down** — Clicking an exception navigates to the Logs tab pre-filtered to `kind=exception` with Faro telemetry enabled and the correct environment datasource.
 
 ### Improvements
 
@@ -20,13 +22,14 @@
 - **1-hour default time range** — Frontend tab defaults to `now-1h` instead of inheriting global range (prevents Loki timeouts).
 - **Centralized metric definitions** — All Mimir counter/histogram names and Loki field names in `otelconfig.ts`.
 - **Section builder architecture** — Six composable builders (`buildCwvRatingSection`, `buildHistogramSection`, `buildPerPageSection`, `buildErrorsSection`, `buildSupportSection`, `buildTrafficSection`).
+- **Errors section layout** — Split cramped 4-panel row into two rows: Exceptions (types + messages) and Browsers (breakdown + volume).
 
 ### Bug Fixes
 
 - **CWV Rating "Bar charts require a string field"** — Switched from barchart (needs string x-axis) to stat panels.
 - **Browser Volume "Value #volume"** — Range queries resolve `legendFormat` templates; instant queries don't.
 - **hasLoki detection** — Widened detection window from 1h to 6h to avoid false negatives on low-traffic apps.
-- **Exception links** — Corrected navigation to use `?tab=logs` instead of `/logs` path.
+- **Exception links** — Fixed navigation for empty namespaces (uses `_` placeholder), passes environment and Faro filters.
 
 ### Removed
 
