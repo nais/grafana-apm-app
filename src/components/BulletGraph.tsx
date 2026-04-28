@@ -1,5 +1,5 @@
 import React from 'react';
-import { Icon, useTheme2 } from '@grafana/ui';
+import { Icon, Tooltip, useTheme2 } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 
@@ -101,9 +101,11 @@ export function BulletGraph({
       <div className={styles.titleRow}>
         <span className={styles.abbreviation}>{label}</span>
         {tooltip && (
-          <span className={styles.helpIcon} title={tooltip}>
-            <Icon name="question-circle" size="sm" />
-          </span>
+          <Tooltip content={tooltip} placement="top">
+            <span className={styles.helpIcon}>
+              <Icon name="question-circle" size="sm" />
+            </span>
+          </Tooltip>
         )}
       </div>
 
