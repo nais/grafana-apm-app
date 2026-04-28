@@ -8,12 +8,14 @@ const PRESERVED_PARAMS = [
   'to',
   'namespace',
   'environment',
+  'sdk',
   'sort',
   'dir',
   'q',
   'pageSize',
   'percentile',
   'favorites',
+  'hasErrors',
 ];
 
 /**

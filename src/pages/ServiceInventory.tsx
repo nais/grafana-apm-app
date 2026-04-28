@@ -81,6 +81,7 @@ function ServiceInventory() {
   const search = searchParams.get('q') ?? '';
   const hideSidecars = searchParams.get('hideSidecars') !== 'false'; // default: true
   const showFavoritesOnly = searchParams.get('favorites') === 'true';
+  const showErrorsOnly = searchParams.get('hasErrors') === 'true';
   const sortField: SortField = (searchParams.get('sort') as SortField) || 'name';
   const sortDir: SortDir = (searchParams.get('dir') as SortDir) || 'asc';
   const page = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10) || 1);
@@ -122,6 +123,22 @@ function ServiceInventory() {
   // Compute unique environments for the filter dropdown
   const envOptions = useMemo(() => extractEnvironmentOptions(services), [services]);
 
+  // Compute unique SDK languages for the type filter
+  const sdkOptions = useMemo(() => {
+    const langs = new Set<string>();
+    for (const s of services) {
+      if (s.sdkLanguage) {
+        langs.add(s.sdkLanguage);
+      }
+    }
+    return [...langs].sort().map((l) => ({ label: l, value: l }));
+  }, [services]);
+
+  // Read SDK language filter from URL
+  const rawSdkFilter = searchParams.get('sdk') ?? '';
+  const sdkFilters = useMemo(() => rawSdkFilter.split(',').filter(Boolean), [rawSdkFilter]);
+  const setSdkFilters = (sdks: string[]) => updateParams({ sdk: sdks.length > 0 ? sdks.join(',') : null, page: null });
+
   // Client-side filtering and sorting — computed every render to avoid
   // stale-closure issues with React 18 batching.
   let filtered = services;
@@ -140,6 +157,12 @@ function ServiceInventory() {
   }
   if (showFavoritesOnly) {
     filtered = filtered.filter((s) => isFavorite(serviceKey(s.namespace, s.name)));
+  }
+  if (showErrorsOnly) {
+    filtered = filtered.filter((s) => s.errorRate > 0);
+  }
+  if (sdkFilters.length > 0) {
+    filtered = filtered.filter((s) => s.sdkLanguage != null && sdkFilters.includes(s.sdkLanguage));
   }
   // NaN-safe numeric comparison — NaN/undefined/Infinity sort to bottom
   const safeNum = (v: number) => (Number.isFinite(v) ? v : -Infinity);
@@ -284,6 +307,16 @@ function ServiceInventory() {
                       />
                     </div>
                   )}
+                  {sdkOptions.length > 1 && (
+                    <div className={styles.filterItem}>
+                      <MultiCombobox
+                        options={sdkOptions}
+                        value={sdkFilters}
+                        onChange={(selected) => setSdkFilters(selected.map((o) => o.value).filter(Boolean) as string[])}
+                        placeholder="All types"
+                      />
+                    </div>
+                  )}
                 </div>
                 <Combobox
                   options={QUICK_TIME_RANGES}
@@ -300,6 +333,12 @@ function ServiceInventory() {
                   label={`My Apps${favCount > 0 ? ` (${favCount})` : ''}`}
                   selected={showFavoritesOnly}
                   onClick={() => setShowFavorites(!showFavoritesOnly)}
+                />
+                <FilterPill
+                  icon="exclamation-circle"
+                  label="Has errors"
+                  selected={showErrorsOnly}
+                  onClick={() => updateParams({ hasErrors: showErrorsOnly ? null : 'true', page: null })}
                 />
                 <FilterPill
                   icon="eye-slash"
