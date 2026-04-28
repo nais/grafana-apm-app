@@ -1,15 +1,16 @@
 # Changelog
 
-## 0.7.1 (2026-04-28)
+## 0.7.2 (2026-04-28)
 
 ### Features
 
-- **Namespace/team multi-select** — Service list page namespace filter now supports selecting multiple namespaces simultaneously. URL stores comma-separated values.
+- **Pageloads & Sessions stats** — New stat panels in the Frontend tab showing total page loads (Mimir) and unique sessions (Loki) for the selected time range.
 
 ### Improvements
 
 - **Responsive toolbar layout** — Filter inputs use flex-grow to fill available horizontal space (min 160px, max 320px) instead of fixed widths.
 - **No layout shift on multi-select expand** — Toolbar uses absolute positioning so expanded pills overlap the table instead of pushing it down.
+- **Top Exceptions table column widths** — Error column gets most of the horizontal space; count columns are narrow and right-aligned.
 
 ## 0.7.0 (2026-04-28)
 
