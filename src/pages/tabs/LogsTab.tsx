@@ -23,6 +23,10 @@ interface LogsTabProps {
   logsUid: string;
   from: string;
   to: string;
+  /** Pre-populate search field (e.g., from exception drill-down links). */
+  initialSearch?: string;
+  /** Start with Faro browser telemetry included (needed for exception drill-down). */
+  initialIncludeFaro?: boolean;
 }
 
 // Severity options based on detected_level stream label values observed in production.
@@ -47,11 +51,11 @@ const SEVERITY_VARIANTS: Record<string, string[]> = {
   unknown: ['unknown'],
 };
 
-export function LogsTab({ service, namespace, logsUid, from, to }: LogsTabProps) {
+export function LogsTab({ service, namespace, logsUid, from, to, initialSearch, initialIncludeFaro }: LogsTabProps) {
   const [severityFilter, setSeverityFilter] = useState<string[]>([]);
-  const [logSearch, setLogSearch] = useState<string>('');
+  const [logSearch, setLogSearch] = useState<string>(initialSearch ?? '');
   const [podFilter, setPodFilter] = useState<string>('');
-  const [includeFaro, setIncludeFaro] = useState(false);
+  const [includeFaro, setIncludeFaro] = useState(initialIncludeFaro ?? false);
   const [podOptions, setPodOptions] = useState<Array<{ label: string; value: string }>>([]);
   const debouncedSearch = useDebouncedValue(logSearch, 500);
   const styles = useStyles2(getStyles);

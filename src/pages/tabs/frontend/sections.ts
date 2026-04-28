@@ -296,11 +296,13 @@ export function buildPerPageSection(ctx: FrontendSceneContext): SceneFlexItem | 
 // Section 4: Errors Row (Exception Types + Top Exceptions + Browser)
 // ---------------------------------------------------------------------------
 
-/** Errors row — Mimir exception types always shown, Loki detail when available. */
+/** Errors section — split into two rows: exceptions row + browser row. */
 export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
-  const { logsDs, metricsDs, service, namespace, svcFilter, ah, hasLoki } = ctx;
+  const { logsDs, metricsDs, service, namespace, environment, svcFilter, ah, hasLoki } = ctx;
   const fl = otel.faroLoki;
-  const children: SceneFlexItem[] = [];
+
+  // --- Exceptions row (always has at least the Mimir types panel) ---
+  const exceptionsChildren: SceneFlexItem[] = [];
 
   // Exception Types from Mimir counter (fast PromQL)
   const exceptionTypeQ = new SceneQueryRunner({
@@ -315,9 +317,10 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
       },
     ],
   });
-  children.push(
+  exceptionsChildren.push(
     new SceneFlexItem({
-      minHeight: 300,
+      minHeight: 250,
+      width: '30%',
       body: PanelBuilders.table()
         .setTitle('Exception Types')
         .setDescription('Top exception types by volume')
@@ -356,22 +359,23 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
       $data: topExceptionsQ,
       transformations: [{ id: 'merge', options: {} }],
     });
-    children.push(
+    exceptionsChildren.push(
       new SceneFlexItem({
-        minHeight: 300,
+        minHeight: 250,
         body: PanelBuilders.table()
           .setTitle('Top Exceptions')
           .setDescription('Most frequent JS exceptions — click to view in Logs tab')
           .setData(topExceptionsData)
           .setOverrides((b) => {
-            b.matchFieldsWithName('value').overrideDisplayName('Error').overrideCustomFieldConfig('width', 500);
+            b.matchFieldsWithName('value').overrideDisplayName('Error');
             b.matchFieldsWithName('Value #count').overrideDisplayName('Occurrences');
             b.matchFieldsWithName('Value #sessions').overrideDisplayName('Sessions Affected');
             b.matchFieldsWithName('Time').overrideCustomFieldConfig('hidden' as any, true);
+            const envParam = environment ? `&environment=${encodeURIComponent(environment)}` : '';
             b.matchFieldsWithName('value').overrideLinks([
               {
                 title: 'View in Logs',
-                url: `${PLUGIN_BASE_URL}/services/${encodeURIComponent(namespace)}/${encodeURIComponent(service)}?tab=logs&from=\${__from}&to=\${__to}`,
+                url: `${PLUGIN_BASE_URL}/services/${encodeURIComponent(namespace)}/${encodeURIComponent(service)}?tab=logs&from=\${__from}&to=\${__to}${envParam}&includeFaro=true&logSearch=\${__value.text:percentencode}`,
                 targetBlank: false,
               } as any,
             ]);
@@ -379,95 +383,107 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
           .build(),
       })
     );
-
-    // Browser breakdown (Loki vitals per browser)
-    const browserQ = new SceneQueryRunner({
-      datasource: { uid: logsDs.uid, type: 'loki' },
-      queries: [
-        {
-          refId: 'lcp',
-          expr: lokiVitalByGroupExpr(service, fl.lcp, fl.browserName, '[$__range]'),
-          legendFormat: '__auto',
-          format: 'table',
-          instant: true,
-        },
-        {
-          refId: 'fcp',
-          expr: lokiVitalByGroupExpr(service, fl.fcp, fl.browserName, '[$__range]'),
-          legendFormat: '__auto',
-          format: 'table',
-          instant: true,
-        },
-        {
-          refId: 'ttfb',
-          expr: lokiVitalByGroupExpr(service, fl.ttfb, fl.browserName, '[$__range]'),
-          legendFormat: '__auto',
-          format: 'table',
-          instant: true,
-        },
-      ],
-    });
-    const browserData = new SceneDataTransformer({
-      $data: browserQ,
-      transformations: [{ id: 'merge', options: {} }],
-    });
-    children.push(
-      new SceneFlexItem({
-        minHeight: 250,
-        body: PanelBuilders.table()
-          .setTitle('Browser Breakdown')
-          .setDescription('Average Web Vitals by browser')
-          .setData(browserData)
-          .setOverrides((b) => {
-            b.matchFieldsWithName(fl.browserName).overrideDisplayName('Browser');
-            b.matchFieldsWithName('Value #lcp')
-              .overrideDisplayName('Avg LCP (ms)')
-              .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.lcp })
-              .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
-              .overrideDecimals(0);
-            b.matchFieldsWithName('Value #fcp')
-              .overrideDisplayName('Avg FCP (ms)')
-              .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.fcp })
-              .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
-              .overrideDecimals(0);
-            b.matchFieldsWithName('Value #ttfb')
-              .overrideDisplayName('Avg TTFB (ms)')
-              .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.ttfb })
-              .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
-              .overrideDecimals(0);
-            b.matchFieldsWithName('Time').overrideCustomFieldConfig('hidden' as any, true);
-          })
-          .build(),
-      })
-    );
-
-    // Browser volume pie (from Loki measurement counts per browser_name)
-    const browserVolumePipeline = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindMeasurement}"} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" | ${fl.browserName}!=""`;
-    const browserVolumeQ = new SceneQueryRunner({
-      datasource: { uid: logsDs.uid, type: 'loki' },
-      queries: [
-        {
-          refId: 'volume',
-          expr: `sum by (${fl.browserName}) (count_over_time(${browserVolumePipeline} [$__range]))`,
-          legendFormat: `{{${fl.browserName}}}`,
-        },
-      ],
-    });
-    children.push(
-      new SceneFlexItem({
-        minHeight: 250,
-        body: PanelBuilders.piechart()
-          .setTitle('Browser Volume')
-          .setDescription('Measurement volume per browser')
-          .setData(browserVolumeQ)
-          .build(),
-      })
-    );
   }
 
+  const exceptionsRow = new SceneFlexLayout({ direction: 'row', children: exceptionsChildren });
+
+  // --- Browser row (only when Loki available) ---
+  if (!hasLoki) {
+    return exceptionsRow;
+  }
+
+  const browserChildren: SceneFlexItem[] = [];
+
+  // Browser breakdown (Loki vitals per browser)
+  const browserQ = new SceneQueryRunner({
+    datasource: { uid: logsDs.uid, type: 'loki' },
+    queries: [
+      {
+        refId: 'lcp',
+        expr: lokiVitalByGroupExpr(service, fl.lcp, fl.browserName, '[$__range]'),
+        legendFormat: '__auto',
+        format: 'table',
+        instant: true,
+      },
+      {
+        refId: 'fcp',
+        expr: lokiVitalByGroupExpr(service, fl.fcp, fl.browserName, '[$__range]'),
+        legendFormat: '__auto',
+        format: 'table',
+        instant: true,
+      },
+      {
+        refId: 'ttfb',
+        expr: lokiVitalByGroupExpr(service, fl.ttfb, fl.browserName, '[$__range]'),
+        legendFormat: '__auto',
+        format: 'table',
+        instant: true,
+      },
+    ],
+  });
+  const browserData = new SceneDataTransformer({
+    $data: browserQ,
+    transformations: [{ id: 'merge', options: {} }],
+  });
+  browserChildren.push(
+    new SceneFlexItem({
+      minHeight: 250,
+      body: PanelBuilders.table()
+        .setTitle('Browser Breakdown')
+        .setDescription('Average Web Vitals by browser')
+        .setData(browserData)
+        .setOverrides((b) => {
+          b.matchFieldsWithName(fl.browserName).overrideDisplayName('Browser');
+          b.matchFieldsWithName('Value #lcp')
+            .overrideDisplayName('Avg LCP (ms)')
+            .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.lcp })
+            .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
+            .overrideDecimals(0);
+          b.matchFieldsWithName('Value #fcp')
+            .overrideDisplayName('Avg FCP (ms)')
+            .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.fcp })
+            .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
+            .overrideDecimals(0);
+          b.matchFieldsWithName('Value #ttfb')
+            .overrideDisplayName('Avg TTFB (ms)')
+            .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.ttfb })
+            .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
+            .overrideDecimals(0);
+          b.matchFieldsWithName('Time').overrideCustomFieldConfig('hidden' as any, true);
+        })
+        .build(),
+    })
+  );
+
+  // Browser volume pie (from Loki measurement counts per browser_name)
+  const browserVolumePipeline = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindMeasurement}"} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" | ${fl.browserName}!=""`;
+  const browserVolumeQ = new SceneQueryRunner({
+    datasource: { uid: logsDs.uid, type: 'loki' },
+    queries: [
+      {
+        refId: 'volume',
+        expr: `sum by (${fl.browserName}) (count_over_time(${browserVolumePipeline} [$__range]))`,
+        legendFormat: `{{${fl.browserName}}}`,
+      },
+    ],
+  });
+  browserChildren.push(
+    new SceneFlexItem({
+      minHeight: 250,
+      width: '35%',
+      body: PanelBuilders.piechart()
+        .setTitle('Browser Volume')
+        .setDescription('Measurement volume per browser')
+        .setData(browserVolumeQ)
+        .build(),
+    })
+  );
+
+  const browserRow = new SceneFlexLayout({ direction: 'row', children: browserChildren });
+
   return new SceneFlexLayout({
-    direction: 'row',
-    children,
+    direction: 'column',
+    children: [exceptionsRow, browserRow],
   });
 }
 

@@ -91,6 +91,10 @@ function ServiceOverview() {
   const traceStatus = searchParams.get('traceStatus') ?? '';
   const traceSpanKind = searchParams.get('traceSpanKind') ?? '';
 
+  // Read logs filter params (set when navigating from exception → logs)
+  const logSearch = searchParams.get('logSearch') ?? '';
+  const logIncludeFaro = searchParams.get('includeFaro') === 'true';
+
   const onViewTraces = useCallback(
     (spanName: string, status?: string, spanKindRaw?: string) => {
       setSearchParams((prev) => {
@@ -434,7 +438,16 @@ function ServiceOverview() {
                 minHeight: 0,
               }}
             >
-              <LogsTab service={service} namespace={namespace} logsUid={ds.logsUid} from={from} to={to} />
+              <LogsTab
+                key={`${logSearch}:${logIncludeFaro}`}
+                service={service}
+                namespace={namespace}
+                logsUid={ds.logsUid}
+                from={from}
+                to={to}
+                initialSearch={logSearch}
+                initialIncludeFaro={logIncludeFaro}
+              />
             </div>
           )}
         </div>
