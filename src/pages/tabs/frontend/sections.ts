@@ -372,10 +372,11 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
             b.matchFieldsWithName('Value #sessions').overrideDisplayName('Sessions Affected');
             b.matchFieldsWithName('Time').overrideCustomFieldConfig('hidden' as any, true);
             const envParam = environment ? `&environment=${encodeURIComponent(environment)}` : '';
+            const nsSegment = encodeURIComponent(namespace || '_');
             b.matchFieldsWithName('value').overrideLinks([
               {
                 title: 'View in Logs',
-                url: `${PLUGIN_BASE_URL}/services/${encodeURIComponent(namespace)}/${encodeURIComponent(service)}?tab=logs&from=\${__from}&to=\${__to}${envParam}&includeFaro=true&kindFilter=exception`,
+                url: `${PLUGIN_BASE_URL}/services/${nsSegment}/${encodeURIComponent(service)}?tab=logs&from=\${__from}&to=\${__to}${envParam}&includeFaro=true&kindFilter=exception`,
                 targetBlank: false,
               } as any,
             ]);
