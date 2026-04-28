@@ -98,8 +98,12 @@ export function buildInsightsSection(ctx: FrontendSceneContext): SceneFlexLayout
       .build(),
   });
 
-  // Total pageloads (Mimir counter)
-  const pageloadsQ = makePromQuery(metricsDs, `sum(increase(${ah.pageLoads}{${svcFilter}}[$__range]))`, 'Pageloads');
+  // Total pageloads — count FCP histogram samples as proxy (FCP fires on nearly every page load)
+  const pageloadsQ = makePromQuery(
+    metricsDs,
+    `sum(increase(${ah.fcp}_bucket{${svcFilter}, le="+Inf"}[$__range]))`,
+    'Pageloads'
+  );
   const pageloadsPanel = new SceneFlexItem({
     minHeight: 200,
     width: '15%',
