@@ -3,6 +3,7 @@ import { useParams, useSearchParams } from 'react-router-dom';
 import { PluginPage } from '@grafana/runtime';
 import { useStyles2, Tab, TabsBar, LinkButton, Combobox, Alert } from '@grafana/ui';
 import { GrafanaTheme2, PageLayoutType } from '@grafana/data';
+import { useUrlString } from '../utils/useUrlState';
 import { css } from '@emotion/css';
 import { buildTempoExploreUrl, buildLokiExploreUrl } from '../utils/explore';
 import { FrameworkBadge } from '../components/FrameworkBadge';
@@ -91,11 +92,6 @@ function ServiceOverview() {
   const traceStatus = searchParams.get('traceStatus') ?? '';
   const traceSpanKind = searchParams.get('traceSpanKind') ?? '';
 
-  // Read logs filter params (set when navigating from exception → logs)
-  const logSearch = searchParams.get('logSearch') ?? '';
-  const logIncludeFaro = searchParams.get('includeFaro') === 'true';
-  const logKindFilter = searchParams.get('kindFilter')?.split(',').filter(Boolean) ?? [];
-
   const onViewTraces = useCallback(
     (spanName: string, status?: string, spanKindRaw?: string) => {
       setSearchParams((prev) => {
@@ -121,7 +117,7 @@ function ServiceOverview() {
     },
     [setSearchParams]
   );
-  const [percentile, setPercentile] = useState<string>('0.95');
+  const [percentile, setPercentile] = useUrlString('percentile', '0.95');
 
   // Track which tabs have been visited so we keep them mounted.
   // The setState-in-effect pattern is intentional: visitedTabs is a monotonically
@@ -439,17 +435,7 @@ function ServiceOverview() {
                 minHeight: 0,
               }}
             >
-              <LogsTab
-                key={`${logSearch}:${logIncludeFaro}:${logKindFilter.join(',')}`}
-                service={service}
-                namespace={namespace}
-                logsUid={ds.logsUid}
-                from={from}
-                to={to}
-                initialSearch={logSearch}
-                initialIncludeFaro={logIncludeFaro}
-                initialKindFilter={logKindFilter.length > 0 ? logKindFilter : undefined}
-              />
+              <LogsTab service={service} namespace={namespace} logsUid={ds.logsUid} from={from} to={to} />
             </div>
           )}
         </div>

@@ -15,6 +15,7 @@ import { useAutoRefresh, REFRESH_INTERVALS } from '../utils/useInterval';
 import { StatusCard, CardStatus, CardSize, CARD_DIMENSIONS } from '../components/StatusCard';
 import { PageHeader } from '../components/PageHeader';
 import { DataState } from '../components/DataState';
+import { useUrlNumber } from '../utils/useUrlState';
 
 /** How long to keep showing disappeared services (30 minutes). */
 const LAST_SEEN_TTL_MS = 30 * 60 * 1000;
@@ -75,8 +76,8 @@ function StatusBoard() {
   const rawSize = searchParams.get('size') ?? 'sm';
   const cardSize: CardSize = VALID_CARD_SIZES.has(rawSize) ? (rawSize as CardSize) : 'sm';
 
-  const [refreshInterval, setRefreshInterval] = useState(60000);
-  const [rotationInterval, setRotationInterval] = useState(10000);
+  const [refreshInterval, setRefreshInterval] = useUrlNumber('refresh', 60000);
+  const [rotationInterval, setRotationInterval] = useUrlNumber('rotation', 10000);
 
   // Page state that auto-resets when filters change (avoids setState-in-effect)
   const filterKey = `${envParam}|${cardSize}`;

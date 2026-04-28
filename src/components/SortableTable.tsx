@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { useStyles2, Icon } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
+import { useUrlString } from '../utils/useUrlState';
 
 // --- useTableSort hook ---
 
@@ -12,23 +13,48 @@ interface TableSortState<F extends string> {
   comparator: <R extends Partial<Record<F, string | number>>>(a: R, b: R) => number;
 }
 
+/**
+ * Table sort state hook. When `urlPrefix` is provided, sort state is persisted
+ * to URL params (`${urlPrefix}Sort` and `${urlPrefix}Dir`). Otherwise uses local state.
+ */
 export function useTableSort<F extends string>(
   initialField: F,
-  initialDir: 'asc' | 'desc' = 'desc'
+  initialDir: 'asc' | 'desc' = 'desc',
+  urlPrefix?: string
 ): TableSortState<F> {
-  const [sortField, setSortField] = useState<F>(initialField);
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>(initialDir);
+  // URL-backed state (only active when urlPrefix is provided)
+  const [urlField, setUrlField] = useUrlString(urlPrefix ? `${urlPrefix}Sort` : '', initialField);
+  const [urlDir, setUrlDir] = useUrlString(urlPrefix ? `${urlPrefix}Dir` : '', initialDir);
 
-  const toggleSort = useCallback((field: F) => {
-    setSortField((prev) => {
-      if (prev === field) {
-        setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-        return prev;
+  // Local state fallback (when no urlPrefix)
+  const [localField, setLocalField] = useState<F>(initialField);
+  const [localDir, setLocalDir] = useState<'asc' | 'desc'>(initialDir);
+
+  const sortField = (urlPrefix ? urlField : localField) as F;
+  const sortDir = (urlPrefix ? urlDir : localDir) as 'asc' | 'desc';
+
+  const toggleSort = useCallback(
+    (field: F) => {
+      if (urlPrefix) {
+        if (field === urlField) {
+          setUrlDir(urlDir === 'asc' ? 'desc' : 'asc');
+        } else {
+          setUrlField(field);
+          setUrlDir('desc');
+        }
+      } else {
+        setLocalField((prev) => {
+          if (prev === field) {
+            setLocalDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+            return prev;
+          }
+          setLocalDir('desc');
+          return field;
+        });
       }
-      setSortDir('desc');
-      return field;
-    });
-  }, []);
+    },
+    [urlPrefix, urlField, urlDir, setUrlField, setUrlDir]
+  );
 
   const comparator = useMemo(() => {
     return <R extends Partial<Record<F, string | number>>>(a: R, b: R): number => {

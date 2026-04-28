@@ -12,6 +12,7 @@ import {
 } from '../../api/client';
 import { formatDuration } from '../../utils/format';
 import { useFetch } from '../../utils/useFetch';
+import { useUrlString, useUrlNumber } from '../../utils/useUrlState';
 
 interface ServerTabProps {
   service: string;
@@ -90,6 +91,7 @@ export function ServerTab({ service, namespace, fromMs, toMs, environment, onVie
               title="GraphQL Operations"
               subtitle={graphql.framework ?? ''}
               operations={graphql.operations}
+              urlPrefix="gql"
             />
           )}
           {graphql.fetchers && graphql.fetchers.length > 0 && (
@@ -107,6 +109,7 @@ export function ServerTab({ service, namespace, fromMs, toMs, environment, onVie
           endpoints={endpoints.http}
           durationUnit={endpoints.durationUnit}
           onViewTraces={onViewTraces}
+          urlPrefix="ep"
           renderName={(ep) => (
             <span className={styles.httpEndpoint}>
               <span className={styles.httpMethod}>{ep.httpMethod}</span>
@@ -216,6 +219,7 @@ function EndpointSection({
   durationUnit,
   renderName,
   onViewTraces,
+  urlPrefix,
 }: {
   title: string;
   subtitle: string;
@@ -225,19 +229,40 @@ function EndpointSection({
   durationUnit: string;
   renderName: (ep: EndpointSummary) => React.ReactNode;
   onViewTraces?: (spanName: string, status?: string) => void;
+  urlPrefix?: string;
 }) {
   const styles = useStyles2(getStyles);
-  const [sortField, setSortField] = useState<SortField>('rate');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(0);
+
+  // URL-backed state when urlPrefix is provided, otherwise local state
+  const [urlSortField, setUrlSortField] = useUrlString(urlPrefix ? `${urlPrefix}Sort` : '', 'rate');
+  const [urlSortDir, setUrlSortDir] = useUrlString(urlPrefix ? `${urlPrefix}Dir` : '', 'desc');
+  const [urlSearch, setUrlSearch] = useUrlString(urlPrefix ? `${urlPrefix}Search` : '', '');
+  const [urlPage, setUrlPage] = useUrlNumber(urlPrefix ? `${urlPrefix}Page` : '', 0);
+
+  const [localSortField, setLocalSortField] = useState<SortField>('rate');
+  const [localSortDir, setLocalSortDir] = useState<'asc' | 'desc'>('desc');
+  const [localSearch, setLocalSearch] = useState('');
+  const [localPage, setLocalPage] = useState(0);
   const [collapsed, setCollapsed] = useState(false);
 
+  const sortField = (urlPrefix ? urlSortField : localSortField) as SortField;
+  const sortDir = (urlPrefix ? urlSortDir : localSortDir) as 'asc' | 'desc';
+  const search = urlPrefix ? urlSearch : localSearch;
+  const page = urlPrefix ? urlPage : localPage;
+
+  const setSortField = urlPrefix ? (v: SortField) => setUrlSortField(v) : setLocalSortField;
+  const setSortDir = urlPrefix ? (v: 'asc' | 'desc') => setUrlSortDir(v) : setLocalSortDir;
+  const setSearch = urlPrefix ? setUrlSearch : setLocalSearch;
+  const setPage = urlPrefix ? setUrlPage : setLocalPage;
+
   // Reset page when search changes
-  const onSearch = useCallback((v: string) => {
-    setSearch(v);
-    setPage(0);
-  }, []);
+  const onSearch = useCallback(
+    (v: string) => {
+      setSearch(v);
+      setPage(0);
+    },
+    [setSearch, setPage]
+  );
 
   const filtered = useMemo(() => {
     if (!search) {
@@ -267,7 +292,7 @@ function EndpointSection({
 
   const toggleSort = (field: SortField) => {
     if (sortField === field) {
-      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+      setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
     } else {
       setSortField(field);
       setSortDir('desc');
@@ -309,14 +334,14 @@ function EndpointSection({
                 <IconButton
                   name="angle-left"
                   aria-label="Previous page"
-                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  onClick={() => setPage(Math.max(0, page - 1))}
                   disabled={page === 0}
                   size="sm"
                 />
                 <IconButton
                   name="angle-right"
                   aria-label="Next page"
-                  onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                  onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
                   disabled={page >= totalPages - 1}
                   size="sm"
                 />
@@ -417,14 +442,14 @@ function EndpointSection({
               <IconButton
                 name="angle-left"
                 aria-label="Previous page"
-                onClick={() => setPage((p) => Math.max(0, p - 1))}
+                onClick={() => setPage(Math.max(0, page - 1))}
                 disabled={page === 0}
                 size="sm"
               />
               <IconButton
                 name="angle-right"
                 aria-label="Next page"
-                onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
                 disabled={page >= totalPages - 1}
                 size="sm"
               />
@@ -466,22 +491,43 @@ function GraphQLSection({
   title,
   subtitle,
   operations,
+  urlPrefix,
 }: {
   title: string;
   subtitle: string;
   operations: GraphQLOperation[];
+  urlPrefix?: string;
 }) {
   const styles = useStyles2(getStyles);
-  const [sortField, setSortField] = useState<GQLSortField>('rate');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(0);
+
+  const [urlSortField, setUrlSortField] = useUrlString(urlPrefix ? `${urlPrefix}Sort` : '', 'rate');
+  const [urlSortDir, setUrlSortDir] = useUrlString(urlPrefix ? `${urlPrefix}Dir` : '', 'desc');
+  const [urlSearch, setUrlSearch] = useUrlString(urlPrefix ? `${urlPrefix}Search` : '', '');
+  const [urlPage, setUrlPage] = useUrlNumber(urlPrefix ? `${urlPrefix}Page` : '', 0);
+
+  const [localSortField, setLocalSortField] = useState<GQLSortField>('rate');
+  const [localSortDir, setLocalSortDir] = useState<'asc' | 'desc'>('desc');
+  const [localSearch, setLocalSearch] = useState('');
+  const [localPage, setLocalPage] = useState(0);
   const [collapsed, setCollapsed] = useState(false);
 
-  const onSearch = useCallback((v: string) => {
-    setSearch(v);
-    setPage(0);
-  }, []);
+  const sortField = (urlPrefix ? urlSortField : localSortField) as GQLSortField;
+  const sortDir = (urlPrefix ? urlSortDir : localSortDir) as 'asc' | 'desc';
+  const search = urlPrefix ? urlSearch : localSearch;
+  const page = urlPrefix ? urlPage : localPage;
+
+  const setSortField = urlPrefix ? (v: GQLSortField) => setUrlSortField(v) : setLocalSortField;
+  const setSortDir = urlPrefix ? (v: 'asc' | 'desc') => setUrlSortDir(v) : setLocalSortDir;
+  const setSearch = urlPrefix ? setUrlSearch : setLocalSearch;
+  const setPage = urlPrefix ? setUrlPage : setLocalPage;
+
+  const onSearch = useCallback(
+    (v: string) => {
+      setSearch(v);
+      setPage(0);
+    },
+    [setSearch, setPage]
+  );
 
   const filtered = useMemo(() => {
     if (!search) {
@@ -530,7 +576,7 @@ function GraphQLSection({
 
   const toggleSort = (field: GQLSortField) => {
     if (sortField === field) {
-      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+      setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
     } else {
       setSortField(field);
       setSortDir('desc');
@@ -578,14 +624,14 @@ function GraphQLSection({
                 <IconButton
                   name="angle-left"
                   aria-label="Previous page"
-                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  onClick={() => setPage(Math.max(0, page - 1))}
                   disabled={page === 0}
                   size="sm"
                 />
                 <IconButton
                   name="angle-right"
                   aria-label="Next page"
-                  onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                  onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
                   disabled={page >= totalPages - 1}
                   size="sm"
                 />
@@ -640,14 +686,14 @@ function GraphQLSection({
               <IconButton
                 name="angle-left"
                 aria-label="Previous page"
-                onClick={() => setPage((p) => Math.max(0, p - 1))}
+                onClick={() => setPage(Math.max(0, page - 1))}
                 disabled={page === 0}
                 size="sm"
               />
               <IconButton
                 name="angle-right"
                 aria-label="Next page"
-                onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
                 disabled={page >= totalPages - 1}
                 size="sm"
               />

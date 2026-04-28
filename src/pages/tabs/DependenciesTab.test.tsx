@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { DependenciesTab } from './DependenciesTab';
 import { ConnectedService, DependencySummary } from '../../api/client';
 
@@ -29,11 +30,14 @@ const mockDeps: DependencySummary[] = [
   { name: 'redis:6379', type: 'database', rate: 50, errorRate: 0, p95Duration: 2, durationUnit: 'ms', impact: 0.5 },
 ];
 
+// Wrap in MemoryRouter since useTableSort uses useSearchParams
+const renderWithRouter = (ui: React.ReactElement) => render(<MemoryRouter>{ui}</MemoryRouter>);
+
 describe('DependenciesTab', () => {
   const noop = jest.fn();
 
   it('shows both callers and dependencies sections', () => {
-    render(
+    renderWithRouter(
       <DependenciesTab
         service="my-service"
         callers={mockCallers}
@@ -50,13 +54,13 @@ describe('DependenciesTab', () => {
   });
 
   it('shows empty state when both sections are empty', () => {
-    render(<DependenciesTab service="my-service" callers={[]} dependencies={[]} onNavigateService={noop} />);
+    renderWithRouter(<DependenciesTab service="my-service" callers={[]} dependencies={[]} onNavigateService={noop} />);
 
     expect(screen.getByText('No callers or dependencies detected')).toBeInTheDocument();
   });
 
   it('shows only dependencies when no callers', () => {
-    render(
+    renderWithRouter(
       <DependenciesTab
         service="my-service"
         callers={[]}
@@ -71,21 +75,27 @@ describe('DependenciesTab', () => {
   });
 
   it('shows only callers when no dependencies', () => {
-    render(<DependenciesTab service="my-service" callers={mockCallers} dependencies={[]} onNavigateService={noop} />);
+    renderWithRouter(
+      <DependenciesTab service="my-service" callers={mockCallers} dependencies={[]} onNavigateService={noop} />
+    );
 
     expect(screen.getByText(/Callers \(3\)/)).toBeInTheDocument();
     expect(screen.queryByText(/Dependencies \(/)).not.toBeInTheDocument();
   });
 
   it('shows loading when both are loading', () => {
-    render(<DependenciesTab service="my-service" callersLoading={true} depsLoading={true} onNavigateService={noop} />);
+    renderWithRouter(
+      <DependenciesTab service="my-service" callersLoading={true} depsLoading={true} onNavigateService={noop} />
+    );
 
     expect(screen.getByText(/Loading callers and dependencies/)).toBeInTheDocument();
   });
 
   it('navigates on caller row click (service rows only)', () => {
     const onNav = jest.fn();
-    render(<DependenciesTab service="my-service" callers={mockCallers} dependencies={[]} onNavigateService={onNav} />);
+    renderWithRouter(
+      <DependenciesTab service="my-service" callers={mockCallers} dependencies={[]} onNavigateService={onNav} />
+    );
 
     // Click navigable service row
     fireEvent.click(screen.getByText('frontend'));
@@ -99,7 +109,7 @@ describe('DependenciesTab', () => {
 
   it('navigates on dependency row click', () => {
     const onNav = jest.fn();
-    render(
+    renderWithRouter(
       <DependenciesTab
         service="my-service"
         callers={[]}
@@ -114,13 +124,15 @@ describe('DependenciesTab', () => {
   });
 
   it('shows sidecar badge on sidecar callers', () => {
-    render(<DependenciesTab service="my-service" callers={mockCallers} dependencies={[]} onNavigateService={noop} />);
+    renderWithRouter(
+      <DependenciesTab service="my-service" callers={mockCallers} dependencies={[]} onNavigateService={noop} />
+    );
 
     expect(screen.getByText('sidecar')).toBeInTheDocument();
   });
 
   it('shows error state', () => {
-    render(<DependenciesTab service="my-service" depsError="Network error" onNavigateService={noop} />);
+    renderWithRouter(<DependenciesTab service="my-service" depsError="Network error" onNavigateService={noop} />);
 
     expect(screen.getByText('Network error')).toBeInTheDocument();
   });

@@ -84,7 +84,7 @@ type CallerSortField = 'name' | 'rate' | 'errorRate' | 'p95Duration';
 
 function CallersTable({ callers, onNavigate }: { callers: ConnectedService[]; onNavigate: (name: string) => void }) {
   const styles = useStyles2(getStyles);
-  const { sortField, sortDir, toggleSort, comparator } = useTableSort<CallerSortField>('rate');
+  const { sortField, sortDir, toggleSort, comparator } = useTableSort<CallerSortField>('rate', 'desc', 'caller');
 
   const sorted = useMemo(() => [...callers].sort(comparator), [callers, comparator]);
 
@@ -143,7 +143,7 @@ function DepsTable({
   onNavigate?: (name: string) => void;
 }) {
   const styles = useStyles2(getStyles);
-  const { sortField, sortDir, toggleSort, comparator } = useTableSort<keyof DependencySummary>('impact');
+  const { sortField, sortDir, toggleSort, comparator } = useTableSort<keyof DependencySummary>('impact', 'desc', 'dep');
 
   const sorted = useMemo(() => [...dependencies].sort(comparator), [dependencies, comparator]);
 

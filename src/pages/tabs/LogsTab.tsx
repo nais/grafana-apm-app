@@ -15,6 +15,7 @@ import {
 } from '@grafana/scenes';
 import { useDebouncedValue, escapeRegex } from '../../utils/debounce';
 import { sanitizeLabelValue } from '../../utils/sanitize';
+import { useUrlString, useUrlCsv, useUrlBoolean } from '../../utils/useUrlState';
 import { otel } from '../../otelconfig';
 
 interface LogsTabProps {
@@ -23,12 +24,6 @@ interface LogsTabProps {
   logsUid: string;
   from: string;
   to: string;
-  /** Pre-populate search field (e.g., from exception drill-down links). */
-  initialSearch?: string;
-  /** Start with Faro browser telemetry included (needed for exception drill-down). */
-  initialIncludeFaro?: boolean;
-  /** Pre-select Faro kind filter (e.g., ['exception'] from exception drill-down). */
-  initialKindFilter?: string[];
 }
 
 // Severity options based on detected_level stream label values observed in production.
@@ -62,21 +57,12 @@ const SEVERITY_VARIANTS: Record<string, string[]> = {
   unknown: ['unknown'],
 };
 
-export function LogsTab({
-  service,
-  namespace,
-  logsUid,
-  from,
-  to,
-  initialSearch,
-  initialIncludeFaro,
-  initialKindFilter,
-}: LogsTabProps) {
-  const [severityFilter, setSeverityFilter] = useState<string[]>([]);
-  const [logSearch, setLogSearch] = useState<string>(initialSearch ?? '');
-  const [podFilter, setPodFilter] = useState<string>('');
-  const [includeFaro, setIncludeFaro] = useState(initialIncludeFaro ?? false);
-  const [kindFilter, setKindFilter] = useState<string[]>(initialKindFilter ?? []);
+export function LogsTab({ service, namespace, logsUid, from, to }: LogsTabProps) {
+  const [severityFilter, setSeverityFilter] = useUrlCsv('logSeverity');
+  const [logSearch, setLogSearch] = useUrlString('logSearch');
+  const [podFilter, setPodFilter] = useUrlString('logPod');
+  const [includeFaro, setIncludeFaro] = useUrlBoolean('includeFaro');
+  const [kindFilter, setKindFilter] = useUrlCsv('kindFilter');
   const [podOptions, setPodOptions] = useState<Array<{ label: string; value: string }>>([]);
   const debouncedSearch = useDebouncedValue(logSearch, 500);
   const styles = useStyles2(getStyles);
