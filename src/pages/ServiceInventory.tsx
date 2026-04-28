@@ -4,10 +4,9 @@ import { PluginPage } from '@grafana/runtime';
 import {
   Alert,
   Badge,
-  Button,
+  FilterPill,
   Icon,
   IconButton,
-  InlineSwitch,
   Input,
   LoadingPlaceholder,
   MultiCombobox,
@@ -254,7 +253,8 @@ function ServiceInventory() {
         {!loading && services.length > 0 && (
           <>
             <div className={styles.toolbar}>
-              <div className={styles.toolbarInner}>
+              {/* Row 1: Data scope filters */}
+              <div className={styles.scopeRow}>
                 <div className={styles.filterGroup}>
                   <div className={styles.filterItem}>
                     <Input
@@ -285,29 +285,27 @@ function ServiceInventory() {
                     </div>
                   )}
                 </div>
-                <Tooltip content="Hide infrastructure sidecars (wonderwall, texas) from the list">
-                  <InlineSwitch
-                    label="Hide sidecars"
-                    showLabel
-                    value={hideSidecars}
-                    onChange={() => updateParams({ hideSidecars: hideSidecars ? 'false' : null, page: null })}
-                  />
-                </Tooltip>
-                <Button
-                  variant={showFavoritesOnly ? 'primary' : 'secondary'}
-                  size="sm"
-                  icon="star"
-                  onClick={() => setShowFavorites(!showFavoritesOnly)}
-                  aria-pressed={showFavoritesOnly}
-                >
-                  My Apps{favCount > 0 ? ` (${favCount})` : ''}
-                </Button>
                 <Combobox
                   options={QUICK_TIME_RANGES}
                   value={from}
                   onChange={(v) => setTimeRange(v?.value ?? 'now-1h', 'now')}
                   width={22}
                   prefixIcon="clock-nine"
+                />
+              </div>
+              {/* Row 2: View options (pills) */}
+              <div className={styles.viewRow}>
+                <FilterPill
+                  icon="star"
+                  label={`My Apps${favCount > 0 ? ` (${favCount})` : ''}`}
+                  selected={showFavoritesOnly}
+                  onClick={() => setShowFavorites(!showFavoritesOnly)}
+                />
+                <FilterPill
+                  icon="eye-slash"
+                  label="Hide sidecars"
+                  selected={hideSidecars}
+                  onClick={() => updateParams({ hideSidecars: hideSidecars ? 'false' : null, page: null })}
                 />
               </div>
             </div>
@@ -534,19 +532,22 @@ const getStyles = (theme: GrafanaTheme2) => ({
     overflow: hidden;
   `,
   toolbar: css`
-    position: relative;
-    height: 40px;
+    display: flex;
+    flex-direction: column;
+    gap: ${theme.spacing(1)};
     margin-bottom: ${theme.spacing(2)};
     z-index: 2;
   `,
-  toolbarInner: css`
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
+  scopeRow: css`
     display: flex;
     gap: ${theme.spacing(1)};
     align-items: center;
+  `,
+  viewRow: css`
+    display: flex;
+    gap: ${theme.spacing(1)};
+    align-items: center;
+    flex-wrap: wrap;
   `,
   filterGroup: css`
     display: flex;
