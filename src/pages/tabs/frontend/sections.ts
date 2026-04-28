@@ -97,9 +97,56 @@ export function buildInsightsSection(ctx: FrontendSceneContext): SceneFlexLayout
       .build(),
   });
 
+  // Total pageloads (Mimir counter)
+  const pageloadsQ = makePromQuery(metricsDs, `sum(increase(${ah.pageLoads}{${svcFilter}}[$__range]))`, 'Pageloads');
+  const pageloadsPanel = new SceneFlexItem({
+    minHeight: 200,
+    width: '10%',
+    body: PanelBuilders.stat()
+      .setTitle('Pageloads')
+      .setDescription('Total page loads in the selected time range')
+      .setData(pageloadsQ)
+      .setUnit('short')
+      .setDecimals(0)
+      .build(),
+  });
+
+  // Sessions (Loki event count — only when Loki available)
+  let sessionsPanel: SceneFlexItem | undefined;
+  if (ctx.hasLoki) {
+    const sessionsQ = new SceneQueryRunner({
+      datasource: { uid: ctx.logsDs.uid, type: 'loki' },
+      queries: [
+        {
+          refId: 'sessions',
+          expr: lokiSessionStartExpr(ctx.service, '[$__range]'),
+          legendFormat: 'Sessions',
+          instant: true,
+        },
+      ],
+    });
+    sessionsPanel = new SceneFlexItem({
+      minHeight: 200,
+      width: '10%',
+      body: PanelBuilders.stat()
+        .setTitle('Sessions')
+        .setDescription('Unique browser sessions started in the selected time range')
+        .setData(sessionsQ)
+        .setUnit('short')
+        .setDecimals(0)
+        .build(),
+    });
+  }
+
+  const children = [cwvRatingPanel, pageloadsPanel];
+  if (sessionsPanel) {
+    children.push(sessionsPanel);
+  }
+  children.push(navTypePanel);
+
   return new SceneFlexLayout({
     direction: 'row',
-    children: [cwvRatingPanel, navTypePanel],
+    children,
   });
 }
 
@@ -367,9 +414,15 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
           .setDescription('Most frequent JS exceptions — click to view in Logs tab')
           .setData(topExceptionsData)
           .setOverrides((b) => {
-            b.matchFieldsWithName('value').overrideDisplayName('Error');
-            b.matchFieldsWithName('Value #count').overrideDisplayName('Occurrences');
-            b.matchFieldsWithName('Value #sessions').overrideDisplayName('Sessions Affected');
+            b.matchFieldsWithName('value')
+              .overrideDisplayName('Error')
+              .overrideCustomFieldConfig('width' as any, 500);
+            b.matchFieldsWithName('Value #count')
+              .overrideDisplayName('Occurrences')
+              .overrideCustomFieldConfig('width' as any, 110);
+            b.matchFieldsWithName('Value #sessions')
+              .overrideDisplayName('Sessions Affected')
+              .overrideCustomFieldConfig('width' as any, 130);
             b.matchFieldsWithName('Time').overrideCustomFieldConfig('hidden' as any, true);
             const envParam = environment ? `&environment=${encodeURIComponent(environment)}` : '';
             const nsSegment = encodeURIComponent(namespace || '_');
