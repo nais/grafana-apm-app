@@ -168,7 +168,7 @@ function FrontendPanels({
       : null;
 
     return new EmbeddedScene({
-      $timeRange: new SceneTimeRange({}),
+      $timeRange: new SceneTimeRange({ from: 'now-1h', to: 'now' }),
       $variables: new SceneVariableSet({ variables: [browserVar] }),
       $behaviors: [new behaviors.CursorSync({ sync: DashboardCursorSync.Crosshair })],
       controls: [new VariableValueSelectors({}), new SceneTimePicker({}), new SceneRefreshPicker({})],

@@ -27,12 +27,12 @@ import { FrontendSceneContext } from './scene-context';
 // Section 1: CWV Rating Breakdown + Navigation Type
 // ---------------------------------------------------------------------------
 
-/** CWV Rating Breakdown (computed from histogram buckets) + Navigation Type. */
+/** CWV Rating Breakdown (% Good per vital from histogram buckets) + Navigation Type. */
 export function buildInsightsSection(ctx: FrontendSceneContext): SceneFlexLayout {
   const { metricsDs, svcFilter, ah } = ctx;
 
-  // CWV Rating Breakdown — computed from histogram bucket boundaries.
-  // good = bucket(good_threshold) / bucket(+Inf), poor = 1 - bucket(poor_threshold) / bucket(+Inf)
+  // CWV Rating Breakdown — show % Good for each vital using histogram bucket math.
+  // good_ratio = bucket(good_threshold) / bucket(+Inf)
   const vitals: Array<{ key: VitalKey; label: string }> = [
     { key: 'lcp', label: 'LCP' },
     { key: 'fcp', label: 'FCP' },
@@ -40,30 +40,15 @@ export function buildInsightsSection(ctx: FrontendSceneContext): SceneFlexLayout
     { key: 'inp', label: 'INP' },
     { key: 'ttfb', label: 'TTFB' },
   ];
-  const ratingQueries = vitals.flatMap(({ key, label }) => {
+  const ratingQueries = vitals.map(({ key, label }) => {
     const metric = ah[key];
-    const { good, poor } = CWV_BUCKET_BOUNDARIES[key];
-    const total = `sum(increase(${metric}_bucket{${svcFilter}, le="+Inf"}[$__range]))`;
-    return [
-      {
-        refId: `${label}_good`,
-        expr: `sum(increase(${metric}_bucket{${svcFilter}, le="${good}"}[$__range])) / ${total}`,
-        legendFormat: `${label} Good`,
-        instant: true,
-      },
-      {
-        refId: `${label}_ni`,
-        expr: `(sum(increase(${metric}_bucket{${svcFilter}, le="${poor}"}[$__range])) - sum(increase(${metric}_bucket{${svcFilter}, le="${good}"}[$__range]))) / ${total}`,
-        legendFormat: `${label} Needs Improvement`,
-        instant: true,
-      },
-      {
-        refId: `${label}_poor`,
-        expr: `1 - sum(increase(${metric}_bucket{${svcFilter}, le="${poor}"}[$__range])) / ${total}`,
-        legendFormat: `${label} Poor`,
-        instant: true,
-      },
-    ];
+    const { good } = CWV_BUCKET_BOUNDARIES[key];
+    return {
+      refId: label,
+      expr: `sum(increase(${metric}_bucket{${svcFilter}, le="${good}"}[$__range])) / sum(increase(${metric}_bucket{${svcFilter}, le="+Inf"}[$__range])) * 100`,
+      legendFormat: label,
+      instant: true,
+    };
   });
   const cwvRatingQ = new SceneQueryRunner({
     datasource: { uid: metricsDs.uid, type: 'prometheus' },
@@ -71,15 +56,19 @@ export function buildInsightsSection(ctx: FrontendSceneContext): SceneFlexLayout
   });
   const cwvRatingPanel = new SceneFlexItem({
     minHeight: 200,
-    body: PanelBuilders.barchart()
-      .setTitle('CWV Rating Breakdown')
-      .setDescription('Percentage of measurements rated Good / Needs Improvement / Poor per Core Web Vital')
+    body: PanelBuilders.stat()
+      .setTitle('CWV Rating — % Good')
+      .setDescription('Percentage of measurements rated "Good" per Core Web Vital (higher is better)')
       .setData(cwvRatingQ)
-      .setCustomFieldConfig('stacking' as any, { mode: 'percent' })
-      .setOverrides((b) => {
-        b.matchFieldsWithNameByRegex('Good$').overrideColor({ mode: 'fixed', fixedColor: 'green' });
-        b.matchFieldsWithNameByRegex('Needs Improvement$').overrideColor({ mode: 'fixed', fixedColor: 'orange' });
-        b.matchFieldsWithNameByRegex('Poor$').overrideColor({ mode: 'fixed', fixedColor: 'red' });
+      .setUnit('percent')
+      .setDecimals(0)
+      .setThresholds({
+        mode: ThresholdsMode.Absolute,
+        steps: [
+          { value: 0, color: 'red' },
+          { value: 50, color: 'orange' },
+          { value: 75, color: 'green' },
+        ],
       })
       .build(),
   });
@@ -460,7 +449,7 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
         {
           refId: 'volume',
           expr: `sum by (${fl.browserName}) (count_over_time(${browserVolumePipeline} [$__range]))`,
-          legendFormat: '__auto',
+          legendFormat: `{{${fl.browserName}}}`,
           instant: true,
         },
       ],
