@@ -71,7 +71,8 @@ function ServiceInventory() {
   const caps = fetchResult?.caps ?? null;
 
   // Read all UI state from query params (persisted across navigation)
-  const namespaceFilter = searchParams.get('namespace') ?? '';
+  const rawNsFilter = searchParams.get('namespace') ?? '';
+  const nsFilters = useMemo(() => sanitizeParam(rawNsFilter).split(',').filter(Boolean), [rawNsFilter]);
   const rawEnvFilter = searchParams.get('environment') ?? '';
   const envFilters = useMemo(() => sanitizeParam(rawEnvFilter).split(',').filter(Boolean), [rawEnvFilter]);
   const search = searchParams.get('q') ?? '';
@@ -102,7 +103,8 @@ function ServiceInventory() {
     [setSearchParams]
   );
 
-  const setNamespaceFilter = (ns: string) => updateParams({ namespace: ns || null, page: null });
+  const setNsFilters = (nss: string[]) =>
+    updateParams({ namespace: nss.length > 0 ? nss.join(',') : null, page: null });
   const setEnvFilters = (envs: string[]) =>
     updateParams({ environment: envs.length > 0 ? envs.join(',') : null, page: null });
   const setSearch = (q: string) => updateParams({ q: q || null, page: null });
@@ -121,8 +123,8 @@ function ServiceInventory() {
   if (hideSidecars) {
     filtered = filtered.filter((s) => !s.isSidecar);
   }
-  if (namespaceFilter) {
-    filtered = filtered.filter((s) => s.namespace === namespaceFilter);
+  if (nsFilters.length > 0) {
+    filtered = filtered.filter((s) => nsFilters.includes(s.namespace));
   }
   if (envFilters.length > 0) {
     filtered = filtered.filter((s) => s.environment != null && envFilters.includes(s.environment));
@@ -173,7 +175,7 @@ function ServiceInventory() {
 
   // When viewing a single namespace with multiple envs, group rows by environment
   // with section headers instead of showing a flat environment column.
-  const groupByEnv = !!namespaceFilter && envFilters.length === 0 && envOptions.length > 1;
+  const groupByEnv = nsFilters.length === 1 && envFilters.length === 0 && envOptions.length > 1;
 
   // When grouping by environment, ensure rows are grouped by env while
   // preserving the user's chosen sort order within each group (stable sort).
@@ -191,7 +193,7 @@ function ServiceInventory() {
   }
 
   // Hide namespace column when a single namespace is selected (redundant info)
-  const showNsColumn = !namespaceFilter;
+  const showNsColumn = nsFilters.length !== 1;
   // Show environment column only when there are multiple envs, no env filter, and not grouping
   const showEnvColumn = envOptions.length > 1 && envFilters.length === 0 && !groupByEnv;
 
@@ -234,48 +236,49 @@ function ServiceInventory() {
         {!loading && services.length > 0 && (
           <>
             <div className={styles.toolbar}>
-              <Input
-                prefix={<Icon name="search" />}
-                placeholder="Filter services..."
-                width={30}
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.currentTarget.value);
-                }}
-              />
-              <Combobox
-                options={namespaceOptions}
-                value={namespaceFilter || null}
-                onChange={(v) => setNamespaceFilter(v?.value ?? '')}
-                width={25}
-                placeholder="All namespaces"
-                isClearable
-              />
-              {(envOptions.length > 1 || envFilters.length > 0) && (
+              <div className={styles.toolbarInner}>
+                <Input
+                  prefix={<Icon name="search" />}
+                  placeholder="Filter services..."
+                  width={30}
+                  value={search}
+                  onChange={(e) => {
+                    setSearch(e.currentTarget.value);
+                  }}
+                />
                 <MultiCombobox
-                  options={envOptions}
-                  value={envFilters}
-                  onChange={(selected) => setEnvFilters(selected.map((o) => o.value).filter(Boolean) as string[])}
-                  width={20}
-                  placeholder="All environments"
+                  options={namespaceOptions}
+                  value={nsFilters}
+                  onChange={(selected) => setNsFilters(selected.map((o) => o.value).filter(Boolean) as string[])}
+                  width={25}
+                  placeholder="All namespaces"
                 />
-              )}
-              <div className={styles.toolbarSpacer} />
-              <Tooltip content="Hide infrastructure sidecars (wonderwall, texas) from the list">
-                <InlineSwitch
-                  label="Hide sidecars"
-                  showLabel
-                  value={hideSidecars}
-                  onChange={() => updateParams({ hideSidecars: hideSidecars ? 'false' : null, page: null })}
+                {(envOptions.length > 1 || envFilters.length > 0) && (
+                  <MultiCombobox
+                    options={envOptions}
+                    value={envFilters}
+                    onChange={(selected) => setEnvFilters(selected.map((o) => o.value).filter(Boolean) as string[])}
+                    width={20}
+                    placeholder="All environments"
+                  />
+                )}
+                <div className={styles.toolbarSpacer} />
+                <Tooltip content="Hide infrastructure sidecars (wonderwall, texas) from the list">
+                  <InlineSwitch
+                    label="Hide sidecars"
+                    showLabel
+                    value={hideSidecars}
+                    onChange={() => updateParams({ hideSidecars: hideSidecars ? 'false' : null, page: null })}
+                  />
+                </Tooltip>
+                <Combobox
+                  options={QUICK_TIME_RANGES}
+                  value={from}
+                  onChange={(v) => setTimeRange(v?.value ?? 'now-1h', 'now')}
+                  width={22}
+                  prefixIcon="clock-nine"
                 />
-              </Tooltip>
-              <Combobox
-                options={QUICK_TIME_RANGES}
-                value={from}
-                onChange={(v) => setTimeRange(v?.value ?? 'now-1h', 'now')}
-                width={22}
-                prefixIcon="clock-nine"
-              />
+              </div>
             </div>
 
             <table className={styles.table}>
@@ -468,10 +471,19 @@ const getStyles = (theme: GrafanaTheme2) => ({
     overflow: hidden;
   `,
   toolbar: css`
+    position: relative;
+    height: 40px;
+    margin-bottom: ${theme.spacing(2)};
+    z-index: 2;
+  `,
+  toolbarInner: css`
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
     display: flex;
     gap: ${theme.spacing(1)};
     align-items: center;
-    margin-bottom: ${theme.spacing(2)};
   `,
   toolbarSpacer: css`
     flex: 1;
