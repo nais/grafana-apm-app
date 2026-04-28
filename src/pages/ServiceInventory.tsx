@@ -237,32 +237,36 @@ function ServiceInventory() {
           <>
             <div className={styles.toolbar}>
               <div className={styles.toolbarInner}>
-                <Input
-                  prefix={<Icon name="search" />}
-                  placeholder="Filter services..."
-                  width={30}
-                  value={search}
-                  onChange={(e) => {
-                    setSearch(e.currentTarget.value);
-                  }}
-                />
-                <MultiCombobox
-                  options={namespaceOptions}
-                  value={nsFilters}
-                  onChange={(selected) => setNsFilters(selected.map((o) => o.value).filter(Boolean) as string[])}
-                  width={25}
-                  placeholder="All namespaces"
-                />
-                {(envOptions.length > 1 || envFilters.length > 0) && (
-                  <MultiCombobox
-                    options={envOptions}
-                    value={envFilters}
-                    onChange={(selected) => setEnvFilters(selected.map((o) => o.value).filter(Boolean) as string[])}
-                    width={20}
-                    placeholder="All environments"
-                  />
-                )}
-                <div className={styles.toolbarSpacer} />
+                <div className={styles.filterGroup}>
+                  <div className={styles.filterItem}>
+                    <Input
+                      prefix={<Icon name="search" />}
+                      placeholder="Filter services..."
+                      value={search}
+                      onChange={(e) => {
+                        setSearch(e.currentTarget.value);
+                      }}
+                    />
+                  </div>
+                  <div className={styles.filterItem}>
+                    <MultiCombobox
+                      options={namespaceOptions}
+                      value={nsFilters}
+                      onChange={(selected) => setNsFilters(selected.map((o) => o.value).filter(Boolean) as string[])}
+                      placeholder="All namespaces"
+                    />
+                  </div>
+                  {(envOptions.length > 1 || envFilters.length > 0) && (
+                    <div className={styles.filterItem}>
+                      <MultiCombobox
+                        options={envOptions}
+                        value={envFilters}
+                        onChange={(selected) => setEnvFilters(selected.map((o) => o.value).filter(Boolean) as string[])}
+                        placeholder="All environments"
+                      />
+                    </div>
+                  )}
+                </div>
                 <Tooltip content="Hide infrastructure sidecars (wonderwall, texas) from the list">
                   <InlineSwitch
                     label="Hide sidecars"
@@ -485,8 +489,17 @@ const getStyles = (theme: GrafanaTheme2) => ({
     gap: ${theme.spacing(1)};
     align-items: center;
   `,
-  toolbarSpacer: css`
+  filterGroup: css`
+    display: flex;
     flex: 1;
+    gap: ${theme.spacing(1)};
+    align-items: center;
+    min-width: 0;
+  `,
+  filterItem: css`
+    flex: 1;
+    min-width: 160px;
+    max-width: 320px;
   `,
   table: css`
     width: 100%;
