@@ -58,7 +58,7 @@ export function buildInsightsSection(ctx: FrontendSceneContext): SceneFlexLayout
     minHeight: 200,
     width: '15%',
     body: PanelBuilders.stat()
-      .setTitle('CWV Rating — % Good')
+      .setTitle('CWV Rating')
       .setDescription('Percentage of measurements rated "Good" per Core Web Vital (higher is better)')
       .setData(cwvRatingQ)
       .setUnit('percent')
