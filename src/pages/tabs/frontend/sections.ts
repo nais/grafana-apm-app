@@ -442,7 +442,7 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
     );
 
     // Browser volume pie (from Loki measurement counts per browser_name)
-    const browserVolumePipeline = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindMeasurement}"} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" | ${fl.browserName}!="" | keep ${fl.browserName}`;
+    const browserVolumePipeline = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindMeasurement}"} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" | ${fl.browserName}!=""`;
     const browserVolumeQ = new SceneQueryRunner({
       datasource: { uid: logsDs.uid, type: 'loki' },
       queries: [
@@ -450,7 +450,6 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
           refId: 'volume',
           expr: `sum by (${fl.browserName}) (count_over_time(${browserVolumePipeline} [$__range]))`,
           legendFormat: `{{${fl.browserName}}}`,
-          instant: true,
         },
       ],
     });
