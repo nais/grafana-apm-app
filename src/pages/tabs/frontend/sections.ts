@@ -247,8 +247,6 @@ export function buildPerPageSection(ctx: FrontendSceneContext): SceneFlexItem | 
   const fl = otel.faroLoki;
   const pageUrl = fl.pageUrl;
 
-  const countPipeline = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindMeasurement}"} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" | ${pageUrl}!="" | keep ${pageUrl}`;
-
   const perPageQ = new SceneQueryRunner({
     datasource: { uid: logsDs.uid, type: 'loki' },
     queries: [
@@ -280,13 +278,6 @@ export function buildPerPageSection(ctx: FrontendSceneContext): SceneFlexItem | 
         format: 'table',
         instant: true,
       },
-      {
-        refId: 'count',
-        expr: `topk(20, sum by (${pageUrl}) (count_over_time(${countPipeline} [$__range])))`,
-        legendFormat: '__auto',
-        format: 'table',
-        instant: true,
-      },
     ],
   });
 
@@ -300,7 +291,7 @@ export function buildPerPageSection(ctx: FrontendSceneContext): SceneFlexItem | 
           excludeByName: { Time: true },
         },
       },
-      { id: 'sortBy', options: { sort: [{ field: 'Value #count', desc: true }] } },
+      { id: 'sortBy', options: { sort: [{ field: 'Value #lcp', desc: true }] } },
       { id: 'limit', options: { maxRows: 20 } },
     ],
   });
@@ -312,7 +303,7 @@ export function buildPerPageSection(ctx: FrontendSceneContext): SceneFlexItem | 
       .setDescription('Performance per page — sorted by most visited. Color shows Good/Needs Work/Poor.')
       .setData(perPageData)
       .setOverrides((b) => {
-        b.matchFieldsWithName(pageUrl).overrideDisplayName('Page').overrideCustomFieldConfig('width', 350);
+        b.matchFieldsWithName(pageUrl).overrideDisplayName('Page');
         b.matchFieldsWithName('Value #lcp')
           .overrideDisplayName('Avg LCP (ms)')
           .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.lcp })
@@ -333,12 +324,6 @@ export function buildPerPageSection(ctx: FrontendSceneContext): SceneFlexItem | 
           .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.inp })
           .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
           .overrideDecimals(0);
-        b.matchFieldsWithName('Value #ttfb')
-          .overrideDisplayName('Avg TTFB (ms)')
-          .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.ttfb })
-          .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
-          .overrideDecimals(0);
-        b.matchFieldsWithName('Value #count').overrideDisplayName('Measurements').overrideDecimals(0);
       })
       .build(),
   });
