@@ -59,7 +59,7 @@ export function buildInsightsSection(ctx: FrontendSceneContext): SceneFlexLayout
     width: '15%',
     body: PanelBuilders.stat()
       .setTitle('CWV Rating')
-      .setDescription('Percentage of measurements rated "Good" per Core Web Vital (higher is better)')
+      .setDescription('How many page loads are rated "Good" by Google. Higher is better — aim for 75%+.')
       .setData(cwvRatingQ)
       .setUnit('percent')
       .setDecimals(0)
@@ -84,7 +84,7 @@ export function buildInsightsSection(ctx: FrontendSceneContext): SceneFlexLayout
     minHeight: 200,
     body: PanelBuilders.timeseries()
       .setTitle('Navigation Type')
-      .setDescription('Page load distribution by navigation type (navigate, reload, back/forward)')
+      .setDescription('How users arrived: direct navigation, reload, or back/forward button')
       .setData(navTypeQ)
       .setUnit('short')
       .setCustomFieldConfig('fillOpacity', 80)
@@ -109,7 +109,7 @@ export function buildInsightsSection(ctx: FrontendSceneContext): SceneFlexLayout
     width: '15%',
     body: PanelBuilders.stat()
       .setTitle('Pageloads')
-      .setDescription('Total page loads in the selected time range')
+      .setDescription('Number of pages loaded by real users')
       .setData(pageloadsQ)
       .setUnit('short')
       .setDecimals(0)
@@ -135,7 +135,7 @@ export function buildInsightsSection(ctx: FrontendSceneContext): SceneFlexLayout
       width: '15%',
       body: PanelBuilders.stat()
         .setTitle('Sessions')
-        .setDescription('Unique browser sessions started in the selected time range')
+        .setDescription('Number of unique browser sessions (a session ends after 30 min of inactivity)')
         .setData(sessionsQ)
         .setUnit('short')
         .setDecimals(0)
@@ -201,7 +201,7 @@ export function buildTrendsSection(ctx: FrontendSceneContext): SceneFlexLayout {
         minHeight: 200,
         body: PanelBuilders.timeseries()
           .setTitle('Page Load Vitals (p75)')
-          .setDescription('TTFB → FCP → LCP loading sequence over time')
+          .setDescription('How fast pages load: Time to First Byte → First Contentful Paint → Largest Contentful Paint')
           .setData(pageLoadVitalsQ)
           .setUnit('ms')
           .build(),
@@ -210,7 +210,7 @@ export function buildTrendsSection(ctx: FrontendSceneContext): SceneFlexLayout {
         minHeight: 200,
         body: PanelBuilders.timeseries()
           .setTitle('Interactivity (INP p75)')
-          .setDescription('Interaction to Next Paint trend')
+          .setDescription('How fast the page responds to user clicks and key presses')
           .setData(inpTrendQ)
           .setUnit('ms')
           .setCustomFieldConfig('thresholdsStyle', { mode: GraphThresholdsStyleMode.Area })
@@ -221,7 +221,7 @@ export function buildTrendsSection(ctx: FrontendSceneContext): SceneFlexLayout {
         minHeight: 200,
         body: PanelBuilders.timeseries()
           .setTitle('Layout Stability (CLS p75)')
-          .setDescription('Cumulative Layout Shift trend')
+          .setDescription('How much the page layout shifts unexpectedly while loading (lower is better)')
           .setData(clsTrendQ)
           .setUnit('none')
           .setDecimals(3)
@@ -309,7 +309,7 @@ export function buildPerPageSection(ctx: FrontendSceneContext): SceneFlexItem | 
     minHeight: 300,
     body: PanelBuilders.table()
       .setTitle('Per-Page Performance')
-      .setDescription('Average Web Vitals broken down by page URL (top pages by traffic)')
+      .setDescription('Performance per page — sorted by most visited. Color shows Good/Needs Work/Poor.')
       .setData(perPageData)
       .setOverrides((b) => {
         b.matchFieldsWithName(pageUrl).overrideDisplayName('Page').overrideCustomFieldConfig('width', 350);
@@ -375,7 +375,7 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
       width: '30%',
       body: PanelBuilders.table()
         .setTitle('Exception Types')
-        .setDescription('Top exception types by volume')
+        .setDescription('Which error types occur most often')
         .setData(exceptionTypeQ)
         .setOverrides((b) => {
           b.matchFieldsWithName(ah.exceptionTypeLabel).overrideDisplayName('Exception Type');
@@ -416,7 +416,7 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
         minHeight: 250,
         body: PanelBuilders.table()
           .setTitle('Top Exceptions')
-          .setDescription('Most frequent JS exceptions — click to view in Logs tab')
+          .setDescription('Most common JavaScript errors — click an error to see full details in the Logs tab')
           .setData(topExceptionsData)
           .setOverrides((b) => {
             b.matchFieldsWithName('value')
@@ -489,7 +489,7 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
       minHeight: 250,
       body: PanelBuilders.table()
         .setTitle('Browser Breakdown')
-        .setDescription('Average Web Vitals by browser')
+        .setDescription('Performance comparison across browsers your users are on')
         .setData(browserData)
         .setOverrides((b) => {
           b.matchFieldsWithName(fl.browserName).overrideDisplayName('Browser');
@@ -532,7 +532,7 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
       width: '35%',
       body: PanelBuilders.piechart()
         .setTitle('Browser Volume')
-        .setDescription('Measurement volume per browser')
+        .setDescription('Traffic share per browser')
         .setData(browserVolumeQ)
         .build(),
     })
@@ -569,7 +569,7 @@ export function buildSupportSection(ctx: FrontendSceneContext): SceneFlexLayout 
         minHeight: 250,
         body: PanelBuilders.table()
           .setTitle('Console Errors')
-          .setDescription('Most frequent console.error messages from Faro logs')
+          .setDescription('Repeated console.error messages from the browser — check if your app logs errors silently')
           .setData(consoleErrorsQ)
           .setOverrides((b) => {
             b.matchFieldsWithName('value').overrideDisplayName('Error Message');
@@ -606,7 +606,7 @@ export function buildTrafficSection(ctx: FrontendSceneContext): SceneFlexLayout 
       minHeight: 200,
       body: PanelBuilders.timeseries()
         .setTitle('Web Vitals Measurements')
-        .setDescription('Page load measurement rate over time')
+        .setDescription('Page load traffic over time')
         .setData(measurementCountQ)
         .setUnit('short')
         .setCustomFieldConfig('fillOpacity', 15)
@@ -616,7 +616,7 @@ export function buildTrafficSection(ctx: FrontendSceneContext): SceneFlexLayout 
       minHeight: 200,
       body: PanelBuilders.timeseries()
         .setTitle('JavaScript Exceptions')
-        .setDescription('JS exception rate over time')
+        .setDescription('How often JavaScript errors occur over time')
         .setData(exceptionCountQ)
         .setUnit('short')
         .setCustomFieldConfig('fillOpacity', 15)
@@ -632,7 +632,7 @@ export function buildTrafficSection(ctx: FrontendSceneContext): SceneFlexLayout 
         minHeight: 200,
         body: PanelBuilders.timeseries()
           .setTitle('Sessions')
-          .setDescription('New session starts over time')
+          .setDescription('New user sessions starting over time')
           .setData(sessionQ)
           .setUnit('short')
           .setCustomFieldConfig('fillOpacity', 25)
