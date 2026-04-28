@@ -95,9 +95,9 @@ func (a *App) handleCapabilities(w http.ResponseWriter, req *http.Request) {
 	authClient := a.promClientForRequest(req)
 	resolvedToken := a.resolveServiceToken(req.Context())
 
-	// Use a bounded context: inherit parent cancellation but extend deadline
-	// so slow health checks aren't cut short by the HTTP request's deadline.
-	detachedCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Use a bounded context: preserve tracing/values from the request but
+	// detach from its cancellation so slow health checks aren't cut short.
+	detachedCtx, cancel := context.WithTimeout(context.WithoutCancel(req.Context()), 30*time.Second)
 	defer cancel()
 	detachedCtx = withAuthContext(detachedCtx, authClient)
 

@@ -129,28 +129,52 @@ type PromResult struct {
 	Values []PromValue       `json:"values,omitempty"` // range query
 }
 
-// PromValue is a [timestamp, "value"] pair.
-type PromValue [2]interface{}
-
-// Timestamp returns the unix timestamp from the value pair.
-func (v PromValue) Timestamp() int64 {
-	switch t := v[0].(type) {
-	case float64:
-		return int64(t)
-	case json.Number:
-		i, _ := t.Int64()
-		return i
-	}
-	return 0
+// PromValue is a [timestamp, "value"] pair from the Prometheus HTTP API.
+// It provides type-safe access to both fields with proper error handling
+// during JSON unmarshaling.
+type PromValue struct {
+	ts  float64
+	val string
 }
 
-// Float returns the float64 value from the value pair.
-func (v PromValue) Float() float64 {
-	if s, ok := v[1].(string); ok {
-		f, _ := strconv.ParseFloat(s, 64)
-		return f
+// NewPromValue creates a PromValue from a timestamp and string value.
+// Used in tests and when constructing values programmatically.
+func NewPromValue(timestamp float64, value string) PromValue {
+	return PromValue{ts: timestamp, val: value}
+}
+
+// UnmarshalJSON decodes the [timestamp, "value"] pair from Prometheus API responses.
+func (v *PromValue) UnmarshalJSON(data []byte) error {
+	var pair [2]json.RawMessage
+	if err := json.Unmarshal(data, &pair); err != nil {
+		return fmt.Errorf("PromValue: expected [timestamp, value] pair: %w", err)
 	}
-	return 0
+
+	if err := json.Unmarshal(pair[0], &v.ts); err != nil {
+		return fmt.Errorf("PromValue: invalid timestamp: %w", err)
+	}
+
+	if err := json.Unmarshal(pair[1], &v.val); err != nil {
+		return fmt.Errorf("PromValue: invalid value: %w", err)
+	}
+
+	return nil
+}
+
+// MarshalJSON encodes as a [timestamp, "value"] pair for symmetry.
+func (v PromValue) MarshalJSON() ([]byte, error) {
+	return json.Marshal([2]interface{}{v.ts, v.val})
+}
+
+// Timestamp returns the unix timestamp.
+func (v PromValue) Timestamp() int64 {
+	return int64(v.ts)
+}
+
+// Float returns the float64 value, or 0 if unparseable.
+func (v PromValue) Float() float64 {
+	f, _ := strconv.ParseFloat(v.val, 64)
+	return f
 }
 
 // InstantQuery executes a PromQL instant query.

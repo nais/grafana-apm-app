@@ -6,6 +6,7 @@ import { getBackendSrv } from '@grafana/runtime';
 import { Alert, Button, Field, FieldSet, IconButton, Input, SecretInput, Combobox, useStyles2 } from '@grafana/ui';
 import { testIds } from '../testIds';
 import { Capabilities, getCapabilities } from '../../api/client';
+import { AppPluginSettings, DsRef, EnvAwareDs } from '../../types/plugin';
 
 interface GrafanaDataSource {
   uid: string;
@@ -13,25 +14,6 @@ interface GrafanaDataSource {
   type: string;
   isDefault: boolean;
 }
-
-interface DsRef {
-  uid?: string;
-  type?: string;
-}
-
-interface EnvAwareDs {
-  uid?: string;
-  type?: string;
-  byEnvironment?: Record<string, DsRef>;
-}
-
-type AppPluginSettings = {
-  metricsDataSource?: DsRef;
-  tracesDataSource?: EnvAwareDs;
-  logsDataSource?: EnvAwareDs;
-  metricNamespace?: string;
-  durationUnit?: string;
-};
 
 interface EnvOverride {
   env: string;

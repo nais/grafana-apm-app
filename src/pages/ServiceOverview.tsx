@@ -8,24 +8,11 @@ import { css } from '@emotion/css';
 import { buildTempoExploreUrl, buildLokiExploreUrl } from '../utils/explore';
 import { FrameworkBadge } from '../components/FrameworkBadge';
 import { PageHeader } from '../components/PageHeader';
-import {
-  getOperations,
-  getServices,
-  getServiceMap,
-  getConnectedServices,
-  getServiceDependencies,
-  OperationSummary,
-  ServiceMapResponse,
-  ConnectedServicesResponse,
-  DependenciesResponse,
-} from '../api/client';
 import { usePluginDatasources, useHasEnvironmentOverrides } from '../utils/datasources';
 import { useTimeRange } from '../utils/timeRange';
 import { useCapabilities, getMetricNames } from '../utils/capabilities';
 import { useAppNavigate, sanitizeParam } from '../utils/navigation';
-import { extractEnvironmentOptions } from '../utils/options';
-import { useFetch } from '../utils/useFetch';
-import { toGraphData } from '../components/ServiceGraph';
+import { useServiceData } from '../utils/useServiceData';
 import { buildServiceScene } from './buildServiceScene';
 import { OverviewTab } from './tabs/OverviewTab';
 import { TracesTab } from './tabs/TracesTab';
@@ -120,8 +107,6 @@ function ServiceOverview() {
   const [percentile, setPercentile] = useUrlString('percentile', '0.95');
 
   // Track which tabs have been visited so we keep them mounted.
-  // The setState-in-effect pattern is intentional: visitedTabs is a monotonically
-  // growing set that prevents re-mounting expensive tab components when switching tabs.
   const [visitedTabs, setVisitedTabs] = useState<Set<TabId>>(new Set(['overview']));
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -135,62 +120,24 @@ function ServiceOverview() {
     });
   }, [activeTab]);
 
-  // Fetch service list (for SDK badge + environment list)
-  const { data: serviceList } = useFetch(() => getServices(fromMs, toMs, 60, false), [fromMs, toMs]);
-  const framework = useMemo(() => {
-    const match = serviceList?.find((s) => s.name === service && s.namespace === namespace);
-    return match?.framework ?? '';
-  }, [serviceList, service, namespace]);
-  const envOptions = useMemo(() => extractEnvironmentOptions(serviceList ?? []), [serviceList]);
-
-  // Fetch operations
+  // All service data fetching is encapsulated in this hook
   const {
-    data: rawOperations,
-    loading: opsLoading,
-    error: opsError,
-  } = useFetch<OperationSummary[]>(
-    () => getOperations(namespace, service, fromMs, toMs),
-    [service, namespace, fromMs, toMs]
-  );
-  const operations = useMemo(() => rawOperations ?? [], [rawOperations]);
-
-  // Fetch service map for overview graph
-  const { data: mapData } = useFetch<ServiceMapResponse>(
-    () => getServiceMap(fromMs, toMs, service, namespace, envFilter),
-    [service, namespace, envFilter, fromMs, toMs]
-  );
-  const { graphNodes, graphEdges } = useMemo(() => toGraphData(mapData), [mapData]);
-
-  // Fetch callers (inbound connected services)
-  const { data: connected, loading: connectedLoading } = useFetch<ConnectedServicesResponse>(
-    () => getConnectedServices(namespace, service, fromMs, toMs, envFilter || undefined),
-    [service, namespace, fromMs, toMs, envFilter]
-  );
-
-  // Fetch dependencies (outbound)
-  const {
-    data: depsResp,
-    loading: depsLoading,
-    error: depsError,
-  } = useFetch<DependenciesResponse>(
-    () => getServiceDependencies(namespace, service, fromMs, toMs, envFilter || undefined),
-    [service, namespace, fromMs, toMs, envFilter]
-  );
+    framework,
+    envOptions,
+    hasServerSpans,
+    operations,
+    opsLoading,
+    opsError,
+    graphNodes,
+    graphEdges,
+    connected,
+    connectedLoading,
+    depsResp,
+    depsLoading,
+    depsError,
+  } = useServiceData({ service, namespace, envFilter, fromMs, toMs });
 
   const percentileLabel = PERCENTILE_OPTIONS.find((o) => o.value === percentile)?.label ?? 'P95';
-
-  // Determine if this service has SERVER spans (for query filter strategy).
-  // If true (or unknown), use SERVER filter for clean inbound metrics.
-  // If false, omit span_kind filter to show Consumer/Producer/Client activity.
-  const hasServerSpans = useMemo(() => {
-    if (!serviceList) {
-      return true; // safe default while loading
-    }
-    const matches = serviceList.filter(
-      (s) => s.name === service && s.namespace === namespace && (!envFilter || s.environment === envFilter)
-    );
-    return matches.length === 0 || matches.some((s) => s.hasServerSpans);
-  }, [serviceList, service, namespace, envFilter]);
 
   // Scenes for RED panels — rebuild only when actual values change (not object refs).
   // The scene is null until capabilities load (callsMetric/durationBucket are gated above).

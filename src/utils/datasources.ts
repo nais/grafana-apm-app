@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import pluginJson from '../plugin.json';
+import { AppPluginSettings, EnvAwareDs } from '../types/plugin';
 
 interface PluginDatasources {
   metricsUid: string;
@@ -7,12 +8,6 @@ interface PluginDatasources {
   logsUid: string;
   /** Whether the current traces/logs UIDs came from an environment override */
   isEnvSpecific: boolean;
-}
-
-interface EnvAwareDs {
-  uid?: string;
-  type?: string;
-  byEnvironment?: Record<string, { uid?: string; type?: string }>;
 }
 
 function resolveUid(ds: EnvAwareDs | undefined, env: string | undefined, fallback: string): string {
@@ -25,20 +20,20 @@ function resolveUid(ds: EnvAwareDs | undefined, env: string | undefined, fallbac
 // Cached jsonData fetched from the plugin settings API.
 // Grafana's frontend config does NOT include jsonData for app plugins,
 // so we always fetch it from the REST API.
-let _jsonDataCache: Record<string, any> | null = null;
-let _jsonDataPromise: Promise<Record<string, any>> | null = null;
+let _jsonDataCache: AppPluginSettings | null = null;
+let _jsonDataPromise: Promise<AppPluginSettings> | null = null;
 let _listeners: Array<() => void> = [];
 
 function notifyListeners() {
   _listeners.forEach((fn) => fn());
 }
 
-async function fetchJsonData(): Promise<Record<string, any>> {
+async function fetchJsonData(): Promise<AppPluginSettings> {
   try {
     const resp = await fetch(`/api/plugins/${pluginJson.id}/settings`);
     if (resp.ok) {
       const data = await resp.json();
-      return data?.jsonData ?? {};
+      return (data?.jsonData as AppPluginSettings) ?? {};
     }
   } catch {
     // fall through
@@ -60,7 +55,7 @@ export function initDatasourceConfig(): void {
   }
 }
 
-function getJsonData(): Record<string, any> {
+function getJsonData(): AppPluginSettings {
   return _jsonDataCache ?? {};
 }
 

@@ -179,7 +179,7 @@ func TestHandleServices(t *testing.T) {
 						cfg.Labels.ServiceNamespace:  "otel-demo",
 						cfg.Labels.DeploymentEnv:     "production",
 					},
-					Value: queries.PromValue{float64(now.Unix()), "10.5"},
+					Value: queries.NewPromValue(float64(now.Unix()), "10.5"),
 				},
 			},
 			"status_code": {
@@ -189,7 +189,7 @@ func TestHandleServices(t *testing.T) {
 						cfg.Labels.ServiceNamespace:  "otel-demo",
 						cfg.Labels.DeploymentEnv:     "production",
 					},
-					Value: queries.PromValue{float64(now.Unix()), "0.5"},
+					Value: queries.NewPromValue(float64(now.Unix()), "0.5"),
 				},
 			},
 			"histogram_quantile": {
@@ -199,7 +199,7 @@ func TestHandleServices(t *testing.T) {
 						cfg.Labels.ServiceNamespace:  "otel-demo",
 						cfg.Labels.DeploymentEnv:     "production",
 					},
-					Value: queries.PromValue{float64(now.Unix()), "42.5"},
+					Value: queries.NewPromValue(float64(now.Unix()), "42.5"),
 				},
 			},
 			"group by": {
@@ -210,7 +210,7 @@ func TestHandleServices(t *testing.T) {
 						cfg.Labels.SDKLanguage:       "go",
 						cfg.Labels.DeploymentEnv:     "production",
 					},
-					Value: queries.PromValue{float64(now.Unix()), "1"},
+					Value: queries.NewPromValue(float64(now.Unix()), "1"),
 				},
 			},
 		}
@@ -318,7 +318,7 @@ func TestHandleServiceMap(t *testing.T) {
 						cfg.Labels.Client: "frontend",
 						cfg.Labels.Server: "backend",
 					},
-					Value: queries.PromValue{float64(time.Now().Unix()), "100"},
+					Value: queries.NewPromValue(float64(time.Now().Unix()), "100"),
 				},
 			},
 			"traces_service_graph_request_failed_total": {},
@@ -444,7 +444,7 @@ func TestResponseCache(t *testing.T) {
 						cfg.Labels.ServiceNamespace:  "ns",
 						cfg.Labels.DeploymentEnv:     "prod",
 					},
-					Value: queries.PromValue{float64(now.Unix()), "5.0"},
+					Value: queries.NewPromValue(float64(now.Unix()), "5.0"),
 				},
 			},
 			"group by": {
@@ -455,7 +455,7 @@ func TestResponseCache(t *testing.T) {
 						cfg.Labels.SDKLanguage:       "java",
 						cfg.Labels.DeploymentEnv:     "prod",
 					},
-					Value: queries.PromValue{float64(now.Unix()), "1"},
+					Value: queries.NewPromValue(float64(now.Unix()), "1"),
 				},
 			},
 		}
@@ -601,7 +601,7 @@ func TestHandleServiceMapScopedQueries(t *testing.T) {
 				cfg.Labels.Client: client,
 				cfg.Labels.Server: server,
 			},
-			Value: queries.PromValue{float64(now.Unix()), rate},
+			Value: queries.NewPromValue(float64(now.Unix()), rate),
 		}
 	}
 
@@ -818,7 +818,7 @@ func TestServiceMapSpanmetricsFallback(t *testing.T) {
 						cfg.Labels.ServiceName:      "caller-a",
 						cfg.Labels.ServiceNamespace: "team-a",
 					},
-					Value: queries.PromValue{float64(now.Unix()), "42"},
+					Value: queries.NewPromValue(float64(now.Unix()), "42"),
 				},
 			},
 			// Outbound fallback: myservice → target-db (via server_address)
@@ -828,7 +828,7 @@ func TestServiceMapSpanmetricsFallback(t *testing.T) {
 						cfg.Labels.ServerAddress: "target-db.team-b.svc.cluster.local:5432",
 						cfg.Labels.DBSystem:     "postgresql",
 					},
-					Value: queries.PromValue{float64(now.Unix()), "15"},
+					Value: queries.NewPromValue(float64(now.Unix()), "15"),
 				},
 			},
 		}
@@ -886,7 +886,7 @@ func TestServiceMapSpanmetricsFallback(t *testing.T) {
 						cfg.Labels.Client: "myservice",
 						cfg.Labels.Server: "backend",
 					},
-					Value: queries.PromValue{float64(now.Unix()), "100"},
+					Value: queries.NewPromValue(float64(now.Unix()), "100"),
 				},
 			},
 			`request_total{server="myservice"`: {
@@ -895,7 +895,7 @@ func TestServiceMapSpanmetricsFallback(t *testing.T) {
 						cfg.Labels.Client: "frontend",
 						cfg.Labels.Server: "myservice",
 					},
-					Value: queries.PromValue{float64(now.Unix()), "200"},
+					Value: queries.NewPromValue(float64(now.Unix()), "200"),
 				},
 			},
 		}
@@ -930,7 +930,7 @@ func TestServiceMapSpanmetricsFallback(t *testing.T) {
 						cfg.Labels.Client: "myservice",
 						cfg.Labels.Server: "database",
 					},
-					Value: queries.PromValue{float64(now.Unix()), "50"},
+					Value: queries.NewPromValue(float64(now.Unix()), "50"),
 				},
 			},
 			// Inbound via spanmetrics
@@ -940,7 +940,7 @@ func TestServiceMapSpanmetricsFallback(t *testing.T) {
 						cfg.Labels.ServiceName:      "caller-x",
 						cfg.Labels.ServiceNamespace: "ns-x",
 					},
-					Value: queries.PromValue{float64(now.Unix()), "30"},
+					Value: queries.NewPromValue(float64(now.Unix()), "30"),
 				},
 			},
 		}
@@ -984,7 +984,7 @@ func TestServiceMapSpanmetricsFallback(t *testing.T) {
 					Metric: map[string]string{
 						cfg.Labels.ServerAddress: "backend.team.svc.cluster.local:8080",
 					},
-					Value: queries.PromValue{float64(now.Unix()), "25"},
+					Value: queries.NewPromValue(float64(now.Unix()), "25"),
 				},
 			},
 		}
