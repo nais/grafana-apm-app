@@ -419,15 +419,13 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
           .setDescription('Most common JavaScript errors — click an error to see full details in the Logs tab')
           .setData(topExceptionsData)
           .setOverrides((b) => {
-            b.matchFieldsWithName('value')
-              .overrideDisplayName('Error')
-              .overrideCustomFieldConfig('width' as any, 500);
+            b.matchFieldsWithName('value').overrideDisplayName('Error');
             b.matchFieldsWithName('Value #count')
               .overrideDisplayName('Occurrences')
-              .overrideCustomFieldConfig('width' as any, 110);
+              .overrideCustomFieldConfig('width' as any, 120);
             b.matchFieldsWithName('Value #sessions')
               .overrideDisplayName('Sessions Affected')
-              .overrideCustomFieldConfig('width' as any, 130);
+              .overrideCustomFieldConfig('width' as any, 140);
             b.matchFieldsWithName('Time').overrideCustomFieldConfig('hidden' as any, true);
             const envParam = environment ? `&environment=${encodeURIComponent(environment)}` : '';
             const nsSegment = encodeURIComponent(namespace || '_');
