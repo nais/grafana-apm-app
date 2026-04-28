@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.1 (2026-04-28)
+
+### Features
+
+- **Namespace/team multi-select** — Service list page namespace filter now supports selecting multiple namespaces simultaneously. URL stores comma-separated values.
+
+### Improvements
+
+- **Responsive toolbar layout** — Filter inputs use flex-grow to fill available horizontal space (min 160px, max 320px) instead of fixed widths.
+- **No layout shift on multi-select expand** — Toolbar uses absolute positioning so expanded pills overlap the table instead of pushing it down.
+
 ## 0.7.0 (2026-04-28)
 
 ### Breaking Changes
