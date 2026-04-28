@@ -11,7 +11,7 @@ import { ThresholdsMode, GraphThresholdsStyleMode } from '@grafana/schema';
 import { otel } from '../../../otelconfig';
 import { sanitizeLabelValue } from '../../../utils/sanitize';
 import { PLUGIN_BASE_URL } from '../../../constants';
-import { VITAL_THRESHOLDS } from './constants';
+import { VITAL_THRESHOLDS, CWV_BUCKET_BOUNDARIES, type VitalKey } from './constants';
 import { makePromQuery, makeLokiQuery } from './panel-helpers';
 import {
   lokiVitalByGroupExpr,
@@ -27,39 +27,44 @@ import { FrontendSceneContext } from './scene-context';
 // Section 1: CWV Rating Breakdown + Navigation Type
 // ---------------------------------------------------------------------------
 
-/** CWV Rating Breakdown (from Mimir rating counters) + Navigation Type. */
+/** CWV Rating Breakdown (computed from histogram buckets) + Navigation Type. */
 export function buildInsightsSection(ctx: FrontendSceneContext): SceneFlexLayout {
   const { metricsDs, svcFilter, ah } = ctx;
 
-  // CWV Rating Breakdown — uses dedicated per-vital rating counters from the pipeline.
-  // Each counter has rating="good"|"needs-improvement"|"poor" pre-computed by the Faro SDK.
-  const ratingMetrics: Array<{ vital: string; metric: string }> = [
-    { vital: 'LCP', metric: ah.ratingLcp },
-    { vital: 'FCP', metric: ah.ratingFcp },
-    { vital: 'CLS', metric: ah.ratingCls },
-    { vital: 'INP', metric: ah.ratingInp },
-    { vital: 'TTFB', metric: ah.ratingTtfb },
+  // CWV Rating Breakdown — computed from histogram bucket boundaries.
+  // good = bucket(good_threshold) / bucket(+Inf), poor = 1 - bucket(poor_threshold) / bucket(+Inf)
+  const vitals: Array<{ key: VitalKey; label: string }> = [
+    { key: 'lcp', label: 'LCP' },
+    { key: 'fcp', label: 'FCP' },
+    { key: 'cls', label: 'CLS' },
+    { key: 'inp', label: 'INP' },
+    { key: 'ttfb', label: 'TTFB' },
   ];
-  const ratingQueries = ratingMetrics.flatMap(({ vital, metric }) => [
-    {
-      refId: `${vital}_good`,
-      expr: `sum(increase(${metric}{${svcFilter}, rating="good"}[$__range]))`,
-      legendFormat: `${vital} Good`,
-      instant: true,
-    },
-    {
-      refId: `${vital}_ni`,
-      expr: `sum(increase(${metric}{${svcFilter}, rating="needs-improvement"}[$__range]))`,
-      legendFormat: `${vital} Needs Improvement`,
-      instant: true,
-    },
-    {
-      refId: `${vital}_poor`,
-      expr: `sum(increase(${metric}{${svcFilter}, rating="poor"}[$__range]))`,
-      legendFormat: `${vital} Poor`,
-      instant: true,
-    },
-  ]);
+  const ratingQueries = vitals.flatMap(({ key, label }) => {
+    const metric = ah[key];
+    const { good, poor } = CWV_BUCKET_BOUNDARIES[key];
+    const total = `sum(increase(${metric}_bucket{${svcFilter}, le="+Inf"}[$__range]))`;
+    return [
+      {
+        refId: `${label}_good`,
+        expr: `sum(increase(${metric}_bucket{${svcFilter}, le="${good}"}[$__range])) / ${total}`,
+        legendFormat: `${label} Good`,
+        instant: true,
+      },
+      {
+        refId: `${label}_ni`,
+        expr: `(sum(increase(${metric}_bucket{${svcFilter}, le="${poor}"}[$__range])) - sum(increase(${metric}_bucket{${svcFilter}, le="${good}"}[$__range]))) / ${total}`,
+        legendFormat: `${label} Needs Improvement`,
+        instant: true,
+      },
+      {
+        refId: `${label}_poor`,
+        expr: `1 - sum(increase(${metric}_bucket{${svcFilter}, le="${poor}"}[$__range])) / ${total}`,
+        legendFormat: `${label} Poor`,
+        instant: true,
+      },
+    ];
+  });
   const cwvRatingQ = new SceneQueryRunner({
     datasource: { uid: metricsDs.uid, type: 'prometheus' },
     queries: ratingQueries,
@@ -446,31 +451,31 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
           .build(),
       })
     );
-  }
 
-  // Browser volume pie (Mimir)
-  const browserVolumeQ = new SceneQueryRunner({
-    datasource: { uid: metricsDs.uid, type: 'prometheus' },
-    queries: [
-      {
-        refId: 'volume',
-        expr: `sum by (${ah.browserLabel}) (increase(${ah.pageLoads}{${svcFilter}, ${ah.browserLabel}!=""}[$__range]))`,
-        legendFormat: '__auto',
-        format: 'table',
-        instant: true,
-      },
-    ],
-  });
-  children.push(
-    new SceneFlexItem({
-      minHeight: 250,
-      body: PanelBuilders.piechart()
-        .setTitle('Browser Volume')
-        .setDescription('Measurement volume per browser')
-        .setData(browserVolumeQ)
-        .build(),
-    })
-  );
+    // Browser volume pie (from Loki measurement counts per browser_name)
+    const browserVolumePipeline = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindMeasurement}"} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" | ${fl.browserName}!="" | keep ${fl.browserName}`;
+    const browserVolumeQ = new SceneQueryRunner({
+      datasource: { uid: logsDs.uid, type: 'loki' },
+      queries: [
+        {
+          refId: 'volume',
+          expr: `sum by (${fl.browserName}) (count_over_time(${browserVolumePipeline} [$__range]))`,
+          legendFormat: '__auto',
+          instant: true,
+        },
+      ],
+    });
+    children.push(
+      new SceneFlexItem({
+        minHeight: 250,
+        body: PanelBuilders.piechart()
+          .setTitle('Browser Volume')
+          .setDescription('Measurement volume per browser')
+          .setData(browserVolumeQ)
+          .build(),
+      })
+    );
+  }
 
   return new SceneFlexLayout({
     direction: 'row',
