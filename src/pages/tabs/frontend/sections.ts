@@ -375,7 +375,7 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
             b.matchFieldsWithName('value').overrideLinks([
               {
                 title: 'View in Logs',
-                url: `${PLUGIN_BASE_URL}/services/${encodeURIComponent(namespace)}/${encodeURIComponent(service)}?tab=logs&from=\${__from}&to=\${__to}${envParam}&includeFaro=true&logSearch=\${__value.text:percentencode}`,
+                url: `${PLUGIN_BASE_URL}/services/${encodeURIComponent(namespace)}/${encodeURIComponent(service)}?tab=logs&from=\${__from}&to=\${__to}${envParam}&includeFaro=true&kindFilter=exception`,
                 targetBlank: false,
               } as any,
             ]);

@@ -27,6 +27,8 @@ interface LogsTabProps {
   initialSearch?: string;
   /** Start with Faro browser telemetry included (needed for exception drill-down). */
   initialIncludeFaro?: boolean;
+  /** Pre-select Faro kind filter (e.g., ['exception'] from exception drill-down). */
+  initialKindFilter?: string[];
 }
 
 // Severity options based on detected_level stream label values observed in production.
@@ -40,6 +42,15 @@ const SEVERITY_OPTIONS: Array<{ label: string; value: string }> = [
   { label: 'Unknown', value: 'unknown' },
 ];
 
+// Faro telemetry kind options — only shown when "Include browser telemetry" is on.
+// These correspond to the `kind` stream label values set by the Alloy Faro pipeline.
+const FARO_KIND_OPTIONS: Array<{ label: string; value: string }> = [
+  { label: 'Exceptions', value: 'exception' },
+  { label: 'Console Logs', value: 'log' },
+  { label: 'Measurements', value: 'measurement' },
+  { label: 'Events', value: 'event' },
+];
+
 // detected_level values are inconsistently cased across services.
 // Map each logical severity to all observed variants.
 const SEVERITY_VARIANTS: Record<string, string[]> = {
@@ -51,11 +62,21 @@ const SEVERITY_VARIANTS: Record<string, string[]> = {
   unknown: ['unknown'],
 };
 
-export function LogsTab({ service, namespace, logsUid, from, to, initialSearch, initialIncludeFaro }: LogsTabProps) {
+export function LogsTab({
+  service,
+  namespace,
+  logsUid,
+  from,
+  to,
+  initialSearch,
+  initialIncludeFaro,
+  initialKindFilter,
+}: LogsTabProps) {
   const [severityFilter, setSeverityFilter] = useState<string[]>([]);
   const [logSearch, setLogSearch] = useState<string>(initialSearch ?? '');
   const [podFilter, setPodFilter] = useState<string>('');
   const [includeFaro, setIncludeFaro] = useState(initialIncludeFaro ?? false);
+  const [kindFilter, setKindFilter] = useState<string[]>(initialKindFilter ?? []);
   const [podOptions, setPodOptions] = useState<Array<{ label: string; value: string }>>([]);
   const debouncedSearch = useDebouncedValue(logSearch, 500);
   const styles = useStyles2(getStyles);
@@ -82,9 +103,18 @@ export function LogsTab({ service, namespace, logsUid, from, to, initialSearch, 
     const timeRange = new SceneTimeRange({ from, to });
     const svcLabel = `${otel.labels.serviceName}="${sanitizeLabelValue(service)}"`;
 
-    // Exclude Faro browser telemetry by default — Faro streams have the `kind` label,
-    // backend app log streams do not. Using kind="" matches streams where kind is absent.
-    const kindStream = includeFaro ? '' : ', kind=""';
+    // Faro browser telemetry filtering via the `kind` stream label:
+    // - Off: kind="" matches only backend app logs (no kind label)
+    // - On + no filter: show all (no kind constraint)
+    // - On + specific kinds: kind=~"exception|log" for selected types
+    let kindStream = ', kind=""';
+    if (includeFaro) {
+      if (kindFilter.length > 0) {
+        kindStream = `, kind=~"${kindFilter.join('|')}"`;
+      } else {
+        kindStream = '';
+      }
+    }
 
     // Pod filtering uses k8s_pod_name stream label (only present on backend log streams).
     const podStream = podFilter ? `, k8s_pod_name="${sanitizeLabelValue(podFilter)}"` : '';
@@ -159,7 +189,7 @@ export function LogsTab({ service, namespace, logsUid, from, to, initialSearch, 
         ],
       }),
     });
-  }, [service, logsUid, severityFilter, debouncedSearch, podFilter, includeFaro, from, to]);
+  }, [service, logsUid, severityFilter, debouncedSearch, podFilter, includeFaro, kindFilter, from, to]);
 
   return (
     <div className={styles.wrapper}>
@@ -195,6 +225,18 @@ export function LogsTab({ service, namespace, logsUid, from, to, initialSearch, 
           <Switch value={includeFaro} onChange={() => setIncludeFaro(!includeFaro)} />
           <span>Include browser telemetry</span>
         </label>
+        {includeFaro && (
+          <>
+            <label className={styles.label}>Kind:</label>
+            <MultiCombobox
+              options={FARO_KIND_OPTIONS}
+              value={kindFilter}
+              onChange={(v) => setKindFilter(v.map((o) => o.value))}
+              width={28}
+              placeholder="All kinds"
+            />
+          </>
+        )}
       </div>
       <div className={styles.sceneWrapper}>
         <scene.Component model={scene} />

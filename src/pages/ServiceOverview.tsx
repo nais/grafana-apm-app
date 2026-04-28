@@ -94,6 +94,7 @@ function ServiceOverview() {
   // Read logs filter params (set when navigating from exception → logs)
   const logSearch = searchParams.get('logSearch') ?? '';
   const logIncludeFaro = searchParams.get('includeFaro') === 'true';
+  const logKindFilter = searchParams.get('kindFilter')?.split(',').filter(Boolean) ?? [];
 
   const onViewTraces = useCallback(
     (spanName: string, status?: string, spanKindRaw?: string) => {
@@ -439,7 +440,7 @@ function ServiceOverview() {
               }}
             >
               <LogsTab
-                key={`${logSearch}:${logIncludeFaro}`}
+                key={`${logSearch}:${logIncludeFaro}:${logKindFilter.join(',')}`}
                 service={service}
                 namespace={namespace}
                 logsUid={ds.logsUid}
@@ -447,6 +448,7 @@ function ServiceOverview() {
                 to={to}
                 initialSearch={logSearch}
                 initialIncludeFaro={logIncludeFaro}
+                initialKindFilter={logKindFilter.length > 0 ? logKindFilter : undefined}
               />
             </div>
           )}
