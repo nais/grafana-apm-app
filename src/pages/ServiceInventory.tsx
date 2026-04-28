@@ -4,7 +4,9 @@ import { PluginPage } from '@grafana/runtime';
 import {
   Alert,
   Badge,
+  Button,
   Icon,
+  IconButton,
   InlineSwitch,
   Input,
   LoadingPlaceholder,
@@ -27,6 +29,7 @@ import { extractEnvironmentOptions, extractNamespaceOptions } from '../utils/opt
 import { useFetch } from '../utils/useFetch';
 import { FrameworkBadge } from '../components/FrameworkBadge';
 import { Sparkline } from '../components/Sparkline';
+import { useFavorites, serviceKey } from '../utils/useFavorites';
 
 type SortField = 'name' | 'namespace' | 'environment' | 'p95Duration' | 'errorRate' | 'rate';
 type SortDir = 'asc' | 'desc';
@@ -43,6 +46,7 @@ function ServiceInventory() {
   const sc = sparklineColors(theme);
   const appNavigate = useAppNavigate();
   const { from, fromMs, toMs, setTimeRange } = useTimeRange();
+  const { isFavorite, toggle: toggleFavorite, count: favCount } = useFavorites();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const {
@@ -77,6 +81,7 @@ function ServiceInventory() {
   const envFilters = useMemo(() => sanitizeParam(rawEnvFilter).split(',').filter(Boolean), [rawEnvFilter]);
   const search = searchParams.get('q') ?? '';
   const hideSidecars = searchParams.get('hideSidecars') !== 'false'; // default: true
+  const showFavoritesOnly = searchParams.get('favorites') === 'true';
   const sortField: SortField = (searchParams.get('sort') as SortField) || 'name';
   const sortDir: SortDir = (searchParams.get('dir') as SortDir) || 'asc';
   const page = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10) || 1);
@@ -108,6 +113,7 @@ function ServiceInventory() {
   const setEnvFilters = (envs: string[]) =>
     updateParams({ environment: envs.length > 0 ? envs.join(',') : null, page: null });
   const setSearch = (q: string) => updateParams({ q: q || null, page: null });
+  const setShowFavorites = (show: boolean) => updateParams({ favorites: show ? 'true' : null, page: null });
   const setPage = (p: number) => updateParams({ page: p > 1 ? String(p) : null });
   const setPageSize = (sz: number) => updateParams({ pageSize: sz !== 25 ? String(sz) : null, page: null });
 
@@ -133,10 +139,22 @@ function ServiceInventory() {
     const q = search.toLowerCase();
     filtered = filtered.filter((s) => s.name.toLowerCase().includes(q) || s.namespace.toLowerCase().includes(q));
   }
+  if (showFavoritesOnly) {
+    filtered = filtered.filter((s) => isFavorite(serviceKey(s.namespace, s.name)));
+  }
   // NaN-safe numeric comparison — NaN/undefined/Infinity sort to bottom
   const safeNum = (v: number) => (Number.isFinite(v) ? v : -Infinity);
   const dir = sortDir === 'desc' ? -1 : 1;
+  const isDefaultSort = sortField === 'name' && sortDir === 'asc';
   filtered = [...filtered].sort((a, b) => {
+    // Sort boost: favorites float to top on default sort
+    if (isDefaultSort) {
+      const fa = isFavorite(serviceKey(a.namespace, a.name)) ? 0 : 1;
+      const fb = isFavorite(serviceKey(b.namespace, b.name)) ? 0 : 1;
+      if (fa !== fb) {
+        return fa - fb;
+      }
+    }
     let cmp = 0;
     switch (sortField) {
       case 'name':
@@ -275,6 +293,15 @@ function ServiceInventory() {
                     onChange={() => updateParams({ hideSidecars: hideSidecars ? 'false' : null, page: null })}
                   />
                 </Tooltip>
+                <Button
+                  variant={showFavoritesOnly ? 'primary' : 'secondary'}
+                  size="sm"
+                  icon="star"
+                  onClick={() => setShowFavorites(!showFavoritesOnly)}
+                  aria-pressed={showFavoritesOnly}
+                >
+                  My Apps{favCount > 0 ? ` (${favCount})` : ''}
+                </Button>
                 <Combobox
                   options={QUICK_TIME_RANGES}
                   value={from}
@@ -287,6 +314,7 @@ function ServiceInventory() {
 
             <table className={styles.table}>
               <colgroup>
+                <col style={{ width: '32px' }} />
                 <col style={{ width: '80px' }} />
                 <col style={{ width: '22%' }} />
                 {showNsColumn && <col style={{ width: '14%' }} />}
@@ -297,6 +325,7 @@ function ServiceInventory() {
               </colgroup>
               <thead>
                 <tr>
+                  <th className={styles.starColHeader} />
                   <th className={styles.typeColHeader}>Type</th>
                   <th className={styles.sortable} onClick={() => toggleSort('name')}>
                     Name {sortIcon('name')}
@@ -326,7 +355,7 @@ function ServiceInventory() {
                 {paginated.map((svc, idx) => {
                   const prevEnv = idx > 0 ? paginated[idx - 1].environment : null;
                   const showGroupHeader = groupByEnv && svc.environment !== prevEnv;
-                  const colCount = 5 + (showNsColumn ? 1 : 0) + (showEnvColumn ? 1 : 0);
+                  const colCount = 6 + (showNsColumn ? 1 : 0) + (showEnvColumn ? 1 : 0);
                   return (
                     <React.Fragment key={`${svc.namespace}/${svc.name}/${svc.environment ?? ''}`}>
                       {showGroupHeader && (
@@ -346,6 +375,25 @@ function ServiceInventory() {
                           );
                         }}
                       >
+                        <td className={styles.starCell}>
+                          <IconButton
+                            name={isFavorite(serviceKey(svc.namespace, svc.name)) ? 'favorite' : 'star'}
+                            size="md"
+                            tooltip={
+                              isFavorite(serviceKey(svc.namespace, svc.name))
+                                ? `Remove ${svc.name} from My Apps`
+                                : `Add ${svc.name} to My Apps`
+                            }
+                            aria-pressed={isFavorite(serviceKey(svc.namespace, svc.name))}
+                            className={
+                              isFavorite(serviceKey(svc.namespace, svc.name)) ? styles.starFilled : styles.starEmpty
+                            }
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleFavorite(serviceKey(svc.namespace, svc.name));
+                            }}
+                          />
+                        </td>
                         <td className={styles.typeCell}>
                           <div className={styles.typeCellInner}>
                             <FrameworkBadge framework={svc.framework} />
@@ -420,6 +468,17 @@ function ServiceInventory() {
                 })}
               </tbody>
             </table>
+
+            {paginated.length === 0 && showFavoritesOnly && (
+              <div className={styles.emptyFavorites}>
+                <Icon name="star" size="xxl" />
+                <p>
+                  {favCount === 0
+                    ? 'No favorites yet. Click the star icon on any service to add it to My Apps.'
+                    : 'No favorite services match the current filters.'}
+                </p>
+              </div>
+            )}
 
             <div className={styles.footer}>
               <div className={styles.pageSize}>
@@ -564,6 +623,40 @@ const getStyles = (theme: GrafanaTheme2) => ({
     color: ${theme.colors.text.secondary};
     font-weight: ${theme.typography.fontWeightMedium};
     padding-right: ${theme.spacing(0.5)} !important;
+  `,
+  starColHeader: css`
+    width: 32px;
+    padding: 0 !important;
+  `,
+  starCell: css`
+    width: 32px;
+    padding: ${theme.spacing(0.5)} !important;
+    text-align: center;
+    vertical-align: middle;
+  `,
+  starFilled: css`
+    color: ${theme.colors.warning.main};
+  `,
+  starEmpty: css`
+    color: ${theme.colors.text.disabled};
+    opacity: 0.4;
+    transition: opacity 0.15s ease;
+    tr:hover & {
+      opacity: 1;
+    }
+  `,
+  emptyFavorites: css`
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: ${theme.spacing(6)} ${theme.spacing(2)};
+    color: ${theme.colors.text.secondary};
+    text-align: center;
+    p {
+      margin-top: ${theme.spacing(2)};
+      max-width: 400px;
+    }
   `,
   typeCell: css`
     width: 1%;

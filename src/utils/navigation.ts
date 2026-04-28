@@ -3,7 +3,18 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { PLUGIN_BASE_URL } from '../constants';
 
 /** Query params that are preserved across navigation. */
-const PRESERVED_PARAMS = ['from', 'to', 'namespace', 'environment', 'sort', 'dir', 'q', 'pageSize'];
+const PRESERVED_PARAMS = [
+  'from',
+  'to',
+  'namespace',
+  'environment',
+  'sort',
+  'dir',
+  'q',
+  'pageSize',
+  'percentile',
+  'favorites',
+];
 
 /**
  * Sanitize a query param value that may have been corrupted by the old
