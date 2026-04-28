@@ -56,7 +56,7 @@ export function buildInsightsSection(ctx: FrontendSceneContext): SceneFlexLayout
   });
   const cwvRatingPanel = new SceneFlexItem({
     minHeight: 200,
-    width: '20%',
+    width: '15%',
     body: PanelBuilders.stat()
       .setTitle('CWV Rating — % Good')
       .setDescription('Percentage of measurements rated "Good" per Core Web Vital (higher is better)')
@@ -102,7 +102,7 @@ export function buildInsightsSection(ctx: FrontendSceneContext): SceneFlexLayout
   const pageloadsQ = makePromQuery(metricsDs, `sum(increase(${ah.pageLoads}{${svcFilter}}[$__range]))`, 'Pageloads');
   const pageloadsPanel = new SceneFlexItem({
     minHeight: 200,
-    width: '8%',
+    width: '15%',
     body: PanelBuilders.stat()
       .setTitle('Pageloads')
       .setDescription('Total page loads in the selected time range')
@@ -128,7 +128,7 @@ export function buildInsightsSection(ctx: FrontendSceneContext): SceneFlexLayout
     });
     sessionsPanel = new SceneFlexItem({
       minHeight: 200,
-      width: '8%',
+      width: '15%',
       body: PanelBuilders.stat()
         .setTitle('Sessions')
         .setDescription('Unique browser sessions started in the selected time range')
