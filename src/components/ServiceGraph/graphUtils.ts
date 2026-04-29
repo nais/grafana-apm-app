@@ -49,6 +49,10 @@ export function computeVisibility(
   const callerIds = new Set<string>();
   const targetIds = new Set<string>();
   for (const e of inputEdges) {
+    // Skip self-loops — the focus node is never a caller/target of itself
+    if (e.source === e.target) {
+      continue;
+    }
     if (e.target === focusNode) {
       callerIds.add(e.source);
     }
@@ -103,6 +107,7 @@ export function computeVisibility(
   // Build visible edges — replace hidden node edges with collapse node edges
   const vEdges: ServiceGraphEdge[] = [];
   const addedCollapseEdges = { callers: false, targets: false };
+  const visibleNodeIds = new Set(vNodes.map((n) => n.id));
 
   for (const e of inputEdges) {
     if (hiddenCallerIds.has(e.source)) {
@@ -123,7 +128,8 @@ export function computeVisibility(
         });
         addedCollapseEdges.targets = true;
       }
-    } else {
+    } else if (visibleNodeIds.has(e.source) && visibleNodeIds.has(e.target)) {
+      // Only keep edges where both endpoints are visible
       vEdges.push(e);
     }
   }

@@ -35,19 +35,21 @@ export function useELKLayout({ nodes, edges, groups, direction = 'RIGHT', enable
       return;
     }
 
+    const isHorizontal = direction === 'RIGHT';
+
     // Guard against extremely large graphs that would block the main thread
     if (nodes.length > MAX_LAYOUT_NODES) {
       console.warn(`ELK layout skipped: ${nodes.length} nodes exceeds limit of ${MAX_LAYOUT_NODES}`);
       const fallback = nodes.map((n, i) => ({
         ...n,
         position: { x: (i % 10) * 200, y: Math.floor(i / 10) * 100 },
+        sourcePosition: isHorizontal ? Position.Right : Position.Bottom,
+        targetPosition: isHorizontal ? Position.Left : Position.Top,
       }));
-      setLayouted({ nodes: fallback, edges });
+      setLayouted({ nodes: fallback, edges: edges.map((e) => ({ ...e, type: 'smoothstep' })) });
       setLoading(false);
       return;
     }
-
-    const isHorizontal = direction === 'RIGHT';
 
     // Build ELK children — group nodes become compound parents
     const elkChildren: ElkNode[] = [];
@@ -87,11 +89,14 @@ export function useELKLayout({ nodes, edges, groups, direction = 'RIGHT', enable
       }
     }
 
-    const elkEdges: ElkExtendedEdge[] = edges.map((e) => ({
-      id: e.id,
-      sources: [e.source],
-      targets: [e.target],
-    }));
+    // Filter self-loops which crash ELK's layered algorithm
+    const elkEdges: ElkExtendedEdge[] = edges
+      .filter((e) => e.source !== e.target)
+      .map((e) => ({
+        id: e.id,
+        sources: [e.source],
+        targets: [e.target],
+      }));
 
     const elkGraph: ElkNode = {
       id: 'root',
@@ -200,8 +205,10 @@ export function useELKLayout({ nodes, edges, groups, direction = 'RIGHT', enable
       const fallback = nodes.map((n, i) => ({
         ...n,
         position: { x: (i % 5) * 250, y: Math.floor(i / 5) * 120 },
+        sourcePosition: isHorizontal ? Position.Right : Position.Bottom,
+        targetPosition: isHorizontal ? Position.Left : Position.Top,
       }));
-      setLayouted({ nodes: fallback, edges });
+      setLayouted({ nodes: fallback, edges: edges.map((e) => ({ ...e, type: 'smoothstep' })) });
     } finally {
       setLoading(false);
     }

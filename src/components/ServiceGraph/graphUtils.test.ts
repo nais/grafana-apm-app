@@ -215,4 +215,54 @@ describe('computeVisibility', () => {
       expect(result.visibleNodes).toHaveLength(10); // all original
     });
   });
+
+  describe('edges between hidden and visible nodes are dropped', () => {
+    const focusN = node('focus');
+    const targets = Array.from({ length: 12 }, (_, i) => node(`t${i}`, `${12 - i} req/s`));
+    const allNodes = [focusN, ...targets];
+    // Normal edges from focus to each target, PLUS an edge between a hidden target and visible one
+    const allEdges = [
+      ...targets.map((t) => edge('focus', t.id)),
+      edge('t9', 't0'), // t9 is hidden (overflow), t0 is visible
+      edge('t10', 't1'), // t10 is hidden, t1 is visible
+    ];
+
+    it('drops edges from hidden nodes to visible nodes', () => {
+      const result = computeVisibility(allNodes, allEdges, 'focus', false, false);
+      // Should NOT have any edges referencing hidden nodes (t8-t11)
+      const badEdges = result.visibleEdges.filter(
+        (e) => e.source.startsWith('t') && parseInt(e.source.slice(1), 10) >= 8
+      );
+      expect(badEdges).toHaveLength(0);
+    });
+
+    it('all edge endpoints exist in visible nodes', () => {
+      const result = computeVisibility(allNodes, allEdges, 'focus', false, false);
+      const nodeIds = new Set(result.visibleNodes.map((n) => n.id));
+      for (const e of result.visibleEdges) {
+        expect(nodeIds.has(e.source)).toBe(true);
+        expect(nodeIds.has(e.target)).toBe(true);
+      }
+    });
+  });
+
+  describe('self-loop does not hide focus node', () => {
+    const focusN = node('focus', '1.0 req/s');
+    const targets = Array.from({ length: 12 }, (_, i) => node(`t${i}`, `${12 - i} req/s`));
+    const allNodes = [focusN, ...targets];
+    // Normal edges + a self-loop on the focus node
+    const allEdges = [...targets.map((t) => edge('focus', t.id)), edge('focus', 'focus')];
+
+    it('focus node is never hidden even with self-loop', () => {
+      const result = computeVisibility(allNodes, allEdges, 'focus', false, false);
+      expect(result.visibleNodes.find((n) => n.id === 'focus')).toBeDefined();
+    });
+
+    it('edges from focus to visible targets still exist', () => {
+      const result = computeVisibility(allNodes, allEdges, 'focus', false, false);
+      const edgesFromFocus = result.visibleEdges.filter((e) => e.source === 'focus');
+      // 8 visible targets + 1 collapse edge = at least 2 edges from focus
+      expect(edgesFromFocus.length).toBeGreaterThanOrEqual(2);
+    });
+  });
 });
