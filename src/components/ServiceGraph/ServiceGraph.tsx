@@ -47,6 +47,7 @@ interface ServiceGraphProps {
   groupBy?: 'namespace' | 'nodeType';
   enableWrapping?: boolean;
   direction?: 'RIGHT' | 'DOWN';
+  isMultiHop?: boolean;
   onNodeClick?: (nodeId: string) => void;
 }
 
@@ -74,6 +75,7 @@ function ServiceGraphInner({
   groupBy = 'namespace',
   enableWrapping = false,
   direction = 'RIGHT',
+  isMultiHop = false,
   onNodeClick,
 }: ServiceGraphProps) {
   const styles = useStyles2(getStyles);
@@ -83,8 +85,8 @@ function ServiceGraphInner({
 
   // Classify nodes relative to focus: callers → focus → targets
   const { visibleNodes, visibleEdges } = useMemo(
-    () => computeVisibility(inputNodes, inputEdges, focusNode, expandedCallers, expandedTargets),
-    [inputNodes, inputEdges, focusNode, expandedCallers, expandedTargets]
+    () => computeVisibility(inputNodes, inputEdges, focusNode, expandedCallers, expandedTargets, isMultiHop),
+    [inputNodes, inputEdges, focusNode, expandedCallers, expandedTargets, isMultiHop]
   );
 
   // Convert input data to React Flow format

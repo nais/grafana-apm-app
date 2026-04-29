@@ -21,6 +21,7 @@ export interface ServiceDataParams {
   envFilter: string;
   fromMs: number;
   toMs: number;
+  depth?: number;
 }
 
 export interface ServiceData {
@@ -53,7 +54,7 @@ export interface ServiceData {
  * Returns a stable object with all the data and loading states
  * needed by the tabs and layout.
  */
-export function useServiceData({ service, namespace, envFilter, fromMs, toMs }: ServiceDataParams): ServiceData {
+export function useServiceData({ service, namespace, envFilter, fromMs, toMs, depth }: ServiceDataParams): ServiceData {
   // Fetch service list (for SDK badge + environment list)
   const { data: serviceList } = useFetch(() => getServices(fromMs, toMs, 60, false), [fromMs, toMs]);
 
@@ -77,8 +78,8 @@ export function useServiceData({ service, namespace, envFilter, fromMs, toMs }: 
 
   // Fetch service map for overview graph
   const { data: mapData } = useFetch<ServiceMapResponse>(
-    () => getServiceMap(fromMs, toMs, service, namespace, envFilter),
-    [service, namespace, envFilter, fromMs, toMs]
+    () => getServiceMap(fromMs, toMs, service, namespace, envFilter, depth),
+    [service, namespace, envFilter, fromMs, toMs, depth]
   );
   const { graphNodes, graphEdges } = useMemo(() => toGraphData(mapData), [mapData]);
 

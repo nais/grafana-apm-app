@@ -153,7 +153,8 @@ export async function getServiceMap(
   to: number,
   service?: string,
   namespace?: string,
-  environment?: string
+  environment?: string,
+  depth?: number
 ): Promise<ServiceMapResponse> {
   const params: Record<string, string> = {
     ...timeParams(from, to),
@@ -166,6 +167,9 @@ export async function getServiceMap(
   }
   if (environment) {
     params.environment = environment;
+  }
+  if (depth && depth > 1) {
+    params.depth = String(depth);
   }
   return fetchResource<ServiceMapResponse>('/service-map', params);
 }

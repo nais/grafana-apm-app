@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { useStyles2, LoadingPlaceholder, Alert, Badge } from '@grafana/ui';
+import { useStyles2, LoadingPlaceholder, Alert, Badge, RadioButtonGroup } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { EmbeddedScene } from '@grafana/scenes';
@@ -11,6 +11,11 @@ import { ServiceGraph, ServiceGraphNode, ServiceGraphEdge } from '../../componen
 import { groupDependencies } from '../../utils/depGroups';
 
 const MAX_OVERVIEW_OPS = 5;
+const DEPTH_OPTIONS = [
+  { label: '1', value: 1, description: 'Direct neighbors' },
+  { label: '2', value: 2, description: '2 hops out' },
+  { label: '3', value: 3, description: '3 hops out' },
+];
 
 interface OverviewTabProps {
   scene: EmbeddedScene | null;
@@ -23,6 +28,8 @@ interface OverviewTabProps {
   connected?: ConnectedServicesResponse;
   dependencies?: DependencySummary[];
   service: string;
+  depth?: number;
+  onDepthChange?: (depth: number) => void;
   onViewAllOperations: () => void;
   onViewAllDependencies?: () => void;
   onViewTraces?: (spanName: string, status?: string, spanKindRaw?: string) => void;
@@ -41,6 +48,8 @@ export function OverviewTab({
   connected,
   dependencies,
   service,
+  depth = 1,
+  onDepthChange,
   onViewAllOperations,
   onViewAllDependencies,
   onViewTraces,
@@ -141,10 +150,24 @@ export function OverviewTab({
       {/* Service topology graph */}
       {graphNodes.length > 0 && (
         <div className={styles.section}>
-          <h3 className={styles.sectionTitle}>Service Topology</h3>
+          <div className={styles.topologyHeader}>
+            <h3 className={styles.sectionTitle}>Service Topology</h3>
+            {onDepthChange && (
+              <div className={styles.depthControl}>
+                <span className={styles.depthLabel}>Hops:</span>
+                <RadioButtonGroup size="sm" options={DEPTH_OPTIONS} value={depth} onChange={(v) => onDepthChange(v)} />
+              </div>
+            )}
+          </div>
           <div className={styles.graphPanel}>
             <div style={{ height: 400 }}>
-              <ServiceGraph nodes={graphNodes} edges={graphEdges} focusNode={service} direction="RIGHT" />
+              <ServiceGraph
+                nodes={graphNodes}
+                edges={graphEdges}
+                focusNode={service}
+                direction="RIGHT"
+                isMultiHop={depth > 1}
+              />
             </div>
           </div>
         </div>
@@ -328,6 +351,21 @@ function DepGroupSection({ group, onNavigate, onViewAll, styles }: DepGroupSecti
 
 const getStyles = (theme: GrafanaTheme2) => ({
   ...getSectionStyles(theme),
+  topologyHeader: css`
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: ${theme.spacing(1)};
+  `,
+  depthControl: css`
+    display: flex;
+    align-items: center;
+    gap: ${theme.spacing(1)};
+  `,
+  depthLabel: css`
+    font-size: ${theme.typography.bodySmall.fontSize};
+    color: ${theme.colors.text.secondary};
+  `,
   graphPanel: css`
     background: ${theme.colors.background.secondary};
     border: 1px solid ${theme.colors.border.weak};
