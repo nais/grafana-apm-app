@@ -27,15 +27,21 @@ const MAX_VISIBLE_PER_SIDE = 8;
 /**
  * Compute which nodes/edges are visible after collapsing overflow nodes.
  * Pure function — no React dependencies.
+ *
+ * When `isMultiHop` is true (depth > 1), per-side collapsing is skipped
+ * because the graph is no longer hub-and-spoke — intermediate nodes
+ * aren't direct neighbors of the focus node. The backend already caps
+ * the frontier at 15 nodes per hop, bounding total node count.
  */
 export function computeVisibility(
   inputNodes: ServiceGraphNode[],
   inputEdges: ServiceGraphEdge[],
   focusNode: string | undefined,
   expandedCallers: boolean,
-  expandedTargets: boolean
+  expandedTargets: boolean,
+  isMultiHop = false
 ): VisibilityResult {
-  if (!focusNode || inputNodes.length <= 8) {
+  if (!focusNode || inputNodes.length <= 8 || isMultiHop) {
     return { visibleNodes: inputNodes, visibleEdges: inputEdges };
   }
 

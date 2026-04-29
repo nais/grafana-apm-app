@@ -3,7 +3,7 @@ import { useParams, useSearchParams } from 'react-router-dom';
 import { PluginPage } from '@grafana/runtime';
 import { useStyles2, Tab, TabsBar, LinkButton, Combobox, Alert } from '@grafana/ui';
 import { GrafanaTheme2, PageLayoutType } from '@grafana/data';
-import { useUrlString } from '../utils/useUrlState';
+import { useUrlString, useUrlNumber } from '../utils/useUrlState';
 import { css } from '@emotion/css';
 import { buildTempoExploreUrl, buildLokiExploreUrl } from '../utils/explore';
 import { FrameworkBadge } from '../components/FrameworkBadge';
@@ -105,6 +105,7 @@ function ServiceOverview() {
     [setSearchParams]
   );
   const [percentile, setPercentile] = useUrlString('percentile', '0.95');
+  const [depth, setDepth] = useUrlNumber('depth', 1);
 
   // Track which tabs have been visited so we keep them mounted.
   const [visitedTabs, setVisitedTabs] = useState<Set<TabId>>(new Set(['overview']));
@@ -135,7 +136,7 @@ function ServiceOverview() {
     depsResp,
     depsLoading,
     depsError,
-  } = useServiceData({ service, namespace, envFilter, fromMs, toMs });
+  } = useServiceData({ service, namespace, envFilter, fromMs, toMs, depth });
 
   const percentileLabel = PERCENTILE_OPTIONS.find((o) => o.value === percentile)?.label ?? 'P95';
 
@@ -299,6 +300,8 @@ function ServiceOverview() {
               connected={connected ?? undefined}
               dependencies={depsResp?.dependencies}
               service={service}
+              depth={depth}
+              onDepthChange={setDepth}
               onViewAllOperations={() => setActiveTab('server')}
               onViewAllDependencies={() => setActiveTab('dependencies')}
               onViewTraces={caps?.tempo?.available !== false ? onViewTraces : undefined}

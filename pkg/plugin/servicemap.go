@@ -6,10 +6,14 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
+	"github.com/nais/grafana-otel-plugin/pkg/plugin/otelconfig"
 	"github.com/nais/grafana-otel-plugin/pkg/plugin/queries"
 )
 
@@ -36,11 +40,17 @@ func (a *App) handleServiceMap(w http.ResponseWriter, req *http.Request) {
 	filterNamespace := queries.MustSanitizeLabel(req.URL.Query().Get("namespace"))
 	filterEnvironment := parseEnvironment(req)
 
+	// Depth: how many hops to explore (1 = direct neighbors, max 3)
+	depth := 1
+	if d, err := strconv.Atoi(req.URL.Query().Get("depth")); err == nil && d >= 1 && d <= 3 {
+		depth = d
+	}
+
 	// Check response cache
 	roundedFrom := fmt.Sprintf("%d", from.Unix()/30*30)
 	roundedTo := fmt.Sprintf("%d", to.Unix()/30*30)
 	orgID := req.Header.Get("X-Grafana-Org-Id")
-	ck := cacheKey("servicemap", orgID, roundedFrom, roundedTo, filterService, filterNamespace, filterEnvironment)
+	ck := cacheKey("servicemap", orgID, roundedFrom, roundedTo, filterService, filterNamespace, filterEnvironment, fmt.Sprintf("d%d", depth))
 	if cached, ok := a.respCache.get(ck); ok {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-Cache", "HIT")
@@ -48,7 +58,12 @@ func (a *App) handleServiceMap(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	graph := a.queryServiceMap(ctx, from, to, filterService, filterNamespace, filterEnvironment)
+	var graph ServiceMapResponse
+	if depth > 1 && filterService != "" {
+		graph = a.queryServiceMapMultiHop(ctx, from, to, filterService, filterNamespace, filterEnvironment, depth)
+	} else {
+		graph = a.queryServiceMap(ctx, from, to, filterService, filterNamespace, filterEnvironment)
+	}
 
 	a.respCache.setJSON(ck, graph)
 	writeJSON(w, graph)
@@ -247,6 +262,103 @@ func (a *App) queryServiceGraphEdgesScoped(ctx context.Context, from, to time.Ti
 		{"outP95", outP95Q}, {"inP95", inP95Q},
 	}, logger)
 
+	edges := parseSGEdgeResults(resultMap, cfg)
+
+	// Spanmetrics supplement: always query CLIENT spanmetrics to discover outbound
+	// edges that the service graph cannot see (external services, cross-cluster
+	// dependencies). The service graph only generates edges when both client and
+	// server spans exist in Tempo — external targets like Azure AD or APIs in
+	// other clusters won't appear. For inbound, only use as fallback when the
+	// service graph has no data (it's authoritative for inbound since callers
+	// are typically in the same Tempo).
+	needOutbound := true
+	inEmpty := len(resultMap["inRate"]) == 0
+	if needOutbound || inEmpty {
+		smEdges := a.querySpanmetricsTopologyFallback(ctx, from, to, baseLabelFilter, service, needOutbound, inEmpty)
+		for k, v := range smEdges {
+			if _, exists := edges[k]; !exists {
+				edges[k] = v
+			}
+		}
+	}
+
+	return edges
+}
+
+const maxFrontierSize = 15
+
+// queryServiceGraphEdgesBatch runs scoped service graph queries for multiple
+// services at once using a regex filter (client=~"^(?:a|b|c)$"). This is used
+// by multi-hop traversal to fetch edges for all frontier nodes in a single
+// batch of 6 parallel queries instead of N×6 per-node queries.
+func (a *App) queryServiceGraphEdgesBatch(ctx context.Context, from, to time.Time, baseLabelFilter string, services []string) map[sgEdgeKey]*sgEdgeData {
+	if len(services) == 0 {
+		return nil
+	}
+	logger := log.DefaultLogger.With("handler", "servicegraph-batch", "count", len(services))
+	rangeStr := computeRangeStr(from, to)
+	sgp := a.serviceGraphPrefix()
+	cfg := a.otelCfg
+
+	// Build regex alternation: ^(?:escaped1|escaped2|...)$
+	escaped := make([]string, len(services))
+	for i, s := range services {
+		escaped[i] = regexp.QuoteMeta(s)
+	}
+	pattern := `^(?:` + strings.Join(escaped, "|") + `)$`
+
+	clientFilter := fmt.Sprintf(`%s=~"%s"`, cfg.Labels.Client, pattern)
+	serverFilter := fmt.Sprintf(`%s=~"%s"`, cfg.Labels.Server, pattern)
+	if baseLabelFilter != "" {
+		clientFilter += ", " + baseLabelFilter
+		serverFilter += ", " + baseLabelFilter
+	}
+
+	outRateQ := fmt.Sprintf(
+		`sum by (%s, %s, %s, %s, %s) (rate(%s%s{%s}%s))`,
+		cfg.Labels.Client, cfg.Labels.Server, cfg.Labels.ConnectionType,
+		cfg.Labels.DBSystem, cfg.Labels.MessagingSystem,
+		sgp, cfg.ServiceGraph.RequestTotal, clientFilter, rangeStr,
+	)
+	inRateQ := fmt.Sprintf(
+		`sum by (%s, %s, %s, %s, %s) (rate(%s%s{%s}%s))`,
+		cfg.Labels.Client, cfg.Labels.Server, cfg.Labels.ConnectionType,
+		cfg.Labels.DBSystem, cfg.Labels.MessagingSystem,
+		sgp, cfg.ServiceGraph.RequestTotal, serverFilter, rangeStr,
+	)
+	outErrQ := fmt.Sprintf(
+		`sum by (%s, %s, %s) (rate(%s%s{%s}%s))`,
+		cfg.Labels.Client, cfg.Labels.Server, cfg.Labels.ConnectionType,
+		sgp, cfg.ServiceGraph.RequestFailedTotal, clientFilter, rangeStr,
+	)
+	inErrQ := fmt.Sprintf(
+		`sum by (%s, %s, %s) (rate(%s%s{%s}%s))`,
+		cfg.Labels.Client, cfg.Labels.Server, cfg.Labels.ConnectionType,
+		sgp, cfg.ServiceGraph.RequestFailedTotal, serverFilter, rangeStr,
+	)
+	outP95Q := fmt.Sprintf(
+		`histogram_quantile(0.95, sum by (%s, %s, %s) (rate(%s%s{%s}%s)))`,
+		cfg.Labels.Client, cfg.Labels.Server, cfg.Labels.Le,
+		sgp, cfg.ServiceGraph.RequestServerBucket, clientFilter, rangeStr,
+	)
+	inP95Q := fmt.Sprintf(
+		`histogram_quantile(0.95, sum by (%s, %s, %s) (rate(%s%s{%s}%s)))`,
+		cfg.Labels.Client, cfg.Labels.Server, cfg.Labels.Le,
+		sgp, cfg.ServiceGraph.RequestServerBucket, serverFilter, rangeStr,
+	)
+
+	resultMap := a.runInstantQueries(ctx, to, []QueryJob{
+		{"outRate", outRateQ}, {"inRate", inRateQ},
+		{"outErr", outErrQ}, {"inErr", inErrQ},
+		{"outP95", outP95Q}, {"inP95", inP95Q},
+	}, logger)
+
+	return parseSGEdgeResults(resultMap, cfg)
+}
+
+// parseSGEdgeResults converts query results from the standard 6-query
+// service graph pattern into an edge map. Shared by scoped and batch queries.
+func parseSGEdgeResults(resultMap map[string][]queries.PromResult, cfg otelconfig.Config) map[sgEdgeKey]*sgEdgeData {
 	edges := make(map[sgEdgeKey]*sgEdgeData)
 	getEdge := func(client, server string) *sgEdgeData {
 		k := sgEdgeKey{client, server}
@@ -301,28 +413,88 @@ func (a *App) queryServiceGraphEdgesScoped(ctx context.Context, from, to time.Ti
 		}
 	}
 
-	// Spanmetrics supplement: always query CLIENT spanmetrics to discover outbound
-	// edges that the service graph cannot see (external services, cross-cluster
-	// dependencies). The service graph only generates edges when both client and
-	// server spans exist in Tempo — external targets like Azure AD or APIs in
-	// other clusters won't appear. For inbound, only use as fallback when the
-	// service graph has no data (it's authoritative for inbound since callers
-	// are typically in the same Tempo).
-	needOutbound := true
-	inEmpty := len(resultMap["inRate"]) == 0
-	if needOutbound || inEmpty {
-		smEdges := a.querySpanmetricsTopologyFallback(ctx, from, to, baseLabelFilter, service, needOutbound, inEmpty)
-		for k, v := range smEdges {
-			if _, exists := edges[k]; !exists {
-				edges[k] = v
+	return edges
+}
+
+// isInfraNode returns true if a node represents infrastructure (database,
+// messaging) that should not be traversed further in multi-hop expansion.
+func isInfraNode(edges map[sgEdgeKey]*sgEdgeData, name string) bool {
+	for k, e := range edges {
+		if k.server == name && (e.connType == "database" || e.connType == "messaging_system") {
+			return true
+		}
+	}
+	return false
+}
+
+// queryServiceMapMultiHop performs BFS traversal to discover multi-hop
+// service topology. It starts from the focus service and iteratively
+// expands to neighboring service nodes up to the specified depth.
+func (a *App) queryServiceMapMultiHop(
+	ctx context.Context,
+	from, to time.Time,
+	filterService, _, filterEnvironment string,
+	depth int,
+) ServiceMapResponse {
+	logger := log.DefaultLogger.With("handler", "servicemap-multihop", "service", filterService, "depth", depth)
+
+	baseLabelFilter := envMatcher(a.otelCfg.Labels.DeploymentEnv, filterEnvironment)
+
+	// Hop 1: use the existing scoped query (includes spanmetrics fallback)
+	allEdges := a.queryServiceGraphEdgesScoped(ctx, from, to, baseLabelFilter, filterService)
+
+	explored := map[string]bool{filterService: true}
+
+	// BFS: expand frontier nodes for additional hops
+	for hop := 2; hop <= depth; hop++ {
+		// Collect frontier: nodes discovered but not yet explored, excluding infra
+		type frontierNode struct {
+			name string
+			rate float64
+		}
+		var frontier []frontierNode
+
+		for k, e := range allEdges {
+			for _, name := range []string{k.client, k.server} {
+				if explored[name] || isInfraNode(allEdges, name) {
+					continue
+				}
+				// Calculate this node's total edge rate for priority sorting
+				frontier = append(frontier, frontierNode{name: name, rate: e.rate})
+				explored[name] = true // mark to avoid re-adding
+			}
+		}
+
+		if len(frontier) == 0 {
+			logger.Info("BFS terminated early, no frontier", "hop", hop)
+			break
+		}
+
+		// Sort by rate descending and cap at maxFrontierSize
+		sort.Slice(frontier, func(i, j int) bool {
+			return frontier[i].rate > frontier[j].rate
+		})
+		if len(frontier) > maxFrontierSize {
+			frontier = frontier[:maxFrontierSize]
+		}
+
+		names := make([]string, len(frontier))
+		for i, f := range frontier {
+			names[i] = f.name
+		}
+		logger.Info("Expanding frontier", "hop", hop, "nodes", len(names))
+
+		batchEdges := a.queryServiceGraphEdgesBatch(ctx, from, to, baseLabelFilter, names)
+		for k, v := range batchEdges {
+			if _, exists := allEdges[k]; !exists {
+				allEdges[k] = v
 			}
 		}
 	}
 
-	return edges
+	// Assemble the final response using the shared assembly logic
+	return assembleServiceMapResponse(allEdges)
 }
-
-// querySpanmetricsTopologyFallback discovers service edges using CLIENT spanmetrics
 // when service graph metrics are unavailable (e.g., environments without the
 // Tempo service graph processor). It queries calls_total with server_address and
 // http_host labels to find outbound and inbound connections.
@@ -560,12 +732,6 @@ func (a *App) queryServiceMap( //nolint:gocyclo // complex due to filtering + no
 	// query is used and filtering happens post-query.
 	edges := a.queryServiceGraphEdges(ctx, from, to, filterEnvironment, filterService)
 
-	nodeSet := make(map[string]bool)
-	for k := range edges {
-		nodeSet[k.client] = true
-		nodeSet[k.server] = true
-	}
-
 	// Apply namespace filter: keep edges where at least one end belongs to the namespace.
 	// Service graph metrics lack namespace labels, so we build a name→namespace mapping
 	// from spanmetrics (which DO carry service_namespace).
@@ -577,16 +743,25 @@ func (a *App) queryServiceMap( //nolint:gocyclo // complex due to filtering + no
 	if filterNamespace != "" && filterService == "" {
 		nsMap := a.buildServiceNamespaceMap(ctx, to, filterEnvironment)
 		filtered := make(map[sgEdgeKey]*sgEdgeData)
-		filteredNodes := make(map[string]bool)
 		for k, e := range edges {
 			if nsMap[k.client] == filterNamespace || nsMap[k.server] == filterNamespace {
 				filtered[k] = e
-				filteredNodes[k.client] = true
-				filteredNodes[k.server] = true
 			}
 		}
 		edges = filtered
-		nodeSet = filteredNodes
+	}
+
+	// Calculate per-node aggregate error rates for display.
+	return assembleServiceMapResponse(edges)
+}
+
+// assembleServiceMapResponse converts raw edge data into the final response
+// with node aggregation, type inference, and formatted stats.
+func assembleServiceMapResponse(edges map[sgEdgeKey]*sgEdgeData) ServiceMapResponse {
+	nodeSet := make(map[string]bool)
+	for k := range edges {
+		nodeSet[k.client] = true
+		nodeSet[k.server] = true
 	}
 
 	// Calculate per-node aggregate error rates for display.
