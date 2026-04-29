@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppRootProps } from '@grafana/data';
 import { LoadingPlaceholder } from '@grafana/ui';
 import { ROUTES } from '../../constants';
+import { useFavoritesSync } from '../../utils/useFavoritesSync';
 
 const ServiceInventory = React.lazy(() => import('../../pages/ServiceInventory'));
 const ServiceOverview = React.lazy(() => import('../../pages/ServiceOverview'));
@@ -12,6 +13,9 @@ const Dependencies = React.lazy(() => import('../../pages/Dependencies'));
 const DependencyDetail = React.lazy(() => import('../../pages/DependencyDetail'));
 
 function App(props: AppRootProps) {
+  // Sync favorites to Grafana's per-user backend storage for cross-device persistence
+  useFavoritesSync();
+
   return (
     <Suspense fallback={<LoadingPlaceholder text="Loading..." />}>
       <Routes>
