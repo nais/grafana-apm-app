@@ -175,3 +175,54 @@ func isKnownBrokerName(name string) bool {
 	}
 	return false
 }
+
+// normalizeServiceName strips K8s FQDN suffixes to produce a short service name.
+// Examples:
+//
+//	"pdl-tilgangsstyring.pdl.svc.nais.local" → "pdl-tilgangsstyring"
+//	"pdl-tilgangsstyring.pdl.svc.cluster.local" → "pdl-tilgangsstyring"
+//	"pdl-tilgangsstyring.pdl.svc" → "pdl-tilgangsstyring"
+//	"pdl-tilgangsstyring.pdl" → "pdl-tilgangsstyring" (namespace-qualified)
+//	"vault.adeo.no" → "vault.adeo.no" (external, unchanged)
+//	"pdl-tilgangsstyring" → "pdl-tilgangsstyring" (already short)
+func normalizeServiceName(name string) string {
+	// Strip port if present
+	host := name
+	if idx := strings.IndexByte(name, ':'); idx != -1 {
+		host = name[:idx]
+	}
+
+	parts := strings.Split(host, ".")
+	if len(parts) < 2 {
+		return name
+	}
+
+	// Pattern: {service}.{namespace}.svc[.anything]
+	if len(parts) >= 3 && parts[2] == "svc" {
+		return parts[0]
+	}
+
+	// Pattern: {service}.{namespace} — only if second part is NOT a known TLD
+	if len(parts) == 2 && !isKnownTLD(parts[1]) {
+		return parts[0]
+	}
+
+	return name
+}
+
+// extractK8sNamespace returns the namespace portion of a K8s service name, or "".
+func extractK8sNamespace(name string) string { //nolint:unused
+	host := name
+	if idx := strings.IndexByte(name, ':'); idx != -1 {
+		host = name[:idx]
+	}
+
+	parts := strings.Split(host, ".")
+	if len(parts) >= 3 && parts[2] == "svc" {
+		return parts[1]
+	}
+	if len(parts) == 2 && !isKnownTLD(parts[1]) {
+		return parts[1]
+	}
+	return ""
+}

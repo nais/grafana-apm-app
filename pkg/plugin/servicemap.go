@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -50,16 +49,24 @@ func (a *App) handleServiceMap(w http.ResponseWriter, req *http.Request) {
 	roundedFrom := fmt.Sprintf("%d", from.Unix()/30*30)
 	roundedTo := fmt.Sprintf("%d", to.Unix()/30*30)
 	orgID := req.Header.Get("X-Grafana-Org-Id")
+	debug := req.URL.Query().Get("debug") == "1"
 	ck := cacheKey("servicemap", orgID, roundedFrom, roundedTo, filterService, filterNamespace, filterEnvironment, fmt.Sprintf("d%d", depth))
-	if cached, ok := a.respCache.get(ck); ok {
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("X-Cache", "HIT")
-		_, _ = w.Write(cached)
-		return
+	if !debug {
+		if cached, ok := a.respCache.get(ck); ok {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("X-Cache", "HIT")
+			_, _ = w.Write(cached)
+			return
+		}
 	}
 
 	var graph ServiceMapResponse
 	if depth > 1 && filterService != "" {
+		if debug {
+			debugInfo := a.debugServiceMapMultiHop(ctx, from, to, filterService, filterEnvironment, depth)
+			writeJSON(w, debugInfo)
+			return
+		}
 		graph = a.queryServiceMapMultiHop(ctx, from, to, filterService, filterNamespace, filterEnvironment, depth)
 	} else {
 		graph = a.queryServiceMap(ctx, from, to, filterService, filterNamespace, filterEnvironment)
@@ -287,73 +294,246 @@ func (a *App) queryServiceGraphEdgesScoped(ctx context.Context, from, to time.Ti
 
 const maxFrontierSize = 15
 
-// queryServiceGraphEdgesBatch runs scoped service graph queries for multiple
-// services at once using a regex filter (client=~"^(?:a|b|c)$"). This is used
-// by multi-hop traversal to fetch edges for all frontier nodes in a single
-// batch of 6 parallel queries instead of N×6 per-node queries.
-func (a *App) queryServiceGraphEdgesBatch(ctx context.Context, from, to time.Time, baseLabelFilter string, services []string) map[sgEdgeKey]*sgEdgeData {
+// queryServiceGraphEdgesDirected queries edges for frontier services in a
+// single direction only. If outbound=true, queries edges where the services
+// appear as CLIENT (finding what they call). If outbound=false, queries where
+// they appear as SERVER (finding what calls them). This produces proper layered
+// tree expansion rather than bidirectional blowup.
+func (a *App) queryServiceGraphEdgesDirected(ctx context.Context, from, to time.Time, baseLabelFilter string, services []string, outbound bool) map[sgEdgeKey]*sgEdgeData {
 	if len(services) == 0 {
 		return nil
 	}
-	logger := log.DefaultLogger.With("handler", "servicegraph-batch", "count", len(services))
+	direction := "outbound"
+	if !outbound {
+		direction = "inbound"
+	}
+	logger := log.DefaultLogger.With("handler", "servicegraph-directed", "dir", direction, "count", len(services))
 	rangeStr := computeRangeStr(from, to)
 	sgp := a.serviceGraphPrefix()
 	cfg := a.otelCfg
 
-	// Build regex alternation: ^(?:escaped1|escaped2|...)$
 	escaped := make([]string, len(services))
 	for i, s := range services {
-		escaped[i] = regexp.QuoteMeta(s)
+		escaped[i] = promQLEscape(s)
 	}
 	pattern := `^(?:` + strings.Join(escaped, "|") + `)$`
 
-	clientFilter := fmt.Sprintf(`%s=~"%s"`, cfg.Labels.Client, pattern)
-	serverFilter := fmt.Sprintf(`%s=~"%s"`, cfg.Labels.Server, pattern)
+	var labelFilter string
+	if outbound {
+		labelFilter = fmt.Sprintf(`%s=~"%s"`, cfg.Labels.Client, pattern)
+	} else {
+		labelFilter = fmt.Sprintf(`%s=~"%s"`, cfg.Labels.Server, pattern)
+	}
 	if baseLabelFilter != "" {
-		clientFilter += ", " + baseLabelFilter
-		serverFilter += ", " + baseLabelFilter
+		labelFilter += ", " + baseLabelFilter
 	}
 
-	outRateQ := fmt.Sprintf(
+	rateQ := fmt.Sprintf(
 		`sum by (%s, %s, %s, %s, %s) (rate(%s%s{%s}%s))`,
 		cfg.Labels.Client, cfg.Labels.Server, cfg.Labels.ConnectionType,
 		cfg.Labels.DBSystem, cfg.Labels.MessagingSystem,
-		sgp, cfg.ServiceGraph.RequestTotal, clientFilter, rangeStr,
+		sgp, cfg.ServiceGraph.RequestTotal, labelFilter, rangeStr,
 	)
-	inRateQ := fmt.Sprintf(
-		`sum by (%s, %s, %s, %s, %s) (rate(%s%s{%s}%s))`,
-		cfg.Labels.Client, cfg.Labels.Server, cfg.Labels.ConnectionType,
-		cfg.Labels.DBSystem, cfg.Labels.MessagingSystem,
-		sgp, cfg.ServiceGraph.RequestTotal, serverFilter, rangeStr,
-	)
-	outErrQ := fmt.Sprintf(
+	errQ := fmt.Sprintf(
 		`sum by (%s, %s, %s) (rate(%s%s{%s}%s))`,
 		cfg.Labels.Client, cfg.Labels.Server, cfg.Labels.ConnectionType,
-		sgp, cfg.ServiceGraph.RequestFailedTotal, clientFilter, rangeStr,
+		sgp, cfg.ServiceGraph.RequestFailedTotal, labelFilter, rangeStr,
 	)
-	inErrQ := fmt.Sprintf(
-		`sum by (%s, %s, %s) (rate(%s%s{%s}%s))`,
-		cfg.Labels.Client, cfg.Labels.Server, cfg.Labels.ConnectionType,
-		sgp, cfg.ServiceGraph.RequestFailedTotal, serverFilter, rangeStr,
-	)
-	outP95Q := fmt.Sprintf(
+	p95Q := fmt.Sprintf(
 		`histogram_quantile(0.95, sum by (%s, %s, %s) (rate(%s%s{%s}%s)))`,
 		cfg.Labels.Client, cfg.Labels.Server, cfg.Labels.Le,
-		sgp, cfg.ServiceGraph.RequestServerBucket, clientFilter, rangeStr,
-	)
-	inP95Q := fmt.Sprintf(
-		`histogram_quantile(0.95, sum by (%s, %s, %s) (rate(%s%s{%s}%s)))`,
-		cfg.Labels.Client, cfg.Labels.Server, cfg.Labels.Le,
-		sgp, cfg.ServiceGraph.RequestServerBucket, serverFilter, rangeStr,
+		sgp, cfg.ServiceGraph.RequestServerBucket, labelFilter, rangeStr,
 	)
 
 	resultMap := a.runInstantQueries(ctx, to, []QueryJob{
-		{"outRate", outRateQ}, {"inRate", inRateQ},
-		{"outErr", outErrQ}, {"inErr", inErrQ},
-		{"outP95", outP95Q}, {"inP95", inP95Q},
+		{"rate", rateQ}, {"err", errQ}, {"p95", p95Q},
 	}, logger)
 
-	return parseSGEdgeResults(resultMap, cfg)
+	edges := make(map[sgEdgeKey]*sgEdgeData)
+	getEdge := func(client, server string) *sgEdgeData {
+		k := sgEdgeKey{client, server}
+		if e, ok := edges[k]; ok {
+			return e
+		}
+		e := &sgEdgeData{}
+		edges[k] = e
+		return e
+	}
+
+	for _, r := range resultMap["rate"] {
+		client := r.Metric[cfg.Labels.Client]
+		server := r.Metric[cfg.Labels.Server]
+		if client == "" || server == "" {
+			continue
+		}
+		e := getEdge(client, server)
+		e.rate = r.Value.Float()
+		e.connType = r.Metric[cfg.Labels.ConnectionType]
+		e.dbSystem = r.Metric[cfg.Labels.DBSystem]
+		e.messagingSystem = r.Metric[cfg.Labels.MessagingSystem]
+	}
+	for _, r := range resultMap["err"] {
+		client := r.Metric[cfg.Labels.Client]
+		server := r.Metric[cfg.Labels.Server]
+		if client == "" || server == "" {
+			continue
+		}
+		if e, ok := edges[sgEdgeKey{client, server}]; ok {
+			e.errorRate = r.Value.Float()
+		}
+	}
+	for _, r := range resultMap["p95"] {
+		client := r.Metric[cfg.Labels.Client]
+		server := r.Metric[cfg.Labels.Server]
+		if client == "" || server == "" {
+			continue
+		}
+		if e, ok := edges[sgEdgeKey{client, server}]; ok {
+			e.p95 = r.Value.Float()
+		}
+	}
+
+	// Spanmetrics supplement for outbound direction only
+	if outbound {
+		smEdges := a.querySpanmetricsTopologyBatch(ctx, from, to, baseLabelFilter, services)
+		svcSet := make(map[string]bool, len(services))
+		for _, s := range services {
+			svcSet[s] = true
+		}
+		for k, v := range smEdges {
+			if svcSet[k.client] {
+				if _, exists := edges[k]; !exists {
+					edges[k] = v
+				}
+			}
+		}
+	}
+
+	logger.Info("Directed query complete", "edges", len(edges))
+	return edges
+}
+
+// querySpanmetricsTopologyBatch discovers outbound edges for multiple services
+// at once using CLIENT spanmetrics (server_address/http_host). This supplements
+// the service graph batch query to find external dependencies.
+func (a *App) querySpanmetricsTopologyBatch(
+	ctx context.Context, from, to time.Time, baseLabelFilter string, services []string,
+) map[sgEdgeKey]*sgEdgeData {
+	if len(services) == 0 {
+		return nil
+	}
+	logger := log.DefaultLogger.With("handler", "servicegraph-sm-batch", "count", len(services))
+	rangeStr := computeRangeStr(from, to)
+	cfg := a.otelCfg
+	callsMetric := a.callsMetric(ctx)
+
+	// Build regex for service names
+	escaped := make([]string, len(services))
+	for i, s := range services {
+		escaped[i] = promQLEscape(s)
+	}
+	svcPattern := strings.Join(escaped, "|")
+
+	envFilter := ""
+	if baseLabelFilter != "" {
+		envFilter = ", " + baseLabelFilter
+	}
+
+	// Outbound: frontier services as clients, discover their targets
+	outRateQ := fmt.Sprintf(
+		`sum by (%s, %s, %s, %s) (rate(%s{%s="%s", %s=~"%s"%s}%s))`,
+		cfg.Labels.ServiceName, cfg.Labels.ServerAddress, cfg.Labels.DBSystem, cfg.Labels.MessagingSystem,
+		callsMetric, cfg.Labels.SpanKind, cfg.SpanKinds.Client,
+		cfg.Labels.ServiceName, svcPattern, envFilter, rangeStr,
+	)
+	outRateHostQ := fmt.Sprintf(
+		`sum by (%s, %s, %s, %s) (rate(%s{%s="%s", %s=~"%s", %s=""%s}%s))`,
+		cfg.Labels.ServiceName, cfg.Labels.HTTPHost, cfg.Labels.DBSystem, cfg.Labels.MessagingSystem,
+		callsMetric, cfg.Labels.SpanKind, cfg.SpanKinds.Client,
+		cfg.Labels.ServiceName, svcPattern,
+		cfg.Labels.ServerAddress, envFilter, rangeStr,
+	)
+
+	// Inbound: find callers of the frontier services via server_address
+	inPattern := `(?:` + svcPattern + `)($|[.:].*?)`
+	inRateQ := fmt.Sprintf(
+		`sum by (%s, %s) (rate(%s{%s="%s", %s=~"%s"%s}%s))`,
+		cfg.Labels.ServiceName, cfg.Labels.ServerAddress,
+		callsMetric, cfg.Labels.SpanKind, cfg.SpanKinds.Client,
+		cfg.Labels.ServerAddress, inPattern, envFilter, rangeStr,
+	)
+
+	resultMap := a.runInstantQueries(ctx, to, []QueryJob{
+		{"smBatchOutRate", outRateQ},
+		{"smBatchOutRateHost", outRateHostQ},
+		{"smBatchInRate", inRateQ},
+	}, logger)
+
+	edges := make(map[sgEdgeKey]*sgEdgeData)
+	getEdge := func(client, server string) *sgEdgeData {
+		k := sgEdgeKey{client, server}
+		if e, ok := edges[k]; ok {
+			return e
+		}
+		e := &sgEdgeData{}
+		edges[k] = e
+		return e
+	}
+
+	// Build a set of frontier services for filtering
+	svcSet := make(map[string]bool, len(services))
+	for _, s := range services {
+		svcSet[s] = true
+	}
+
+	// Process outbound edges
+	for _, key := range []string{"smBatchOutRate", "smBatchOutRateHost"} {
+		addrLabel := cfg.Labels.ServerAddress
+		if key == "smBatchOutRateHost" {
+			addrLabel = cfg.Labels.HTTPHost
+		}
+		for _, r := range resultMap[key] {
+			svc := r.Metric[cfg.Labels.ServiceName]
+			addr := r.Metric[addrLabel]
+			if svc == "" || addr == "" {
+				continue
+			}
+			serverName := extractTopologyNodeName(addr)
+			if serverName == "" || serverName == svc {
+				continue
+			}
+			e := getEdge(svc, serverName)
+			e.rate += r.Value.Float()
+			if ds := r.Metric[cfg.Labels.DBSystem]; ds != "" {
+				e.dbSystem = ds
+			}
+			if ms := r.Metric[cfg.Labels.MessagingSystem]; ms != "" {
+				e.messagingSystem = ms
+			}
+		}
+	}
+
+	// Process inbound edges
+	for _, r := range resultMap["smBatchInRate"] {
+		caller := r.Metric[cfg.Labels.ServiceName]
+		addr := r.Metric[cfg.Labels.ServerAddress]
+		if caller == "" || addr == "" {
+			continue
+		}
+		serverName := extractTopologyNodeName(addr)
+		if serverName == "" || serverName == caller {
+			continue
+		}
+		// Only keep if the server is one of our frontier services
+		if !svcSet[serverName] {
+			continue
+		}
+		e := getEdge(caller, serverName)
+		e.rate += r.Value.Float()
+	}
+
+	logger.Info("Spanmetrics batch results", "edges", len(edges))
+	return edges
 }
 
 // parseSGEdgeResults converts query results from the standard 6-query
@@ -427,9 +607,18 @@ func isInfraNode(edges map[sgEdgeKey]*sgEdgeData, name string) bool {
 	return false
 }
 
-// queryServiceMapMultiHop performs BFS traversal to discover multi-hop
-// service topology. It starts from the focus service and iteratively
-// expands to neighboring service nodes up to the specified depth.
+// bfsDirection indicates which side of the focus service a frontier node is on.
+type bfsDirection int
+
+const (
+	bfsDirOutbound bfsDirection = iota // node discovered as a dependency (right side)
+	bfsDirInbound                      // node discovered as a caller (left side)
+)
+
+// queryServiceMapMultiHop performs direction-aware BFS traversal to discover
+// multi-hop service topology. It starts from the focus service and iteratively
+// expands outbound dependencies rightward and inbound callers leftward,
+// creating proper layered depth in the graph.
 func (a *App) queryServiceMapMultiHop(
 	ctx context.Context,
 	from, to time.Time,
@@ -442,15 +631,27 @@ func (a *App) queryServiceMapMultiHop(
 
 	// Hop 1: use the existing scoped query (includes spanmetrics fallback)
 	allEdges := a.queryServiceGraphEdgesScoped(ctx, from, to, baseLabelFilter, filterService)
+	logger.Info("Hop 1 complete", "edges", len(allEdges))
+
+	// Track direction: which side of the focus each node is on
+	nodeDir := map[string]bfsDirection{}
+	for k := range allEdges {
+		if k.client == filterService && k.server != filterService {
+			nodeDir[k.server] = bfsDirOutbound
+		}
+		if k.server == filterService && k.client != filterService {
+			nodeDir[k.client] = bfsDirInbound
+		}
+	}
 
 	explored := map[string]bool{filterService: true}
 
 	// BFS: expand frontier nodes for additional hops
 	for hop := 2; hop <= depth; hop++ {
-		// Collect frontier: nodes discovered but not yet explored, excluding infra
 		type frontierNode struct {
 			name string
 			rate float64
+			dir  bfsDirection
 		}
 		var frontier []frontierNode
 
@@ -459,9 +660,28 @@ func (a *App) queryServiceMapMultiHop(
 				if explored[name] || isInfraNode(allEdges, name) {
 					continue
 				}
-				// Calculate this node's total edge rate for priority sorting
-				frontier = append(frontier, frontierNode{name: name, rate: e.rate})
-				explored[name] = true // mark to avoid re-adding
+				dir, hasDirInfo := nodeDir[name]
+				if !hasDirInfo {
+					// Infer direction from the edge: if this node is a server
+					// in an edge where the client is already known outbound,
+					// it's also outbound (and vice versa).
+					if k.server == name {
+						if cd, ok := nodeDir[k.client]; ok {
+							dir = cd
+						} else {
+							dir = bfsDirOutbound
+						}
+					} else {
+						if sd, ok := nodeDir[k.server]; ok {
+							dir = sd
+						} else {
+							dir = bfsDirInbound
+						}
+					}
+					nodeDir[name] = dir
+				}
+				frontier = append(frontier, frontierNode{name: name, rate: e.rate, dir: dir})
+				explored[name] = true
 			}
 		}
 
@@ -478,21 +698,62 @@ func (a *App) queryServiceMapMultiHop(
 			frontier = frontier[:maxFrontierSize]
 		}
 
-		names := make([]string, len(frontier))
-		for i, f := range frontier {
-			names[i] = f.name
-		}
-		logger.Info("Expanding frontier", "hop", hop, "nodes", len(names))
-
-		batchEdges := a.queryServiceGraphEdgesBatch(ctx, from, to, baseLabelFilter, names)
-		for k, v := range batchEdges {
-			if _, exists := allEdges[k]; !exists {
-				allEdges[k] = v
+		// Split frontier by direction
+		var outNames, inNames []string
+		outSeen := map[string]bool{}
+		inSeen := map[string]bool{}
+		for _, f := range frontier {
+			n := normalizeServiceName(f.name)
+			if n == filterService {
+				continue
 			}
+			if f.dir == bfsDirOutbound && !outSeen[n] {
+				outNames = append(outNames, n)
+				outSeen[n] = true
+			} else if f.dir == bfsDirInbound && !inSeen[n] {
+				inNames = append(inNames, n)
+				inSeen[n] = true
+			}
+		}
+
+		if len(outNames) == 0 && len(inNames) == 0 {
+			logger.Info("BFS terminated, no valid frontier after normalization", "hop", hop)
+			break
+		}
+		logger.Info("Expanding frontier", "hop", hop, "outbound", len(outNames), "inbound", len(inNames))
+
+		// Query outbound frontier: only their outbound edges (them as client → ?)
+		if len(outNames) > 0 {
+			outEdges := a.queryServiceGraphEdgesDirected(ctx, from, to, baseLabelFilter, outNames, true)
+			for k, v := range outEdges {
+				if _, exists := allEdges[k]; !exists {
+					allEdges[k] = v
+					// New servers discovered via outbound expansion are also outbound
+					if _, known := nodeDir[k.server]; !known {
+						nodeDir[k.server] = bfsDirOutbound
+					}
+				}
+			}
+			logger.Info("Outbound expansion", "hop", hop, "newEdges", len(outEdges))
+		}
+
+		// Query inbound frontier: only their inbound edges (? → them as server)
+		if len(inNames) > 0 {
+			inEdges := a.queryServiceGraphEdgesDirected(ctx, from, to, baseLabelFilter, inNames, false)
+			for k, v := range inEdges {
+				if _, exists := allEdges[k]; !exists {
+					allEdges[k] = v
+					// New clients discovered via inbound expansion are also inbound
+					if _, known := nodeDir[k.client]; !known {
+						nodeDir[k.client] = bfsDirInbound
+					}
+				}
+			}
+			logger.Info("Inbound expansion", "hop", hop, "newEdges", len(inEdges))
 		}
 	}
 
-	// Assemble the final response using the shared assembly logic
+	logger.Info("BFS complete", "totalEdges", len(allEdges))
 	return assembleServiceMapResponse(allEdges)
 }
 // when service graph metrics are unavailable (e.g., environments without the
@@ -757,7 +1018,76 @@ func (a *App) queryServiceMap( //nolint:gocyclo // complex due to filtering + no
 
 // assembleServiceMapResponse converts raw edge data into the final response
 // with node aggregation, type inference, and formatted stats.
+// preprocessServiceMapEdges splits self-loop infrastructure edges into synthetic nodes
+// and normalizes K8s FQDN names to short service names.
+func preprocessServiceMapEdges(edges map[sgEdgeKey]*sgEdgeData) map[sgEdgeKey]*sgEdgeData {
+	// Split self-loop edges with infrastructure types into separate nodes.
+	// When client=server with connection_type=database/messaging, the server represents
+	// a local resource (e.g., the service's own database), not the service itself.
+	selfLoopSplits := make(map[sgEdgeKey]*sgEdgeData)
+	var selfLoopKeys []sgEdgeKey
+	for k, e := range edges {
+		if k.client == k.server && (e.connType == "database" || e.connType == "messaging_system") {
+			selfLoopKeys = append(selfLoopKeys, k)
+			suffix := e.dbSystem
+			if suffix == "" {
+				suffix = e.messagingSystem
+			}
+			if suffix == "" {
+				suffix = e.connType
+			}
+			selfLoopSplits[sgEdgeKey{client: k.client, server: k.server + "__" + suffix}] = e
+		}
+	}
+	for _, k := range selfLoopKeys {
+		delete(edges, k)
+	}
+	for k, e := range selfLoopSplits {
+		edges[k] = e
+	}
+
+	// Normalize K8s FQDN names to short service names
+	normalized := make(map[sgEdgeKey]*sgEdgeData, len(edges))
+	for k, e := range edges {
+		nk := sgEdgeKey{
+			client: normalizeServiceName(k.client),
+			server: normalizeServiceName(k.server),
+		}
+		if nk.client == nk.server {
+			continue // skip self-loops created by normalization
+		}
+		if existing, ok := normalized[nk]; ok {
+			existing.rate += e.rate
+			existing.errorRate += e.errorRate
+			if e.p95 > existing.p95 {
+				existing.p95 = e.p95
+			}
+			if existing.connType == "" {
+				existing.connType = e.connType
+			}
+			if existing.dbSystem == "" {
+				existing.dbSystem = e.dbSystem
+			}
+			if existing.messagingSystem == "" {
+				existing.messagingSystem = e.messagingSystem
+			}
+		} else {
+			normalized[nk] = &sgEdgeData{
+				rate:            e.rate,
+				errorRate:       e.errorRate,
+				p95:             e.p95,
+				connType:        e.connType,
+				dbSystem:        e.dbSystem,
+				messagingSystem: e.messagingSystem,
+			}
+		}
+	}
+	return normalized
+}
+
 func assembleServiceMapResponse(edges map[sgEdgeKey]*sgEdgeData) ServiceMapResponse {
+	edges = preprocessServiceMapEdges(edges)
+
 	nodeSet := make(map[string]bool)
 	for k := range edges {
 		nodeSet[k.client] = true
@@ -843,9 +1173,15 @@ func assembleServiceMapResponse(edges map[sgEdgeKey]*sgEdgeData) ServiceMapRespo
 			nType = "service"
 		}
 
+		// For synthetic infra nodes (kiss__postgresql), use the original name as title
+		title := name
+		if idx := strings.Index(name, "__"); idx != -1 && (nType == "database" || nType == "messaging") {
+			title = name[:idx]
+		}
+
 		nodes = append(nodes, ServiceMapNode{
 			ID:            name,
-			Title:         name,
+			Title:         title,
 			SubTitle:      nodeSubtitles[name],
 			MainStat:      fmt.Sprintf("%.1f req/s", totalRate),
 			SecondaryStat: fmt.Sprintf("%.1f%% errors", errPct*100),
@@ -947,4 +1283,143 @@ func formatDepDisplayName(name, dbSystem, messagingSystem string) string {
 		return fmt.Sprintf("%s (%s)", messagingSystem, name)
 	}
 	return ""
+}
+
+// debugServiceMapMultiHop runs the direction-aware BFS with diagnostic output.
+func (a *App) debugServiceMapMultiHop(
+	ctx context.Context, from, to time.Time,
+	filterService, filterEnvironment string, depth int,
+) interface{} {
+	baseLabelFilter := envMatcher(a.otelCfg.Labels.DeploymentEnv, filterEnvironment)
+
+	allEdges := a.queryServiceGraphEdgesScoped(ctx, from, to, baseLabelFilter, filterService)
+
+	hop1Edges := make(map[string]string, len(allEdges))
+	for k, e := range allEdges {
+		hop1Edges[k.client+" -> "+k.server] = fmt.Sprintf("rate=%.3f ct=%q", e.rate, e.connType)
+	}
+
+	// Track directions
+	nodeDir := map[string]bfsDirection{}
+	for k := range allEdges {
+		if k.client == filterService && k.server != filterService {
+			nodeDir[k.server] = bfsDirOutbound
+		}
+		if k.server == filterService && k.client != filterService {
+			nodeDir[k.client] = bfsDirInbound
+		}
+	}
+
+	explored := map[string]bool{filterService: true}
+
+	type hopDebug struct {
+		Hop          int               `json:"hop"`
+		OutNames     []string          `json:"outboundFrontier"`
+		InNames      []string          `json:"inboundFrontier"`
+		InfraSkipped []string          `json:"infraSkipped"`
+		OutEdges     int               `json:"outboundEdges"`
+		InEdges      int               `json:"inboundEdges"`
+		SampleEdges  map[string]string `json:"sampleEdges"`
+	}
+	var hops []hopDebug
+
+	for hop := 2; hop <= depth; hop++ {
+		type fn struct {
+			name string
+			rate float64
+			dir  bfsDirection
+		}
+		var frontier []fn
+		var infraSkipped []string
+
+		for k, e := range allEdges {
+			for _, name := range []string{k.client, k.server} {
+				if explored[name] {
+					continue
+				}
+				if isInfraNode(allEdges, name) {
+					infraSkipped = append(infraSkipped, name)
+					explored[name] = true
+					continue
+				}
+				dir := nodeDir[name]
+				frontier = append(frontier, fn{name: name, rate: e.rate, dir: dir})
+				explored[name] = true
+			}
+		}
+
+		sort.Slice(frontier, func(i, j int) bool { return frontier[i].rate > frontier[j].rate })
+		if len(frontier) > maxFrontierSize {
+			frontier = frontier[:maxFrontierSize]
+		}
+
+		var outNames, inNames []string
+		for _, f := range frontier {
+			n := normalizeServiceName(f.name)
+			if n == filterService {
+				continue
+			}
+			if f.dir == bfsDirOutbound {
+				outNames = append(outNames, n)
+			} else {
+				inNames = append(inNames, n)
+			}
+		}
+
+		var outEdges, inEdges map[sgEdgeKey]*sgEdgeData
+		if len(outNames) > 0 {
+			outEdges = a.queryServiceGraphEdgesDirected(ctx, from, to, baseLabelFilter, outNames, true)
+		}
+		if len(inNames) > 0 {
+			inEdges = a.queryServiceGraphEdgesDirected(ctx, from, to, baseLabelFilter, inNames, false)
+		}
+
+		sampleEdges := make(map[string]string)
+		i := 0
+		for k, e := range outEdges {
+			if i >= 10 {
+				break
+			}
+			sampleEdges[k.client+" -> "+k.server] = fmt.Sprintf("rate=%.3f (out)", e.rate)
+			i++
+		}
+		for k, e := range inEdges {
+			if i >= 20 {
+				break
+			}
+			sampleEdges[k.client+" -> "+k.server] = fmt.Sprintf("rate=%.3f (in)", e.rate)
+			i++
+		}
+
+		hops = append(hops, hopDebug{
+			Hop:          hop,
+			OutNames:     outNames,
+			InNames:      inNames,
+			InfraSkipped: infraSkipped,
+			OutEdges:     len(outEdges),
+			InEdges:      len(inEdges),
+			SampleEdges:  sampleEdges,
+		})
+
+		for k, v := range outEdges {
+			if _, exists := allEdges[k]; !exists {
+				allEdges[k] = v
+			}
+		}
+		for k, v := range inEdges {
+			if _, exists := allEdges[k]; !exists {
+				allEdges[k] = v
+			}
+		}
+	}
+
+	return map[string]interface{}{
+		"service":         filterService,
+		"environment":     filterEnvironment,
+		"baseLabelFilter": baseLabelFilter,
+		"hop1EdgeCount":   len(hop1Edges),
+		"hop1Edges":       hop1Edges,
+		"hops":            hops,
+		"debug":           true,
+	}
 }
