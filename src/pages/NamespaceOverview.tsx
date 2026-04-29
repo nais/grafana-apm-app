@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { PluginPage } from '@grafana/runtime';
 import { Combobox, IconButton, MultiCombobox, useStyles2 } from '@grafana/ui';
@@ -20,8 +20,8 @@ import { useAppNavigate, sanitizeParam } from '../utils/navigation';
 import { extractEnvironmentOptions } from '../utils/options';
 import { getSectionStyles } from '../utils/styles';
 import { useFetch } from '../utils/useFetch';
-import { toMermaidGraph } from '../utils/mermaid';
 import { ServiceGraph, toGraphData } from '../components/ServiceGraph';
+import { CopyMermaidButton } from '../components/CopyMermaidButton';
 import { PageHeader } from '../components/PageHeader';
 import { DataState } from '../components/DataState';
 import { NamespaceStats } from './namespace/NamespaceStats';
@@ -188,15 +188,6 @@ function NamespaceOverview() {
     );
   }, [appNavigate, decodedNs, envFilters]);
 
-  const [mermaidCopied, setMermaidCopied] = useState(false);
-  const handleCopyMermaid = useCallback(() => {
-    const mermaid = toMermaidGraph(graphNodes, graphEdges, 'DOWN');
-    navigator.clipboard.writeText(mermaid).then(() => {
-      setMermaidCopied(true);
-      setTimeout(() => setMermaidCopied(false), 2000);
-    });
-  }, [graphNodes, graphEdges]);
-
   return (
     <PluginPage layout={PageLayoutType.Canvas}>
       <div className={styles.container}>
@@ -262,12 +253,7 @@ function NamespaceOverview() {
             <div className={styles.section}>
               <div className={styles.sectionHeader}>
                 <h3 className={styles.sectionTitle}>Service Topology</h3>
-                <IconButton
-                  name={mermaidCopied ? 'check' : 'copy'}
-                  tooltip={mermaidCopied ? 'Copied!' : 'Copy as Mermaid'}
-                  size="md"
-                  onClick={handleCopyMermaid}
-                />
+                <CopyMermaidButton nodes={graphNodes} edges={graphEdges} direction="DOWN" />
               </div>
               <div className={styles.graphPanel}>
                 <div

@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { useStyles2, LoadingPlaceholder, Alert, Badge, RadioButtonGroup } from '@grafana/ui';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
+import { useStyles2, LoadingPlaceholder, Alert, Badge, RadioButtonGroup, IconButton } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { EmbeddedScene } from '@grafana/scenes';
@@ -8,6 +8,7 @@ import { formatDuration, formatRate, formatErrorRate } from '../../utils/format'
 import { DepTypeIcon } from '../../components/DepTypeIcon';
 import { getSectionStyles } from '../../utils/styles';
 import { ServiceGraph, ServiceGraphNode, ServiceGraphEdge } from '../../components/ServiceGraph';
+import { CopyMermaidButton } from '../../components/CopyMermaidButton';
 import { groupDependencies } from '../../utils/depGroups';
 
 const MAX_OVERVIEW_OPS = 5;
@@ -57,6 +58,22 @@ export function OverviewTab({
   onNavigateDependency,
 }: OverviewTabProps) {
   const styles = useStyles2(getStyles);
+
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const toggleFullscreen = useCallback(() => setIsFullscreen((v) => !v), []);
+
+  useEffect(() => {
+    if (!isFullscreen) {
+      return;
+    }
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsFullscreen(false);
+      }
+    };
+    document.addEventListener('keydown', handleEsc);
+    return () => document.removeEventListener('keydown', handleEsc);
+  }, [isFullscreen]);
 
   const overviewOps = useMemo(() => {
     const byRate = [...operations].sort((a, b) => b.rate - a.rate);
@@ -149,18 +166,32 @@ export function OverviewTab({
 
       {/* Service topology graph */}
       {graphNodes.length > 0 && (
-        <div className={styles.section}>
+        <div className={isFullscreen ? styles.graphFullscreen : styles.section}>
           <div className={styles.topologyHeader}>
             <h3 className={styles.sectionTitle}>Service Topology</h3>
-            {onDepthChange && (
-              <div className={styles.depthControl}>
-                <span className={styles.depthLabel}>Hops:</span>
-                <RadioButtonGroup size="sm" options={DEPTH_OPTIONS} value={depth} onChange={(v) => onDepthChange(v)} />
-              </div>
-            )}
+            <div className={styles.depthControl}>
+              {onDepthChange && (
+                <>
+                  <span className={styles.depthLabel}>Hops:</span>
+                  <RadioButtonGroup
+                    size="sm"
+                    options={DEPTH_OPTIONS}
+                    value={depth}
+                    onChange={(v) => onDepthChange(v)}
+                  />
+                </>
+              )}
+              <CopyMermaidButton nodes={graphNodes} edges={graphEdges} direction="RIGHT" />
+              <IconButton
+                name={isFullscreen ? 'compress-arrows' : 'expand-arrows'}
+                tooltip={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
+                size="md"
+                onClick={toggleFullscreen}
+              />
+            </div>
           </div>
-          <div className={styles.graphPanel}>
-            <div style={{ height: 400 }}>
+          <div className={styles.graphPanel} style={isFullscreen ? { flex: 1 } : undefined}>
+            <div style={{ height: isFullscreen ? '100%' : 400 }}>
               <ServiceGraph
                 nodes={graphNodes}
                 edges={graphEdges}
@@ -372,6 +403,15 @@ const getStyles = (theme: GrafanaTheme2) => ({
     border-radius: ${theme.shape.radius.default};
     padding: ${theme.spacing(1)};
     overflow: hidden;
+  `,
+  graphFullscreen: css`
+    position: fixed;
+    inset: 0;
+    z-index: 1100;
+    background: ${theme.colors.background.canvas};
+    display: flex;
+    flex-direction: column;
+    padding: ${theme.spacing(2)};
   `,
   connectedGrid: css`
     display: grid;
