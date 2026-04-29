@@ -99,6 +99,32 @@ describe('FavoritesStore', () => {
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
+  it('replaceAll replaces all favorites and persists', () => {
+    store.toggle('old/svc');
+    expect(store.isFavorite('old/svc')).toBe(true);
+
+    store.replaceAll(new Set(['new/a', 'new/b']));
+    expect(store.isFavorite('old/svc')).toBe(false);
+    expect(store.isFavorite('new/a')).toBe(true);
+    expect(store.isFavorite('new/b')).toBe(true);
+    expect(store.getSnapshot().size).toBe(2);
+    expect(mockStorage.save).toHaveBeenLastCalledWith(expect.arrayContaining(['new/a', 'new/b']));
+  });
+
+  it('replaceAll notifies subscribers', () => {
+    const listener = jest.fn();
+    store.subscribe(listener);
+    store.replaceAll(new Set(['ns/a']));
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it('replaceAll with empty set clears all favorites', () => {
+    store.toggle('ns/svc');
+    store.replaceAll(new Set());
+    expect(store.getSnapshot().size).toBe(0);
+    expect(mockStorage.save).toHaveBeenLastCalledWith([]);
+  });
+
   it('unsubscribe stops notifications', () => {
     const listener = jest.fn();
     const unsub = store.subscribe(listener);

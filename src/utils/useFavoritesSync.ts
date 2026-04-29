@@ -4,7 +4,7 @@ import { favoritesStore } from './favoritesStorage';
 
 const REMOTE_KEY = 'favorites';
 
-interface PluginUserStorage {
+export interface PluginUserStorage {
   getItem(key: string): Promise<string | null>;
   setItem(key: string, value: string): Promise<void>;
 }
@@ -21,19 +21,32 @@ function createUserStorage(pluginId: string): PluginUserStorage | null {
       return new UserStorage(pluginId);
     }
   } catch {
-    // Not available
+    // Not available (e.g., test environment)
   }
   return null;
+}
+
+/** Parse and validate a remote favorites JSON string into a Set. */
+function parseRemoteFavorites(raw: string): Set<string> | null {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return null;
+    }
+    return new Set(parsed.filter((s): s is string => typeof s === 'string' && s.includes('/')));
+  } catch {
+    return null;
+  }
 }
 
 /**
  * Syncs the local FavoritesStore with Grafana's per-user backend storage.
  *
- * Strategy:
- * - On mount: load remote favorites and merge with local (union of both sets)
- * - On local change: debounce-write to remote
- * - localStorage remains the fast/synchronous source for rendering
- * - Grafana user storage provides cross-device persistence
+ * Model: **remote-authoritative**
+ * - localStorage is a fast cache for instant rendering (no loading flash)
+ * - On mount: remote state replaces local state (deletions propagate across devices)
+ * - If remote is empty and local has data, local is seeded to remote (one-time migration)
+ * - On user toggle: optimistic local update + debounced write-through to remote
  *
  * Call this hook once at the app root level.
  */
@@ -41,12 +54,13 @@ export function useFavoritesSync(): void {
   const context = usePluginContext();
   const pluginId = context?.meta.id ?? null;
 
-  // Create storage instance once — stable across renders for the same pluginId
+  // Stable storage instance for the lifetime of the plugin
   const storage = useMemo(() => (pluginId ? createUserStorage(pluginId) : null), [pluginId]);
 
-  const isSyncing = useRef(false);
+  // Write-through is only enabled after initial hydration completes
+  const hydrated = useRef(false);
 
-  // On mount: hydrate from remote
+  // Hydrate: load remote state → replace local
   useEffect(() => {
     if (!storage) {
       return;
@@ -59,36 +73,26 @@ export function useFavoritesSync(): void {
         if (cancelled) {
           return;
         }
-        if (!raw) {
-          // Remote is empty — push local state to remote as initial seed
+
+        if (raw) {
+          // Remote has data — it is authoritative, replace local
+          const remote = parseRemoteFavorites(raw);
+          if (remote) {
+            favoritesStore.replaceAll(remote);
+          }
+        } else {
+          // Remote is empty — seed from local (one-time migration)
           const local = [...favoritesStore.getSnapshot()];
           if (local.length > 0) {
             await storage!.setItem(REMOTE_KEY, JSON.stringify(local));
           }
-          return;
-        }
-
-        const remote: string[] = JSON.parse(raw);
-        if (!Array.isArray(remote)) {
-          return;
-        }
-
-        // Merge: union of local + remote (both sources may have unique entries)
-        const local = favoritesStore.getSnapshot();
-        const merged = new Set([...local, ...remote.filter((s) => typeof s === 'string' && s.includes('/'))]);
-
-        // Only update if there are new entries from remote
-        if (merged.size > local.size) {
-          isSyncing.current = true;
-          for (const key of merged) {
-            if (!local.has(key)) {
-              favoritesStore.toggle(key);
-            }
-          }
-          isSyncing.current = false;
         }
       } catch {
-        // Silently ignore — localStorage continues working as fallback
+        // Remote unavailable — localStorage continues working as standalone fallback
+      }
+
+      if (!cancelled) {
+        hydrated.current = true;
       }
     }
 
@@ -98,7 +102,7 @@ export function useFavoritesSync(): void {
     };
   }, [storage]);
 
-  // Subscribe to local changes and write-through to remote (debounced)
+  // Write-through: debounced sync of local changes to remote
   useEffect(() => {
     if (!storage) {
       return;
@@ -106,7 +110,9 @@ export function useFavoritesSync(): void {
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
     const unsubscribe = favoritesStore.subscribe(() => {
-      if (isSyncing.current) {
+      // Suppress write-through until hydration is complete to avoid
+      // writing stale local state back to remote
+      if (!hydrated.current) {
         return;
       }
 
@@ -116,7 +122,7 @@ export function useFavoritesSync(): void {
       timeoutId = setTimeout(() => {
         const current = [...favoritesStore.getSnapshot()];
         storage!.setItem(REMOTE_KEY, JSON.stringify(current)).catch(() => {
-          // Silently ignore write failures — localStorage is the fallback
+          // Silently ignore — localStorage has the data, next toggle retries
         });
       }, 1000); // 1s debounce to batch rapid toggles
     });

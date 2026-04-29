@@ -100,6 +100,13 @@ export class FavoritesStore {
     this.notify();
   }
 
+  /** Replace all favorites at once (used by sync layer to apply remote state). */
+  replaceAll(keys: Set<string>): void {
+    this.snapshot = keys;
+    this.storage.save([...keys]);
+    this.notify();
+  }
+
   isFavorite(key: string): boolean {
     return this.snapshot.has(key);
   }
