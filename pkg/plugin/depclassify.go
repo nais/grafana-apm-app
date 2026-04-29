@@ -109,15 +109,58 @@ func inferFromName(name string) string {
 	case strings.Contains(lower, "redis") || strings.Contains(lower, "valkey") ||
 		strings.HasSuffix(lower, ".aivencloud.com"):
 		return "redis"
-	case looksLikeHostname(lower):
+	case isExternalHostname(lower):
 		return "external"
 	default:
 		return "service"
 	}
 }
 
+// isExternalHostname returns true if the name looks like an external hostname
+// rather than a Kubernetes internal service address (service.namespace).
+//
+// Heuristic:
+//   - 1 part (no dots): internal K8s service name
+//   - 2 parts: check if the second part is a known TLD (.no, .com, .io, etc.)
+//     If yes → external (e.g., "idporten.no"). If no → internal K8s (e.g.,
+//     "sokos-kontoregister-person.okonomi" where "okonomi" is a namespace).
+//   - 3+ parts: external (e.g., "graph.microsoft.com", "pdl-api.prod-fss-pub.nais.io")
+func isExternalHostname(name string) bool {
+	// host:port with dots in the host part → check the host
+	if strings.Contains(name, ":") {
+		host, _, _ := strings.Cut(name, ":")
+		return isExternalHostname(host)
+	}
+	// K8s FQDN patterns → internal
+	if strings.Contains(name, ".svc.") || strings.HasSuffix(name, ".svc") {
+		return false
+	}
+	parts := strings.Split(name, ".")
+	switch len(parts) {
+	case 1:
+		return false // bare service name
+	case 2:
+		// 2-part: external only if the suffix is a known TLD
+		return isKnownTLD(parts[1])
+	default:
+		return true // 3+ parts → external hostname
+	}
+}
+
+// isKnownTLD returns true if the suffix matches a recognized top-level domain.
+// This distinguishes "idporten.no" (external) from "norg2.org-namespace" (K8s).
+func isKnownTLD(suffix string) bool {
+	switch strings.ToLower(suffix) {
+	case "com", "org", "net", "io", "no", "se", "dk", "fi", "uk", "de", "fr",
+		"eu", "dev", "app", "cloud", "edu", "gov", "mil", "int", "biz", "info",
+		"co", "us", "ca", "au", "nl", "be", "ch", "at", "pl", "it", "es", "pt":
+		return true
+	}
+	return false
+}
+
 // looksLikeHostname returns true if the name contains dots or colons (host:port),
-// indicating an external hostname rather than an internal service name.
+// indicating a hostname rather than a bare service name.
 func looksLikeHostname(name string) bool {
 	return strings.Contains(name, ".") || strings.Contains(name, ":")
 }

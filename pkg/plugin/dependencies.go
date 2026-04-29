@@ -33,9 +33,10 @@ func (a *App) handleServiceDependencies(w http.ResponseWriter, req *http.Request
 	}
 
 	now := time.Now()
+	from := parseUnixParam(req, "from", now.Add(-1*time.Hour))
 	to := parseUnixParam(req, "to", now)
 
-	deps := a.queryDependencies(ctx, to, service, "", namespace, filterEnv)
+	deps := a.queryDependencies(ctx, from, to, service, "", namespace, filterEnv)
 	writeJSON(w, DependenciesResponse{Dependencies: deps})
 }
 
@@ -55,9 +56,10 @@ func (a *App) handleGlobalDependencies(w http.ResponseWriter, req *http.Request)
 	}
 
 	now := time.Now()
+	from := parseUnixParam(req, "from", now.Add(-1*time.Hour))
 	to := parseUnixParam(req, "to", now)
 
-	deps := a.queryDependencies(ctx, to, "", "", "", filterEnv)
+	deps := a.queryDependencies(ctx, from, to, "", "", "", filterEnv)
 	writeJSON(w, DependenciesResponse{Dependencies: deps})
 }
 
@@ -84,9 +86,10 @@ func (a *App) handleNamespaceDependencies(w http.ResponseWriter, req *http.Reque
 	}
 
 	now := time.Now()
+	from := parseUnixParam(req, "from", now.Add(-1*time.Hour))
 	to := parseUnixParam(req, "to", now)
 
-	deps := a.queryNamespaceDependencies(ctx, to, namespace, filterEnv)
+	deps := a.queryNamespaceDependencies(ctx, from, to, namespace, filterEnv)
 	writeJSON(w, NamespaceDependenciesResponse{Dependencies: deps})
 }
 
@@ -97,7 +100,7 @@ func (a *App) handleNamespaceDependencies(w http.ResponseWriter, req *http.Reque
 // 4. Aggregating per-target with callerCount
 func (a *App) queryNamespaceDependencies(
 	ctx context.Context,
-	to time.Time,
+	from, to time.Time,
 	namespace, filterEnv string,
 ) []NamespaceDependency {
 	nsMap := a.buildServiceNamespaceMap(ctx, to, filterEnv)
@@ -116,7 +119,7 @@ func (a *App) queryNamespaceDependencies(
 	// Filter service graph edges by environment when specified.
 	// Namespace dependencies need ALL edges (no per-service filter) since
 	// we aggregate across all services in the namespace.
-	edges := a.queryServiceGraphEdges(ctx, to, filterEnv, "")
+	edges := a.queryServiceGraphEdges(ctx, from, to, filterEnv, "")
 
 	// Build db_system and messaging_system maps from edge-level labels.
 	// Service graph metrics now carry these directly — no spanmetrics cross-fetch needed.
@@ -235,14 +238,14 @@ func (a *App) handleDependencyDetail(w http.ResponseWriter, req *http.Request) {
 // as an external label from Mimir (set per-cluster by the collector).
 func (a *App) queryDependencies(
 	ctx context.Context,
-	to time.Time,
+	from, to time.Time,
 	filterClient string,
 	filterServer string,
 	_ string,
 	filterEnvironment string,
 ) []DependencySummary {
 	logger := log.DefaultLogger.With("handler", "dependencies")
-	rangeStr := "[5m]"
+	rangeStr := computeRangeStr(from, to)
 	sgp := a.serviceGraphPrefix()
 	ct := a.otelCfg.Labels.ConnectionType
 
@@ -373,17 +376,15 @@ func (a *App) queryDependencies(
 		totalImpact += d.p95 * d.rate
 	}
 
-	// Build response — skip entries with empty or placeholder names,
-	// and skip internal services (type "service") since they have their own overview page.
+	// Build response — skip entries with empty or placeholder names.
+	// Internal services (type "service") are kept because they are real
+	// downstream dependencies that affect this service's health.
 	result := make([]DependencySummary, 0, len(deps))
 	for key, d := range deps {
 		if key.server == "" || key.server == "unknown" || key.server == "<unknown>" {
 			continue
 		}
 		depType := classifyDependency(key.server, key.connType, dbSystemMap, messagingSystemMap)
-		if depType == "service" {
-			continue
-		}
 		errPct := calculateErrorRate(d.errorRate, d.rate)
 		impact := 0.0
 		if totalImpact > 0 {

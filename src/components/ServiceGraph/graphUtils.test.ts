@@ -102,20 +102,12 @@ describe('isDormant', () => {
 // ---------------------------------------------------------------------------
 
 describe('computeVisibility', () => {
-  // Helper to create a node
+  // Helper to create a node with a specific rate
   const node = (id: string, mainStat = '10 req/s', errorRate = 0.01): ServiceGraphNode => ({
     id,
     title: id,
     mainStat,
     errorRate,
-  });
-
-  // Helper to create a dormant node (below thresholds)
-  const dormant = (id: string): ServiceGraphNode => ({
-    id,
-    title: id,
-    mainStat: '0.0 req/s',
-    errorRate: 0,
   });
 
   const edge = (source: string, target: string): ServiceGraphEdge => ({
@@ -135,119 +127,92 @@ describe('computeVisibility', () => {
   });
 
   describe('small graph (<=8 nodes)', () => {
-    it('returns all nodes even with dormant ones when graph is small', () => {
+    it('returns all nodes when graph has 8 or fewer', () => {
       const focus = node('focus');
-      const nodes = [focus, dormant('d1'), dormant('d2'), dormant('d3')];
-      const edges = [edge('d1', 'focus'), edge('d2', 'focus'), edge('d3', 'focus')];
+      const nodes = [focus, node('a1'), node('a2'), node('a3')];
+      const edges = [edge('a1', 'focus'), edge('a2', 'focus'), edge('a3', 'focus')];
       const result = computeVisibility(nodes, edges, 'focus', false, false);
       expect(result.visibleNodes).toBe(nodes);
       expect(result.visibleEdges).toBe(edges);
     });
   });
 
-  describe('large graph with dormant collapsing', () => {
-    // Build a graph with 9+ nodes: 1 focus, 4 dormant callers, 4 active targets
+  describe('overflow target collapsing', () => {
+    // Build a graph with 1 focus + 12 targets (exceeds MAX_VISIBLE_PER_SIDE=8)
     const focusN = node('focus');
-    const activeCallers = [node('ac1'), node('ac2')];
-    const dormantCallers = [dormant('dc1'), dormant('dc2'), dormant('dc3'), dormant('dc4')];
-    const activeTargets = [node('at1'), node('at2')];
-    const allNodes = [focusN, ...activeCallers, ...dormantCallers, ...activeTargets];
-    const allEdges = [
-      // Callers → focus
-      edge('ac1', 'focus'),
-      edge('ac2', 'focus'),
-      edge('dc1', 'focus'),
-      edge('dc2', 'focus'),
-      edge('dc3', 'focus'),
-      edge('dc4', 'focus'),
-      // Focus → targets
-      edge('focus', 'at1'),
-      edge('focus', 'at2'),
-    ];
+    const targets = Array.from({ length: 12 }, (_, i) => node(`t${i}`, `${12 - i} req/s`));
+    const allNodes = [focusN, ...targets];
+    const allEdges = targets.map((t) => edge('focus', t.id));
 
-    it('collapses 4 dormant callers into a single placeholder', () => {
+    it('caps targets at 8, collapsing the lowest-rate ones', () => {
       const result = computeVisibility(allNodes, allEdges, 'focus', false, false);
-      // 9 original - 4 dormant + 1 placeholder = 6
-      expect(result.visibleNodes).toHaveLength(6);
-      const placeholder = result.visibleNodes.find((n) => n.id === DORMANT_CALLERS_ID);
-      expect(placeholder).toBeDefined();
-      expect(placeholder!.title).toBe('+4 dormant');
-    });
-
-    it('replaces multiple dormant caller edges with a single collapse edge', () => {
-      const result = computeVisibility(allNodes, allEdges, 'focus', false, false);
-      const collapseEdge = result.visibleEdges.find((e) => e.source === DORMANT_CALLERS_ID);
-      expect(collapseEdge).toBeDefined();
-      expect(collapseEdge!.target).toBe('focus');
-      // Should be exactly 1 collapse edge, not 4
-      const collapseEdges = result.visibleEdges.filter((e) => e.source === DORMANT_CALLERS_ID);
-      expect(collapseEdges).toHaveLength(1);
-    });
-
-    it('keeps active caller edges intact', () => {
-      const result = computeVisibility(allNodes, allEdges, 'focus', false, false);
-      expect(result.visibleEdges.find((e) => e.source === 'ac1')).toBeDefined();
-      expect(result.visibleEdges.find((e) => e.source === 'ac2')).toBeDefined();
-    });
-
-    it('shows all nodes when expandedCallers is true', () => {
-      const result = computeVisibility(allNodes, allEdges, 'focus', true, false);
-      // All 9 original nodes, no placeholders
-      expect(result.visibleNodes).toHaveLength(9);
-      expect(result.visibleNodes.find((n) => n.id === DORMANT_CALLERS_ID)).toBeUndefined();
-    });
-  });
-
-  describe('dormant targets collapsing', () => {
-    const focusN = node('focus');
-    const dormantTargets = [dormant('dt1'), dormant('dt2'), dormant('dt3')];
-    // Need 9+ total nodes for collapsing to kick in
-    const fillerCallers = [node('c1'), node('c2'), node('c3'), node('c4'), node('c5')];
-    const allNodes = [focusN, ...dormantTargets, ...fillerCallers];
-    const allEdges = [
-      edge('focus', 'dt1'),
-      edge('focus', 'dt2'),
-      edge('focus', 'dt3'),
-      ...fillerCallers.map((c) => edge(c.id, 'focus')),
-    ];
-
-    it('collapses 3 dormant targets into a placeholder', () => {
-      const result = computeVisibility(allNodes, allEdges, 'focus', false, false);
+      // 1 focus + 8 targets + 1 placeholder = 10
+      expect(result.visibleNodes).toHaveLength(10);
       const placeholder = result.visibleNodes.find((n) => n.id === DORMANT_TARGETS_ID);
       expect(placeholder).toBeDefined();
-      expect(placeholder!.title).toBe('+3 dormant');
+      expect(placeholder!.title).toBe('+4 more');
     });
 
-    it('shows all nodes when expandedTargets is true', () => {
+    it('keeps the highest-rate targets visible', () => {
+      const result = computeVisibility(allNodes, allEdges, 'focus', false, false);
+      // t0 (12 req/s) through t7 (5 req/s) should be visible
+      for (let i = 0; i < 8; i++) {
+        expect(result.visibleNodes.find((n) => n.id === `t${i}`)).toBeDefined();
+      }
+      // t8 through t11 should be hidden
+      for (let i = 8; i < 12; i++) {
+        expect(result.visibleNodes.find((n) => n.id === `t${i}`)).toBeUndefined();
+      }
+    });
+
+    it('replaces hidden edges with a single collapse edge', () => {
+      const result = computeVisibility(allNodes, allEdges, 'focus', false, false);
+      const collapseEdges = result.visibleEdges.filter((e) => e.target === DORMANT_TARGETS_ID);
+      expect(collapseEdges).toHaveLength(1);
+      expect(collapseEdges[0].source).toBe('focus');
+    });
+
+    it('shows all targets when expandedTargets is true', () => {
       const result = computeVisibility(allNodes, allEdges, 'focus', false, true);
+      expect(result.visibleNodes).toHaveLength(13); // all original
       expect(result.visibleNodes.find((n) => n.id === DORMANT_TARGETS_ID)).toBeUndefined();
-      expect(result.visibleNodes).toHaveLength(9); // all original
     });
   });
 
-  describe('threshold: fewer than 3 dormant does not collapse', () => {
+  describe('overflow caller collapsing', () => {
     const focusN = node('focus');
-    const nodes = [
-      focusN,
-      dormant('d1'),
-      dormant('d2'),
-      node('a1'),
-      node('a2'),
-      node('a3'),
-      node('a4'),
-      node('a5'),
-      node('a6'),
-    ];
-    const edges = [
-      edge('d1', 'focus'),
-      edge('d2', 'focus'),
-      ...['a1', 'a2', 'a3', 'a4', 'a5', 'a6'].map((id) => edge(id, 'focus')),
-    ];
+    const callers = Array.from({ length: 10 }, (_, i) => node(`c${i}`, `${10 - i} req/s`));
+    const allNodes = [focusN, ...callers];
+    const allEdges = callers.map((c) => edge(c.id, 'focus'));
 
-    it('does not collapse with only 2 dormant callers', () => {
-      const result = computeVisibility(nodes, edges, 'focus', false, false);
+    it('caps callers at 8, collapsing the lowest-rate ones', () => {
+      const result = computeVisibility(allNodes, allEdges, 'focus', false, false);
+      // 1 focus + 8 callers + 1 placeholder = 10
+      expect(result.visibleNodes).toHaveLength(10);
+      const placeholder = result.visibleNodes.find((n) => n.id === DORMANT_CALLERS_ID);
+      expect(placeholder).toBeDefined();
+      expect(placeholder!.title).toBe('+2 more');
+    });
+
+    it('shows all callers when expandedCallers is true', () => {
+      const result = computeVisibility(allNodes, allEdges, 'focus', true, false);
+      expect(result.visibleNodes).toHaveLength(11); // all original
       expect(result.visibleNodes.find((n) => n.id === DORMANT_CALLERS_ID)).toBeUndefined();
-      expect(result.visibleNodes).toHaveLength(9); // all original
+    });
+  });
+
+  describe('no collapsing when within limit', () => {
+    const focusN = node('focus');
+    // 8 callers (exactly at limit) + 1 target = 10 total nodes (>8 so function runs)
+    const callers = Array.from({ length: 8 }, (_, i) => node(`c${i}`));
+    const target = node('target');
+    const allNodes = [focusN, ...callers, target];
+    const allEdges = [...callers.map((c) => edge(c.id, 'focus')), edge('focus', 'target')];
+
+    it('does not collapse when callers = 8 (at limit, not over)', () => {
+      const result = computeVisibility(allNodes, allEdges, 'focus', false, false);
+      expect(result.visibleNodes.find((n) => n.id === DORMANT_CALLERS_ID)).toBeUndefined();
+      expect(result.visibleNodes).toHaveLength(10); // all original
     });
   });
 });
