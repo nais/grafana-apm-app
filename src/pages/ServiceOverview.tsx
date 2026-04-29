@@ -300,10 +300,15 @@ function ServiceOverview() {
               dependencies={depsResp?.dependencies}
               service={service}
               onViewAllOperations={() => setActiveTab('server')}
+              onViewAllDependencies={() => setActiveTab('dependencies')}
               onViewTraces={caps?.tempo?.available !== false ? onViewTraces : undefined}
               onNavigateService={onNavigateService}
-              onNavigateDependency={(depName: string) => {
-                setActiveTab('dependencies');
+              onNavigateDependency={(depName: string, depType: string) => {
+                if (depType === 'service') {
+                  appNavigate(`services/_/${encodeURIComponent(depName)}`);
+                } else {
+                  appNavigate(`dependencies/${encodeURIComponent(depName)}`);
+                }
               }}
             />
           </div>

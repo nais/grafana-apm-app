@@ -166,9 +166,17 @@ func TestInferFromName(t *testing.T) {
 		{"valkey substring", "test-valkey-01", "redis"},
 		{"aiven redis", "my-app-redis-01.aivencloud.com", "redis"},
 		{"aiven non-redis", "other-thing.aivencloud.com", "redis"},
-		{"regular service", "my-other-app", "service"},
-		{"external domain", "idporten.no", "external"},
-		{"external domain with subdomain", "graph.microsoft.com", "external"},
+		{"regular service", "some-service", "service"},
+		{"k8s service.namespace", "sokos-kontoregister-person.okonomi", "service"},
+		{"k8s service.namespace 2", "digdir-krr-proxy.team-rocket", "service"},
+		{"k8s service.namespace 3", "sf-henvendelse-api-proxy.teamnks", "service"},
+		{"k8s service.namespace 4", "repr-api.repr", "service"},
+		{"k8s service.namespace 5", "spokelse.tbd", "service"},
+		{"external 2-part TLD", "idporten.no", "external"},
+		{"external 2-part com", "example.com", "external"},
+		{"external 3-part", "graph.microsoft.com", "external"},
+		{"external nais ingress", "pdl-api.prod-fss-pub.nais.io", "external"},
+		{"external nav cloud", "personoversikt-unleash-api.nav.cloud.nais.io", "external"},
 		{"case insensitive redis", "REDIS", "redis"},
 		{"case insensitive kafka", "Kafka", "kafka"},
 	}
@@ -335,4 +343,39 @@ func TestAddressMatchRegexRoundTrip(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestIsExternalHostname(t *testing.T) {
+tests := []struct {
+name     string
+input    string
+external bool
+}{
+// Internal K8s names
+{"bare service", "norg2", false},
+{"service.namespace", "sokos-kontoregister-person.okonomi", false},
+{"service.namespace 2", "digdir-krr-proxy.team-rocket", false},
+{"service with svc suffix", "my-app.ns.svc", false},
+{"service with svc.cluster", "my-app.ns.svc.cluster.local", false},
+{"port on bare name", "redis:6379", false},
+{"port on k8s name", "my-app.ns:8080", false},
+// External hostnames
+{"2-part with .no TLD", "idporten.no", true},
+{"2-part with .com TLD", "example.com", true},
+{"2-part with .io TLD", "grafana.io", true},
+{"2-part with .org TLD", "norg2.org", true},
+{"3-part hostname", "graph.microsoft.com", true},
+{"4-part hostname", "pdl-api.prod-fss-pub.nais.io", true},
+{"nav cloud", "personoversikt-unleash-api.nav.cloud.nais.io", true},
+{"with port 443", "login.microsoftonline.com:443", true},
+{"with port 80", "api.example.com:80", true},
+}
+for _, tc := range tests {
+t.Run(tc.name, func(t *testing.T) {
+got := isExternalHostname(tc.input)
+if got != tc.external {
+t.Errorf("isExternalHostname(%q) = %v, want %v", tc.input, got, tc.external)
+}
+})
+}
 }

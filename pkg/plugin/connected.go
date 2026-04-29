@@ -35,15 +35,16 @@ func (a *App) handleConnectedServices(w http.ResponseWriter, req *http.Request) 
 	}
 
 	now := time.Now()
+	from := parseUnixParam(req, "from", now.Add(-1*time.Hour))
 	to := parseUnixParam(req, "to", now)
 
-	resp := a.queryConnectedServices(ctx, to, service, filterEnv)
+	resp := a.queryConnectedServices(ctx, from, to, service, filterEnv)
 	writeJSON(w, resp)
 }
 
-func (a *App) queryConnectedServices(ctx context.Context, to time.Time, service, filterEnvironment string) ConnectedServicesResponse {
+func (a *App) queryConnectedServices(ctx context.Context, from, to time.Time, service, filterEnvironment string) ConnectedServicesResponse {
 	logger := log.DefaultLogger.With("handler", "connected-services")
-	rangeStr := "[5m]"
+	rangeStr := computeRangeStr(from, to)
 	sgp := a.serviceGraphPrefix()
 	cfg := a.otelCfg
 
@@ -118,10 +119,29 @@ func (a *App) queryConnectedServices(ctx context.Context, to time.Time, service,
 		cfg.Labels.HTTPHost, escapedSvc, envLabelFilter, rangeStr,
 	)
 
+	// Outbound spanmetrics supplement: discover external targets not in the
+	// service graph (e.g., Azure AD, APIs in other clusters). The service
+	// graph only generates edges when both client + server report to the same
+	// Tempo instance.
+	smOutRateQ := fmt.Sprintf(
+		`sum by (%s, %s, %s) (rate(%s{%s="%s", %s="%s", %s!=""%s}%s))`,
+		cfg.Labels.ServerAddress, cfg.Labels.DBSystem, cfg.Labels.MessagingSystem,
+		a.callsMetric(ctx), cfg.Labels.SpanKind, cfg.SpanKinds.Client,
+		cfg.Labels.ServiceName, service, cfg.Labels.ServerAddress, envLabelFilter, rangeStr,
+	)
+	smOutErrQ := fmt.Sprintf(
+		`sum by (%s) (rate(%s{%s="%s", %s="%s", %s="%s", %s!=""%s}%s))`,
+		cfg.Labels.ServerAddress,
+		a.callsMetric(ctx), cfg.Labels.SpanKind, cfg.SpanKinds.Client,
+		cfg.Labels.ServiceName, service,
+		cfg.Labels.StatusCode, cfg.StatusCodes.Error, cfg.Labels.ServerAddress, envLabelFilter, rangeStr,
+	)
+
 	jobs := []QueryJob{
 		{"outRate", outRateQ}, {"outErr", outErrQ}, {"outP95", outP95Q},
 		{"inRate", inRateQ}, {"inErr", inErrQ}, {"inP95", inP95Q},
 		{"smInRate", smInRateQ}, {"smInErr", smInErrQ},
+		{"smOutRate", smOutRateQ}, {"smOutErr", smOutErrQ},
 	}
 
 	resultMap := a.runInstantQueries(ctx, to, jobs, logger)
@@ -191,6 +211,24 @@ func (a *App) queryConnectedServices(ctx context.Context, to time.Time, service,
 
 	outbound := buildList("outRate", "outErr", "outP95", cfg.Labels.Server)
 	inbound := buildList("inRate", "inErr", "inP95", cfg.Labels.Client)
+
+	// Merge spanmetrics outbound targets (external services not in service graph)
+	smOutbound := buildList("smOutRate", "smOutErr", "", cfg.Labels.ServerAddress)
+	outboundNames := make(map[string]bool, len(outbound))
+	for _, s := range outbound {
+		outboundNames[strings.ToLower(s.Name)] = true
+	}
+	for i := range smOutbound {
+		smOutbound[i].Name = extractTopologyNodeName(smOutbound[i].Name)
+		if smOutbound[i].Name == "" || smOutbound[i].Name == service || outboundNames[strings.ToLower(smOutbound[i].Name)] {
+			continue // already in service graph results, self-reference, or empty
+		}
+		outboundNames[strings.ToLower(smOutbound[i].Name)] = true
+		outbound = append(outbound, smOutbound[i])
+	}
+	sort.Slice(outbound, func(i, j int) bool {
+		return outbound[i].Rate > outbound[j].Rate
+	})
 
 	// Merge spanmetrics inbound callers (discovered via server_address/http_host matching)
 	smInbound := buildList("smInRate", "smInErr", "", cfg.Labels.ServiceName)

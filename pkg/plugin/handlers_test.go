@@ -877,8 +877,9 @@ func TestServiceMapSpanmetricsFallback(t *testing.T) {
 		}
 	})
 
-	t.Run("skips fallback when service graph has results", func(t *testing.T) {
-		// Service graph returns data → no fallback needed
+	t.Run("always supplements outbound even when service graph has results", func(t *testing.T) {
+		// Service graph returns data → spanmetrics should still supplement outbound
+		// to discover external targets not in the service graph
 		results := map[string][]queries.PromResult{
 			`request_total{client="myservice"`: {
 				{
@@ -913,16 +914,28 @@ func TestServiceMapSpanmetricsFallback(t *testing.T) {
 			t.Fatalf("expected 200, got %d", w.Code)
 		}
 
-		// No spanmetrics queries should have been sent
+		// Outbound spanmetrics queries should always be sent (supplement)
+		hasOutboundSM := false
 		for _, q := range *captured {
-			if strings.Contains(q, "calls_total") {
-				t.Errorf("expected no spanmetrics fallback queries, but got: %s", q)
+			if strings.Contains(q, "calls_total") && strings.Contains(q, `service_name="myservice"`) {
+				hasOutboundSM = true
+				break
+			}
+		}
+		if !hasOutboundSM {
+			t.Error("expected outbound spanmetrics supplement queries, but none were sent")
+		}
+
+		// Inbound fallback should NOT fire (inRate had results)
+		for _, q := range *captured {
+			if strings.Contains(q, "calls_total") && strings.Contains(q, `server_address=~"myservice`) {
+				t.Errorf("inbound fallback should not fire when inRate has data, but got: %s", q)
 			}
 		}
 	})
 
-	t.Run("per-direction fallback: only inbound missing", func(t *testing.T) {
-		// outRate has results (service graph), inRate is empty → only inbound fallback
+	t.Run("per-direction: inbound fallback fires, outbound supplement always fires", func(t *testing.T) {
+		// outRate has results (service graph), inRate is empty → inbound fallback + outbound supplement
 		results := map[string][]queries.PromResult{
 			`request_total{client="myservice"`: {
 				{
@@ -969,11 +982,28 @@ func TestServiceMapSpanmetricsFallback(t *testing.T) {
 			}
 		}
 
-		// Should NOT have outbound spanmetrics queries (outRate was populated)
+		// Outbound spanmetrics should fire (always supplements)
+		hasOutboundSM := false
 		for _, q := range *captured {
 			if strings.Contains(q, "calls_total") && strings.Contains(q, `service_name="myservice"`) {
-				t.Errorf("outbound fallback should not fire when outRate has data, but got: %s", q)
+				hasOutboundSM = true
+				break
 			}
+		}
+		if !hasOutboundSM {
+			t.Error("expected outbound spanmetrics supplement, but none were sent")
+		}
+
+		// Inbound fallback should also fire (inRate was empty)
+		hasInboundSM := false
+		for _, q := range *captured {
+			if strings.Contains(q, "calls_total") && strings.Contains(q, `server_address=~"myservice`) {
+				hasInboundSM = true
+				break
+			}
+		}
+		if !hasInboundSM {
+			t.Error("expected inbound spanmetrics fallback, but none were sent")
 		}
 	})
 

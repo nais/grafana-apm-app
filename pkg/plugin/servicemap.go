@@ -54,6 +54,26 @@ func (a *App) handleServiceMap(w http.ResponseWriter, req *http.Request) {
 	writeJSON(w, graph)
 }
 
+// computeRangeStr derives a PromQL range duration from the dashboard time window.
+// It uses a floor of 5m (need enough samples for rate()) and a ceiling of 1h
+// (avoid over-smoothing). This ensures infrequent callers are visible when the
+// user has a wider dashboard time range.
+func computeRangeStr(from, to time.Time) string {
+	d := to.Sub(from)
+	switch {
+	case d <= 5*time.Minute:
+		return "[5m]"
+	case d <= 15*time.Minute:
+		return "[10m]"
+	case d <= 30*time.Minute:
+		return "[15m]"
+	case d <= time.Hour:
+		return "[30m]"
+	default:
+		return "[1h]"
+	}
+}
+
 // sgEdgeKey identifies a directed edge in the service graph.
 type sgEdgeKey struct {
 	client string
@@ -78,9 +98,9 @@ type sgEdgeData struct {
 // appears as either client or server. For large environments this is
 // critical — an unscoped query can time out when there are thousands
 // of service-to-service edges. When empty, all edges are returned.
-func (a *App) queryServiceGraphEdges(ctx context.Context, to time.Time, filterEnv, filterService string) map[sgEdgeKey]*sgEdgeData {
+func (a *App) queryServiceGraphEdges(ctx context.Context, from, to time.Time, filterEnv, filterService string) map[sgEdgeKey]*sgEdgeData {
 	logger := log.DefaultLogger.With("handler", "servicegraph")
-	rangeStr := "[5m]"
+	rangeStr := computeRangeStr(from, to)
 	sgp := a.serviceGraphPrefix()
 
 	labelFilter := envMatcher(a.otelCfg.Labels.DeploymentEnv, filterEnv)
@@ -89,7 +109,7 @@ func (a *App) queryServiceGraphEdges(ctx context.Context, to time.Time, filterEn
 	// server=X) and merge results. This is dramatically faster than fetching
 	// all edges and filtering client-side in large environments.
 	if filterService != "" {
-		return a.queryServiceGraphEdgesScoped(ctx, to, labelFilter, filterService)
+		return a.queryServiceGraphEdgesScoped(ctx, from, to, labelFilter, filterService)
 	}
 
 	rateQuery := fmt.Sprintf(
@@ -169,9 +189,9 @@ func (a *App) queryServiceGraphEdges(ctx context.Context, to time.Time, filterEn
 // queryServiceGraphEdgesScoped runs scoped queries for a single service
 // (client=X OR server=X) and merges results. This avoids the expensive
 // unscoped query that can time out in large environments.
-func (a *App) queryServiceGraphEdgesScoped(ctx context.Context, to time.Time, baseLabelFilter, service string) map[sgEdgeKey]*sgEdgeData {
+func (a *App) queryServiceGraphEdgesScoped(ctx context.Context, from, to time.Time, baseLabelFilter, service string) map[sgEdgeKey]*sgEdgeData {
 	logger := log.DefaultLogger.With("handler", "servicegraph-scoped", "service", service)
-	rangeStr := "[5m]"
+	rangeStr := computeRangeStr(from, to)
 	sgp := a.serviceGraphPrefix()
 	cfg := a.otelCfg
 
@@ -281,13 +301,17 @@ func (a *App) queryServiceGraphEdgesScoped(ctx context.Context, to time.Time, ba
 		}
 	}
 
-	// Spanmetrics fallback: if service graph metrics are missing for a direction,
-	// use CLIENT spanmetrics (calls_total) to discover edges. This handles
-	// environments where the Tempo service graph processor is not running.
-	outEmpty := len(resultMap["outRate"]) == 0
+	// Spanmetrics supplement: always query CLIENT spanmetrics to discover outbound
+	// edges that the service graph cannot see (external services, cross-cluster
+	// dependencies). The service graph only generates edges when both client and
+	// server spans exist in Tempo — external targets like Azure AD or APIs in
+	// other clusters won't appear. For inbound, only use as fallback when the
+	// service graph has no data (it's authoritative for inbound since callers
+	// are typically in the same Tempo).
+	needOutbound := true
 	inEmpty := len(resultMap["inRate"]) == 0
-	if outEmpty || inEmpty {
-		smEdges := a.querySpanmetricsTopologyFallback(ctx, to, baseLabelFilter, service, outEmpty, inEmpty)
+	if needOutbound || inEmpty {
+		smEdges := a.querySpanmetricsTopologyFallback(ctx, from, to, baseLabelFilter, service, needOutbound, inEmpty)
 		for k, v := range smEdges {
 			if _, exists := edges[k]; !exists {
 				edges[k] = v
@@ -303,11 +327,11 @@ func (a *App) queryServiceGraphEdgesScoped(ctx context.Context, to time.Time, ba
 // Tempo service graph processor). It queries calls_total with server_address and
 // http_host labels to find outbound and inbound connections.
 func (a *App) querySpanmetricsTopologyFallback(
-	ctx context.Context, to time.Time, baseLabelFilter, service string,
+	ctx context.Context, from, to time.Time, baseLabelFilter, service string,
 	needOutbound, needInbound bool,
 ) map[sgEdgeKey]*sgEdgeData {
 	logger := log.DefaultLogger.With("handler", "servicegraph-sm-fallback", "service", service)
-	rangeStr := "[5m]"
+	rangeStr := computeRangeStr(from, to)
 	cfg := a.otelCfg
 	callsMetric := a.callsMetric(ctx)
 
@@ -525,7 +549,7 @@ func extractTopologyNodeName(addr string) string {
 
 func (a *App) queryServiceMap( //nolint:gocyclo // complex due to filtering + node/edge assembly
 	ctx context.Context,
-	_, to time.Time,
+	from, to time.Time,
 	filterService, filterNamespace, filterEnvironment string,
 ) ServiceMapResponse {
 	// When a filterService is specified, pass it to queryServiceGraphEdges so
@@ -534,7 +558,7 @@ func (a *App) queryServiceMap( //nolint:gocyclo // complex due to filtering + no
 	// can time out in Mimir when there are thousands of services.
 	// When no filterService is specified (namespace-level view), the unscoped
 	// query is used and filtering happens post-query.
-	edges := a.queryServiceGraphEdges(ctx, to, filterEnvironment, filterService)
+	edges := a.queryServiceGraphEdges(ctx, from, to, filterEnvironment, filterService)
 
 	nodeSet := make(map[string]bool)
 	for k := range edges {

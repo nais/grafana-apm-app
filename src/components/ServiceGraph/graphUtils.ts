@@ -22,8 +22,10 @@ export interface VisibilityResult {
   visibleEdges: ServiceGraphEdge[];
 }
 
+const MAX_VISIBLE_PER_SIDE = 8;
+
 /**
- * Compute which nodes/edges are visible after collapsing dormant nodes.
+ * Compute which nodes/edges are visible after collapsing overflow nodes.
  * Pure function — no React dependencies.
  */
 export function computeVisibility(
@@ -49,48 +51,44 @@ export function computeVisibility(
     }
   }
 
-  // Partition dormant callers and targets
-  const dormantCallerNodes: ServiceGraphNode[] = [];
-  const dormantTargetNodes: ServiceGraphNode[] = [];
   const nodeMap = new Map(inputNodes.map((n) => [n.id, n]));
 
-  for (const id of callerIds) {
-    const n = nodeMap.get(id);
-    if (n && isDormant(n)) {
-      dormantCallerNodes.push(n);
-    }
-  }
-  for (const id of targetIds) {
-    const n = nodeMap.get(id);
-    if (n && isDormant(n)) {
-      dormantTargetNodes.push(n);
-    }
-  }
+  // Sort callers and targets by rate (highest first), then pick top N
+  const sortByRate = (ids: Set<string>) =>
+    [...ids]
+      .map((id) => nodeMap.get(id))
+      .filter(Boolean)
+      .sort((a, b) => parseReqRate(b!.mainStat) - parseReqRate(a!.mainStat)) as ServiceGraphNode[];
 
-  // Only collapse if there are 3+ dormant nodes on a side
-  const collapsCallers = !expandedCallers && dormantCallerNodes.length >= 3;
-  const collapsTargets = !expandedTargets && dormantTargetNodes.length >= 3;
+  const sortedCallers = sortByRate(callerIds);
+  const sortedTargets = sortByRate(targetIds);
 
-  const hiddenCallerIds = collapsCallers ? new Set(dormantCallerNodes.map((n) => n.id)) : new Set<string>();
-  const hiddenTargetIds = collapsTargets ? new Set(dormantTargetNodes.map((n) => n.id)) : new Set<string>();
+  // Determine which nodes to hide: overflow beyond MAX_VISIBLE_PER_SIDE
+  const hiddenCallerNodes =
+    !expandedCallers && sortedCallers.length > MAX_VISIBLE_PER_SIDE ? sortedCallers.slice(MAX_VISIBLE_PER_SIDE) : [];
+  const hiddenTargetNodes =
+    !expandedTargets && sortedTargets.length > MAX_VISIBLE_PER_SIDE ? sortedTargets.slice(MAX_VISIBLE_PER_SIDE) : [];
+
+  const hiddenCallerIds = new Set(hiddenCallerNodes.map((n) => n.id));
+  const hiddenTargetIds = new Set(hiddenTargetNodes.map((n) => n.id));
   const allHidden = new Set([...hiddenCallerIds, ...hiddenTargetIds]);
 
   // Build visible nodes
   const vNodes: ServiceGraphNode[] = inputNodes.filter((n) => !allHidden.has(n.id));
 
   // Add collapse placeholder nodes
-  if (collapsCallers) {
+  if (hiddenCallerNodes.length > 0) {
     vNodes.push({
       id: DORMANT_CALLERS_ID,
-      title: `+${dormantCallerNodes.length} dormant`,
+      title: `+${hiddenCallerNodes.length} more`,
       errorRate: 0,
       nodeType: 'service',
     });
   }
-  if (collapsTargets) {
+  if (hiddenTargetNodes.length > 0) {
     vNodes.push({
       id: DORMANT_TARGETS_ID,
-      title: `+${dormantTargetNodes.length} dormant`,
+      title: `+${hiddenTargetNodes.length} more`,
       errorRate: 0,
       nodeType: 'service',
     });

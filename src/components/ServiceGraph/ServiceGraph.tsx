@@ -44,6 +44,7 @@ interface ServiceGraphProps {
   edges: ServiceGraphEdge[];
   focusNode?: string;
   enableGrouping?: boolean;
+  groupBy?: 'namespace' | 'nodeType';
   enableWrapping?: boolean;
   direction?: 'RIGHT' | 'DOWN';
   onNodeClick?: (nodeId: string) => void;
@@ -70,6 +71,7 @@ function ServiceGraphInner({
   edges: inputEdges,
   focusNode,
   enableGrouping = false,
+  groupBy = 'namespace',
   enableWrapping = false,
   direction = 'RIGHT',
   onNodeClick,
@@ -130,27 +132,50 @@ function ServiceGraphInner({
     [visibleEdges]
   );
 
-  // Build groups from namespace if grouping is enabled
+  // Build groups if grouping is enabled
   const groups = useMemo(() => {
     if (!enableGrouping) {
       return undefined;
     }
-    const nsMap = new Map<string, string[]>();
-    for (const n of visibleNodes) {
-      if (n.namespace) {
-        const members = nsMap.get(n.namespace) ?? [];
+    const groupMap = new Map<string, string[]>();
+
+    if (groupBy === 'nodeType') {
+      const typeLabels: Record<string, string> = {
+        service: 'Services',
+        external: 'External',
+        database: 'Databases',
+        messaging: 'Messaging',
+      };
+      // Group by node type — skip the focus node so it stays ungrouped
+      for (const n of visibleNodes) {
+        if (n.id === focusNode) {
+          continue;
+        }
+        const key = typeLabels[n.nodeType ?? 'service'] ?? 'Services';
+        const members = groupMap.get(key) ?? [];
         members.push(n.id);
-        nsMap.set(n.namespace, members);
+        groupMap.set(key, members);
+      }
+    } else {
+      // Group by namespace
+      for (const n of visibleNodes) {
+        if (n.namespace) {
+          const members = groupMap.get(n.namespace) ?? [];
+          members.push(n.id);
+          groupMap.set(n.namespace, members);
+        }
       }
     }
+
+    // Only keep groups with 2+ members
     const filtered = new Map<string, string[]>();
-    for (const [ns, members] of nsMap) {
+    for (const [key, members] of groupMap) {
       if (members.length >= 2) {
-        filtered.set(ns, members);
+        filtered.set(key, members);
       }
     }
     return filtered.size > 0 ? filtered : undefined;
-  }, [visibleNodes, enableGrouping]);
+  }, [visibleNodes, enableGrouping, groupBy, focusNode]);
 
   const {
     nodes: layoutedNodes,

@@ -1,8 +1,8 @@
 import React, { Suspense } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useNavigate, useLocation } from 'react-router-dom';
 import { AppRootProps } from '@grafana/data';
 import { LoadingPlaceholder } from '@grafana/ui';
-import { ROUTES } from '../../constants';
+import { PLUGIN_BASE_URL, ROUTES } from '../../constants';
 import { useFavoritesSync } from '../../utils/useFavoritesSync';
 
 const ServiceInventory = React.lazy(() => import('../../pages/ServiceInventory'));
@@ -11,6 +11,17 @@ const NamespaceOverview = React.lazy(() => import('../../pages/NamespaceOverview
 const StatusBoard = React.lazy(() => import('../../pages/StatusBoard'));
 const Dependencies = React.lazy(() => import('../../pages/Dependencies'));
 const DependencyDetail = React.lazy(() => import('../../pages/DependencyDetail'));
+
+function FavoritesRedirect() {
+  const { search } = useLocation();
+  const navigate = useNavigate();
+  React.useEffect(() => {
+    const params = new URLSearchParams(search);
+    params.set('favorites', 'true');
+    navigate(`${PLUGIN_BASE_URL}/${ROUTES.Services}?${params.toString()}`, { replace: true });
+  }, [search, navigate]);
+  return null;
+}
 
 function App(props: AppRootProps) {
   // Sync favorites to Grafana's per-user backend storage for cross-device persistence
@@ -25,7 +36,7 @@ function App(props: AppRootProps) {
         <Route path={ROUTES.NamespaceOverview} element={<NamespaceOverview />} />
         <Route path={ROUTES.DependencyDetail} element={<DependencyDetail />} />
         <Route path={ROUTES.Dependencies} element={<Dependencies />} />
-        <Route path={ROUTES.Favorites} element={<Navigate to={`${ROUTES.Services}?favorites=true`} replace />} />
+        <Route path={ROUTES.Favorites} element={<FavoritesRedirect />} />
         <Route path={ROUTES.Services} element={<ServiceInventory />} />
         <Route path="/" element={<Navigate to={ROUTES.Services} replace />} />
         <Route path="*" element={<Navigate to={ROUTES.Services} replace />} />

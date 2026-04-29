@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.1 (2026-04-29)
+
+### Features
+
+- **Grouped Dependencies tab** — Dependencies are organized into sections (Attention, Databases & Messaging, Internal Services, External Services) with independent sorting per group.
+- **Graph node overflow cap** — Service topology graph caps visible nodes at 8 per side, sorted by request rate, with a clickable "+N more" placeholder for overflow.
+- **"View all in Dependencies tab" links** — Overview tab shows top-5 per dependency group with links that navigate to the full Dependencies tab.
+
+### Fixes
+
+- **K8s address classification** — Service names like `service.namespace` are now correctly classified as internal instead of external (TLD-aware hostname heuristic).
+- **Topology edge completeness** — Outbound topology edges are always supplemented from span metrics, with a dynamic rate window matching the dashboard time range.
+- **Favorites redirect preserves params** — Navigating to `/favorites` now preserves existing query params (env, sort, etc.) instead of dropping them.
+
 ## 0.8.0 (2026-04-29)
 
 ### Features

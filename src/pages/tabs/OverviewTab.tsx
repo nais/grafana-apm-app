@@ -5,9 +5,10 @@ import { css } from '@emotion/css';
 import { EmbeddedScene } from '@grafana/scenes';
 import { OperationSummary, ConnectedServicesResponse, DependencySummary } from '../../api/client';
 import { formatDuration, formatRate, formatErrorRate } from '../../utils/format';
-import { DepTypeIcon, formatDepType } from '../../components/DepTypeIcon';
+import { DepTypeIcon } from '../../components/DepTypeIcon';
 import { getSectionStyles } from '../../utils/styles';
 import { ServiceGraph, ServiceGraphNode, ServiceGraphEdge } from '../../components/ServiceGraph';
+import { groupDependencies } from '../../utils/depGroups';
 
 const MAX_OVERVIEW_OPS = 5;
 
@@ -23,9 +24,10 @@ interface OverviewTabProps {
   dependencies?: DependencySummary[];
   service: string;
   onViewAllOperations: () => void;
+  onViewAllDependencies?: () => void;
   onViewTraces?: (spanName: string, status?: string, spanKindRaw?: string) => void;
   onNavigateService: (name: string) => void;
-  onNavigateDependency?: (name: string) => void;
+  onNavigateDependency?: (name: string, type: string) => void;
 }
 
 export function OverviewTab({
@@ -40,6 +42,7 @@ export function OverviewTab({
   dependencies,
   service,
   onViewAllOperations,
+  onViewAllDependencies,
   onViewTraces,
   onNavigateService,
   onNavigateDependency,
@@ -140,7 +143,7 @@ export function OverviewTab({
         <div className={styles.section}>
           <h3 className={styles.sectionTitle}>Service Topology</h3>
           <div className={styles.graphPanel}>
-            <div style={{ height: 350 }}>
+            <div style={{ height: 400 }}>
               <ServiceGraph nodes={graphNodes} edges={graphEdges} focusNode={service} direction="RIGHT" />
             </div>
           </div>
@@ -166,7 +169,11 @@ export function OverviewTab({
               <div>
                 <h3 className={styles.sectionTitle}>Dependencies ({dependencies.length})</h3>
                 <p className={styles.sectionSubtitle}>Databases, APIs, and services this service calls.</p>
-                <DependenciesCompact dependencies={dependencies} onNavigate={onNavigateDependency} />
+                <DependenciesCompact
+                  dependencies={dependencies}
+                  onNavigate={onNavigateDependency}
+                  onViewAll={onViewAllDependencies}
+                />
               </div>
             )}
           </div>
@@ -247,49 +254,73 @@ function ConnectedTable({ services, onNavigate }: ConnectedTableProps) {
   );
 }
 
-// --- Dependencies compact list for overview ---
+// --- Dependencies compact list for overview (grouped) ---
+
+const MAX_GROUP_VISIBLE = 5;
 
 interface DependenciesCompactProps {
   dependencies: DependencySummary[];
-  onNavigate?: (name: string) => void;
+  onNavigate?: (name: string, type: string) => void;
+  onViewAll?: () => void;
 }
 
-function DependenciesCompact({ dependencies, onNavigate }: DependenciesCompactProps) {
+function DependenciesCompact({ dependencies, onNavigate, onViewAll }: DependenciesCompactProps) {
   const styles = useStyles2(getStyles);
-  const sorted = useMemo(() => [...dependencies].sort((a, b) => b.rate - a.rate), [dependencies]);
+  const groups = useMemo(() => groupDependencies(dependencies), [dependencies]);
 
   return (
-    <table className={styles.opsTable}>
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Type</th>
-          <th>Rate</th>
-          <th>Error %</th>
-          <th>P95</th>
-        </tr>
-      </thead>
-      <tbody>
-        {sorted.map((dep) => (
-          <tr
-            key={dep.name}
-            className={onNavigate ? styles.clickableRow : undefined}
-            onClick={onNavigate ? () => onNavigate(dep.name) : undefined}
-          >
-            <td className={styles.linkCell} title={dep.name}>
-              <DepTypeIcon type={dep.type} />
-              <span style={{ marginLeft: 6 }}>{dep.displayName || dep.name}</span>
-            </td>
-            <td className={styles.opKindCell}>{formatDepType(dep.type)}</td>
-            <td className={styles.opNumCell}>{formatRate(dep.rate)}</td>
-            <td className={dep.errorRate > 0 ? styles.opErrorCell : styles.opNumCell}>
-              {formatErrorRate(dep.errorRate)}
-            </td>
-            <td className={styles.opNumCell}>{formatDuration(dep.p95Duration, dep.durationUnit)}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div className={styles.depGroups}>
+      {groups.map((group) => (
+        <DepGroupSection key={group.key} group={group} onNavigate={onNavigate} onViewAll={onViewAll} styles={styles} />
+      ))}
+    </div>
+  );
+}
+
+interface DepGroupSectionProps {
+  group: { label: string; items: DependencySummary[]; key: string };
+  onNavigate?: (name: string, type: string) => void;
+  onViewAll?: () => void;
+  styles: ReturnType<typeof getStyles>;
+}
+
+function DepGroupSection({ group, onNavigate, onViewAll, styles }: DepGroupSectionProps) {
+  const visible = group.items.length > MAX_GROUP_VISIBLE ? group.items.slice(0, MAX_GROUP_VISIBLE) : group.items;
+  const hiddenCount = group.items.length - visible.length;
+
+  return (
+    <div className={styles.depGroup}>
+      <div className={styles.depGroupHeader}>
+        <span className={styles.depGroupLabel}>{group.label}</span>
+        <span className={styles.depGroupCount}>{group.items.length}</span>
+      </div>
+      <table className={styles.depsTable}>
+        <tbody>
+          {visible.map((dep) => (
+            <tr
+              key={dep.name}
+              className={onNavigate ? styles.clickableRow : undefined}
+              onClick={onNavigate ? () => onNavigate(dep.name, dep.type) : undefined}
+            >
+              <td className={styles.linkCell} title={dep.name}>
+                <DepTypeIcon type={dep.type} />
+                <span style={{ marginLeft: 6 }}>{dep.displayName || dep.name}</span>
+              </td>
+              <td className={styles.opNumCell}>{formatRate(dep.rate)}</td>
+              <td className={dep.errorRate > 0 ? styles.opErrorCell : styles.opNumCell}>
+                {formatErrorRate(dep.errorRate)}
+              </td>
+              <td className={styles.opNumCell}>{formatDuration(dep.p95Duration, dep.durationUnit)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {hiddenCount > 0 && onViewAll && (
+        <button className={styles.viewAllLink} onClick={onViewAll}>
+          View all {group.items.length} in Dependencies tab →
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -398,5 +429,53 @@ const getStyles = (theme: GrafanaTheme2) => ({
     font-variant-numeric: tabular-nums;
     color: ${theme.colors.error.text};
     font-weight: ${theme.typography.fontWeightMedium};
+  `,
+  depGroups: css`
+    display: flex;
+    flex-direction: column;
+    gap: ${theme.spacing(2)};
+  `,
+  depGroup: css`
+    &:not(:last-child) {
+      border-bottom: 1px solid ${theme.colors.border.weak};
+      padding-bottom: ${theme.spacing(1.5)};
+    }
+  `,
+  depGroupHeader: css`
+    display: flex;
+    align-items: center;
+    gap: ${theme.spacing(1)};
+    margin-bottom: ${theme.spacing(0.5)};
+  `,
+  depGroupLabel: css`
+    font-size: ${theme.typography.bodySmall.fontSize};
+    font-weight: ${theme.typography.fontWeightMedium};
+    color: ${theme.colors.text.secondary};
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  `,
+  depGroupCount: css`
+    font-size: ${theme.typography.bodySmall.fontSize};
+    color: ${theme.colors.text.disabled};
+  `,
+  depsTable: css`
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    table-layout: fixed;
+    td:nth-child(1) {
+      width: 50%;
+    }
+    td:nth-child(n + 2) {
+      width: 16%;
+      text-align: right;
+    }
+    td {
+      padding: ${theme.spacing(0.5)} ${theme.spacing(1)};
+      vertical-align: middle;
+    }
+    tr:hover {
+      background: ${theme.colors.background.secondary};
+    }
   `,
 });

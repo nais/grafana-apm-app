@@ -50,7 +50,8 @@ describe('DependenciesTab', () => {
     expect(screen.getByText(/Callers \(3\)/)).toBeInTheDocument();
     expect(screen.getByText(/Dependencies \(2\)/)).toBeInTheDocument();
     expect(screen.getByText('frontend')).toBeInTheDocument();
-    expect(screen.getByText('postgres:5432')).toBeInTheDocument();
+    // postgres:5432 appears in both Attention (has errors) and Databases groups
+    expect(screen.getAllByText('postgres:5432').length).toBeGreaterThanOrEqual(1);
   });
 
   it('shows empty state when both sections are empty', () => {
@@ -119,7 +120,8 @@ describe('DependenciesTab', () => {
       />
     );
 
-    fireEvent.click(screen.getByText('postgres:5432'));
+    // postgres:5432 may appear in multiple groups (Attention + Databases), click first
+    fireEvent.click(screen.getAllByText('postgres:5432')[0]);
     expect(onNav).toHaveBeenCalledWith('postgres:5432');
   });
 
