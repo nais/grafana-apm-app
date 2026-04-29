@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.8.0 (2026-04-29)
+
+### Features
+
+- **Favorite services ("My Apps")** — Star services to mark them as favorites; toggle the "My Apps" pill to filter the list to just your starred services.
+- **Cross-device favorites sync** — Favorites are persisted to Grafana's per-user backend storage via `usePluginUserStorage`, so starred services follow you across browsers and devices. localStorage serves as an instant-render cache.
+- **"My Apps" navigation entry** — Dedicated sidebar link that opens the service list pre-filtered to your favorites.
+- **"Has errors" filter** — New pill toggle to show only services with active errors (errorRate > 0).
+- **SDK/Language filter** — Multi-select dropdown to filter services by telemetry SDK language (Java, Node.js, Go, etc.).
+- **URL state persistence** — All filter, sort, pagination, and favorite state is persisted to URL query parameters for shareable deep links.
+
+### Improvements
+
+- **Two-row toolbar layout** — Filters are split into semantic rows: Row 1 (scope) for data filters (search, namespace, environment, SDK, time range) and Row 2 (view options) for display toggles using Grafana-native FilterPill components.
+- **PromValue type safety** — Replaced untyped `[2]interface{}` Prometheus value type with a proper struct and custom JSON marshaling, eliminating silent data corruption risks.
+- **Shared plugin types** — Extracted `DsRef`, `EnvAwareDs`, `AppPluginSettings` into a shared `types/plugin.ts` module.
+- **Context propagation** — Backend health checks now use `context.WithoutCancel` to preserve tracing spans.
+- **useServiceData hook** — Extracted data-fetching hooks from ServiceOverview into a dedicated hook for testability.
+
 ## 0.7.3 (2026-04-28)
 
 ### Features
