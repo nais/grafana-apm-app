@@ -53,6 +53,14 @@
     },
     {
       "type": "page",
+      "name": "My Apps",
+      "path": "/a/%PLUGIN_ID%/favorites",
+      "icon": "favorite",
+      "addToNav": true,
+      "role": "Viewer"
+    },
+    {
+      "type": "page",
       "name": "Dependencies",
       "path": "/a/%PLUGIN_ID%/dependencies",
       "addToNav": true,

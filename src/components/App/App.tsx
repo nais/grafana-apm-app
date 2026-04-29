@@ -25,6 +25,7 @@ function App(props: AppRootProps) {
         <Route path={ROUTES.NamespaceOverview} element={<NamespaceOverview />} />
         <Route path={ROUTES.DependencyDetail} element={<DependencyDetail />} />
         <Route path={ROUTES.Dependencies} element={<Dependencies />} />
+        <Route path={ROUTES.Favorites} element={<Navigate to={`${ROUTES.Services}?favorites=true`} replace />} />
         <Route path={ROUTES.Services} element={<ServiceInventory />} />
         <Route path="/" element={<Navigate to={ROUTES.Services} replace />} />
         <Route path="*" element={<Navigate to={ROUTES.Services} replace />} />
