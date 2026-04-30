@@ -58,7 +58,6 @@ export function buildServiceScene(params: BuildServiceSceneParams): EmbeddedScen
     return null;
   }
 
-  const timeRange = new SceneTimeRange({ from, to });
   let svcFilter = `${otel.labels.serviceName}="${sanitizeLabelValue(service)}", ${otel.labels.serviceNamespace}="${sanitizeLabelValue(namespace)}"`;
   if (envFilter) {
     svcFilter += `, ${otel.labels.deploymentEnv}="${sanitizeLabelValue(envFilter)}"`;
@@ -147,6 +146,8 @@ export function buildServiceScene(params: BuildServiceSceneParams): EmbeddedScen
           },
         ])
       : b;
+
+  const timeRange = new SceneTimeRange({ from, to });
 
   return new EmbeddedScene({
     $timeRange: timeRange,

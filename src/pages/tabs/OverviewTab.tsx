@@ -3,13 +3,14 @@ import { useStyles2, LoadingPlaceholder, Alert, Badge, RadioButtonGroup, IconBut
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { EmbeddedScene } from '@grafana/scenes';
-import { OperationSummary, ConnectedServicesResponse, DependencySummary } from '../../api/client';
+import { OperationSummary, ConnectedServicesResponse, DependencySummary, HealthSummary } from '../../api/client';
 import { formatDuration, formatRate, formatErrorRate } from '../../utils/format';
 import { DepTypeIcon } from '../../components/DepTypeIcon';
 import { getSectionStyles } from '../../utils/styles';
 import { ServiceGraph, ServiceGraphNode, ServiceGraphEdge } from '../../components/ServiceGraph';
 import { CopyMermaidButton } from '../../components/CopyMermaidButton';
 import { groupDependencies } from '../../utils/depGroups';
+import { HealthSummarySection } from '../../components/HealthSummary/HealthSummarySection';
 
 const MAX_OVERVIEW_OPS = 5;
 const DEPTH_OPTIONS = [
@@ -28,6 +29,8 @@ interface OverviewTabProps {
   graphEdges: ServiceGraphEdge[];
   connected?: ConnectedServicesResponse;
   dependencies?: DependencySummary[];
+  health?: HealthSummary | null;
+  healthLoading?: boolean;
   service: string;
   depth?: number;
   onDepthChange?: (depth: number) => void;
@@ -48,6 +51,8 @@ export function OverviewTab({
   graphEdges,
   connected,
   dependencies,
+  health,
+  healthLoading,
   service,
   depth = 1,
   onDepthChange,
@@ -90,10 +95,18 @@ export function OverviewTab({
 
   return (
     <>
-      {/* RED panels + Duration distribution */}
+      {/* RED panels + Duration distribution (includes time picker) */}
       <div style={{ marginBottom: 16 }}>
         {scene ? <scene.Component key={sceneKey} model={scene} /> : <LoadingPlaceholder text="Loading metrics..." />}
       </div>
+
+      {/* Attention section — degraded operations and dependencies */}
+      <HealthSummarySection
+        health={health ?? null}
+        loading={healthLoading ?? false}
+        onViewTraces={onViewTraces}
+        onNavigateDependency={onNavigateDependency}
+      />
 
       {/* Operations table */}
       <div className={styles.section}>

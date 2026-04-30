@@ -122,6 +122,67 @@ export async function getOperations(
   );
 }
 
+// ---- Health summary ----
+
+export interface DegradedOperation {
+  spanName: string;
+  spanKind: string;
+  rate: number;
+  errorRate: number;
+  p95Duration: number;
+  durationUnit: string;
+  prevErrorRate: number;
+  prevP95Duration: number;
+  errorAnomaly?: boolean;
+  latencyAnomaly?: boolean;
+}
+
+export interface DegradedDependency {
+  name: string;
+  type: string;
+  rate: number;
+  errorRate: number;
+  p95Duration: number;
+  durationUnit: string;
+  prevErrorRate: number;
+  prevP95Duration: number;
+  errorAnomaly?: boolean;
+  latencyAnomaly?: boolean;
+}
+
+export interface HealthSummary {
+  rate: number;
+  errorRate: number;
+  p95Duration: number;
+  durationUnit: string;
+  prevRate?: number;
+  prevErrorRate?: number;
+  prevP95Duration?: number;
+  degradedOps?: DegradedOperation[];
+  degradedDeps?: DegradedDependency[];
+  causeCategory?: string;
+}
+
+export async function getHealthSummary(
+  namespace: string,
+  service: string,
+  from: number,
+  to: number,
+  environment?: string,
+  serverSpans?: boolean
+): Promise<HealthSummary> {
+  const params: Record<string, string> = {
+    ...timeParams(from, to),
+  };
+  if (environment) {
+    params.environment = environment;
+  }
+  if (serverSpans) {
+    params.serverSpans = 'true';
+  }
+  return fetchResource<HealthSummary>(`/services/${nsParam(namespace)}/${encodeURIComponent(service)}/health`, params);
+}
+
 export interface ServiceMapNode {
   id: string;
   title: string;
