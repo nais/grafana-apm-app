@@ -1,4 +1,12 @@
-import { parseReqRate, isDormant, computeVisibility, DORMANT_CALLERS_ID, DORMANT_TARGETS_ID } from './graphUtils';
+import {
+  parseReqRate,
+  isDormant,
+  computeVisibility,
+  isCollapseId,
+  collapseSide,
+  DORMANT_CALLERS_ID,
+  DORMANT_TARGETS_ID,
+} from './graphUtils';
 import type { ServiceGraphNode, ServiceGraphEdge } from './ServiceGraph';
 
 // ---------------------------------------------------------------------------
@@ -264,5 +272,184 @@ describe('computeVisibility', () => {
       // 8 visible targets + 1 collapse edge = at least 2 edges from focus
       expect(edgesFromFocus.length).toBeGreaterThanOrEqual(2);
     });
+  });
+
+  describe('multi-hop collapsing', () => {
+    // Build a multi-hop graph:
+    // Focus → 3 hop-1 targets (right), 1 hop-1 caller (left)
+    // Each hop-1 target → many hop-2 targets (right)
+    const buildMultiHopGraph = (hop2Count: number) => {
+      const nodes: ServiceGraphNode[] = [
+        node('focus', '100 req/s'),
+        node('caller1', '50 req/s'),
+        node('t1', '30 req/s'),
+        node('t2', '20 req/s'),
+        node('t3', '10 req/s'),
+      ];
+      const edges: ServiceGraphEdge[] = [
+        edge('caller1', 'focus'),
+        edge('focus', 't1'),
+        edge('focus', 't2'),
+        edge('focus', 't3'),
+      ];
+
+      // Add hop-2 targets from t1
+      for (let i = 0; i < hop2Count; i++) {
+        const id = `h2_${i}`;
+        nodes.push(node(id, `${hop2Count - i} req/s`));
+        edges.push(edge('t1', id));
+      }
+      return { nodes, edges };
+    };
+
+    it('does not collapse hop-2 nodes within limit (isMultiHop=true)', () => {
+      const { nodes, edges } = buildMultiHopGraph(4); // 4 hop-2 nodes, limit is 6
+      const result = computeVisibility(nodes, edges, 'focus', false, false, true);
+      // All nodes should be visible (no overflow)
+      expect(result.visibleNodes).toHaveLength(nodes.length);
+    });
+
+    it('collapses hop-2 overflow nodes beyond limit', () => {
+      const { nodes, edges } = buildMultiHopGraph(10); // 10 hop-2 nodes, limit is 6
+      const result = computeVisibility(nodes, edges, 'focus', false, false, true);
+
+      // Should have a hop-2 collapse node
+      const collapseNode = result.visibleNodes.find((n) => n.id === '__dormant_h2_right__');
+      expect(collapseNode).toBeDefined();
+      expect(collapseNode!.title).toBe('+4 more');
+
+      // Top 6 hop-2 nodes (by rate) should remain visible
+      for (let i = 0; i < 6; i++) {
+        expect(result.visibleNodes.find((n) => n.id === `h2_${i}`)).toBeDefined();
+      }
+      // Bottom 4 should be hidden
+      for (let i = 6; i < 10; i++) {
+        expect(result.visibleNodes.find((n) => n.id === `h2_${i}`)).toBeUndefined();
+      }
+    });
+
+    it('creates a single collapse edge from t1 → collapse node', () => {
+      const { nodes, edges } = buildMultiHopGraph(10);
+      const result = computeVisibility(nodes, edges, 'focus', false, false, true);
+      const collapseEdges = result.visibleEdges.filter((e) => e.target === '__dormant_h2_right__');
+      expect(collapseEdges).toHaveLength(1);
+      expect(collapseEdges[0].source).toBe('t1');
+    });
+
+    it('deduplicates collapse edges from multiple parents', () => {
+      // Two hop-1 targets both connect to the same set of hop-2 targets
+      const nodes: ServiceGraphNode[] = [
+        node('focus', '100 req/s'),
+        ...Array.from({ length: 8 }, (_, i) => node(`extra${i}`, `${i} req/s`)),
+        node('t1', '30 req/s'),
+        node('t2', '20 req/s'),
+      ];
+      const edges: ServiceGraphEdge[] = [
+        ...Array.from({ length: 8 }, (_, i) => edge('focus', `extra${i}`)),
+        edge('focus', 't1'),
+        edge('focus', 't2'),
+      ];
+      // Add 10 hop-2 nodes connected from BOTH t1 and t2
+      for (let i = 0; i < 10; i++) {
+        const id = `h2_${i}`;
+        nodes.push(node(id, `${10 - i} req/s`));
+        edges.push(edge('t1', id));
+        edges.push(edge('t2', id));
+      }
+
+      const result = computeVisibility(nodes, edges, 'focus', false, false, true);
+      // All collapse edges should be deduplicated
+      const edgeKeys = result.visibleEdges.map((e) => `${e.source}->${e.target}`);
+      const unique = new Set(edgeKeys);
+      expect(unique.size).toBe(edgeKeys.length);
+    });
+
+    it('cascade-hides hop-3 nodes whose parents are all hidden', () => {
+      // Build: focus → t1 → hop2_0..hop2_9 → hop3_x
+      const nodes: ServiceGraphNode[] = [
+        node('focus', '100 req/s'),
+        ...Array.from({ length: 8 }, (_, i) => node(`pad${i}`, `${i} req/s`)),
+        node('t1', '30 req/s'),
+      ];
+      const edges: ServiceGraphEdge[] = [
+        ...Array.from({ length: 8 }, (_, i) => edge('focus', `pad${i}`)),
+        edge('focus', 't1'),
+      ];
+
+      for (let i = 0; i < 10; i++) {
+        nodes.push(node(`h2_${i}`, `${10 - i} req/s`));
+        edges.push(edge('t1', `h2_${i}`));
+      }
+
+      // Add hop-3 node only connected to hidden hop-2 nodes (h2_7, h2_8)
+      nodes.push(node('h3_orphan', '5 req/s'));
+      edges.push(edge('h2_7', 'h3_orphan'));
+      edges.push(edge('h2_8', 'h3_orphan'));
+
+      // Add hop-3 node connected to a visible hop-2 node (h2_0)
+      nodes.push(node('h3_visible', '5 req/s'));
+      edges.push(edge('h2_0', 'h3_visible'));
+
+      const result = computeVisibility(nodes, edges, 'focus', false, false, true);
+
+      // h3_orphan should be cascade-hidden (both parents h2_7 and h2_8 are hidden)
+      expect(result.visibleNodes.find((n) => n.id === 'h3_orphan')).toBeUndefined();
+
+      // h3_visible should remain (parent h2_0 is visible)
+      expect(result.visibleNodes.find((n) => n.id === 'h3_visible')).toBeDefined();
+    });
+
+    it('no self-loops in collapse edges', () => {
+      const { nodes, edges } = buildMultiHopGraph(10);
+      const result = computeVisibility(nodes, edges, 'focus', false, false, true);
+      for (const e of result.visibleEdges) {
+        expect(e.source).not.toBe(e.target);
+      }
+    });
+
+    it('all edge endpoints exist in visible nodes', () => {
+      const { nodes, edges } = buildMultiHopGraph(10);
+      const result = computeVisibility(nodes, edges, 'focus', false, false, true);
+      const ids = new Set(result.visibleNodes.map((n) => n.id));
+      for (const e of result.visibleEdges) {
+        expect(ids.has(e.source)).toBe(true);
+        expect(ids.has(e.target)).toBe(true);
+      }
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isCollapseId / collapseSide
+// ---------------------------------------------------------------------------
+
+describe('isCollapseId', () => {
+  it('recognizes DORMANT_CALLERS_ID', () => {
+    expect(isCollapseId(DORMANT_CALLERS_ID)).toBe(true);
+  });
+  it('recognizes DORMANT_TARGETS_ID', () => {
+    expect(isCollapseId(DORMANT_TARGETS_ID)).toBe(true);
+  });
+  it('recognizes hop-2 collapse IDs', () => {
+    expect(isCollapseId('__dormant_h2_left__')).toBe(true);
+    expect(isCollapseId('__dormant_h3_right__')).toBe(true);
+  });
+  it('rejects normal node IDs', () => {
+    expect(isCollapseId('my-service')).toBe(false);
+  });
+});
+
+describe('collapseSide', () => {
+  it('returns caller for DORMANT_CALLERS_ID', () => {
+    expect(collapseSide(DORMANT_CALLERS_ID)).toBe('caller');
+  });
+  it('returns target for DORMANT_TARGETS_ID', () => {
+    expect(collapseSide(DORMANT_TARGETS_ID)).toBe('target');
+  });
+  it('returns caller for hop-2 left', () => {
+    expect(collapseSide('__dormant_h2_left__')).toBe('caller');
+  });
+  it('returns target for hop-2 right', () => {
+    expect(collapseSide('__dormant_h2_right__')).toBe('target');
   });
 });

@@ -23,15 +23,28 @@ export interface VisibilityResult {
 }
 
 const MAX_VISIBLE_PER_SIDE = 8;
+const MAX_VISIBLE_PER_HOP = 6;
+
+/** Returns true if the given ID is a collapse placeholder node */
+export function isCollapseId(id: string): boolean {
+  return id === DORMANT_CALLERS_ID || id === DORMANT_TARGETS_ID || id.startsWith('__dormant_h');
+}
+
+/** Returns the side ('caller' | 'target') for a collapse node */
+export function collapseSide(id: string): 'caller' | 'target' {
+  if (id === DORMANT_CALLERS_ID || id.endsWith('_left__')) {
+    return 'caller';
+  }
+  return 'target';
+}
 
 /**
  * Compute which nodes/edges are visible after collapsing overflow nodes.
  * Pure function — no React dependencies.
  *
- * When `isMultiHop` is true (depth > 1), per-side collapsing is skipped
- * because the graph is no longer hub-and-spoke — intermediate nodes
- * aren't direct neighbors of the focus node. The backend already caps
- * the frontier at 15 nodes per hop, bounding total node count.
+ * For single-hop (depth=1), collapses direct callers/targets beyond MAX_VISIBLE_PER_SIDE.
+ * For multi-hop (depth>1), also collapses overflow at each hop level and
+ * cascade-hides nodes whose parents are all hidden.
  */
 export function computeVisibility(
   inputNodes: ServiceGraphNode[],
@@ -41,97 +54,172 @@ export function computeVisibility(
   expandedTargets: boolean,
   isMultiHop = false
 ): VisibilityResult {
-  if (!focusNode || inputNodes.length <= 8 || isMultiHop) {
+  if (!focusNode || inputNodes.length <= 8) {
     return { visibleNodes: inputNodes, visibleEdges: inputEdges };
-  }
-
-  // Find caller and target node IDs relative to focusNode
-  const callerIds = new Set<string>();
-  const targetIds = new Set<string>();
-  for (const e of inputEdges) {
-    // Skip self-loops — the focus node is never a caller/target of itself
-    if (e.source === e.target) {
-      continue;
-    }
-    if (e.target === focusNode) {
-      callerIds.add(e.source);
-    }
-    if (e.source === focusNode) {
-      targetIds.add(e.target);
-    }
   }
 
   const nodeMap = new Map(inputNodes.map((n) => [n.id, n]));
 
-  // Sort callers and targets by rate (highest first), then pick top N
-  const sortByRate = (ids: Set<string>) =>
-    [...ids]
-      .map((id) => nodeMap.get(id))
+  // --- 1. BFS to assign hop distance and side ---
+  const hopOf = new Map<string, number>();
+  const sideOf = new Map<string, 'left' | 'right'>();
+  hopOf.set(focusNode, 0);
+
+  // Hop 1: direct edges to/from focus
+  for (const e of inputEdges) {
+    if (e.source === focusNode && e.target !== focusNode && !hopOf.has(e.target)) {
+      hopOf.set(e.target, 1);
+      sideOf.set(e.target, 'right');
+    }
+    if (e.target === focusNode && e.source !== focusNode && !hopOf.has(e.source)) {
+      hopOf.set(e.source, 1);
+      sideOf.set(e.source, 'left');
+    }
+  }
+
+  // Hop 2+: BFS inheriting side from parent
+  if (isMultiHop) {
+    for (let hop = 2; hop <= 5; hop++) {
+      for (const e of inputEdges) {
+        if (hopOf.get(e.source) === hop - 1 && sideOf.get(e.source) === 'right' && !hopOf.has(e.target)) {
+          hopOf.set(e.target, hop);
+          sideOf.set(e.target, 'right');
+        }
+        if (hopOf.get(e.target) === hop - 1 && sideOf.get(e.target) === 'left' && !hopOf.has(e.source)) {
+          hopOf.set(e.source, hop);
+          sideOf.set(e.source, 'left');
+        }
+      }
+    }
+  }
+
+  // --- 2. Per-hop-side overflow ---
+  // Group nodes by (hop, side) key
+  const hopSideNodes = new Map<string, string[]>();
+  for (const n of inputNodes) {
+    if (n.id === focusNode) {
+      continue;
+    }
+    const hop = hopOf.get(n.id);
+    const side = sideOf.get(n.id);
+    if (hop === undefined || side === undefined) {
+      continue;
+    }
+    const key = `${hop}-${side}`;
+    if (!hopSideNodes.has(key)) {
+      hopSideNodes.set(key, []);
+    }
+    hopSideNodes.get(key)!.push(n.id);
+  }
+
+  const hiddenIds = new Set<string>();
+  const hiddenToCollapse = new Map<string, string>(); // hidden node → collapse ID
+  const collapseCount = new Map<string, number>(); // collapse ID → count
+
+  for (const [key, nodeIds] of hopSideNodes) {
+    const [hopStr, side] = key.split('-');
+    const hop = parseInt(hopStr, 10);
+    const maxVisible = hop === 1 ? MAX_VISIBLE_PER_SIDE : MAX_VISIBLE_PER_HOP;
+
+    const isExpanded = (key === '1-left' && expandedCallers) || (key === '1-right' && expandedTargets);
+
+    const sorted = nodeIds
+      .map((id) => nodeMap.get(id)!)
       .filter(Boolean)
-      .sort((a, b) => parseReqRate(b!.mainStat) - parseReqRate(a!.mainStat)) as ServiceGraphNode[];
+      .sort((a, b) => parseReqRate(b.mainStat) - parseReqRate(a.mainStat));
 
-  const sortedCallers = sortByRate(callerIds);
-  const sortedTargets = sortByRate(targetIds);
+    if (!isExpanded && sorted.length > maxVisible) {
+      const collapseId =
+        hop === 1 ? (side === 'left' ? DORMANT_CALLERS_ID : DORMANT_TARGETS_ID) : `__dormant_h${hop}_${side}__`;
 
-  // Determine which nodes to hide: overflow beyond MAX_VISIBLE_PER_SIDE
-  const hiddenCallerNodes =
-    !expandedCallers && sortedCallers.length > MAX_VISIBLE_PER_SIDE ? sortedCallers.slice(MAX_VISIBLE_PER_SIDE) : [];
-  const hiddenTargetNodes =
-    !expandedTargets && sortedTargets.length > MAX_VISIBLE_PER_SIDE ? sortedTargets.slice(MAX_VISIBLE_PER_SIDE) : [];
+      const hidden = sorted.slice(maxVisible);
+      for (const n of hidden) {
+        hiddenIds.add(n.id);
+        hiddenToCollapse.set(n.id, collapseId);
+      }
+      collapseCount.set(collapseId, hidden.length);
+    }
+  }
 
-  const hiddenCallerIds = new Set(hiddenCallerNodes.map((n) => n.id));
-  const hiddenTargetIds = new Set(hiddenTargetNodes.map((n) => n.id));
-  const allHidden = new Set([...hiddenCallerIds, ...hiddenTargetIds]);
+  // --- 3. Cascade hiding (multi-hop only) ---
+  // Hide hop-2+ nodes whose ALL parents at hop-1 are hidden
+  if (isMultiHop) {
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const n of inputNodes) {
+        if (hiddenIds.has(n.id) || n.id === focusNode) {
+          continue;
+        }
+        const hop = hopOf.get(n.id);
+        if (!hop || hop <= 1) {
+          continue;
+        }
+        const side = sideOf.get(n.id);
+        const parents: string[] = [];
+        for (const e of inputEdges) {
+          if (side === 'right' && e.target === n.id && hopOf.get(e.source) === hop - 1) {
+            parents.push(e.source);
+          }
+          if (side === 'left' && e.source === n.id && hopOf.get(e.target) === hop - 1) {
+            parents.push(e.target);
+          }
+        }
+        if (parents.length > 0 && parents.every((p) => hiddenIds.has(p))) {
+          hiddenIds.add(n.id);
+          changed = true;
+        }
+      }
+    }
+  }
 
-  // Build visible nodes
-  const vNodes: ServiceGraphNode[] = inputNodes.filter((n) => !allHidden.has(n.id));
+  // --- 4. Build visible nodes + collapse placeholders ---
+  const vNodes: ServiceGraphNode[] = inputNodes.filter((n) => !hiddenIds.has(n.id));
 
-  // Add collapse placeholder nodes
-  if (hiddenCallerNodes.length > 0) {
+  for (const [id, count] of collapseCount) {
     vNodes.push({
-      id: DORMANT_CALLERS_ID,
-      title: `+${hiddenCallerNodes.length} more`,
+      id,
+      title: `+${count} more`,
       errorRate: 0,
       nodeType: 'service',
     });
   }
-  if (hiddenTargetNodes.length > 0) {
-    vNodes.push({
-      id: DORMANT_TARGETS_ID,
-      title: `+${hiddenTargetNodes.length} more`,
-      errorRate: 0,
-      nodeType: 'service',
-    });
-  }
 
-  // Build visible edges — replace hidden node edges with collapse node edges
+  // --- 5. Build visible edges with collapse rewiring ---
   const vEdges: ServiceGraphEdge[] = [];
-  const addedCollapseEdges = { callers: false, targets: false };
   const visibleNodeIds = new Set(vNodes.map((n) => n.id));
+  const seenEdges = new Set<string>();
 
   for (const e of inputEdges) {
-    if (hiddenCallerIds.has(e.source)) {
-      if (!addedCollapseEdges.callers) {
-        vEdges.push({
-          id: `${DORMANT_CALLERS_ID}->${focusNode}`,
-          source: DORMANT_CALLERS_ID,
-          target: focusNode,
-        });
-        addedCollapseEdges.callers = true;
-      }
-    } else if (hiddenTargetIds.has(e.target)) {
-      if (!addedCollapseEdges.targets) {
-        vEdges.push({
-          id: `${focusNode}->${DORMANT_TARGETS_ID}`,
-          source: focusNode,
-          target: DORMANT_TARGETS_ID,
-        });
-        addedCollapseEdges.targets = true;
-      }
-    } else if (visibleNodeIds.has(e.source) && visibleNodeIds.has(e.target)) {
-      // Only keep edges where both endpoints are visible
-      vEdges.push(e);
+    let source = e.source;
+    let target = e.target;
+
+    // Replace hidden endpoints with their collapse node
+    if (hiddenToCollapse.has(source)) {
+      source = hiddenToCollapse.get(source)!;
     }
+    if (hiddenToCollapse.has(target)) {
+      target = hiddenToCollapse.get(target)!;
+    }
+
+    // Skip if either endpoint is not visible (cascade-hidden without collapse mapping)
+    if (!visibleNodeIds.has(source) || !visibleNodeIds.has(target)) {
+      continue;
+    }
+
+    // Skip self-loops created by collapse
+    if (source === target) {
+      continue;
+    }
+
+    // Deduplicate collapse edges
+    const edgeKey = `${source}->${target}`;
+    if (seenEdges.has(edgeKey)) {
+      continue;
+    }
+    seenEdges.add(edgeKey);
+
+    vEdges.push({ id: edgeKey, source, target });
   }
 
   return { visibleNodes: vNodes, visibleEdges: vEdges };
