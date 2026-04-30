@@ -31,6 +31,7 @@ export interface ServiceGraphNode {
   namespace?: string;
   isHub?: boolean;
   hubDegree?: number;
+  callerCount?: number;
 }
 
 export interface ServiceGraphEdge {
@@ -50,7 +51,7 @@ interface ServiceGraphProps {
   enableWrapping?: boolean;
   direction?: 'RIGHT' | 'DOWN';
   isMultiHop?: boolean;
-  onNodeClick?: (nodeId: string) => void;
+  onNodeClick?: (nodeId: string, nodeType?: string) => void;
 }
 
 const nodeTypes: NodeTypes = {
@@ -121,6 +122,7 @@ function ServiceGraphInner({
             isFocused: n.id === focusNode,
             isHub: n.isHub,
             hubDegree: n.hubDegree,
+            callerCount: n.callerCount,
           } satisfies ServiceNodeData,
         };
       }),
@@ -213,7 +215,8 @@ function ServiceGraphInner({
         return;
       }
       if (node.type !== 'group' && onNodeClick) {
-        onNodeClick(node.id);
+        const nodeData = node.data as ServiceNodeData | undefined;
+        onNodeClick(node.id, nodeData?.nodeType);
       }
     },
     [onNodeClick]

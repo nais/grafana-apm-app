@@ -1322,7 +1322,14 @@ func assembleServiceMapResponse(edges map[sgEdgeKey]*sgEdgeData) ServiceMapRespo
 
 	nodeTypes := make(map[string]string)
 	nodeSubtitles := make(map[string]string)
+	callerCounts := make(map[string]map[string]bool) // server → set of callers
 	for k, e := range edges {
+		// Track unique callers per server for callerCount
+		if _, ok := callerCounts[k.server]; !ok {
+			callerCounts[k.server] = make(map[string]bool)
+		}
+		callerCounts[k.server][k.client] = true
+
 		if e.connType != "" {
 			// If a node also appears as a client in any edge it's a real
 			// service, not infrastructure — skip type override.
@@ -1383,6 +1390,7 @@ func assembleServiceMapResponse(edges map[sgEdgeKey]*sgEdgeData) ServiceMapRespo
 			ArcOK:         1 - errPct,
 			NodeType:      nType,
 			IsSidecar:     isSidecar(name),
+			CallerCount:   len(callerCounts[name]),
 			ErrorRate:     errPct,
 		})
 	}

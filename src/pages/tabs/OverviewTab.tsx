@@ -198,6 +198,16 @@ export function OverviewTab({
                 focusNode={service}
                 direction="RIGHT"
                 isMultiHop={depth > 1}
+                onNodeClick={(nodeId, nodeType) => {
+                  if (nodeId === service) {
+                    return;
+                  }
+                  if (nodeType && nodeType !== 'service' && onNavigateDependency) {
+                    onNavigateDependency(nodeId, nodeType);
+                  } else {
+                    onNavigateService(nodeId);
+                  }
+                }}
               />
             </div>
           </div>
