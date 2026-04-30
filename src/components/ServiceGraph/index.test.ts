@@ -55,6 +55,7 @@ describe('toGraphData', () => {
       nodeType: 'service',
       isHub: undefined,
       hubDegree: undefined,
+      callerCount: undefined,
     });
     expect(result.graphNodes[1].nodeType).toBe('database');
 

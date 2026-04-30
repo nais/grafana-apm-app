@@ -274,6 +274,94 @@ describe('computeVisibility', () => {
     });
   });
 
+  describe('both callers and targets overflow simultaneously', () => {
+    const focusN = node('focus', '100 req/s');
+    const callers = Array.from({ length: 10 }, (_, i) => node(`c${i}`, `${10 - i} req/s`));
+    const targets = Array.from({ length: 12 }, (_, i) => node(`t${i}`, `${12 - i} req/s`));
+    const allNodes = [focusN, ...callers, ...targets];
+    const allEdges = [...callers.map((c) => edge(c.id, 'focus')), ...targets.map((t) => edge('focus', t.id))];
+
+    it('collapses overflow on both sides', () => {
+      const result = computeVisibility(allNodes, allEdges, 'focus', false, false);
+      expect(result.visibleNodes.find((n) => n.id === DORMANT_CALLERS_ID)).toBeDefined();
+      expect(result.visibleNodes.find((n) => n.id === DORMANT_TARGETS_ID)).toBeDefined();
+      // 1 focus + 8 callers + 8 targets + 2 placeholders = 19
+      expect(result.visibleNodes).toHaveLength(19);
+    });
+
+    it('expanding callers does not affect target collapse', () => {
+      const result = computeVisibility(allNodes, allEdges, 'focus', true, false);
+      expect(result.visibleNodes.find((n) => n.id === DORMANT_CALLERS_ID)).toBeUndefined();
+      expect(result.visibleNodes.find((n) => n.id === DORMANT_TARGETS_ID)).toBeDefined();
+    });
+
+    it('expanding targets does not affect caller collapse', () => {
+      const result = computeVisibility(allNodes, allEdges, 'focus', false, true);
+      expect(result.visibleNodes.find((n) => n.id === DORMANT_CALLERS_ID)).toBeDefined();
+      expect(result.visibleNodes.find((n) => n.id === DORMANT_TARGETS_ID)).toBeUndefined();
+    });
+
+    it('all edge endpoints exist in visible nodes', () => {
+      const result = computeVisibility(allNodes, allEdges, 'focus', false, false);
+      const ids = new Set(result.visibleNodes.map((n) => n.id));
+      for (const e of result.visibleEdges) {
+        expect(ids.has(e.source)).toBe(true);
+        expect(ids.has(e.target)).toBe(true);
+      }
+    });
+  });
+
+  describe('multi-hop left-side (callers) overflow', () => {
+    it('collapses hop-2 callers on the left side', () => {
+      const nodes: ServiceGraphNode[] = [
+        node('focus', '100 req/s'),
+        ...Array.from({ length: 8 }, (_, i) => node(`pad${i}`, `${i} req/s`)),
+        node('c1', '50 req/s'),
+      ];
+      const edges: ServiceGraphEdge[] = [
+        ...Array.from({ length: 8 }, (_, i) => edge(`pad${i}`, 'focus')),
+        edge('c1', 'focus'),
+      ];
+      // 10 hop-2 callers → c1 → focus
+      for (let i = 0; i < 10; i++) {
+        nodes.push(node(`h2_${i}`, `${10 - i} req/s`));
+        edges.push(edge(`h2_${i}`, 'c1'));
+      }
+
+      const result = computeVisibility(nodes, edges, 'focus', false, false, true);
+      const collapseNode = result.visibleNodes.find((n) => n.id === '__dormant_h2_left__');
+      expect(collapseNode).toBeDefined();
+      expect(collapseNode!.title).toBe('+4 more');
+    });
+  });
+
+  describe('multi-hop node reachable from multiple hop-1 parents', () => {
+    it('assigns correct hop to nodes with multiple parents', () => {
+      // focus → t1, focus → t2, t1 → shared, t2 → shared
+      const nodes: ServiceGraphNode[] = [
+        node('focus', '100 req/s'),
+        ...Array.from({ length: 8 }, (_, i) => node(`pad${i}`, `${i} req/s`)),
+        node('t1', '30 req/s'),
+        node('t2', '20 req/s'),
+        node('shared', '10 req/s'),
+      ];
+      const edges: ServiceGraphEdge[] = [
+        ...Array.from({ length: 8 }, (_, i) => edge('focus', `pad${i}`)),
+        edge('focus', 't1'),
+        edge('focus', 't2'),
+        edge('t1', 'shared'),
+        edge('t2', 'shared'),
+      ];
+
+      const result = computeVisibility(nodes, edges, 'focus', false, false, true);
+      // shared should be visible as a hop-2 node
+      expect(result.visibleNodes.find((n) => n.id === 'shared')).toBeDefined();
+      // And should have edges from both t1 and t2
+      const sharedEdges = result.visibleEdges.filter((e) => e.target === 'shared');
+      expect(sharedEdges).toHaveLength(2);
+    });
+  });
+
   describe('multi-hop collapsing', () => {
     // Build a multi-hop graph:
     // Focus → 3 hop-1 targets (right), 1 hop-1 caller (left)

@@ -134,6 +134,7 @@ export interface ServiceMapNode {
   isSidecar?: boolean;
   isHub?: boolean;
   hubDegree?: number;
+  callerCount?: number;
   errorRate: number;
 }
 

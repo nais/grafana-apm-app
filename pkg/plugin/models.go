@@ -117,6 +117,7 @@ type ServiceMapNode struct {
 	IsSidecar     bool    `json:"isSidecar,omitempty"`
 	IsHub         bool    `json:"isHub,omitempty"`
 	HubDegree     int     `json:"hubDegree,omitempty"`
+	CallerCount   int     `json:"callerCount,omitempty"`
 	ErrorRate     float64 `json:"errorRate"`
 }
 

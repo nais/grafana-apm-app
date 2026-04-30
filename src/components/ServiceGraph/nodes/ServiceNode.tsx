@@ -15,6 +15,7 @@ export interface ServiceNodeData {
   dimmed?: boolean;
   isHub?: boolean;
   hubDegree?: number;
+  callerCount?: number;
   [key: string]: unknown;
 }
 
@@ -33,6 +34,10 @@ export const ServiceNode = memo(({ data, sourcePosition, targetPosition }: NodeP
   const config = NODE_TYPE_CONFIG[nodeType] ?? NODE_TYPE_CONFIG.service;
   const errorRate = data.errorRate ?? 0;
   const isHub = data.isHub ?? false;
+  const callerCount = data.callerCount ?? 0;
+
+  // Private dependency: a service-type node called by exactly one other service
+  const isPrivateDep = nodeType === 'service' && callerCount === 1 && !isHub && !data.isFocused;
 
   const borderClass = isHub
     ? styles.borderHub
@@ -42,11 +47,19 @@ export const ServiceNode = memo(({ data, sourcePosition, targetPosition }: NodeP
         ? styles.borderWarning
         : styles.borderDefault;
 
+  // Determine icon badge color
+  let badgeBg = config.bg;
+  if (isHub) {
+    badgeBg = '#8E6DBF';
+  } else if (isPrivateDep) {
+    badgeBg = '#5A9BD5'; // lighter blue for private deps
+  }
+
   return (
     <div className={cx(styles.node, borderClass, data.isFocused && styles.focused, data.dimmed && styles.dimmed)}>
       <Handle type="target" position={targetPosition ?? Position.Left} className={styles.handle} />
       <div className={styles.header}>
-        <span className={styles.iconBadge} style={{ background: isHub ? '#8E6DBF' : config.bg }}>
+        <span className={styles.iconBadge} style={{ background: badgeBg }}>
           <Icon name={isHub ? 'exchange-alt' : config.icon} size="xs" />
         </span>
         <div className={styles.labelGroup}>

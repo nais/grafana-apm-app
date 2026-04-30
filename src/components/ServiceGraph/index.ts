@@ -23,6 +23,7 @@ export function toGraphData(mapData: ServiceMapResponse | null): {
       nodeType: n.nodeType,
       isHub: n.isHub,
       hubDegree: n.hubDegree,
+      callerCount: n.callerCount,
     })),
     graphEdges: mapData.edges.map((e) => ({
       id: e.id,
