@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixes
+
+- **Plugin metadata validation** — Fixed `extensions` field in plugin.json to use the object format (`addedLinks`) expected by Grafana's plugin validator, instead of the array format.
+
 ## 0.9.0 (2026-04-30)
 
 ### Features
