@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+- **Multi-hop service topology** — Explore service connections up to 3 hops deep with a depth control slider. BFS traversal from the focus service discovers transitive callers and dependencies.
+- **Per-hop overflow collapsing** — Each hop level independently caps visible nodes (8 at hop 1, 6 at hop 2+), sorted by request rate. Overflow nodes are collapsed into "+N more" placeholders. Cascade hiding removes orphaned deeper nodes.
+- **Hub detection and rate-weighted pruning** — Shared infrastructure nodes (e.g., Istio, Wonderwall) with 50+ connections are detected as hubs and displayed with a dashed purple border instead of expanding the full graph. Low-rate edges below 1% of parent rate are pruned to reduce noise.
+- **Clickable graph nodes** — Clicking a node in the service topology graph navigates to its detail page. Service nodes go to the service overview; database, messaging, and external nodes go to the dependency page.
+- **Node color coding by caller count** — Private dependencies (called by exactly one service) get a lighter blue icon badge, visually distinguishing them from shared services.
+- **Fullscreen topology** — Toggle button expands the service topology graph to fill the viewport (Esc to exit).
+- **Copy as Mermaid** — Export the current topology graph as a Mermaid diagram to clipboard.
+
+### Fixes
+
+- **Hex-suffixed service name normalization** — Preview/canary deployment names like `nav-dekoratoren-28e8c72f0abdc4109d600c` are normalized to their base name, preventing false self-loop edges.
+- **BFS pruning correctness** — Fixed zero-rate pruning bypass, O(E²) infra node detection (now O(1) via pre-computed set), and non-deterministic candidate rate selection (now uses max rate across all edges).
+- **Direction-aware BFS** — Callers expand leftward and targets expand rightward, producing a proper layered layout.
+- **PromQL escaping** — Uses `promQLEscape` instead of `regexp.QuoteMeta` for correct PromQL regex patterns.
+- **Dependency navigation from graph** — Clicking a database/messaging/external node now navigates to the dependency page instead of constructing a broken service URL.
+- **ELK layout crash prevention** — Edges are included in the fallback layout pass to prevent crashes on degenerate graphs.
+
 ## 0.8.1 (2026-04-29)
 
 ### Features

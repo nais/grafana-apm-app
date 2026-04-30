@@ -81,5 +81,21 @@
   },
   "iam": {
     "permissions": [{ "action": "datasources:query", "scope": "datasources:*" }]
-  }
+  },
+  "extensions": [
+    {
+      "type": "link",
+      "title": "APM: Services",
+      "description": "View all services and their health",
+      "extensionPointId": "grafana/commandpalette/action",
+      "path": "/a/nais-apm-app/services"
+    },
+    {
+      "type": "link",
+      "title": "APM: My Apps",
+      "description": "View your favorite services",
+      "extensionPointId": "grafana/commandpalette/action",
+      "path": "/a/nais-apm-app/favorites"
+    }
+  ]
 }
