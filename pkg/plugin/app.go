@@ -283,6 +283,7 @@ func (a *App) CheckHealth(ctx context.Context, req *backend.CheckHealthRequest) 
 func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/capabilities", a.handleCapabilities)
 	mux.HandleFunc("/services", a.handleServices)
+	mux.HandleFunc("/services/{namespace}/{service}/health", a.handleHealth)
 	mux.HandleFunc("/services/{namespace}/{service}/operations", a.handleOperations)
 	mux.HandleFunc("/services/{namespace}/{service}/endpoints", a.handleEndpoints)
 	mux.HandleFunc("/services/{namespace}/{service}/frontend", a.handleFrontendMetrics)

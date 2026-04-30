@@ -43,8 +43,6 @@ describe('buildServiceScene', () => {
     const scene = buildServiceScene(defaultParams);
     expect(scene).not.toBeNull();
 
-    // The scene body is a SceneFlexLayout with children that contain query runners.
-    // Verify at least one query includes the service filter.
     const body = scene!.state.body;
     const serialized = JSON.stringify(body);
     expect(serialized).toContain('frontend');
@@ -60,7 +58,6 @@ describe('buildServiceScene', () => {
   it('omits environment filter when envFilter is empty', () => {
     const scene = buildServiceScene({ ...defaultParams, envFilter: '' });
     expect(scene).not.toBeNull();
-    // Should still build a valid scene without deployment_environment in filter
     const serialized = JSON.stringify(scene!.state.body);
     expect(serialized).toContain('frontend');
   });

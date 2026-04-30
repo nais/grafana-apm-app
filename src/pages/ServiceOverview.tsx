@@ -136,6 +136,8 @@ function ServiceOverview() {
     depsResp,
     depsLoading,
     depsError,
+    health,
+    healthLoading,
   } = useServiceData({ service, namespace, envFilter, fromMs, toMs, depth });
 
   const percentileLabel = PERCENTILE_OPTIONS.find((o) => o.value === percentile)?.label ?? 'P95';
@@ -299,6 +301,8 @@ function ServiceOverview() {
               graphEdges={graphEdges}
               connected={connected ?? undefined}
               dependencies={depsResp?.dependencies}
+              health={health}
+              healthLoading={healthLoading}
               service={service}
               depth={depth}
               onDepthChange={setDepth}

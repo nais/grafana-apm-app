@@ -5,11 +5,13 @@ import {
   getServiceMap,
   getConnectedServices,
   getServiceDependencies,
+  getHealthSummary,
   OperationSummary,
   ServiceSummary,
   ServiceMapResponse,
   ConnectedServicesResponse,
   DependenciesResponse,
+  HealthSummary,
 } from '../api/client';
 import { useFetch } from './useFetch';
 import { toGraphData } from '../components/ServiceGraph';
@@ -47,6 +49,9 @@ export interface ServiceData {
   depsResp: DependenciesResponse | null;
   depsLoading: boolean;
   depsError: string | null;
+  /** Health summary with delta comparison */
+  health: HealthSummary | null;
+  healthLoading: boolean;
 }
 
 /**
@@ -110,6 +115,12 @@ export function useServiceData({ service, namespace, envFilter, fromMs, toMs, de
     return matches.length === 0 || matches.some((s) => s.hasServerSpans);
   }, [serviceList, service, namespace, envFilter]);
 
+  // Fetch health summary (aggregate stats + anomaly detection)
+  const { data: health, loading: healthLoading } = useFetch<HealthSummary>(
+    () => getHealthSummary(namespace, service, fromMs, toMs, envFilter || undefined, hasServerSpans),
+    [service, namespace, fromMs, toMs, envFilter, hasServerSpans]
+  );
+
   return {
     serviceList,
     framework,
@@ -125,5 +136,7 @@ export function useServiceData({ service, namespace, envFilter, fromMs, toMs, de
     depsResp,
     depsLoading,
     depsError,
+    health,
+    healthLoading,
   };
 }
