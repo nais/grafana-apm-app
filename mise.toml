@@ -95,9 +95,14 @@ run = """
 if go run github.com/magefile/mage -v buildAll 2>/dev/null; then
   exit 0
 fi
-# Fallback: build for current platform only (mage unavailable in sandboxed environments)
-echo "mage unavailable, building for current platform only..."
+# Fallback: mage unavailable — build for current platform + linux variant for Docker
+echo "mage unavailable, building for current platform + linux/docker target..."
 go build -o dist/gpx_apm_$(go env GOOS)_$(go env GOARCH) ./pkg
+# Always build the linux binary matching the host arch for local Docker
+HOST_ARCH=$(go env GOARCH)
+if [ "$(go env GOOS)" != "linux" ]; then
+  GOOS=linux GOARCH=$HOST_ARCH go build -o dist/gpx_apm_linux_${HOST_ARCH} ./pkg
+fi
 """
 
 # --- Local deployment tasks ---

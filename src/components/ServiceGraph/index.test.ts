@@ -53,12 +53,34 @@ describe('toGraphData', () => {
       secondaryStat: '1.0% errors',
       errorRate: 0.01,
       nodeType: 'service',
+      isHub: undefined,
+      hubDegree: undefined,
     });
     expect(result.graphNodes[1].nodeType).toBe('database');
 
     expect(result.graphEdges).toHaveLength(1);
     expect(result.graphEdges[0].source).toBe('frontend');
     expect(result.graphEdges[0].target).toBe('postgres');
+  });
+
+  it('passes hub metadata through', () => {
+    const response: ServiceMapResponse = {
+      nodes: [
+        {
+          id: 'wonderwall',
+          title: 'wonderwall',
+          arc__errors: 0,
+          arc__ok: 1,
+          errorRate: 0,
+          isHub: true,
+          hubDegree: 316,
+        },
+      ],
+      edges: [],
+    };
+    const result = toGraphData(response);
+    expect(result.graphNodes[0].isHub).toBe(true);
+    expect(result.graphNodes[0].hubDegree).toBe(316);
   });
 
   it('defaults errorRate to 0 when undefined', () => {

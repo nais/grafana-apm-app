@@ -42,6 +42,14 @@ func TestServiceMapNodeJSON(t *testing.T) {
 	if _, ok := m["isSidecar"]; ok {
 		t.Error("expected isSidecar to be omitted when false")
 	}
+	// isHub should be omitted when false
+	if _, ok := m["isHub"]; ok {
+		t.Error("expected isHub to be omitted when false")
+	}
+	// hubDegree should be omitted when zero
+	if _, ok := m["hubDegree"]; ok {
+		t.Error("expected hubDegree to be omitted when zero")
+	}
 
 	// isSidecar should be present when true
 	node.IsSidecar = true
@@ -49,6 +57,18 @@ func TestServiceMapNodeJSON(t *testing.T) {
 	_ = json.Unmarshal(data, &m)
 	if v, ok := m["isSidecar"]; !ok || v != true {
 		t.Errorf("expected isSidecar=true, got %v", m["isSidecar"])
+	}
+
+	// isHub and hubDegree should be present when set
+	node.IsHub = true
+	node.HubDegree = 316
+	data, _ = json.Marshal(node)
+	_ = json.Unmarshal(data, &m)
+	if v, ok := m["isHub"]; !ok || v != true {
+		t.Errorf("expected isHub=true, got %v", m["isHub"])
+	}
+	if v, ok := m["hubDegree"]; !ok || v != float64(316) {
+		t.Errorf("expected hubDegree=316, got %v", m["hubDegree"])
 	}
 }
 

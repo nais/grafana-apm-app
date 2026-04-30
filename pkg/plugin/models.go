@@ -115,6 +115,8 @@ type ServiceMapNode struct {
 	ArcOK         float64 `json:"arc__ok"`     //nolint:revive // JSON field required by Grafana node graph
 	NodeType      string  `json:"nodeType,omitempty"`
 	IsSidecar     bool    `json:"isSidecar,omitempty"`
+	IsHub         bool    `json:"isHub,omitempty"`
+	HubDegree     int     `json:"hubDegree,omitempty"`
 	ErrorRate     float64 `json:"errorRate"`
 }
 

@@ -132,6 +132,8 @@ export interface ServiceMapNode {
   arc__ok: number;
   nodeType?: 'service' | 'database' | 'messaging' | 'external';
   isSidecar?: boolean;
+  isHub?: boolean;
+  hubDegree?: number;
   errorRate: number;
 }
 

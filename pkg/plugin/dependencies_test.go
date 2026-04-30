@@ -379,3 +379,58 @@ t.Errorf("isExternalHostname(%q) = %v, want %v", tc.input, got, tc.external)
 })
 }
 }
+
+func TestStripHexSuffix(t *testing.T) {
+tests := []struct {
+name     string
+input    string
+expected string
+}{
+{"no suffix", "nav-dekoratoren", "nav-dekoratoren"},
+{"short hex 8 chars kept", "my-service-deadbeef", "my-service-deadbeef"},
+{"11 hex chars kept", "my-service-deadbeef012", "my-service-deadbeef012"},
+{"12 hex chars stripped", "my-service-deadbeef0123", "my-service"},
+{"long commit hash", "nav-dekoratoren-28e8c72f0abdc4109d600c", "nav-dekoratoren"},
+{"full SHA", "nav-dekoratoren-1c8de8dedcca53c151b678caa0123456789abcde", "nav-dekoratoren"},
+{"multiple dashes in base", "tms-min-side-abc123def456", "tms-min-side"},
+{"no hex in suffix", "my-service-name", "my-service-name"},
+{"mixed case hex no match", "my-service-DEADBEEF0123", "my-service-DEADBEEF0123"},
+{"empty", "", ""},
+{"only hex no dash", "abcdef0123456789", "abcdef0123456789"},
+}
+
+for _, tc := range tests {
+t.Run(tc.name, func(t *testing.T) {
+got := stripHexSuffix(tc.input)
+if got != tc.expected {
+t.Errorf("stripHexSuffix(%q) = %q, want %q", tc.input, got, tc.expected)
+}
+})
+}
+}
+
+func TestNormalizeServiceName(t *testing.T) {
+tests := []struct {
+name     string
+input    string
+expected string
+}{
+{"plain service", "nav-dekoratoren", "nav-dekoratoren"},
+{"FQDN full", "pdl-tilgangsstyring.pdl.svc.cluster.local", "pdl-tilgangsstyring"},
+{"FQDN svc only", "pdl-tilgangsstyring.pdl.svc", "pdl-tilgangsstyring"},
+{"namespace qualified", "pdl-tilgangsstyring.pdl", "pdl-tilgangsstyring"},
+{"external unchanged", "vault.adeo.no", "vault.adeo.no"},
+{"with port unchanged", "my-service:8080", "my-service:8080"},
+{"empty", "", ""},
+{"dotless", "wonderwall", "wonderwall"},
+}
+
+for _, tc := range tests {
+t.Run(tc.name, func(t *testing.T) {
+got := normalizeServiceName(tc.input)
+if got != tc.expected {
+t.Errorf("normalizeServiceName(%q) = %q, want %q", tc.input, got, tc.expected)
+}
+})
+}
+}

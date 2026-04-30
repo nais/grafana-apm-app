@@ -29,6 +29,8 @@ export interface ServiceGraphNode {
   errorRate: number;
   nodeType?: 'service' | 'database' | 'messaging' | 'external';
   namespace?: string;
+  isHub?: boolean;
+  hubDegree?: number;
 }
 
 export interface ServiceGraphEdge {
@@ -118,6 +120,8 @@ function ServiceGraphInner({
             errorRate: n.errorRate,
             nodeType: n.nodeType ?? 'service',
             isFocused: n.id === focusNode,
+            isHub: n.isHub,
+            hubDegree: n.hubDegree,
           } satisfies ServiceNodeData,
         };
       }),
