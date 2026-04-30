@@ -213,9 +213,12 @@ func (c *PrometheusClient) SeriesExists(ctx context.Context, metricName string) 
 
 // LabelValues fetches all values for a given label name via /api/v1/label/<name>/values.
 func (c *PrometheusClient) LabelValues(ctx context.Context, labelName string) ([]string, error) {
-	reqURL := c.baseURL + "/api/v1/label/" + url.PathEscape(labelName) + "/values"
+	u, err := url.Parse(c.baseURL + "/api/v1/label/" + url.PathEscape(labelName) + "/values")
+	if err != nil {
+		return nil, fmt.Errorf("parsing label values URL: %w", err)
+	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -246,9 +249,13 @@ func (c *PrometheusClient) LabelValues(ctx context.Context, labelName string) ([
 }
 
 func (c *PrometheusClient) doQuery(ctx context.Context, path string, params url.Values) ([]PromResult, error) {
-	reqURL := c.baseURL + path + "?" + params.Encode()
+	u, err := url.Parse(c.baseURL + path)
+	if err != nil {
+		return nil, fmt.Errorf("parsing base URL: %w", err)
+	}
+	u.RawQuery = params.Encode()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}

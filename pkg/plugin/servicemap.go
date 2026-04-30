@@ -18,6 +18,17 @@ import (
 
 // ServiceMapNode, ServiceMapEdge, ServiceMapResponse → models.go
 
+// sanitizeLogValue strips newlines and control characters from user input
+// to prevent log injection attacks.
+func sanitizeLogValue(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return '_'
+		}
+		return r
+	}, s)
+}
+
 func (a *App) handleServiceMap(w http.ResponseWriter, req *http.Request) {
 	if !requireGET(w, req) {
 		return
@@ -212,7 +223,7 @@ func (a *App) queryServiceGraphEdges(ctx context.Context, from, to time.Time, fi
 // (client=X OR server=X) and merges results. This avoids the expensive
 // unscoped query that can time out in large environments.
 func (a *App) queryServiceGraphEdgesScoped(ctx context.Context, from, to time.Time, baseLabelFilter, service string) map[sgEdgeKey]*sgEdgeData {
-	logger := log.DefaultLogger.With("handler", "servicegraph-scoped", "service", service)
+	logger := log.DefaultLogger.With("handler", "servicegraph-scoped", "service", sanitizeLogValue(service))
 	rangeStr := computeRangeStr(from, to)
 	sgp := a.serviceGraphPrefix()
 	cfg := a.otelCfg
@@ -893,7 +904,7 @@ func (a *App) queryServiceMapMultiHop(
 	filterService, _, filterEnvironment string,
 	depth int,
 ) ServiceMapResponse {
-	logger := log.DefaultLogger.With("handler", "servicemap-multihop", "service", filterService, "depth", depth)
+	logger := log.DefaultLogger.With("handler", "servicemap-multihop", "service", sanitizeLogValue(filterService), "depth", depth)
 	baseLabelFilter := envMatcher(a.otelCfg.Labels.DeploymentEnv, filterEnvironment)
 
 	hop1Edges := a.queryServiceGraphEdgesScoped(ctx, from, to, baseLabelFilter, filterService)
@@ -957,7 +968,7 @@ func (a *App) querySpanmetricsTopologyFallback(
 	ctx context.Context, from, to time.Time, baseLabelFilter, service string,
 	needOutbound, needInbound bool,
 ) map[sgEdgeKey]*sgEdgeData {
-	logger := log.DefaultLogger.With("handler", "servicegraph-sm-fallback", "service", service)
+	logger := log.DefaultLogger.With("handler", "servicegraph-sm-fallback", "service", sanitizeLogValue(service))
 	rangeStr := computeRangeStr(from, to)
 	cfg := a.otelCfg
 	callsMetric := a.callsMetric(ctx)
