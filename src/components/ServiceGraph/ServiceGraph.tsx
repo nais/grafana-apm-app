@@ -18,7 +18,7 @@ import { ServiceNode, type ServiceNodeData } from './nodes/ServiceNode';
 import { GroupNode } from './nodes/GroupNode';
 import { CollapseNode, type CollapseNodeData } from './nodes/CollapseNode';
 import { useELKLayout } from './useELKLayout';
-import { computeVisibility, DORMANT_CALLERS_ID, DORMANT_TARGETS_ID } from './graphUtils';
+import { computeVisibility, isCollapseId, collapseSide, DORMANT_CALLERS_ID, DORMANT_TARGETS_ID } from './graphUtils';
 
 export interface ServiceGraphNode {
   id: string;
@@ -95,8 +95,7 @@ function ServiceGraphInner({
   const rfNodes = useMemo<Node[]>(
     () =>
       visibleNodes.map((n) => {
-        const isCollapseNode = n.id === DORMANT_CALLERS_ID || n.id === DORMANT_TARGETS_ID;
-        if (isCollapseNode) {
+        if (isCollapseId(n.id)) {
           return {
             id: n.id,
             type: 'collapse',
@@ -104,7 +103,7 @@ function ServiceGraphInner({
             data: {
               label: n.title,
               count: 0,
-              side: n.id === DORMANT_CALLERS_ID ? 'caller' : 'target',
+              side: collapseSide(n.id),
             } satisfies CollapseNodeData,
           };
         }
@@ -152,9 +151,9 @@ function ServiceGraphInner({
         database: 'Databases',
         messaging: 'Messaging',
       };
-      // Group by node type — skip the focus node so it stays ungrouped
+      // Group by node type — skip the focus node and collapse placeholders
       for (const n of visibleNodes) {
-        if (n.id === focusNode) {
+        if (n.id === focusNode || isCollapseId(n.id)) {
           continue;
         }
         const key = typeLabels[n.nodeType ?? 'service'] ?? 'Services';
@@ -163,8 +162,11 @@ function ServiceGraphInner({
         groupMap.set(key, members);
       }
     } else {
-      // Group by namespace
+      // Group by namespace — skip collapse placeholders
       for (const n of visibleNodes) {
+        if (isCollapseId(n.id)) {
+          continue;
+        }
         if (n.namespace) {
           const members = groupMap.get(n.namespace) ?? [];
           members.push(n.id);
@@ -197,13 +199,17 @@ function ServiceGraphInner({
 
   const handleNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
-      // Expand collapse nodes
+      // Expand hop-1 collapse nodes
       if (node.id === DORMANT_CALLERS_ID) {
         setExpandedCallers(true);
         return;
       }
       if (node.id === DORMANT_TARGETS_ID) {
         setExpandedTargets(true);
+        return;
+      }
+      // Hop-2+ collapse nodes are not expandable — ignore clicks
+      if (isCollapseId(node.id)) {
         return;
       }
       if (node.type !== 'group' && onNodeClick) {
