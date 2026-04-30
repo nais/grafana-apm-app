@@ -21,6 +21,8 @@ export function toGraphData(mapData: ServiceMapResponse | null): {
       secondaryStat: n.secondaryStat,
       errorRate: n.errorRate ?? 0,
       nodeType: n.nodeType,
+      isHub: n.isHub,
+      hubDegree: n.hubDegree,
     })),
     graphEdges: mapData.edges.map((e) => ({
       id: e.id,

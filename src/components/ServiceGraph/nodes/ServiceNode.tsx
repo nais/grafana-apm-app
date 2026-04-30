@@ -13,6 +13,8 @@ export interface ServiceNodeData {
   nodeType?: 'service' | 'database' | 'messaging' | 'external';
   isFocused?: boolean;
   dimmed?: boolean;
+  isHub?: boolean;
+  hubDegree?: number;
   [key: string]: unknown;
 }
 
@@ -30,25 +32,40 @@ export const ServiceNode = memo(({ data, sourcePosition, targetPosition }: NodeP
   const nodeType = data.nodeType ?? 'service';
   const config = NODE_TYPE_CONFIG[nodeType] ?? NODE_TYPE_CONFIG.service;
   const errorRate = data.errorRate ?? 0;
+  const isHub = data.isHub ?? false;
 
-  const borderClass =
-    errorRate > 0.05 ? styles.borderError : errorRate > 0.01 ? styles.borderWarning : styles.borderDefault;
+  const borderClass = isHub
+    ? styles.borderHub
+    : errorRate > 0.05
+      ? styles.borderError
+      : errorRate > 0.01
+        ? styles.borderWarning
+        : styles.borderDefault;
 
   return (
     <div className={cx(styles.node, borderClass, data.isFocused && styles.focused, data.dimmed && styles.dimmed)}>
       <Handle type="target" position={targetPosition ?? Position.Left} className={styles.handle} />
       <div className={styles.header}>
-        <span className={styles.iconBadge} style={{ background: config.bg }}>
-          <Icon name={config.icon} size="xs" />
+        <span className={styles.iconBadge} style={{ background: isHub ? '#8E6DBF' : config.bg }}>
+          <Icon name={isHub ? 'exchange-alt' : config.icon} size="xs" />
         </span>
         <div className={styles.labelGroup}>
           <span className={styles.label} title={data.label}>
             {data.label}
           </span>
-          {data.subtitle && (
-            <span className={styles.subtitle} title={data.subtitle}>
-              {data.subtitle}
+          {isHub && data.hubDegree ? (
+            <span
+              className={styles.hubBadge}
+              title={`Shared service with ${data.hubDegree} connections — not expanded`}
+            >
+              hub · {data.hubDegree} connections
             </span>
+          ) : (
+            data.subtitle && (
+              <span className={styles.subtitle} title={data.subtitle}>
+                {data.subtitle}
+              </span>
+            )
           )}
         </div>
       </div>
@@ -94,6 +111,11 @@ const getStyles = (theme: GrafanaTheme2) => ({
     border-color: ${theme.colors.error.border};
     border-width: 2px;
   `,
+  borderHub: css`
+    border-color: #8e6dbf;
+    border-width: 2px;
+    border-style: dashed;
+  `,
   focused: css`
     border-width: 2px;
     border-color: ${theme.colors.primary.border};
@@ -138,6 +160,15 @@ const getStyles = (theme: GrafanaTheme2) => ({
     overflow: hidden;
     text-overflow: ellipsis;
     line-height: 1.2;
+  `,
+  hubBadge: css`
+    font-size: 9px;
+    color: #8e6dbf;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.2;
+    font-weight: ${theme.typography.fontWeightMedium};
   `,
   stats: css`
     display: flex;

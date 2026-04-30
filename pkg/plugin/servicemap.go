@@ -294,6 +294,80 @@ func (a *App) queryServiceGraphEdgesScoped(ctx context.Context, from, to time.Ti
 
 const maxFrontierSize = 15
 
+// hubDegreeThreshold is the minimum directional degree (number of distinct
+// neighbors in the expansion direction) that causes a node to be classified
+// as a "hub" and excluded from BFS expansion. Hub nodes are still shown in
+// the graph but not traversed further, preventing shared infrastructure
+// (reverse proxies, token exchanges, ingress gateways) from exploding the
+// topology at depth 2+.
+const hubDegreeThreshold = 50
+
+// ratePruneRatio controls the minimum edge rate relative to the parent's entry
+// rate for an edge to be included at hop 2+. Edges with rate < parentRate *
+// ratePruneRatio are pruned as likely unrelated to the focus service's traffic.
+const ratePruneRatio = 0.01
+
+// ratePruneAbsoluteMin is the absolute minimum rate (req/s) below which edges
+// are always pruned at hop 2+, regardless of the parent ratio. This prevents
+// noise from very low-volume edges.
+const ratePruneAbsoluteMin = 0.001
+
+// queryNodeDegrees returns the directional degree (distinct neighbor count) for
+// each service. outDegree counts distinct servers a service calls; inDegree
+// counts distinct clients that call it. Uses sum-then-count to avoid inflated
+// counts from extra label dimensions.
+func (a *App) queryNodeDegrees(ctx context.Context, to time.Time, baseLabelFilter string, services []string) (outDegree, inDegree map[string]int) {
+	if len(services) == 0 {
+		return nil, nil
+	}
+	logger := log.DefaultLogger.With("handler", "node-degrees", "count", len(services))
+	cfg := a.otelCfg
+	sgp := a.serviceGraphPrefix()
+
+	escaped := make([]string, len(services))
+	for i, s := range services {
+		escaped[i] = promQLEscape(s)
+	}
+	pattern := `^(?:` + strings.Join(escaped, "|") + `)$`
+
+	envFilter := ""
+	if baseLabelFilter != "" {
+		envFilter = ", " + baseLabelFilter
+	}
+
+	outQ := fmt.Sprintf(
+		`count by (%s) (sum by (%s, %s) (rate(%s%s{%s=~"%s"%s}[1h])))`,
+		cfg.Labels.Client, cfg.Labels.Client, cfg.Labels.Server,
+		sgp, cfg.ServiceGraph.RequestTotal, cfg.Labels.Client, pattern, envFilter,
+	)
+	inQ := fmt.Sprintf(
+		`count by (%s) (sum by (%s, %s) (rate(%s%s{%s=~"%s"%s}[1h])))`,
+		cfg.Labels.Server, cfg.Labels.Client, cfg.Labels.Server,
+		sgp, cfg.ServiceGraph.RequestTotal, cfg.Labels.Server, pattern, envFilter,
+	)
+
+	resultMap := a.runInstantQueries(ctx, to, []QueryJob{
+		{"outDeg", outQ}, {"inDeg", inQ},
+	}, logger)
+
+	outDegree = make(map[string]int)
+	for _, r := range resultMap["outDeg"] {
+		name := r.Metric[cfg.Labels.Client]
+		if name != "" {
+			outDegree[name] = int(r.Value.Float())
+		}
+	}
+	inDegree = make(map[string]int)
+	for _, r := range resultMap["inDeg"] {
+		name := r.Metric[cfg.Labels.Server]
+		if name != "" {
+			inDegree[name] = int(r.Value.Float())
+		}
+	}
+	logger.Info("Degree query complete", "outNodes", len(outDegree), "inNodes", len(inDegree))
+	return outDegree, inDegree
+}
+
 // queryServiceGraphEdgesDirected queries edges for frontier services in a
 // single direction only. If outbound=true, queries edges where the services
 // appear as CLIENT (finding what they call). If outbound=false, queries where
@@ -596,17 +670,6 @@ func parseSGEdgeResults(resultMap map[string][]queries.PromResult, cfg otelconfi
 	return edges
 }
 
-// isInfraNode returns true if a node represents infrastructure (database,
-// messaging) that should not be traversed further in multi-hop expansion.
-func isInfraNode(edges map[sgEdgeKey]*sgEdgeData, name string) bool {
-	for k, e := range edges {
-		if k.server == name && (e.connType == "database" || e.connType == "messaging_system") {
-			return true
-		}
-	}
-	return false
-}
-
 // bfsDirection indicates which side of the focus service a frontier node is on.
 type bfsDirection int
 
@@ -615,10 +678,215 @@ const (
 	bfsDirInbound                      // node discovered as a caller (left side)
 )
 
+// bfsState holds the mutable state for the multi-hop BFS traversal.
+type bfsState struct {
+	allEdges  map[sgEdgeKey]*sgEdgeData
+	nodeDir    map[string]bfsDirection
+	entryRate  map[string]float64
+	hubNodes   map[string]int // name → directional degree
+	infraNodes map[string]bool
+	seen       map[string]bool
+	expanded   map[string]bool
+	focus      string
+}
+
+// frontierNode represents a candidate for BFS expansion.
+type frontierNode struct {
+	name string
+	rate float64
+	dir  bfsDirection
+}
+
+// initBFSState creates the initial BFS state after hop 1.
+func initBFSState(focus string, edges map[sgEdgeKey]*sgEdgeData) *bfsState {
+	s := &bfsState{
+		allEdges:   edges,
+		nodeDir:    make(map[string]bfsDirection),
+		entryRate:  make(map[string]float64),
+		hubNodes:   make(map[string]int),
+		infraNodes: make(map[string]bool),
+		seen:       map[string]bool{focus: true},
+		expanded:   map[string]bool{focus: true},
+		focus:      focus,
+	}
+	for k, e := range edges {
+		// Track infrastructure nodes (databases, messaging systems)
+		if e.connType == "database" || e.connType == "messaging_system" {
+			s.infraNodes[k.server] = true
+		}
+		if k.client == focus && k.server != focus {
+			s.nodeDir[k.server] = bfsDirOutbound
+		}
+		if k.server == focus && k.client != focus {
+			s.nodeDir[k.client] = bfsDirInbound
+		}
+		for _, name := range []string{k.client, k.server} {
+			if name != focus {
+				if existing, ok := s.entryRate[name]; !ok || e.rate > existing {
+					s.entryRate[name] = e.rate
+				}
+			}
+		}
+	}
+	return s
+}
+
+// buildCandidates discovers nodes not yet seen that could be expanded.
+// Uses two passes to ensure deterministic rate assignment (max rate wins).
+func (s *bfsState) buildCandidates() []frontierNode {
+	// First pass: find max rate and a representative edge for each unseen node
+	type candidateInfo struct {
+		maxRate float64
+		bestKey sgEdgeKey
+	}
+	unseen := make(map[string]*candidateInfo)
+	for k, e := range s.allEdges {
+		for _, name := range []string{k.client, k.server} {
+			if s.seen[name] || s.infraNodes[name] {
+				continue
+			}
+			if info, ok := unseen[name]; ok {
+				if e.rate > info.maxRate {
+					info.maxRate = e.rate
+					info.bestKey = k
+				}
+			} else {
+				unseen[name] = &candidateInfo{maxRate: e.rate, bestKey: k}
+			}
+		}
+	}
+	// Second pass: build candidates with deterministic max rate
+	candidates := make([]frontierNode, 0, len(unseen))
+	for name, info := range unseen {
+		dir := s.inferDirection(info.bestKey, name)
+		candidates = append(candidates, frontierNode{name: name, rate: info.maxRate, dir: dir})
+		s.seen[name] = true
+	}
+	return candidates
+}
+
+// inferDirection determines the BFS direction for a node based on its position
+// in an edge and known directions of adjacent nodes.
+func (s *bfsState) inferDirection(k sgEdgeKey, name string) bfsDirection {
+	if dir, ok := s.nodeDir[name]; ok {
+		return dir
+	}
+	var dir bfsDirection
+	if k.server == name {
+		if cd, ok := s.nodeDir[k.client]; ok {
+			dir = cd
+		} else {
+			dir = bfsDirOutbound
+		}
+	} else {
+		if sd, ok := s.nodeDir[k.server]; ok {
+			dir = sd
+		} else {
+			dir = bfsDirInbound
+		}
+	}
+	s.nodeDir[name] = dir
+	return dir
+}
+
+// filterHubs separates hub nodes from expandable frontier candidates.
+func (s *bfsState) filterHubs(candidates []frontierNode, outDegree, inDegree map[string]int) []frontierNode {
+	var expandable []frontierNode
+	for _, c := range candidates {
+		n := normalizeServiceName(c.name)
+		var dirDegree int
+		if c.dir == bfsDirOutbound {
+			dirDegree = outDegree[n]
+		} else {
+			dirDegree = inDegree[n]
+		}
+		if dirDegree >= hubDegreeThreshold {
+			s.hubNodes[c.name] = dirDegree
+			s.expanded[c.name] = true
+			continue
+		}
+		expandable = append(expandable, c)
+	}
+	return expandable
+}
+
+// splitFrontier splits frontier nodes by direction and normalizes names.
+func (s *bfsState) splitFrontier(frontier []frontierNode) (outNames, inNames []string) {
+	outSeen := map[string]bool{}
+	inSeen := map[string]bool{}
+	for _, f := range frontier {
+		n := normalizeServiceName(f.name)
+		if n == s.focus {
+			continue
+		}
+		s.expanded[f.name] = true
+		if f.dir == bfsDirOutbound && !outSeen[n] {
+			outNames = append(outNames, n)
+			outSeen[n] = true
+		} else if f.dir == bfsDirInbound && !inSeen[n] {
+			inNames = append(inNames, n)
+			inSeen[n] = true
+		}
+	}
+	return outNames, inNames
+}
+
+// mergeEdgesWithPruning adds hop-N edges into allEdges, applying rate-weighted
+// pruning. parentKey is "client" for outbound or "server" for inbound. Returns
+// the number of edges added.
+func (s *bfsState) mergeEdgesWithPruning(hopEdges map[sgEdgeKey]*sgEdgeData, outbound bool) int {
+	added := 0
+	for k, v := range hopEdges {
+		if _, exists := s.allEdges[k]; exists {
+			continue
+		}
+		parentName := k.client
+		if !outbound {
+			parentName = k.server
+		}
+		// Rate-weighted pruning: compute threshold from the higher of
+		// the absolute minimum and the parent's proportional rate.
+		parentRate := s.entryRate[parentName]
+		minRate := ratePruneAbsoluteMin
+		if rel := parentRate * ratePruneRatio; rel > minRate {
+			minRate = rel
+		}
+		if v.rate < minRate {
+			continue
+		}
+		s.allEdges[k] = v
+		added++
+		// Track infrastructure nodes from new edges
+		if v.connType == "database" || v.connType == "messaging_system" {
+			s.infraNodes[k.server] = true
+		}
+		// Track direction and entry rate for newly discovered nodes
+		newNode := k.server
+		dir := bfsDirOutbound
+		if !outbound {
+			newNode = k.client
+			dir = bfsDirInbound
+		}
+		if _, known := s.nodeDir[newNode]; !known {
+			s.nodeDir[newNode] = dir
+		}
+		if existing, ok := s.entryRate[newNode]; !ok || v.rate > existing {
+			s.entryRate[newNode] = v.rate
+		}
+	}
+	return added
+}
+
 // queryServiceMapMultiHop performs direction-aware BFS traversal to discover
 // multi-hop service topology. It starts from the focus service and iteratively
 // expands outbound dependencies rightward and inbound callers leftward,
 // creating proper layered depth in the graph.
+//
+// Two pruning layers prevent graph explosions from shared infrastructure:
+//   - Hub detection: nodes with directional degree >= hubDegreeThreshold are
+//     shown but not expanded (e.g., wonderwall with 316 outbound targets).
+//   - Rate-weighted pruning: at hop 2+, edges carrying < 1% of the parent's
+//     entry rate are dropped as likely unrelated to the focus service.
 func (a *App) queryServiceMapMultiHop(
 	ctx context.Context,
 	from, to time.Time,
@@ -626,135 +894,61 @@ func (a *App) queryServiceMapMultiHop(
 	depth int,
 ) ServiceMapResponse {
 	logger := log.DefaultLogger.With("handler", "servicemap-multihop", "service", filterService, "depth", depth)
-
 	baseLabelFilter := envMatcher(a.otelCfg.Labels.DeploymentEnv, filterEnvironment)
 
-	// Hop 1: use the existing scoped query (includes spanmetrics fallback)
-	allEdges := a.queryServiceGraphEdgesScoped(ctx, from, to, baseLabelFilter, filterService)
-	logger.Info("Hop 1 complete", "edges", len(allEdges))
+	hop1Edges := a.queryServiceGraphEdgesScoped(ctx, from, to, baseLabelFilter, filterService)
+	logger.Info("Hop 1 complete", "edges", len(hop1Edges))
 
-	// Track direction: which side of the focus each node is on
-	nodeDir := map[string]bfsDirection{}
-	for k := range allEdges {
-		if k.client == filterService && k.server != filterService {
-			nodeDir[k.server] = bfsDirOutbound
-		}
-		if k.server == filterService && k.client != filterService {
-			nodeDir[k.client] = bfsDirInbound
-		}
-	}
+	s := initBFSState(filterService, hop1Edges)
 
-	explored := map[string]bool{filterService: true}
-
-	// BFS: expand frontier nodes for additional hops
 	for hop := 2; hop <= depth; hop++ {
-		type frontierNode struct {
-			name string
-			rate float64
-			dir  bfsDirection
-		}
-		var frontier []frontierNode
-
-		for k, e := range allEdges {
-			for _, name := range []string{k.client, k.server} {
-				if explored[name] || isInfraNode(allEdges, name) {
-					continue
-				}
-				dir, hasDirInfo := nodeDir[name]
-				if !hasDirInfo {
-					// Infer direction from the edge: if this node is a server
-					// in an edge where the client is already known outbound,
-					// it's also outbound (and vice versa).
-					if k.server == name {
-						if cd, ok := nodeDir[k.client]; ok {
-							dir = cd
-						} else {
-							dir = bfsDirOutbound
-						}
-					} else {
-						if sd, ok := nodeDir[k.server]; ok {
-							dir = sd
-						} else {
-							dir = bfsDirInbound
-						}
-					}
-					nodeDir[name] = dir
-				}
-				frontier = append(frontier, frontierNode{name: name, rate: e.rate, dir: dir})
-				explored[name] = true
-			}
-		}
-
-		if len(frontier) == 0 {
-			logger.Info("BFS terminated early, no frontier", "hop", hop)
+		candidates := s.buildCandidates()
+		if len(candidates) == 0 {
+			logger.Info("BFS terminated early, no candidates", "hop", hop)
 			break
 		}
 
-		// Sort by rate descending and cap at maxFrontierSize
-		sort.Slice(frontier, func(i, j int) bool {
-			return frontier[i].rate > frontier[j].rate
-		})
+		candidateNames := make([]string, len(candidates))
+		for i, c := range candidates {
+			candidateNames[i] = normalizeServiceName(c.name)
+		}
+		outDegree, inDegree := a.queryNodeDegrees(ctx, to, baseLabelFilter, candidateNames)
+
+		frontier := s.filterHubs(candidates, outDegree, inDegree)
+		if len(frontier) == 0 {
+			logger.Info("BFS terminated, all candidates are hubs or infra", "hop", hop)
+			break
+		}
+
+		sort.Slice(frontier, func(i, j int) bool { return frontier[i].rate > frontier[j].rate })
 		if len(frontier) > maxFrontierSize {
+			for _, f := range frontier[maxFrontierSize:] {
+				s.seen[f.name] = false
+			}
 			frontier = frontier[:maxFrontierSize]
 		}
 
-		// Split frontier by direction
-		var outNames, inNames []string
-		outSeen := map[string]bool{}
-		inSeen := map[string]bool{}
-		for _, f := range frontier {
-			n := normalizeServiceName(f.name)
-			if n == filterService {
-				continue
-			}
-			if f.dir == bfsDirOutbound && !outSeen[n] {
-				outNames = append(outNames, n)
-				outSeen[n] = true
-			} else if f.dir == bfsDirInbound && !inSeen[n] {
-				inNames = append(inNames, n)
-				inSeen[n] = true
-			}
-		}
-
+		outNames, inNames := s.splitFrontier(frontier)
 		if len(outNames) == 0 && len(inNames) == 0 {
 			logger.Info("BFS terminated, no valid frontier after normalization", "hop", hop)
 			break
 		}
-		logger.Info("Expanding frontier", "hop", hop, "outbound", len(outNames), "inbound", len(inNames))
+		logger.Info("Expanding frontier", "hop", hop, "outbound", len(outNames), "inbound", len(inNames), "hubs", len(s.hubNodes))
 
-		// Query outbound frontier: only their outbound edges (them as client → ?)
 		if len(outNames) > 0 {
 			outEdges := a.queryServiceGraphEdgesDirected(ctx, from, to, baseLabelFilter, outNames, true)
-			for k, v := range outEdges {
-				if _, exists := allEdges[k]; !exists {
-					allEdges[k] = v
-					// New servers discovered via outbound expansion are also outbound
-					if _, known := nodeDir[k.server]; !known {
-						nodeDir[k.server] = bfsDirOutbound
-					}
-				}
-			}
-			logger.Info("Outbound expansion", "hop", hop, "newEdges", len(outEdges))
+			added := s.mergeEdgesWithPruning(outEdges, true)
+			logger.Info("Outbound expansion", "hop", hop, "queried", len(outEdges), "kept", added)
 		}
-
-		// Query inbound frontier: only their inbound edges (? → them as server)
 		if len(inNames) > 0 {
 			inEdges := a.queryServiceGraphEdgesDirected(ctx, from, to, baseLabelFilter, inNames, false)
-			for k, v := range inEdges {
-				if _, exists := allEdges[k]; !exists {
-					allEdges[k] = v
-					// New clients discovered via inbound expansion are also inbound
-					if _, known := nodeDir[k.client]; !known {
-						nodeDir[k.client] = bfsDirInbound
-					}
-				}
-			}
-			logger.Info("Inbound expansion", "hop", hop, "newEdges", len(inEdges))
+			added := s.mergeEdgesWithPruning(inEdges, false)
+			logger.Info("Inbound expansion", "hop", hop, "queried", len(inEdges), "kept", added)
 		}
 	}
 
-	logger.Info("BFS complete", "totalEdges", len(allEdges))
-	return assembleServiceMapResponse(allEdges)
+	logger.Info("BFS complete", "totalEdges", len(s.allEdges), "hubs", len(s.hubNodes))
+	return assembleServiceMapResponseWithHubs(s.allEdges, s.hubNodes)
 }
 // when service graph metrics are unavailable (e.g., environments without the
 // Tempo service graph processor). It queries calls_total with server_address and
@@ -1050,8 +1244,8 @@ func preprocessServiceMapEdges(edges map[sgEdgeKey]*sgEdgeData) map[sgEdgeKey]*s
 	normalized := make(map[sgEdgeKey]*sgEdgeData, len(edges))
 	for k, e := range edges {
 		nk := sgEdgeKey{
-			client: normalizeServiceName(k.client),
-			server: normalizeServiceName(k.server),
+			client: stripHexSuffix(normalizeServiceName(k.client)),
+			server: stripHexSuffix(normalizeServiceName(k.server)),
 		}
 		if nk.client == nk.server {
 			continue // skip self-loops created by normalization
@@ -1212,6 +1406,28 @@ func assembleServiceMapResponse(edges map[sgEdgeKey]*sgEdgeData) ServiceMapRespo
 	return ServiceMapResponse{Nodes: nodes, Edges: edgeList}
 }
 
+// assembleServiceMapResponseWithHubs wraps assembleServiceMapResponse and
+// annotates hub nodes (high-degree shared infrastructure) so the frontend
+// can render them distinctively.
+func assembleServiceMapResponseWithHubs(edges map[sgEdgeKey]*sgEdgeData, hubs map[string]int) ServiceMapResponse {
+	resp := assembleServiceMapResponse(edges)
+	if len(hubs) == 0 {
+		return resp
+	}
+	// Also check normalized names since edges go through normalization
+	normalizedHubs := make(map[string]int, len(hubs))
+	for name, degree := range hubs {
+		normalizedHubs[normalizeServiceName(name)] = degree
+	}
+	for i := range resp.Nodes {
+		if degree, ok := normalizedHubs[resp.Nodes[i].ID]; ok {
+			resp.Nodes[i].IsHub = true
+			resp.Nodes[i].HubDegree = degree
+		}
+	}
+	return resp
+}
+
 func labelFilterStr(filter string) string {
 	if filter == "" {
 		return ""
@@ -1285,13 +1501,13 @@ func formatDepDisplayName(name, dbSystem, messagingSystem string) string {
 	return ""
 }
 
-// debugServiceMapMultiHop runs the direction-aware BFS with diagnostic output.
+// debugServiceMapMultiHop runs the direction-aware BFS with diagnostic output,
+// including hub detection and rate-weighted pruning info.
 func (a *App) debugServiceMapMultiHop(
 	ctx context.Context, from, to time.Time,
 	filterService, filterEnvironment string, depth int,
 ) interface{} {
 	baseLabelFilter := envMatcher(a.otelCfg.Labels.DeploymentEnv, filterEnvironment)
-
 	allEdges := a.queryServiceGraphEdgesScoped(ctx, from, to, baseLabelFilter, filterService)
 
 	hop1Edges := make(map[string]string, len(allEdges))
@@ -1299,72 +1515,48 @@ func (a *App) debugServiceMapMultiHop(
 		hop1Edges[k.client+" -> "+k.server] = fmt.Sprintf("rate=%.3f ct=%q", e.rate, e.connType)
 	}
 
-	// Track directions
-	nodeDir := map[string]bfsDirection{}
-	for k := range allEdges {
-		if k.client == filterService && k.server != filterService {
-			nodeDir[k.server] = bfsDirOutbound
-		}
-		if k.server == filterService && k.client != filterService {
-			nodeDir[k.client] = bfsDirInbound
-		}
-	}
-
-	explored := map[string]bool{filterService: true}
+	s := initBFSState(filterService, allEdges)
 
 	type hopDebug struct {
 		Hop          int               `json:"hop"`
 		OutNames     []string          `json:"outboundFrontier"`
 		InNames      []string          `json:"inboundFrontier"`
-		InfraSkipped []string          `json:"infraSkipped"`
-		OutEdges     int               `json:"outboundEdges"`
-		InEdges      int               `json:"inboundEdges"`
+		HubsDetected map[string]int    `json:"hubsDetected"`
+		OutEdges     int               `json:"outboundEdgesQueried"`
+		InEdges      int               `json:"inboundEdgesQueried"`
+		OutKept      int               `json:"outboundEdgesKept"`
+		InKept       int               `json:"inboundEdgesKept"`
 		SampleEdges  map[string]string `json:"sampleEdges"`
 	}
 	var hops []hopDebug
 
 	for hop := 2; hop <= depth; hop++ {
-		type fn struct {
-			name string
-			rate float64
-			dir  bfsDirection
+		candidates := s.buildCandidates()
+		candidateNames := make([]string, len(candidates))
+		for i, c := range candidates {
+			candidateNames[i] = normalizeServiceName(c.name)
 		}
-		var frontier []fn
-		var infraSkipped []string
+		outDegree, inDegree := a.queryNodeDegrees(ctx, to, baseLabelFilter, candidateNames)
 
-		for k, e := range allEdges {
-			for _, name := range []string{k.client, k.server} {
-				if explored[name] {
-					continue
-				}
-				if isInfraNode(allEdges, name) {
-					infraSkipped = append(infraSkipped, name)
-					explored[name] = true
-					continue
-				}
-				dir := nodeDir[name]
-				frontier = append(frontier, fn{name: name, rate: e.rate, dir: dir})
-				explored[name] = true
+		// Record which ones are hubs before filtering
+		preHubs := make(map[string]int)
+		for _, c := range candidates {
+			n := normalizeServiceName(c.name)
+			dirDeg := outDegree[n]
+			if c.dir == bfsDirInbound {
+				dirDeg = inDegree[n]
+			}
+			if dirDeg >= hubDegreeThreshold {
+				preHubs[c.name] = dirDeg
 			}
 		}
 
+		frontier := s.filterHubs(candidates, outDegree, inDegree)
 		sort.Slice(frontier, func(i, j int) bool { return frontier[i].rate > frontier[j].rate })
 		if len(frontier) > maxFrontierSize {
 			frontier = frontier[:maxFrontierSize]
 		}
-
-		var outNames, inNames []string
-		for _, f := range frontier {
-			n := normalizeServiceName(f.name)
-			if n == filterService {
-				continue
-			}
-			if f.dir == bfsDirOutbound {
-				outNames = append(outNames, n)
-			} else {
-				inNames = append(inNames, n)
-			}
-		}
+		outNames, inNames := s.splitFrontier(frontier)
 
 		var outEdges, inEdges map[sgEdgeKey]*sgEdgeData
 		if len(outNames) > 0 {
@@ -1373,6 +1565,9 @@ func (a *App) debugServiceMapMultiHop(
 		if len(inNames) > 0 {
 			inEdges = a.queryServiceGraphEdgesDirected(ctx, from, to, baseLabelFilter, inNames, false)
 		}
+
+		outKept := s.mergeEdgesWithPruning(outEdges, true)
+		inKept := s.mergeEdgesWithPruning(inEdges, false)
 
 		sampleEdges := make(map[string]string)
 		i := 0
@@ -1383,34 +1578,18 @@ func (a *App) debugServiceMapMultiHop(
 			sampleEdges[k.client+" -> "+k.server] = fmt.Sprintf("rate=%.3f (out)", e.rate)
 			i++
 		}
-		for k, e := range inEdges {
-			if i >= 20 {
-				break
-			}
-			sampleEdges[k.client+" -> "+k.server] = fmt.Sprintf("rate=%.3f (in)", e.rate)
-			i++
-		}
 
 		hops = append(hops, hopDebug{
 			Hop:          hop,
 			OutNames:     outNames,
 			InNames:      inNames,
-			InfraSkipped: infraSkipped,
+			HubsDetected: preHubs,
 			OutEdges:     len(outEdges),
 			InEdges:      len(inEdges),
+			OutKept:      outKept,
+			InKept:       inKept,
 			SampleEdges:  sampleEdges,
 		})
-
-		for k, v := range outEdges {
-			if _, exists := allEdges[k]; !exists {
-				allEdges[k] = v
-			}
-		}
-		for k, v := range inEdges {
-			if _, exists := allEdges[k]; !exists {
-				allEdges[k] = v
-			}
-		}
 	}
 
 	return map[string]interface{}{
