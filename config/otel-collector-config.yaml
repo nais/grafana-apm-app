@@ -37,7 +37,8 @@ connectors:
       - service.namespace
       - telemetry.sdk.language
 
-  servicegraph:
+  # "servicegraph:" in older versions of otel-collector
+  service_graph:
     latency_histogram_buckets: [2ms, 4ms, 6ms, 8ms, 10ms, 50ms, 100ms, 200ms, 400ms, 800ms, 1s, 1.4s, 2s, 5s, 10s, 15s]
     dimensions:
       - db.system
