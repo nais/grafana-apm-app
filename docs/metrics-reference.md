@@ -132,7 +132,8 @@ produces topology metrics showing which services call which.
 
 ```yaml
 connectors:
-  servicegraph:
+  service_graph:
+  # "servicegraph:: in older versions of otel-collector"
     latency_histogram_buckets:
       [2ms, 4ms, 6ms, 8ms, 10ms, 50ms, 100ms, 200ms,
        400ms, 800ms, 1s, 1.4s, 2s, 5s, 10s, 15s]
