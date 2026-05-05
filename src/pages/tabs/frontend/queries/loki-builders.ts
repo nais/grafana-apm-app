@@ -46,9 +46,14 @@ export function lokiVitalByPageExpr(
   window: string,
   browserFilter = BROWSER_FILTER
 ): string {
-  const pipeline = lokiVitalPipeline(service, vital, pageLabel, browserFilter);
+  const fl = otel.faroLoki;
+  // Keep page_id alongside the page label so we can prefer it when available
+  const pipeline = lokiVitalPipeline(service, vital, `${pageLabel}, ${fl.pageId}`, browserFilter);
+  // Prefer page_id (normalized route from generatePageId) over raw page_url.
+  // When page_id is absent/empty, falls back to the original page label value.
+  const labelFormat = `| label_format ${pageLabel}="{{if .${fl.pageId}}}{{.${fl.pageId}}}{{else}}{{.${pageLabel}}}{{end}}"`;
   // Use topk to limit cardinality — only compute averages for the top 20 pages by volume
-  return `topk(20, sum by (${pageLabel}) (sum_over_time(${pipeline} | unwrap ${vital} ${window})) / sum by (${pageLabel}) (count_over_time(${pipeline} ${window})))`;
+  return `topk(20, sum by (${pageLabel}) (sum_over_time(${pipeline} ${labelFormat} | unwrap ${vital} ${window})) / sum by (${pageLabel}) (count_over_time(${pipeline} ${labelFormat} ${window})))`;
 }
 
 /** Total exception count over time (for timeseries). */
