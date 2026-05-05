@@ -107,5 +107,6 @@ export const otel = {
     rating: 'context_rating',
     browserName: 'browser_name',
     pageUrl: 'page_url',
+    pageId: 'page_id',
   },
 } as const;

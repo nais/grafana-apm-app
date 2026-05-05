@@ -66,12 +66,24 @@ describe('loki-builders', () => {
   });
 
   describe('lokiVitalByPageExpr', () => {
-    it('returns raw per-page average without URL normalization', () => {
+    it('prefers page_id over page_url via label_format', () => {
       const result = lokiVitalByPageExpr(service, 'lcp', 'page_url', '[$__range]');
       expect(result).toContain('page_url');
+      expect(result).toContain('page_id');
+      expect(result).toContain('label_format');
       expect(result).toContain('sum by (page_url)');
       expect(result).toContain('unwrap lcp');
-      expect(result).not.toContain('label_replace');
+    });
+
+    it('keeps both page_url and page_id in the pipeline', () => {
+      const result = lokiVitalByPageExpr(service, 'lcp', 'page_url', '[$__range]');
+      expect(result).toContain('keep lcp, page_url, page_id');
+    });
+
+    it('falls back to page_url when page_id is empty', () => {
+      const result = lokiVitalByPageExpr(service, 'lcp', 'page_url', '[$__range]');
+      // The template uses if/else to fall back to page_url
+      expect(result).toContain('{{if .page_id}}{{.page_id}}{{else}}{{.page_url}}{{end}}');
     });
   });
 
