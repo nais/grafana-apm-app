@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.0 (2026-05-06)
+
+### Features
+
+- **Health attention alerts** — Service overview shows an "Attention needed" section when operations or dependencies are degraded. Uses anomaly detection comparing current metrics against a previous period baseline, with both delta-based (2× increase) and absolute (≥5% error rate) thresholds.
+- **Causality analysis** — When both operations and dependencies are degraded, the health alert indicates whether errors are likely cascading from downstream dependencies or appear internal. Uses volumetric comparison of dependency error volume against service error volume.
+- **Per-page performance route grouping** — The Faro "Per-Page Performance" table now prefers `page_id` (from SDK's `generatePageId`) over raw `page_url` for grouping. Dynamic URL segments (e.g. `/sak/{id}/...`) are automatically normalized when the SDK provides route-level page IDs. Falls back to raw URL when `page_id` is absent. (Closes #41)
+
 ## 0.9.1 (2026-04-30)
 
 ### Fixes
