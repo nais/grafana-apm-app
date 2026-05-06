@@ -21,8 +21,6 @@ export interface LabelOverrides {
   serviceNamespaceLabel?: string;
   /** Default: "k8s_cluster_name". */
   deploymentEnvLabel?: string;
-  /** Default: "telemetry_sdk_language". */
-  sdkLanguageLabel?: string;
 }
 
 /** The plugin's jsonData schema — persisted in Grafana's plugin settings. */

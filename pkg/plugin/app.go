@@ -71,9 +71,6 @@ func NewApp(_ context.Context, settings backend.AppInstanceSettings) (instancemg
 		if o.DeploymentEnv != "" {
 			app.otelCfg.Labels.DeploymentEnv = o.DeploymentEnv
 		}
-		if o.SDKLanguage != "" {
-			app.otelCfg.Labels.SDKLanguage = o.SDKLanguage
-		}
 		logger.Info("Label overrides applied", "overrides", o)
 	}
 

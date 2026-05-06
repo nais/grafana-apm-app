@@ -49,9 +49,6 @@ type LabelOverrides struct {
 
 	// DeploymentEnv overrides the label used for the deployment environment (default: "k8s_cluster_name").
 	DeploymentEnv string `json:"deploymentEnvLabel,omitempty"`
-
-	// SDKLanguage overrides the label used for SDK/language detection (default: "telemetry_sdk_language").
-	SDKLanguage string `json:"sdkLanguageLabel,omitempty"`
 }
 
 // PluginSettings holds parsed jsonData from the app plugin configuration.

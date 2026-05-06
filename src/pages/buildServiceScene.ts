@@ -65,6 +65,8 @@ export function buildServiceScene(params: BuildServiceSceneParams): EmbeddedScen
   }
 
   let svcFilter = `${serviceNameLabel}="${sanitizeLabelValue(service)}"`;
+  // Namespace is optional — services on classic/VM infrastructure may not have one.
+  // When empty, omit the matcher rather than filtering on service_namespace="".
   if (namespace) {
     svcFilter += `, ${serviceNamespaceLabel}="${sanitizeLabelValue(namespace)}"`;
   }
