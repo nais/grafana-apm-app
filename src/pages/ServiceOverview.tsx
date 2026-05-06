@@ -8,7 +8,7 @@ import { css } from '@emotion/css';
 import { buildTempoExploreUrl, buildLokiExploreUrl } from '../utils/explore';
 import { FrameworkBadge } from '../components/FrameworkBadge';
 import { PageHeader } from '../components/PageHeader';
-import { usePluginDatasources, useHasEnvironmentOverrides } from '../utils/datasources';
+import { usePluginDatasources, useHasEnvironmentOverrides, usePluginLabelOverrides } from '../utils/datasources';
 import { useTimeRange } from '../utils/timeRange';
 import { useCapabilities, getMetricNames } from '../utils/capabilities';
 import { useAppNavigate, sanitizeParam } from '../utils/navigation';
@@ -42,6 +42,7 @@ function ServiceOverview() {
   const envFilter = sanitizeParam(searchParams.get('environment') ?? '');
   const ds = usePluginDatasources(envFilter || undefined);
   const hasEnvOverrides = useHasEnvironmentOverrides();
+  const labelOverrides = usePluginLabelOverrides();
   const { from, to, fromMs, toMs } = useTimeRange();
   const { caps } = useCapabilities();
   const metrics = getMetricNames(caps);
@@ -161,6 +162,9 @@ function ServiceOverview() {
         durationBucket,
         durationUnit,
         hasServerSpans,
+        serviceNameLabel: labelOverrides.serviceNameLabel,
+        serviceNamespaceLabel: labelOverrides.serviceNamespaceLabel,
+        deploymentEnvLabel: labelOverrides.deploymentEnvLabel,
       }),
     [
       service,
@@ -177,6 +181,9 @@ function ServiceOverview() {
       durationBucket,
       durationUnit,
       hasServerSpans,
+      labelOverrides.serviceNameLabel,
+      labelOverrides.serviceNamespaceLabel,
+      labelOverrides.deploymentEnvLabel,
     ]
   );
 

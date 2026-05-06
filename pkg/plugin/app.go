@@ -59,6 +59,24 @@ func NewApp(_ context.Context, settings backend.AppInstanceSettings) (instancemg
 		}
 	}
 
+	// Apply label overrides — allows non-standard OTel pipelines (e.g. Tempo metrics generator,
+	// which emits "service" instead of "service_name") to work without infra-side relabeling.
+	if o := app.settings.LabelOverrides; (o != queries.LabelOverrides{}) {
+		if o.ServiceName != "" {
+			app.otelCfg.Labels.ServiceName = o.ServiceName
+		}
+		if o.ServiceNamespace != "" {
+			app.otelCfg.Labels.ServiceNamespace = o.ServiceNamespace
+		}
+		if o.DeploymentEnv != "" {
+			app.otelCfg.Labels.DeploymentEnv = o.DeploymentEnv
+		}
+		if o.SDKLanguage != "" {
+			app.otelCfg.Labels.SDKLanguage = o.SDKLanguage
+		}
+		logger.Info("Label overrides applied", "overrides", o)
+	}
+
 	// Read Grafana service account token from secureJsonData.
 	// When deployed behind an OAuth2 proxy (e.g., Wonderwall/Nais), the browser's
 	// session cookies are for the proxy, not for Grafana. Since the plugin backend

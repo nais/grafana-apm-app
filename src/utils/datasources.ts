@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import pluginJson from '../plugin.json';
-import { AppPluginSettings, EnvAwareDs } from '../types/plugin';
+import { AppPluginSettings, EnvAwareDs, LabelOverrides } from '../types/plugin';
 
 interface PluginDatasources {
   metricsUid: string;
@@ -117,6 +117,19 @@ export function useConfiguredEnvironments(): string[] {
 export function useHasEnvironmentOverrides(): boolean {
   const envs = useConfiguredEnvironments();
   return envs.length > 0;
+}
+
+/** Returns configured label overrides from plugin jsonData. */
+export function usePluginLabelOverrides(): LabelOverrides {
+  const [rev, setRev] = useState(0);
+  useEffect(() => {
+    const listener = () => setRev((r) => r + 1);
+    _listeners.push(listener);
+    return () => {
+      _listeners = _listeners.filter((l) => l !== listener);
+    };
+  }, []);
+  return rev >= 0 ? (getJsonData().labelOverrides ?? {}) : {};
 }
 
 // Exported for testing — reset module state between test cases.

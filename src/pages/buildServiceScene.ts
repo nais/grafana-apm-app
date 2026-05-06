@@ -30,6 +30,9 @@ export interface BuildServiceSceneParams {
   durationBucket: string;
   durationUnit: string;
   hasServerSpans: boolean;
+  serviceNameLabel?: string;
+  serviceNamespaceLabel?: string;
+  deploymentEnvLabel?: string;
 }
 
 /**
@@ -52,15 +55,21 @@ export function buildServiceScene(params: BuildServiceSceneParams): EmbeddedScen
     durationBucket,
     durationUnit,
     hasServerSpans,
+    serviceNameLabel = otel.labels.serviceName,
+    serviceNamespaceLabel = otel.labels.serviceNamespace,
+    deploymentEnvLabel = otel.labels.deploymentEnv,
   } = params;
 
   if (!metricsUid || !callsMetric || !durationBucket) {
     return null;
   }
 
-  let svcFilter = `${otel.labels.serviceName}="${sanitizeLabelValue(service)}", ${otel.labels.serviceNamespace}="${sanitizeLabelValue(namespace)}"`;
+  let svcFilter = `${serviceNameLabel}="${sanitizeLabelValue(service)}"`;
+  if (namespace) {
+    svcFilter += `, ${serviceNamespaceLabel}="${sanitizeLabelValue(namespace)}"`;
+  }
   if (envFilter) {
-    svcFilter += `, ${otel.labels.deploymentEnv}="${sanitizeLabelValue(envFilter)}"`;
+    svcFilter += `, ${deploymentEnvLabel}="${sanitizeLabelValue(envFilter)}"`;
   }
   const spanKindFilter = hasServerSpans ? `, ${otel.labels.spanKind}="${otel.spanKinds.server}"` : '';
   const panelDurationUnit = durationUnit === 's' ? 's' : 'ms';
@@ -112,10 +121,11 @@ export function buildServiceScene(params: BuildServiceSceneParams): EmbeddedScen
 
   const tempoUrl = buildTempoExploreUrl(tracesUid, service, { namespace });
   const lokiUrl = buildLokiExploreUrl(logsUid, service, { namespace });
-  const mimirUrl = buildMimirExploreUrl(
-    metricsUid,
-    `sum(rate(${callsMetric}{${otel.labels.serviceName}="${service}", ${otel.labels.serviceNamespace}="${namespace}"${spanKindFilter}}[5m]))`
-  );
+  let mimirFilter = `${serviceNameLabel}="${sanitizeLabelValue(service)}"`;
+  if (namespace) {
+    mimirFilter += `, ${serviceNamespaceLabel}="${sanitizeLabelValue(namespace)}"`;
+  }
+  const mimirUrl = buildMimirExploreUrl(metricsUid, `sum(rate(${callsMetric}{${mimirFilter}${spanKindFilter}}[5m]))`);
 
   const heatmapQuery = new SceneQueryRunner({
     datasource: { uid: metricsUid, type: 'prometheus' },
