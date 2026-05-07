@@ -63,6 +63,12 @@ type PluginSettings struct {
 
 	// LabelOverrides allows customising Prometheus label names for non-standard OTel pipelines.
 	LabelOverrides LabelOverrides `json:"labelOverrides,omitempty"`
+
+	// IngressAliases maps ingress hostnames to the service_name they route to.
+	// This allows the plugin to discover callers that reach a service via its
+	// ingress hostname (e.g., on-prem services calling via nais ingress).
+	// Key: hostname (e.g., "tilgangsmaskin.intern.nav.no"), Value: service_name.
+	IngressAliases map[string]string `json:"ingressAliases,omitempty"`
 }
 
 // Capabilities represents the detected OTel data capabilities.

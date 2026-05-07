@@ -583,7 +583,7 @@ func (a *App) querySpanmetricsTopologyBatch(
 			if svc == "" || addr == "" {
 				continue
 			}
-			serverName := extractTopologyNodeName(addr)
+			serverName := a.resolveIngressAlias(extractTopologyNodeName(addr))
 			if serverName == "" || serverName == svc {
 				continue
 			}
@@ -605,7 +605,7 @@ func (a *App) querySpanmetricsTopologyBatch(
 		if caller == "" || addr == "" {
 			continue
 		}
-		serverName := extractTopologyNodeName(addr)
+		serverName := a.resolveIngressAlias(extractTopologyNodeName(addr))
 		if serverName == "" || serverName == caller {
 			continue
 		}
@@ -1049,6 +1049,25 @@ func (a *App) querySpanmetricsTopologyFallback(
 			cfg.Labels.HTTPHost, escapedSvc,
 			cfg.Labels.StatusCode, cfg.StatusCodes.Error, envFilter, rangeStr,
 		)
+
+		// Ingress alias supplement: also find callers via configured ingress hostnames.
+		for _, hostname := range a.ingressHostnames(service) {
+			escapedHost := promQLEscape(hostname)
+			inRateQ += fmt.Sprintf(
+				` or sum by (%s, %s) (rate(%s{%s="%s", %s=~"%s(:[0-9]+)?"%s}%s))`,
+				cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
+				callsMetric, cfg.Labels.SpanKind, cfg.SpanKinds.Client,
+				cfg.Labels.ServerAddress, escapedHost, envFilter, rangeStr,
+			)
+			inErrQ += fmt.Sprintf(
+				` or sum by (%s, %s) (rate(%s{%s="%s", %s=~"%s(:[0-9]+)?", %s="%s"%s}%s))`,
+				cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
+				callsMetric, cfg.Labels.SpanKind, cfg.SpanKinds.Client,
+				cfg.Labels.ServerAddress, escapedHost,
+				cfg.Labels.StatusCode, cfg.StatusCodes.Error, envFilter, rangeStr,
+			)
+		}
+
 		jobs = append(jobs,
 			QueryJob{"smInRate", inRateQ},
 			QueryJob{"smInRateHost", inRateHostQ},
@@ -1085,7 +1104,7 @@ func (a *App) querySpanmetricsTopologyFallback(
 			if addr == "" {
 				continue
 			}
-			serverName := extractTopologyNodeName(addr)
+			serverName := a.resolveIngressAlias(extractTopologyNodeName(addr))
 			if serverName == "" || serverName == service {
 				continue
 			}
@@ -1111,7 +1130,7 @@ func (a *App) querySpanmetricsTopologyFallback(
 			if addr == "" {
 				continue
 			}
-			serverName := extractTopologyNodeName(addr)
+			serverName := a.resolveIngressAlias(extractTopologyNodeName(addr))
 			if serverName == "" || serverName == service {
 				continue
 			}
@@ -1183,6 +1202,19 @@ func extractTopologyNodeName(addr string) string {
 
 	// External hostnames: normalize (strip standard ports)
 	return normalizeAddress(addr)
+}
+
+// resolveIngressAlias checks if the given address is a known ingress alias
+// and returns the mapped service name if so. Otherwise returns the original name.
+func (a *App) resolveIngressAlias(name string) string {
+	if a.settings.IngressAliases == nil {
+		return name
+	}
+	// Try the name as-is (e.g., "tilgangsmaskin.intern.nav.no")
+	if svc, ok := a.settings.IngressAliases[name]; ok {
+		return svc
+	}
+	return name
 }
 
 func (a *App) queryServiceMap( //nolint:gocyclo // complex due to filtering + node/edge assembly

@@ -21,6 +21,11 @@ interface EnvOverride {
   lokiUid: string;
 }
 
+type IngressAlias = {
+  hostname: string;
+  service: string;
+};
+
 type State = {
   metricsUid: string;
   tracesUid: string;
@@ -29,6 +34,7 @@ type State = {
   durationUnit: string;
   labelOverrides: LabelOverrides;
   envOverrides: EnvOverride[];
+  ingressAliases: IngressAlias[];
   serviceAccountToken: string;
   tokenConfigured: boolean;
 };
@@ -59,6 +65,10 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
     durationUnit: jsonData?.durationUnit || '',
     labelOverrides: jsonData?.labelOverrides ?? {},
     envOverrides: parseEnvOverrides(jsonData?.tracesDataSource, jsonData?.logsDataSource),
+    ingressAliases: Object.entries(jsonData?.ingressAliases ?? {}).map(([hostname, service]) => ({
+      hostname,
+      service,
+    })),
     serviceAccountToken: '',
     tokenConfigured: secureJsonFields?.serviceAccountToken === true,
   });
@@ -212,6 +222,28 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
     }));
   };
 
+  const onAliasChange = (idx: number, field: keyof IngressAlias) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    setState((prev) => {
+      const aliases = [...prev.ingressAliases];
+      aliases[idx] = { ...aliases[idx], [field]: e.target.value.trim() };
+      return { ...prev, ingressAliases: aliases };
+    });
+  };
+
+  const addAlias = () => {
+    setState((prev) => ({
+      ...prev,
+      ingressAliases: [...prev.ingressAliases, { hostname: '', service: '' }],
+    }));
+  };
+
+  const removeAlias = (idx: number) => {
+    setState((prev) => ({
+      ...prev,
+      ingressAliases: prev.ingressAliases.filter((_, i) => i !== idx),
+    }));
+  };
+
   const onSubmit = () => {
     // Build byEnvironment maps from overrides
     const tracesByEnv: Record<string, DsRef> = {};
@@ -224,6 +256,14 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
         if (ov.lokiUid) {
           logsByEnv[ov.env] = { uid: ov.lokiUid, type: 'loki' };
         }
+      }
+    }
+
+    // Build ingress alias map from rows
+    const ingressAliases: Record<string, string> = {};
+    for (const alias of state.ingressAliases) {
+      if (alias.hostname && alias.service) {
+        ingressAliases[alias.hostname] = alias.service;
       }
     }
 
@@ -245,6 +285,7 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
         metricNamespace: state.metricNamespace || undefined,
         durationUnit: state.durationUnit || undefined,
         labelOverrides: Object.values(state.labelOverrides).some(Boolean) ? state.labelOverrides : undefined,
+        ingressAliases: Object.keys(ingressAliases).length > 0 ? ingressAliases : undefined,
       },
       secureJsonData: state.serviceAccountToken ? { serviceAccountToken: state.serviceAccountToken } : undefined,
     } as any);
@@ -599,6 +640,37 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
             onChange={onLabelOverrideChange('deploymentEnvLabel')}
           />
         </Field>
+      </FieldSet>
+
+      <FieldSet label="Ingress Aliases" className={s.marginTop}>
+        <p className={s.description}>
+          Map ingress hostnames to service names so on-prem callers that reach services via nais ingress become visible
+          in the caller list and service map.
+        </p>
+        {state.ingressAliases.map((alias, idx) => (
+          <div key={idx} className={s.envRow}>
+            <Field label={idx === 0 ? 'Ingress Hostname' : undefined}>
+              <Input
+                width={40}
+                value={alias.hostname}
+                placeholder="tilgangsmaskin.intern.nav.no"
+                onChange={onAliasChange(idx, 'hostname')}
+              />
+            </Field>
+            <Field label={idx === 0 ? 'Service Name' : undefined}>
+              <Input
+                width={30}
+                value={alias.service}
+                placeholder="populasjonstilgangskontroll"
+                onChange={onAliasChange(idx, 'service')}
+              />
+            </Field>
+            <IconButton name="trash-alt" tooltip="Remove alias" onClick={() => removeAlias(idx)} />
+          </div>
+        ))}
+        <Button variant="secondary" icon="plus" size="sm" onClick={addAlias} type="button">
+          Add alias
+        </Button>
       </FieldSet>
 
       <div className={s.marginTop}>

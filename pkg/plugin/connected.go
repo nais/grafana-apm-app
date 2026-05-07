@@ -119,6 +119,25 @@ func (a *App) queryConnectedServices(ctx context.Context, from, to time.Time, se
 		cfg.Labels.HTTPHost, escapedSvc, envLabelFilter, rangeStr,
 	)
 
+	// Ingress alias supplement: find callers via ingress hostnames configured
+	// as aliases for this service (e.g., on-prem callers using nais ingress).
+	for _, hostname := range a.ingressHostnames(service) {
+		escapedHost := promQLEscape(hostname)
+		smInRateQ += fmt.Sprintf(
+			` or sum by (%s, %s) (rate(%s{%s="%s", %s=~"%s(:[0-9]+)?"%s}%s))`,
+			cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
+			a.callsMetric(ctx), cfg.Labels.SpanKind, cfg.SpanKinds.Client,
+			cfg.Labels.ServerAddress, escapedHost, envLabelFilter, rangeStr,
+		)
+		smInErrQ += fmt.Sprintf(
+			` or sum by (%s, %s) (rate(%s{%s="%s", %s="%s", %s=~"%s(:[0-9]+)?"%s}%s))`,
+			cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
+			a.callsMetric(ctx), cfg.Labels.SpanKind, cfg.SpanKinds.Client,
+			cfg.Labels.StatusCode, cfg.StatusCodes.Error,
+			cfg.Labels.ServerAddress, escapedHost, envLabelFilter, rangeStr,
+		)
+	}
+
 	// Outbound spanmetrics supplement: discover external targets not in the
 	// service graph (e.g., Azure AD, APIs in other clusters). The service
 	// graph only generates edges when both client + server report to the same
@@ -219,7 +238,7 @@ func (a *App) queryConnectedServices(ctx context.Context, from, to time.Time, se
 		outboundNames[strings.ToLower(s.Name)] = true
 	}
 	for i := range smOutbound {
-		smOutbound[i].Name = extractTopologyNodeName(smOutbound[i].Name)
+		smOutbound[i].Name = a.resolveIngressAlias(extractTopologyNodeName(smOutbound[i].Name))
 		if smOutbound[i].Name == "" || smOutbound[i].Name == service || outboundNames[strings.ToLower(smOutbound[i].Name)] {
 			continue // already in service graph results, self-reference, or empty
 		}

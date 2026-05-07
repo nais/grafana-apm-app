@@ -42,6 +42,10 @@ type App struct {
 	capCache *cachedCapabilities
 
 	respCache *responseCache // short-lived response cache for expensive queries
+
+	// ingressByService maps service_name → list of ingress hostnames that route to it.
+	// Built from settings.IngressAliases (reversed). Used to expand caller queries.
+	ingressByService map[string][]string
 }
 
 // NewApp creates a new App instance, parsing datasource configuration from jsonData.
@@ -94,6 +98,17 @@ func NewApp(_ context.Context, settings backend.AppInstanceSettings) (instancemg
 		}
 	}
 
+	// Build reverse ingress alias lookup: service_name → []hostnames.
+	if len(app.settings.IngressAliases) > 0 {
+		app.ingressByService = make(map[string][]string, len(app.settings.IngressAliases))
+		for hostname, svcName := range app.settings.IngressAliases {
+			if hostname != "" && svcName != "" {
+				app.ingressByService[svcName] = append(app.ingressByService[svcName], hostname)
+			}
+		}
+		logger.Info("Ingress aliases configured", "count", len(app.settings.IngressAliases), "services", len(app.ingressByService))
+	}
+
 	// Read Grafana service account token from secureJsonData.
 	// When deployed behind an OAuth2 proxy (e.g., Wonderwall/Nais), the browser's
 	// session cookies are for the proxy, not for Grafana. Since the plugin backend
@@ -136,6 +151,14 @@ func NewApp(_ context.Context, settings backend.AppInstanceSettings) (instancemg
 
 // Dispose is called when the plugin instance is shut down.
 func (a *App) Dispose() {}
+
+// ingressHostnames returns the configured ingress hostnames for a service, or nil.
+func (a *App) ingressHostnames(service string) []string {
+	if a.ingressByService == nil {
+		return nil
+	}
+	return a.ingressByService[service]
+}
 
 // resolveInternalGrafanaURL builds the localhost URL for internal API calls.
 // The plugin runs in the same process/pod as Grafana, so we always use localhost
