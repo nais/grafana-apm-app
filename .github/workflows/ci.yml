@@ -250,7 +250,7 @@ jobs:
         run: docker compose down
 
   publish-report:
-    if: ${{ always() && !cancelled() }}
+    if: ${{ always() && !cancelled() && github.event.pull_request.head.repo.full_name == github.repository }}
     permissions:
       contents: write
       id-token: write

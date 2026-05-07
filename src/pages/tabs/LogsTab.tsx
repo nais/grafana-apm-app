@@ -24,6 +24,7 @@ interface LogsTabProps {
   logsUid: string;
   from: string;
   to: string;
+  serviceNameLabel?: string;
 }
 
 // Severity options based on detected_level stream label values observed in production.
@@ -57,7 +58,14 @@ const SEVERITY_VARIANTS: Record<string, string[]> = {
   unknown: ['unknown'],
 };
 
-export function LogsTab({ service, namespace, logsUid, from, to }: LogsTabProps) {
+export function LogsTab({
+  service,
+  namespace,
+  logsUid,
+  from,
+  to,
+  serviceNameLabel = otel.labels.serviceName,
+}: LogsTabProps) {
   const [severityFilter, setSeverityFilter] = useUrlCsv('logSeverity');
   const [logSearch, setLogSearch] = useUrlString('logSearch');
   const [podFilter, setPodFilter] = useUrlString('logPod');
@@ -71,7 +79,7 @@ export function LogsTab({ service, namespace, logsUid, from, to }: LogsTabProps)
   useEffect(() => {
     const controller = new AbortController();
     fetch(
-      `/api/datasources/proxy/uid/${encodeURIComponent(logsUid)}/loki/api/v1/label/k8s_pod_name/values?query=${encodeURIComponent(`{${otel.labels.serviceName}="${sanitizeLabelValue(service)}"}`)}`,
+      `/api/datasources/proxy/uid/${encodeURIComponent(logsUid)}/loki/api/v1/label/k8s_pod_name/values?query=${encodeURIComponent(`{${serviceNameLabel}="${sanitizeLabelValue(service)}"}`)}`,
       { signal: controller.signal }
     )
       .then((r) => r.json())
@@ -83,11 +91,11 @@ export function LogsTab({ service, namespace, logsUid, from, to }: LogsTabProps)
         /* ignore */
       });
     return () => controller.abort();
-  }, [service, logsUid]);
+  }, [service, logsUid, serviceNameLabel]);
 
   const scene = useMemo(() => {
     const timeRange = new SceneTimeRange({ from, to });
-    const svcLabel = `${otel.labels.serviceName}="${sanitizeLabelValue(service)}"`;
+    const svcLabel = `${serviceNameLabel}="${sanitizeLabelValue(service)}"`;
 
     // Faro browser telemetry filtering via the `kind` stream label:
     // - Off: kind="" matches only backend app logs (no kind label)
@@ -175,7 +183,18 @@ export function LogsTab({ service, namespace, logsUid, from, to }: LogsTabProps)
         ],
       }),
     });
-  }, [service, logsUid, severityFilter, debouncedSearch, podFilter, includeFaro, kindFilter, from, to]);
+  }, [
+    service,
+    logsUid,
+    severityFilter,
+    debouncedSearch,
+    podFilter,
+    includeFaro,
+    kindFilter,
+    from,
+    to,
+    serviceNameLabel,
+  ]);
 
   return (
     <div className={styles.wrapper}>

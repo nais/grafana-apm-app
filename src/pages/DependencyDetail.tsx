@@ -31,7 +31,7 @@ import { DataState } from '../components/DataState';
 import { SortHeader, ImpactBar, useTableSort, getTableStyles } from '../components/SortableTable';
 import { getSectionStyles } from '../utils/styles';
 import { useFetch } from '../utils/useFetch';
-import { usePluginDatasources } from '../utils/datasources';
+import { usePluginDatasources, usePluginLabelOverrides } from '../utils/datasources';
 import { useCapabilities } from '../utils/capabilities';
 import { escapePromQLRegex } from '../utils/debounce';
 import { otel } from '../otelconfig';
@@ -57,6 +57,7 @@ function DependencyDetail() {
   const envFilter = sanitizeParam(searchParams.get('environment') ?? '');
   const { fromMs, toMs, from, to } = useTimeRange();
   const ds = usePluginDatasources(envFilter || undefined);
+  const labelOverrides = usePluginLabelOverrides();
   const { caps } = useCapabilities();
   const { data, loading, error } = useFetch<DependencyDetailResponse>(
     () => getDependencyDetail(name, fromMs, toMs, envFilter || undefined),
@@ -100,9 +101,10 @@ function DependencyDetail() {
     }
 
     const timeRange = new SceneTimeRange({ from, to });
-    const serverFilter = `${otel.labels.server}=~"${addressRegex(name)}"`; // Spanmetrics: use regex to match both normalized and raw addresses (e.g., idporten.no and idporten.no:443)
+    const deploymentEnvLabel = labelOverrides.deploymentEnvLabel || otel.labels.deploymentEnv;
     const addrRegex = addressRegex(name);
-    const envLabel = envFilter ? `, ${otel.labels.deploymentEnv}="${envFilter}"` : '';
+    const serverFilter = `${otel.labels.server}=~"${addrRegex}"`; // Spanmetrics: use regex to match both normalized and raw addresses (e.g., idporten.no and idporten.no:443)
+    const envLabel = envFilter ? `, ${deploymentEnvLabel}="${envFilter}"` : '';
     const smAddrFilter = `${otel.labels.serverAddress}=~"${addrRegex}", ${otel.labels.spanKind}="${otel.spanKinds.client}"${envLabel}`;
     const smHostFilter = `${otel.labels.httpHost}=~"${addrRegex}", ${otel.labels.spanKind}="${otel.spanKinds.client}"${envLabel}`;
 
@@ -208,7 +210,7 @@ function DependencyDetail() {
         ],
       }),
     });
-  }, [name, from, to, ds.metricsUid, ds.tracesUid, caps, envFilter]);
+  }, [name, from, to, ds.metricsUid, ds.tracesUid, caps, envFilter, labelOverrides.deploymentEnvLabel]);
 
   return (
     <PluginPage layout={PageLayoutType.Canvas}>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import pluginJson from '../plugin.json';
-import { AppPluginSettings, EnvAwareDs } from '../types/plugin';
+import { AppPluginSettings, EnvAwareDs, LabelOverrides } from '../types/plugin';
 
 interface PluginDatasources {
   metricsUid: string;
@@ -117,6 +117,40 @@ export function useConfiguredEnvironments(): string[] {
 export function useHasEnvironmentOverrides(): boolean {
   const envs = useConfiguredEnvironments();
   return envs.length > 0;
+}
+
+const EMPTY_OVERRIDES: LabelOverrides = {};
+const VALID_LABEL_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+
+/** Validate and return only valid Prometheus label names, dropping invalid ones. */
+function sanitizeOverrides(raw: LabelOverrides | undefined): LabelOverrides {
+  if (!raw) {
+    return EMPTY_OVERRIDES;
+  }
+  const result: LabelOverrides = {};
+  if (raw.serviceNameLabel && VALID_LABEL_RE.test(raw.serviceNameLabel)) {
+    result.serviceNameLabel = raw.serviceNameLabel;
+  }
+  if (raw.serviceNamespaceLabel && VALID_LABEL_RE.test(raw.serviceNamespaceLabel)) {
+    result.serviceNamespaceLabel = raw.serviceNamespaceLabel;
+  }
+  if (raw.deploymentEnvLabel && VALID_LABEL_RE.test(raw.deploymentEnvLabel)) {
+    result.deploymentEnvLabel = raw.deploymentEnvLabel;
+  }
+  return Object.keys(result).length > 0 ? result : EMPTY_OVERRIDES;
+}
+
+/** Returns configured label overrides from plugin jsonData. */
+export function usePluginLabelOverrides(): LabelOverrides {
+  const [rev, setRev] = useState(0);
+  useEffect(() => {
+    const listener = () => setRev((r) => r + 1);
+    _listeners.push(listener);
+    return () => {
+      _listeners = _listeners.filter((l) => l !== listener);
+    };
+  }, []);
+  return rev >= 0 ? sanitizeOverrides(getJsonData().labelOverrides) : EMPTY_OVERRIDES;
 }
 
 // Exported for testing — reset module state between test cases.

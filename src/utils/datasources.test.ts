@@ -2,6 +2,7 @@ import { renderHook, waitFor } from '@testing-library/react';
 import {
   initDatasourceConfig,
   usePluginDatasources,
+  usePluginLabelOverrides,
   useConfiguredEnvironments,
   useHasEnvironmentOverrides,
   _resetForTesting,
@@ -286,5 +287,80 @@ describe('useHasEnvironmentOverrides', () => {
     await waitFor(() => {
       expect(result.current).toBe(true);
     });
+  });
+});
+
+describe('usePluginLabelOverrides', () => {
+  it('returns empty object before fetch completes', () => {
+    mockFetch.mockReturnValue(new Promise(() => {})); // never resolves
+    initDatasourceConfig();
+
+    const { result } = renderHook(() => usePluginLabelOverrides());
+    expect(result.current).toEqual({});
+  });
+
+  it('returns stable reference when no overrides configured', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ jsonData: {} }),
+    });
+
+    initDatasourceConfig();
+
+    const { result, rerender } = renderHook(() => usePluginLabelOverrides());
+    await waitFor(() => {
+      expect(result.current).toEqual({});
+    });
+    const first = result.current;
+    rerender();
+    expect(result.current).toBe(first);
+  });
+
+  it('returns configured label overrides after fetch', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        jsonData: {
+          labelOverrides: {
+            serviceNameLabel: 'service',
+            serviceNamespaceLabel: 'k8s_namespace_name',
+            deploymentEnvLabel: 'deployment_environment',
+          },
+        },
+      }),
+    });
+
+    initDatasourceConfig();
+
+    const { result } = renderHook(() => usePluginLabelOverrides());
+    await waitFor(() => {
+      expect(result.current.serviceNameLabel).toBe('service');
+    });
+    expect(result.current.serviceNamespaceLabel).toBe('k8s_namespace_name');
+    expect(result.current.deploymentEnvLabel).toBe('deployment_environment');
+  });
+
+  it('drops invalid label names', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        jsonData: {
+          labelOverrides: {
+            serviceNameLabel: 'valid_label',
+            serviceNamespaceLabel: 'invalid-label!',
+            deploymentEnvLabel: '123starts_with_number',
+          },
+        },
+      }),
+    });
+
+    initDatasourceConfig();
+
+    const { result } = renderHook(() => usePluginLabelOverrides());
+    await waitFor(() => {
+      expect(result.current.serviceNameLabel).toBe('valid_label');
+    });
+    expect(result.current.serviceNamespaceLabel).toBeUndefined();
+    expect(result.current.deploymentEnvLabel).toBeUndefined();
   });
 });

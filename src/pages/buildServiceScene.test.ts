@@ -15,6 +15,9 @@ const defaultParams: BuildServiceSceneParams = {
   durationBucket: 'traces_spanmetrics_duration_milliseconds_bucket',
   durationUnit: 'ms',
   hasServerSpans: true,
+  serviceNameLabel: 'service_name',
+  serviceNamespaceLabel: 'service_namespace',
+  deploymentEnvLabel: 'k8s_cluster_name',
 };
 
 describe('buildServiceScene', () => {
@@ -60,6 +63,29 @@ describe('buildServiceScene', () => {
     expect(scene).not.toBeNull();
     const serialized = JSON.stringify(scene!.state.body);
     expect(serialized).toContain('frontend');
+  });
+
+  it('omits the namespace filter when the namespace is empty', () => {
+    const scene = buildServiceScene({ ...defaultParams, namespace: '' });
+    expect(scene).not.toBeNull();
+    const serialized = JSON.stringify(scene!.state.body);
+    expect(serialized).toContain('service_name=\\"frontend\\"');
+    expect(serialized).not.toContain('service_namespace=\\"\\"');
+  });
+
+  it('uses label overrides when provided', () => {
+    const scene = buildServiceScene({
+      ...defaultParams,
+      serviceNameLabel: 'service',
+      serviceNamespaceLabel: 'k8s_namespace_name',
+      deploymentEnvLabel: 'deployment_environment',
+    });
+    expect(scene).not.toBeNull();
+    const serialized = JSON.stringify(scene!.state.body);
+    expect(serialized).toContain('service=\\"frontend\\"');
+    expect(serialized).toContain('k8s_namespace_name=\\"otel-demo\\"');
+    expect(serialized).toContain('deployment_environment=\\"production\\"');
+    expect(serialized).not.toContain('service_name=\\"frontend\\"');
   });
 
   it('uses SERVER span kind filter when hasServerSpans is true', () => {

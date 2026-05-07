@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, fireEvent } from '@testing-library/react';
 import { PluginType } from '@grafana/data';
 import AppConfig, { AppConfigProps } from './AppConfig';
 import { testIds } from 'components/testIds';
@@ -51,5 +51,22 @@ describe('Components/AppConfig', () => {
     expect(screen.queryByRole('group', { name: /data sources/i })).toBeInTheDocument();
     expect(screen.queryByRole('group', { name: /detection & overrides/i })).toBeInTheDocument();
     expect(screen.queryByTestId(testIds.appConfig.submit)).toBeInTheDocument();
+  });
+
+  test('updates deployment environment label without synthetic event errors', async () => {
+    const plugin = { meta: { ...props.plugin.meta, enabled: true } };
+
+    await act(async () => {
+      // @ts-ignore
+      render(<AppConfig plugin={plugin} query={props.query} />);
+    });
+
+    const input = screen.getByPlaceholderText('k8s_cluster_name') as HTMLInputElement;
+
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'cluster' } });
+    });
+
+    expect(input.value).toBe('cluster');
   });
 });

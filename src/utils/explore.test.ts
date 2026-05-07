@@ -106,6 +106,18 @@ describe('buildLokiExploreUrl', () => {
     const left = parseLeft(url);
     expect(left.queries[0].expr).toContain('otel-demo');
   });
+
+  it('uses label overrides when provided', () => {
+    const url = buildLokiExploreUrl('loki', 'my-svc', {
+      namespace: 'my-ns',
+      serviceNameLabel: 'service',
+      serviceNamespaceLabel: 'k8s_namespace_name',
+    });
+    const left = parseLeft(url);
+    expect(left.queries[0].expr).toContain('service="my-svc"');
+    expect(left.queries[0].expr).toContain('k8s_namespace_name="my-ns"');
+    expect(left.queries[0].expr).not.toContain('service_name');
+  });
 });
 
 describe('buildMimirExploreUrl', () => {

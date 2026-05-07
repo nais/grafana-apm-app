@@ -6,7 +6,7 @@ import { getBackendSrv } from '@grafana/runtime';
 import { Alert, Button, Field, FieldSet, IconButton, Input, SecretInput, Combobox, useStyles2 } from '@grafana/ui';
 import { testIds } from '../testIds';
 import { Capabilities, getCapabilities } from '../../api/client';
-import { AppPluginSettings, DsRef, EnvAwareDs } from '../../types/plugin';
+import { AppPluginSettings, DsRef, EnvAwareDs, LabelOverrides } from '../../types/plugin';
 
 interface GrafanaDataSource {
   uid: string;
@@ -27,6 +27,7 @@ type State = {
   logsUid: string;
   metricNamespace: string;
   durationUnit: string;
+  labelOverrides: LabelOverrides;
   envOverrides: EnvOverride[];
   serviceAccountToken: string;
   tokenConfigured: boolean;
@@ -56,6 +57,7 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
     logsUid: jsonData?.logsDataSource?.uid || '',
     metricNamespace: jsonData?.metricNamespace || '',
     durationUnit: jsonData?.durationUnit || '',
+    labelOverrides: jsonData?.labelOverrides ?? {},
     envOverrides: parseEnvOverrides(jsonData?.tracesDataSource, jsonData?.logsDataSource),
     serviceAccountToken: '',
     tokenConfigured: secureJsonFields?.serviceAccountToken === true,
@@ -180,6 +182,14 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
     setState((prev) => ({ ...prev, [field]: e.target.value.trim() }));
   };
 
+  const onLabelOverrideChange = (field: keyof LabelOverrides) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value.trim() || undefined;
+    setState((prev) => ({
+      ...prev,
+      labelOverrides: { ...prev.labelOverrides, [field]: value },
+    }));
+  };
+
   const onEnvChange = (idx: number, field: keyof EnvOverride) => (e: React.ChangeEvent<HTMLInputElement>) => {
     setState((prev) => {
       const overrides = [...prev.envOverrides];
@@ -234,6 +244,7 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
         },
         metricNamespace: state.metricNamespace || undefined,
         durationUnit: state.durationUnit || undefined,
+        labelOverrides: Object.values(state.labelOverrides).some(Boolean) ? state.labelOverrides : undefined,
       },
       secureJsonData: state.serviceAccountToken ? { serviceAccountToken: state.serviceAccountToken } : undefined,
     } as any);
@@ -552,6 +563,41 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
           description="Whether your span duration histograms use milliseconds or seconds. Leave empty to auto-detect."
         >
           <Input width={20} value={state.durationUnit} placeholder="auto-detect" onChange={onChange('durationUnit')} />
+        </Field>
+
+        <Field
+          label="Service Name Label"
+          description='Prometheus label for the service name. Default: "service_name". Tempo metrics generator emits "service".'
+          className={s.marginTop}
+        >
+          <Input
+            width={40}
+            value={state.labelOverrides.serviceNameLabel || ''}
+            placeholder="service_name"
+            onChange={onLabelOverrideChange('serviceNameLabel')}
+          />
+        </Field>
+        <Field
+          label="Service Namespace Label"
+          description='Prometheus label for the service namespace. Default: "service_namespace".'
+        >
+          <Input
+            width={40}
+            value={state.labelOverrides.serviceNamespaceLabel || ''}
+            placeholder="service_namespace"
+            onChange={onLabelOverrideChange('serviceNamespaceLabel')}
+          />
+        </Field>
+        <Field
+          label="Deployment Environment Label"
+          description='Prometheus label for the deployment environment. Default: "k8s_cluster_name".'
+        >
+          <Input
+            width={40}
+            value={state.labelOverrides.deploymentEnvLabel || ''}
+            placeholder="k8s_cluster_name"
+            onChange={onLabelOverrideChange('deploymentEnvLabel')}
+          />
         </Field>
       </FieldSet>
 

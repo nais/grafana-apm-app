@@ -13,6 +13,16 @@ export interface EnvAwareDs {
   byEnvironment?: Record<string, DsRef>;
 }
 
+/** Label name overrides for non-standard OTel pipelines (e.g. Tempo metrics generator). */
+export interface LabelOverrides {
+  /** Default: "service_name". Tempo metrics generator emits "service". */
+  serviceNameLabel?: string;
+  /** Default: "service_namespace". Use "k8s_namespace_name" for Tempo with k8s.namespace.name dimension. */
+  serviceNamespaceLabel?: string;
+  /** Default: "k8s_cluster_name". */
+  deploymentEnvLabel?: string;
+}
+
 /** The plugin's jsonData schema — persisted in Grafana's plugin settings. */
 export interface AppPluginSettings {
   metricsDataSource?: DsRef;
@@ -20,4 +30,5 @@ export interface AppPluginSettings {
   logsDataSource?: EnvAwareDs;
   metricNamespace?: string;
   durationUnit?: string;
+  labelOverrides?: LabelOverrides;
 }
