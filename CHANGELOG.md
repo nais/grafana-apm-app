@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.10.1 (2026-05-07)
+
+### Features
+
+- **Label overrides for non-standard OTel pipelines** — Supports custom Prometheus label names (`serviceNameLabel`, `serviceNamespaceLabel`, `deploymentEnvLabel`) via plugin JSON config. Enables pipelines like Tempo's metrics generator (which emits `service` instead of `service_name`) to work without infrastructure-side relabeling. Both backend queries and frontend PromQL/LogQL are override-aware. Invalid label names are validated with regex and silently dropped. (PR #42, contributed by @m4r1u2)
+
+### Fixes
+
+- **CI fork PR permissions** — Fixed false-positive CI failures on pull requests from forks where the restricted `GITHUB_TOKEN` couldn't post PR comments.
+- **Levitate compatibility check** — Changed to advisory mode to avoid blocking PRs on Grafana API type changes that don't affect runtime behavior.
+
 ## 0.10.0 (2026-05-06)
 
 ### Features
