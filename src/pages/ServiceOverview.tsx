@@ -257,7 +257,11 @@ function ServiceOverview() {
                   variant="secondary"
                   size="sm"
                   icon="document-info"
-                  href={buildLokiExploreUrl(ds.logsUid, service, { namespace })}
+                  href={buildLokiExploreUrl(ds.logsUid, service, {
+                    namespace,
+                    serviceNameLabel: labelOverrides.serviceNameLabel,
+                    serviceNamespaceLabel: labelOverrides.serviceNamespaceLabel,
+                  })}
                 >
                   Logs
                 </LinkButton>
@@ -401,7 +405,14 @@ function ServiceOverview() {
                 minHeight: 0,
               }}
             >
-              <LogsTab service={service} namespace={namespace} logsUid={ds.logsUid} from={from} to={to} serviceNameLabel={labelOverrides.serviceNameLabel} />
+              <LogsTab
+                service={service}
+                namespace={namespace}
+                logsUid={ds.logsUid}
+                from={from}
+                to={to}
+                serviceNameLabel={labelOverrides.serviceNameLabel}
+              />
             </div>
           )}
         </div>

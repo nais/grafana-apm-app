@@ -58,7 +58,14 @@ const SEVERITY_VARIANTS: Record<string, string[]> = {
   unknown: ['unknown'],
 };
 
-export function LogsTab({ service, namespace, logsUid, from, to, serviceNameLabel = otel.labels.serviceName }: LogsTabProps) {
+export function LogsTab({
+  service,
+  namespace,
+  logsUid,
+  from,
+  to,
+  serviceNameLabel = otel.labels.serviceName,
+}: LogsTabProps) {
   const [severityFilter, setSeverityFilter] = useUrlCsv('logSeverity');
   const [logSearch, setLogSearch] = useUrlString('logSearch');
   const [podFilter, setPodFilter] = useUrlString('logPod');
@@ -84,7 +91,7 @@ export function LogsTab({ service, namespace, logsUid, from, to, serviceNameLabe
         /* ignore */
       });
     return () => controller.abort();
-  }, [service, logsUid]);
+  }, [service, logsUid, serviceNameLabel]);
 
   const scene = useMemo(() => {
     const timeRange = new SceneTimeRange({ from, to });
@@ -176,7 +183,18 @@ export function LogsTab({ service, namespace, logsUid, from, to, serviceNameLabe
         ],
       }),
     });
-  }, [service, logsUid, severityFilter, debouncedSearch, podFilter, includeFaro, kindFilter, from, to]);
+  }, [
+    service,
+    logsUid,
+    severityFilter,
+    debouncedSearch,
+    podFilter,
+    includeFaro,
+    kindFilter,
+    from,
+    to,
+    serviceNameLabel,
+  ]);
 
   return (
     <div className={styles.wrapper}>

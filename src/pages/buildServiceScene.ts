@@ -122,7 +122,11 @@ export function buildServiceScene(params: BuildServiceSceneParams): EmbeddedScen
   });
 
   const tempoUrl = buildTempoExploreUrl(tracesUid, service, { namespace });
-  const lokiUrl = buildLokiExploreUrl(logsUid, service, { namespace });
+  const lokiUrl = buildLokiExploreUrl(logsUid, service, {
+    namespace,
+    serviceNameLabel,
+    serviceNamespaceLabel,
+  });
   let mimirFilter = `${serviceNameLabel}="${sanitizeLabelValue(service)}"`;
   if (namespace) {
     mimirFilter += `, ${serviceNamespaceLabel}="${sanitizeLabelValue(namespace)}"`;

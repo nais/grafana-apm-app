@@ -67,11 +67,15 @@ export function buildLokiExploreUrl(
     to?: string;
     traceId?: string;
     namespace?: string;
+    serviceNameLabel?: string;
+    serviceNamespaceLabel?: string;
   }
 ): string {
+  const svcLabel = options?.serviceNameLabel || otel.labels.serviceName;
+  const nsLabel = options?.serviceNamespaceLabel || otel.labels.serviceNamespace;
   let expr = options?.namespace
-    ? `{${otel.labels.serviceName}="${escapeQueryString(serviceName)}", ${otel.labels.serviceNamespace}="${escapeQueryString(options.namespace)}"}`
-    : `{${otel.labels.serviceName}="${escapeQueryString(serviceName)}"}`;
+    ? `{${svcLabel}="${escapeQueryString(serviceName)}", ${nsLabel}="${escapeQueryString(options.namespace)}"}`
+    : `{${svcLabel}="${escapeQueryString(serviceName)}"}`;
   if (options?.traceId) {
     expr += ` |= "${escapeQueryString(options.traceId)}"`;
   }
