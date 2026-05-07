@@ -119,6 +119,8 @@ export function useHasEnvironmentOverrides(): boolean {
   return envs.length > 0;
 }
 
+const EMPTY_OVERRIDES: LabelOverrides = {};
+
 /** Returns configured label overrides from plugin jsonData. */
 export function usePluginLabelOverrides(): LabelOverrides {
   const [rev, setRev] = useState(0);
@@ -129,7 +131,7 @@ export function usePluginLabelOverrides(): LabelOverrides {
       _listeners = _listeners.filter((l) => l !== listener);
     };
   }, []);
-  return rev >= 0 ? (getJsonData().labelOverrides ?? {}) : {};
+  return rev >= 0 ? (getJsonData().labelOverrides ?? EMPTY_OVERRIDES) : EMPTY_OVERRIDES;
 }
 
 // Exported for testing — reset module state between test cases.

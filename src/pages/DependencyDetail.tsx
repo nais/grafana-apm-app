@@ -210,7 +210,7 @@ function DependencyDetail() {
         ],
       }),
     });
-  }, [name, from, to, ds.metricsUid, ds.tracesUid, caps, envFilter, labelOverrides]);
+  }, [name, from, to, ds.metricsUid, ds.tracesUid, caps, envFilter, labelOverrides.deploymentEnvLabel]);
 
   return (
     <PluginPage layout={PageLayoutType.Canvas}>

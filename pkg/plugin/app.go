@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -62,14 +63,27 @@ func NewApp(_ context.Context, settings backend.AppInstanceSettings) (instancemg
 	// Apply label overrides — allows non-standard OTel pipelines (e.g. Tempo metrics generator,
 	// which emits "service" instead of "service_name") to work without infra-side relabeling.
 	if o := app.settings.LabelOverrides; (o != queries.LabelOverrides{}) {
+		validLabel := regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 		if o.ServiceName != "" {
-			app.otelCfg.Labels.ServiceName = o.ServiceName
+			if validLabel.MatchString(o.ServiceName) {
+				app.otelCfg.Labels.ServiceName = o.ServiceName
+			} else {
+				logger.Warn("Ignoring invalid serviceNameLabel override", "value", o.ServiceName)
+			}
 		}
 		if o.ServiceNamespace != "" {
-			app.otelCfg.Labels.ServiceNamespace = o.ServiceNamespace
+			if validLabel.MatchString(o.ServiceNamespace) {
+				app.otelCfg.Labels.ServiceNamespace = o.ServiceNamespace
+			} else {
+				logger.Warn("Ignoring invalid serviceNamespaceLabel override", "value", o.ServiceNamespace)
+			}
 		}
 		if o.DeploymentEnv != "" {
-			app.otelCfg.Labels.DeploymentEnv = o.DeploymentEnv
+			if validLabel.MatchString(o.DeploymentEnv) {
+				app.otelCfg.Labels.DeploymentEnv = o.DeploymentEnv
+			} else {
+				logger.Warn("Ignoring invalid deploymentEnvLabel override", "value", o.DeploymentEnv)
+			}
 		}
 		logger.Info("Label overrides applied", "overrides", o)
 	}

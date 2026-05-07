@@ -131,6 +131,9 @@ export function buildServiceScene(params: BuildServiceSceneParams): EmbeddedScen
   if (namespace) {
     mimirFilter += `, ${serviceNamespaceLabel}="${sanitizeLabelValue(namespace)}"`;
   }
+  if (envFilter) {
+    mimirFilter += `, ${deploymentEnvLabel}="${sanitizeLabelValue(envFilter)}"`;
+  }
   const mimirUrl = buildMimirExploreUrl(metricsUid, `sum(rate(${callsMetric}{${mimirFilter}${spanKindFilter}}[5m]))`);
 
   const heatmapQuery = new SceneQueryRunner({
