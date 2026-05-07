@@ -37,7 +37,7 @@ func (e EnvAwareDataSource) HasEnvironment(env string) bool {
 // LabelOverrides allows overriding the default Prometheus label names emitted by
 // different OTel pipelines. All fields are optional; empty string means "use default".
 // Useful when using Tempo's metrics generator, which emits "service" instead of
-// "service_name", or custom label names for namespace/environment/SDK language.
+// "service_name", or custom label names for namespace/environment.
 type LabelOverrides struct {
 	// ServiceName overrides the label used to identify the service (default: "service_name").
 	// Tempo metrics generator emits "service" instead.
