@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+- **Ingress alias support** — Configurable hostname→service mapping makes on-prem (FSS) callers visible when they reach GCP services via nais ingress. For example, mapping `tilgangsmaskin.intern.nav.no → populasjonstilgangskontroll` reveals callers like oppgave and saf that were previously hidden. Backend expands caller queries with additional PromQL `or` clauses for each alias, and resolves aliased hostnames in the service map topology. Frontend adds a key-value editor in plugin settings for managing aliases.
+
 ## 0.10.1 (2026-05-07)
 
 ### Features
