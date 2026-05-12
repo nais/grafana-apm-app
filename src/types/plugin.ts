@@ -31,4 +31,6 @@ export interface AppPluginSettings {
   metricNamespace?: string;
   durationUnit?: string;
   labelOverrides?: LabelOverrides;
+  /** Ingress hostname → service name mapping for discovering on-prem callers via nais ingress. */
+  ingressAliases?: Record<string, string>;
 }

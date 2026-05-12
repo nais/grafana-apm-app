@@ -176,8 +176,8 @@ func TestHandleServices(t *testing.T) {
 				{
 					Metric: map[string]string{
 						cfg.Labels.ServiceName:      "frontend",
-						cfg.Labels.ServiceNamespace:  "otel-demo",
-						cfg.Labels.DeploymentEnv:     "production",
+						cfg.Labels.ServiceNamespace: "otel-demo",
+						cfg.Labels.DeploymentEnv:    "production",
 					},
 					Value: queries.NewPromValue(float64(now.Unix()), "10.5"),
 				},
@@ -186,8 +186,8 @@ func TestHandleServices(t *testing.T) {
 				{
 					Metric: map[string]string{
 						cfg.Labels.ServiceName:      "frontend",
-						cfg.Labels.ServiceNamespace:  "otel-demo",
-						cfg.Labels.DeploymentEnv:     "production",
+						cfg.Labels.ServiceNamespace: "otel-demo",
+						cfg.Labels.DeploymentEnv:    "production",
 					},
 					Value: queries.NewPromValue(float64(now.Unix()), "0.5"),
 				},
@@ -196,8 +196,8 @@ func TestHandleServices(t *testing.T) {
 				{
 					Metric: map[string]string{
 						cfg.Labels.ServiceName:      "frontend",
-						cfg.Labels.ServiceNamespace:  "otel-demo",
-						cfg.Labels.DeploymentEnv:     "production",
+						cfg.Labels.ServiceNamespace: "otel-demo",
+						cfg.Labels.DeploymentEnv:    "production",
 					},
 					Value: queries.NewPromValue(float64(now.Unix()), "42.5"),
 				},
@@ -206,9 +206,9 @@ func TestHandleServices(t *testing.T) {
 				{
 					Metric: map[string]string{
 						cfg.Labels.ServiceName:      "frontend",
-						cfg.Labels.ServiceNamespace:  "otel-demo",
-						cfg.Labels.SDKLanguage:       "go",
-						cfg.Labels.DeploymentEnv:     "production",
+						cfg.Labels.ServiceNamespace: "otel-demo",
+						cfg.Labels.SDKLanguage:      "go",
+						cfg.Labels.DeploymentEnv:    "production",
 					},
 					Value: queries.NewPromValue(float64(now.Unix()), "1"),
 				},
@@ -441,8 +441,8 @@ func TestResponseCache(t *testing.T) {
 				{
 					Metric: map[string]string{
 						cfg.Labels.ServiceName:      "cached-svc",
-						cfg.Labels.ServiceNamespace:  "ns",
-						cfg.Labels.DeploymentEnv:     "prod",
+						cfg.Labels.ServiceNamespace: "ns",
+						cfg.Labels.DeploymentEnv:    "prod",
 					},
 					Value: queries.NewPromValue(float64(now.Unix()), "5.0"),
 				},
@@ -451,9 +451,9 @@ func TestResponseCache(t *testing.T) {
 				{
 					Metric: map[string]string{
 						cfg.Labels.ServiceName:      "cached-svc",
-						cfg.Labels.ServiceNamespace:  "ns",
-						cfg.Labels.SDKLanguage:       "java",
-						cfg.Labels.DeploymentEnv:     "prod",
+						cfg.Labels.ServiceNamespace: "ns",
+						cfg.Labels.SDKLanguage:      "java",
+						cfg.Labels.DeploymentEnv:    "prod",
 					},
 					Value: queries.NewPromValue(float64(now.Unix()), "1"),
 				},
@@ -826,7 +826,7 @@ func TestServiceMapSpanmetricsFallback(t *testing.T) {
 				{
 					Metric: map[string]string{
 						cfg.Labels.ServerAddress: "target-db.team-b.svc.cluster.local:5432",
-						cfg.Labels.DBSystem:     "postgresql",
+						cfg.Labels.DBSystem:      "postgresql",
 					},
 					Value: queries.NewPromValue(float64(now.Unix()), "15"),
 				},
@@ -1045,4 +1045,204 @@ func TestServiceMapSpanmetricsFallback(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestIngressAliasQueryExpansion(t *testing.T) {
+	now := time.Now()
+	from := fmt.Sprintf("%d", now.Add(-1*time.Hour).Unix())
+	to := fmt.Sprintf("%d", now.Unix())
+	cfg := otelconfig.Default()
+
+	t.Run("connected endpoint includes alias hostnames in queries", func(t *testing.T) {
+		promSrv, captured := queryCapturingPromServer(t, map[string][]queries.PromResult{})
+		defer promSrv.Close()
+
+		app := newTestApp(t, promSrv.URL, defaultCaps())
+		app.settings.IngressAliases = map[string]string{
+			"myapp.intern.nav.no": "myservice",
+		}
+		app.ingressByService = map[string][]string{
+			"myservice": {"myapp.intern.nav.no"},
+		}
+
+		req := httptest.NewRequest(http.MethodGet,
+			"/services/team/myservice/connected?from="+from+"&to="+to, nil)
+		req.SetPathValue("namespace", "team")
+		req.SetPathValue("service", "myservice")
+		w := httptest.NewRecorder()
+		app.handleConnectedServices(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+
+		foundServerAddr := false
+		foundHTTPHost := false
+		// PromQL escapes dots, so look for the escaped form
+		aliasPattern := `myapp\\.intern\\.nav\\.no`
+		for _, q := range *captured {
+			if strings.Contains(q, aliasPattern) {
+				if strings.Contains(q, cfg.Labels.ServerAddress) {
+					foundServerAddr = true
+				}
+				if strings.Contains(q, cfg.Labels.HTTPHost) {
+					foundHTTPHost = true
+				}
+			}
+		}
+		if !foundServerAddr {
+			t.Error("expected alias hostname in server_address query, not found")
+			for i, q := range *captured {
+				t.Logf("  query[%d]: %s", i, q)
+			}
+		}
+		if !foundHTTPHost {
+			t.Error("expected alias hostname in http_host query, not found")
+		}
+	})
+
+	t.Run("service map scoped queries include alias hostnames", func(t *testing.T) {
+		promSrv, captured := queryCapturingPromServer(t, map[string][]queries.PromResult{})
+		defer promSrv.Close()
+
+		app := newTestApp(t, promSrv.URL, defaultCaps())
+		app.settings.IngressAliases = map[string]string{
+			"myapp.intern.nav.no": "myservice",
+		}
+		app.ingressByService = map[string][]string{
+			"myservice": {"myapp.intern.nav.no"},
+		}
+
+		req := httptest.NewRequest(http.MethodGet,
+			"/service-map?service=myservice&from="+from+"&to="+to, nil)
+		w := httptest.NewRecorder()
+		app.handleServiceMap(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+
+		found := false
+		for _, q := range *captured {
+			if strings.Contains(q, `myapp\\.intern\\.nav\\.no`) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Error("expected alias hostname in service map queries, not found")
+			for i, q := range *captured {
+				t.Logf("  query[%d]: %s", i, q)
+			}
+		}
+	})
+
+	t.Run("no alias queries when no aliases configured", func(t *testing.T) {
+		promSrv, captured := queryCapturingPromServer(t, map[string][]queries.PromResult{})
+		defer promSrv.Close()
+
+		app := newTestApp(t, promSrv.URL, defaultCaps())
+
+		req := httptest.NewRequest(http.MethodGet,
+			"/services/team/myservice/connected?from="+from+"&to="+to, nil)
+		req.SetPathValue("namespace", "team")
+		req.SetPathValue("service", "myservice")
+		w := httptest.NewRecorder()
+		app.handleConnectedServices(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", w.Code)
+		}
+
+		for _, q := range *captured {
+			if strings.Contains(q, `intern\\.nav\\.no`) || strings.Contains(q, "intern.nav.no") {
+				t.Errorf("unexpected alias hostname in query without aliases configured: %s", q)
+			}
+		}
+	})
+}
+
+func TestResolveIngressAlias(t *testing.T) {
+	t.Run("resolves known alias", func(t *testing.T) {
+		app := &App{
+			settings: queries.PluginSettings{
+				IngressAliases: map[string]string{
+					"myapp.intern.nav.no": "myservice",
+				},
+			},
+		}
+		got := app.resolveIngressAlias("myapp.intern.nav.no")
+		if got != "myservice" {
+			t.Errorf("resolveIngressAlias(myapp.intern.nav.no) = %q, want %q", got, "myservice")
+		}
+	})
+
+	t.Run("returns original for unknown address", func(t *testing.T) {
+		app := &App{
+			settings: queries.PluginSettings{
+				IngressAliases: map[string]string{
+					"myapp.intern.nav.no": "myservice",
+				},
+			},
+		}
+		got := app.resolveIngressAlias("other.example.com")
+		if got != "other.example.com" {
+			t.Errorf("resolveIngressAlias(other.example.com) = %q, want %q", got, "other.example.com")
+		}
+	})
+
+	t.Run("returns original when no aliases configured", func(t *testing.T) {
+		app := &App{}
+		got := app.resolveIngressAlias("myapp.intern.nav.no")
+		if got != "myapp.intern.nav.no" {
+			t.Errorf("resolveIngressAlias = %q, want %q", got, "myapp.intern.nav.no")
+		}
+	})
+}
+
+func TestIngressAliasNormalization(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   map[string]string
+		wantKey string
+		wantSvc string
+	}{
+		{"lowercase", map[string]string{"MyApp.Intern.NAV.NO": "myservice"}, "myapp.intern.nav.no", "myservice"},
+		{"trailing dot", map[string]string{"myapp.intern.nav.no.": "myservice"}, "myapp.intern.nav.no", "myservice"},
+		{"port 443", map[string]string{"myapp.intern.nav.no:443": "myservice"}, "myapp.intern.nav.no", "myservice"},
+		{"port 80", map[string]string{"myapp.intern.nav.no:80": "myservice"}, "myapp.intern.nav.no", "myservice"},
+		{"non-standard port", map[string]string{"myapp.intern.nav.no:8443": "myservice"}, "myapp.intern.nav.no:8443", "myservice"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			app := &App{
+				settings: queries.PluginSettings{IngressAliases: tc.input},
+			}
+			normalized := make(map[string]string, len(app.settings.IngressAliases))
+			app.ingressByService = make(map[string][]string)
+			for hostname, svcName := range app.settings.IngressAliases {
+				h := normalizeAddress(hostname)
+				normalized[h] = svcName
+				app.ingressByService[svcName] = append(app.ingressByService[svcName], h)
+			}
+			app.settings.IngressAliases = normalized
+
+			if svc, ok := app.settings.IngressAliases[tc.wantKey]; !ok {
+				t.Errorf("expected key %q in normalized aliases, got %v", tc.wantKey, app.settings.IngressAliases)
+			} else if svc != tc.wantSvc {
+				t.Errorf("alias[%q] = %q, want %q", tc.wantKey, svc, tc.wantSvc)
+			}
+
+			hostnames := app.ingressHostnames(tc.wantSvc)
+			if len(hostnames) == 0 {
+				t.Errorf("expected ingressHostnames(%q) to return hostnames", tc.wantSvc)
+			}
+
+			got := app.resolveIngressAlias(tc.wantKey)
+			if got != tc.wantSvc {
+				t.Errorf("resolveIngressAlias(%q) = %q, want %q", tc.wantKey, got, tc.wantSvc)
+			}
+		})
+	}
 }
