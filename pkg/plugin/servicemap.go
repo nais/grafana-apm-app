@@ -1059,11 +1059,24 @@ func (a *App) querySpanmetricsTopologyFallback(
 				callsMetric, cfg.Labels.SpanKind, cfg.SpanKinds.Client,
 				cfg.Labels.ServerAddress, escapedHost, envFilter, rangeStr,
 			)
+			inRateHostQ += fmt.Sprintf(
+				` or sum by (%s, %s) (rate(%s{%s="%s", %s=~"%s(:[0-9]+)?"%s}%s))`,
+				cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
+				callsMetric, cfg.Labels.SpanKind, cfg.SpanKinds.Client,
+				cfg.Labels.HTTPHost, escapedHost, envFilter, rangeStr,
+			)
 			inErrQ += fmt.Sprintf(
 				` or sum by (%s, %s) (rate(%s{%s="%s", %s=~"%s(:[0-9]+)?", %s="%s"%s}%s))`,
 				cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
 				callsMetric, cfg.Labels.SpanKind, cfg.SpanKinds.Client,
 				cfg.Labels.ServerAddress, escapedHost,
+				cfg.Labels.StatusCode, cfg.StatusCodes.Error, envFilter, rangeStr,
+			)
+			inErrHostQ += fmt.Sprintf(
+				` or sum by (%s, %s) (rate(%s{%s="%s", %s=~"%s(:[0-9]+)?", %s="%s"%s}%s))`,
+				cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
+				callsMetric, cfg.Labels.SpanKind, cfg.SpanKinds.Client,
+				cfg.Labels.HTTPHost, escapedHost,
 				cfg.Labels.StatusCode, cfg.StatusCodes.Error, envFilter, rangeStr,
 			)
 		}

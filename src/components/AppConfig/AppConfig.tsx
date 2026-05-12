@@ -259,11 +259,15 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
       }
     }
 
-    // Build ingress alias map from rows
+    // Build ingress alias map from rows, normalizing hostnames to match backend behavior.
     const ingressAliases: Record<string, string> = {};
     for (const alias of state.ingressAliases) {
       if (alias.hostname && alias.service) {
-        ingressAliases[alias.hostname] = alias.service;
+        const normalized = alias.hostname
+          .toLowerCase()
+          .replace(/\.$/, '')
+          .replace(/:(443|80)$/, '');
+        ingressAliases[normalized] = alias.service;
       }
     }
 

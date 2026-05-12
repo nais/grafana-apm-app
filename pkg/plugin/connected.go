@@ -129,12 +129,25 @@ func (a *App) queryConnectedServices(ctx context.Context, from, to time.Time, se
 			a.callsMetric(ctx), cfg.Labels.SpanKind, cfg.SpanKinds.Client,
 			cfg.Labels.ServerAddress, escapedHost, envLabelFilter, rangeStr,
 		)
+		smInRateQ += fmt.Sprintf(
+			` or sum by (%s, %s) (rate(%s{%s="%s", %s=~"%s(:[0-9]+)?"%s}%s))`,
+			cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
+			a.callsMetric(ctx), cfg.Labels.SpanKind, cfg.SpanKinds.Client,
+			cfg.Labels.HTTPHost, escapedHost, envLabelFilter, rangeStr,
+		)
 		smInErrQ += fmt.Sprintf(
 			` or sum by (%s, %s) (rate(%s{%s="%s", %s="%s", %s=~"%s(:[0-9]+)?"%s}%s))`,
 			cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
 			a.callsMetric(ctx), cfg.Labels.SpanKind, cfg.SpanKinds.Client,
 			cfg.Labels.StatusCode, cfg.StatusCodes.Error,
 			cfg.Labels.ServerAddress, escapedHost, envLabelFilter, rangeStr,
+		)
+		smInErrQ += fmt.Sprintf(
+			` or sum by (%s, %s) (rate(%s{%s="%s", %s="%s", %s=~"%s(:[0-9]+)?"%s}%s))`,
+			cfg.Labels.ServiceName, cfg.Labels.ServiceNamespace,
+			a.callsMetric(ctx), cfg.Labels.SpanKind, cfg.SpanKinds.Client,
+			cfg.Labels.StatusCode, cfg.StatusCodes.Error,
+			cfg.Labels.HTTPHost, escapedHost, envLabelFilter, rangeStr,
 		)
 	}
 

@@ -99,14 +99,22 @@ func NewApp(_ context.Context, settings backend.AppInstanceSettings) (instancemg
 	}
 
 	// Build reverse ingress alias lookup: service_name → []hostnames.
+	// Normalize hostnames (lowercase, strip trailing dots, strip standard ports)
+	// so they match the normalized addresses produced by extractTopologyNodeName.
 	if len(app.settings.IngressAliases) > 0 {
+		normalized := make(map[string]string, len(app.settings.IngressAliases))
 		app.ingressByService = make(map[string][]string, len(app.settings.IngressAliases))
 		for hostname, svcName := range app.settings.IngressAliases {
-			if hostname != "" && svcName != "" {
-				app.ingressByService[svcName] = append(app.ingressByService[svcName], hostname)
+			if hostname == "" || svcName == "" {
+				continue
 			}
+			h := normalizeAddress(hostname)
+			svc := strings.TrimSpace(svcName)
+			normalized[h] = svc
+			app.ingressByService[svc] = append(app.ingressByService[svc], h)
 		}
-		logger.Info("Ingress aliases configured", "count", len(app.settings.IngressAliases), "services", len(app.ingressByService))
+		app.settings.IngressAliases = normalized
+		logger.Info("Ingress aliases configured", "count", len(normalized), "services", len(app.ingressByService))
 	}
 
 	// Read Grafana service account token from secureJsonData.
