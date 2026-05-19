@@ -145,4 +145,43 @@ describe('loki-builders', () => {
       expect(result).toContain('context_rating!=""');
     });
   });
+
+  describe('cluster filter (centralized Loki)', () => {
+    const co = { cluster: 'prod-gcp' };
+
+    it('injects k8s_cluster_name into vital pipeline', () => {
+      const result = lokiVitalPipeline(service, 'lcp', undefined, undefined, co);
+      expect(result).toContain('k8s_cluster_name="prod-gcp"');
+    });
+
+    it('injects cluster filter into exception expr', () => {
+      const result = lokiExceptionExpr(service, '[$__range]', co);
+      expect(result).toContain('k8s_cluster_name="prod-gcp"');
+    });
+
+    it('injects cluster filter into session start expr', () => {
+      const result = lokiSessionStartExpr(service, '[$__range]', undefined, co);
+      expect(result).toContain('k8s_cluster_name="prod-gcp"');
+    });
+
+    it('injects cluster filter into console errors expr', () => {
+      const result = lokiConsoleErrorsExpr(service, '[$__range]', undefined, co);
+      expect(result).toContain('k8s_cluster_name="prod-gcp"');
+    });
+
+    it('injects cluster filter into measurement count expr', () => {
+      const result = lokiMeasurementCountExpr(service, '[$__range]', co);
+      expect(result).toContain('k8s_cluster_name="prod-gcp"');
+    });
+
+    it('does not inject cluster filter when cluster is empty', () => {
+      const result = lokiVitalPipeline(service, 'lcp', undefined, undefined, { cluster: '' });
+      expect(result).not.toContain('k8s_cluster_name');
+    });
+
+    it('does not inject cluster filter when opts is undefined', () => {
+      const result = lokiVitalPipeline(service, 'lcp');
+      expect(result).not.toContain('k8s_cluster_name');
+    });
+  });
 });

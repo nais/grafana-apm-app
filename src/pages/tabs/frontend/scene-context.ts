@@ -24,4 +24,6 @@ export interface FrontendSceneContext {
   hasLoki: boolean;
   /** Alloy histogram config reference. */
   ah: typeof import('../../../otelconfig').otel.alloyHistogram;
+  /** Cluster filter for centralized Loki (injected when no per-env datasource exists). */
+  clusterFilter?: string;
 }

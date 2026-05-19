@@ -139,6 +139,7 @@ function FrontendPanels({
       svcFilter,
       hasLoki,
       ah,
+      clusterFilter: !ds.isLogsEnvSpecific && environment ? environment : undefined,
     };
 
     // Build sections — core metrics always render, Loki enrichment is optional

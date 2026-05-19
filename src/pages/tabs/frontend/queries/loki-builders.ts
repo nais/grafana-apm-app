@@ -9,6 +9,23 @@ import { otel } from '../../../../otelconfig';
 import { sanitizeLabelValue } from '../../../../utils/sanitize';
 import { BROWSER_FILTER } from '../constants';
 
+/** Options for injecting a cluster/environment filter into Loki stream selectors. */
+export interface LokiClusterOpts {
+  /** Cluster name value (e.g., "prod-gcp") to filter on in centralized Loki. */
+  cluster?: string;
+  /** Label name for the cluster filter (defaults to otel.labels.deploymentEnv). */
+  clusterLabel?: string;
+}
+
+/** Build the cluster stream matcher fragment, e.g. `, k8s_cluster_name="prod-gcp"` */
+function clusterMatcher(opts?: LokiClusterOpts): string {
+  if (!opts?.cluster) {
+    return '';
+  }
+  const label = opts.clusterLabel || otel.labels.deploymentEnv;
+  return `, ${label}="${sanitizeLabelValue(opts.cluster)}"`;
+}
+
 /**
  * Base pipeline for extracting a vital from Faro measurement logs.
  * Filters to web-vitals measurements, requires the vital field to be non-empty,
@@ -18,23 +35,30 @@ export function lokiVitalPipeline(
   service: string,
   vital: string,
   extraKeep?: string,
-  browserFilter = BROWSER_FILTER
+  browserFilter = BROWSER_FILTER,
+  clusterOpts?: LokiClusterOpts
 ): string {
   const fl = otel.faroLoki;
-  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindMeasurement}"}`;
+  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindMeasurement}"${clusterMatcher(clusterOpts)}}`;
   const keepFields = extraKeep ? `${vital}, ${extraKeep}` : vital;
   return `${stream} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" | ${vital}!="" ${browserFilter} | keep ${keepFields}`;
 }
 
 /** Weighted mean of a vital across all log entries (sum of values / count of entries). */
-export function lokiVitalExpr(service: string, vital: string, window: string): string {
-  const pipeline = lokiVitalPipeline(service, vital);
+export function lokiVitalExpr(service: string, vital: string, window: string, clusterOpts?: LokiClusterOpts): string {
+  const pipeline = lokiVitalPipeline(service, vital, undefined, BROWSER_FILTER, clusterOpts);
   return `sum(sum_over_time(${pipeline} | unwrap ${vital} ${window})) / sum(count_over_time(${pipeline} ${window}))`;
 }
 
 /** Weighted mean of a vital grouped by a label (e.g., browser_name). */
-export function lokiVitalByGroupExpr(service: string, vital: string, groupBy: string, window: string): string {
-  const pipeline = lokiVitalPipeline(service, vital, groupBy);
+export function lokiVitalByGroupExpr(
+  service: string,
+  vital: string,
+  groupBy: string,
+  window: string,
+  clusterOpts?: LokiClusterOpts
+): string {
+  const pipeline = lokiVitalPipeline(service, vital, groupBy, BROWSER_FILTER, clusterOpts);
   return `sum by (${groupBy}) (sum_over_time(${pipeline} | unwrap ${vital} ${window})) / sum by (${groupBy}) (count_over_time(${pipeline} ${window}))`;
 }
 
@@ -44,11 +68,12 @@ export function lokiVitalByPageExpr(
   vital: string,
   pageLabel: string,
   window: string,
-  browserFilter = BROWSER_FILTER
+  browserFilter = BROWSER_FILTER,
+  clusterOpts?: LokiClusterOpts
 ): string {
   const fl = otel.faroLoki;
   // Keep page_id alongside the page label so we can prefer it when available
-  const pipeline = lokiVitalPipeline(service, vital, `${pageLabel}, ${fl.pageId}`, browserFilter);
+  const pipeline = lokiVitalPipeline(service, vital, `${pageLabel}, ${fl.pageId}`, browserFilter, clusterOpts);
   // Prefer page_id (normalized route from generatePageId) over raw page_url.
   // When page_id is absent/empty, falls back to the original page label value.
   const labelFormat = `| label_format ${pageLabel}="{{if .${fl.pageId}}}{{.${fl.pageId}}}{{else}}{{.${pageLabel}}}{{end}}"`;
@@ -57,51 +82,71 @@ export function lokiVitalByPageExpr(
 }
 
 /** Total exception count over time (for timeseries). */
-export function lokiExceptionExpr(service: string, window: string): string {
+export function lokiExceptionExpr(service: string, window: string, clusterOpts?: LokiClusterOpts): string {
   const fl = otel.faroLoki;
-  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindException}"}`;
+  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindException}"${clusterMatcher(clusterOpts)}}`;
   return `sum(count_over_time(${stream} | logfmt ${BROWSER_FILTER} ${window}))`;
 }
 
 /** Top exceptions ranked by occurrence count. */
-export function lokiTopExceptionsExpr(service: string, window: string, browserFilter = BROWSER_FILTER): string {
+export function lokiTopExceptionsExpr(
+  service: string,
+  window: string,
+  browserFilter = BROWSER_FILTER,
+  clusterOpts?: LokiClusterOpts
+): string {
   const fl = otel.faroLoki;
-  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindException}"}`;
+  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindException}"${clusterMatcher(clusterOpts)}}`;
   return `topk(20, sum by (value) (count_over_time(${stream} | logfmt | value!="" ${browserFilter} | keep value ${window})))`;
 }
 
 /** Top exceptions ranked by number of unique sessions affected. */
-export function lokiExceptionSessionsExpr(service: string, window: string): string {
+export function lokiExceptionSessionsExpr(service: string, window: string, clusterOpts?: LokiClusterOpts): string {
   const fl = otel.faroLoki;
-  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindException}"}`;
+  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindException}"${clusterMatcher(clusterOpts)}}`;
   // Count distinct sessions: group by (value, session_id) to deduplicate, then count by value
   return `topk(20, count by (value) (count_over_time(${stream} | logfmt | value!="" | session_id!="" ${BROWSER_FILTER} | keep value, session_id ${window})))`;
 }
 
 /** Session start events over time. */
-export function lokiSessionStartExpr(service: string, window: string, browserFilter = BROWSER_FILTER): string {
+export function lokiSessionStartExpr(
+  service: string,
+  window: string,
+  browserFilter = BROWSER_FILTER,
+  clusterOpts?: LokiClusterOpts
+): string {
   const fl = otel.faroLoki;
-  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindEvent}"}`;
+  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindEvent}"${clusterMatcher(clusterOpts)}}`;
   return `sum(count_over_time(${stream} | logfmt | event_name="session_start" ${browserFilter} ${window}))`;
 }
 
 /** Top console.error messages ranked by count. */
-export function lokiConsoleErrorsExpr(service: string, window: string, browserFilter = BROWSER_FILTER): string {
+export function lokiConsoleErrorsExpr(
+  service: string,
+  window: string,
+  browserFilter = BROWSER_FILTER,
+  clusterOpts?: LokiClusterOpts
+): string {
   const fl = otel.faroLoki;
-  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindLog}"}`;
+  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindLog}"${clusterMatcher(clusterOpts)}}`;
   return `topk(10, sum by (value) (count_over_time(${stream} | logfmt | level="error" | value!="" ${browserFilter} | keep value ${window})))`;
 }
 
 /** Total web-vitals measurement count over time. */
-export function lokiMeasurementCountExpr(service: string, window: string): string {
+export function lokiMeasurementCountExpr(service: string, window: string, clusterOpts?: LokiClusterOpts): string {
   const fl = otel.faroLoki;
-  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindMeasurement}"}`;
+  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindMeasurement}"${clusterMatcher(clusterOpts)}}`;
   return `sum(count_over_time(${stream} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" ${BROWSER_FILTER} ${window}))`;
 }
 
 /** Rating distribution (good/needs-improvement/poor) count by rating label. */
-export function lokiRatingExpr(service: string, window: string, browserFilter = BROWSER_FILTER): string {
+export function lokiRatingExpr(
+  service: string,
+  window: string,
+  browserFilter = BROWSER_FILTER,
+  clusterOpts?: LokiClusterOpts
+): string {
   const fl = otel.faroLoki;
-  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindMeasurement}"}`;
+  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindMeasurement}"${clusterMatcher(clusterOpts)}}`;
   return `sum by (${fl.rating}) (count_over_time(${stream} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" | ${fl.rating}!="" ${browserFilter} | keep ${fl.rating} ${window}))`;
 }

@@ -20,8 +20,14 @@ import {
   lokiExceptionSessionsExpr,
   lokiSessionStartExpr,
   lokiConsoleErrorsExpr,
+  type LokiClusterOpts,
 } from './queries/loki-builders';
 import { FrontendSceneContext } from './scene-context';
+
+/** Derive LokiClusterOpts from scene context (undefined when no filter needed). */
+function clusterOpts(ctx: FrontendSceneContext): LokiClusterOpts | undefined {
+  return ctx.clusterFilter ? { cluster: ctx.clusterFilter } : undefined;
+}
 
 // ---------------------------------------------------------------------------
 // Section 1: CWV Rating Breakdown + Navigation Type
@@ -124,7 +130,7 @@ export function buildInsightsSection(ctx: FrontendSceneContext): SceneFlexLayout
       queries: [
         {
           refId: 'sessions',
-          expr: lokiSessionStartExpr(ctx.service, '[$__range]'),
+          expr: lokiSessionStartExpr(ctx.service, '[$__range]', undefined, clusterOpts(ctx)),
           legendFormat: 'Sessions',
           instant: true,
         },
@@ -246,34 +252,35 @@ export function buildPerPageSection(ctx: FrontendSceneContext): SceneFlexItem | 
   const { logsDs, service } = ctx;
   const fl = otel.faroLoki;
   const pageUrl = fl.pageUrl;
+  const co = clusterOpts(ctx);
 
   const perPageQ = new SceneQueryRunner({
     datasource: { uid: logsDs.uid, type: 'loki' },
     queries: [
       {
         refId: 'lcp',
-        expr: lokiVitalByPageExpr(service, fl.lcp, pageUrl, '[$__range]'),
+        expr: lokiVitalByPageExpr(service, fl.lcp, pageUrl, '[$__range]', undefined, co),
         legendFormat: '__auto',
         format: 'table',
         instant: true,
       },
       {
         refId: 'fcp',
-        expr: lokiVitalByPageExpr(service, fl.fcp, pageUrl, '[$__range]'),
+        expr: lokiVitalByPageExpr(service, fl.fcp, pageUrl, '[$__range]', undefined, co),
         legendFormat: '__auto',
         format: 'table',
         instant: true,
       },
       {
         refId: 'cls',
-        expr: lokiVitalByPageExpr(service, fl.cls, pageUrl, '[$__range]'),
+        expr: lokiVitalByPageExpr(service, fl.cls, pageUrl, '[$__range]', undefined, co),
         legendFormat: '__auto',
         format: 'table',
         instant: true,
       },
       {
         refId: 'inp',
-        expr: lokiVitalByPageExpr(service, fl.inp, pageUrl, '[$__range]'),
+        expr: lokiVitalByPageExpr(service, fl.inp, pageUrl, '[$__range]', undefined, co),
         legendFormat: '__auto',
         format: 'table',
         instant: true,
@@ -373,19 +380,20 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
 
   // Top Exceptions with full messages and session count (Loki enrichment)
   if (hasLoki) {
+    const co = clusterOpts(ctx);
     const topExceptionsQ = new SceneQueryRunner({
       datasource: { uid: logsDs.uid, type: 'loki' },
       queries: [
         {
           refId: 'count',
-          expr: lokiTopExceptionsExpr(service, '[$__range]'),
+          expr: lokiTopExceptionsExpr(service, '[$__range]', undefined, co),
           legendFormat: '__auto',
           format: 'table',
           instant: true,
         },
         {
           refId: 'sessions',
-          expr: lokiExceptionSessionsExpr(service, '[$__range]'),
+          expr: lokiExceptionSessionsExpr(service, '[$__range]', co),
           legendFormat: '__auto',
           format: 'table',
           instant: true,
@@ -437,26 +445,27 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
   const browserChildren: SceneFlexItem[] = [];
 
   // Browser breakdown (Loki vitals per browser)
+  const co2 = clusterOpts(ctx);
   const browserQ = new SceneQueryRunner({
     datasource: { uid: logsDs.uid, type: 'loki' },
     queries: [
       {
         refId: 'lcp',
-        expr: lokiVitalByGroupExpr(service, fl.lcp, fl.browserName, '[$__range]'),
+        expr: lokiVitalByGroupExpr(service, fl.lcp, fl.browserName, '[$__range]', co2),
         legendFormat: '__auto',
         format: 'table',
         instant: true,
       },
       {
         refId: 'fcp',
-        expr: lokiVitalByGroupExpr(service, fl.fcp, fl.browserName, '[$__range]'),
+        expr: lokiVitalByGroupExpr(service, fl.fcp, fl.browserName, '[$__range]', co2),
         legendFormat: '__auto',
         format: 'table',
         instant: true,
       },
       {
         refId: 'ttfb',
-        expr: lokiVitalByGroupExpr(service, fl.ttfb, fl.browserName, '[$__range]'),
+        expr: lokiVitalByGroupExpr(service, fl.ttfb, fl.browserName, '[$__range]', co2),
         legendFormat: '__auto',
         format: 'table',
         instant: true,
@@ -541,9 +550,14 @@ export function buildSupportSection(ctx: FrontendSceneContext): SceneFlexLayout 
 
   const { logsDs, service } = ctx;
 
-  const consoleErrorsQ = makeLokiQuery(logsDs, lokiConsoleErrorsExpr(service, '[$__range]'), '{{value}}', {
-    instant: true,
-  });
+  const consoleErrorsQ = makeLokiQuery(
+    logsDs,
+    lokiConsoleErrorsExpr(service, '[$__range]', undefined, clusterOpts(ctx)),
+    '{{value}}',
+    {
+      instant: true,
+    }
+  );
 
   return new SceneFlexLayout({
     direction: 'row',
@@ -609,7 +623,11 @@ export function buildTrafficSection(ctx: FrontendSceneContext): SceneFlexLayout 
 
   // Sessions (Loki enrichment — session_start events)
   if (hasLoki) {
-    const sessionQ = makeLokiQuery(logsDs, lokiSessionStartExpr(service, '[$__auto]'), 'Sessions');
+    const sessionQ = makeLokiQuery(
+      logsDs,
+      lokiSessionStartExpr(service, '[$__auto]', undefined, clusterOpts(ctx)),
+      'Sessions'
+    );
     children.push(
       new SceneFlexItem({
         minHeight: 200,

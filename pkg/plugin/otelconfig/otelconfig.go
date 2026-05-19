@@ -577,12 +577,17 @@ func (c *Config) AlloyHistogramFilter(service, environment string) string {
 // ---------------------------------------------------------------------------
 
 // LokiStreamSelector returns a Loki stream selector for a service.
+// An optional cluster parameter scopes the query to a specific cluster (for centralized Loki).
 //
 //	{service_name="foo", kind="measurement"}
-func (c *Config) LokiStreamSelector(service, kind string) string {
+//	{service_name="foo", kind="measurement", k8s_cluster_name="prod-gcp"}
+func (c *Config) LokiStreamSelector(service, kind string, cluster ...string) string {
 	sel := fmt.Sprintf(`{%s="%s"`, c.FaroLoki.ServiceName, service)
 	if kind != "" {
 		sel += fmt.Sprintf(`, %s="%s"`, c.FaroLoki.Kind, kind)
+	}
+	if len(cluster) > 0 && cluster[0] != "" {
+		sel += fmt.Sprintf(`, %s="%s"`, c.Labels.DeploymentEnv, cluster[0])
 	}
 	return sel + "}"
 }

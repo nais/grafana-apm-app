@@ -412,6 +412,7 @@ function ServiceOverview() {
                 from={from}
                 to={to}
                 serviceNameLabel={labelOverrides.serviceNameLabel}
+                clusterFilter={!ds.isLogsEnvSpecific ? envFilter || undefined : undefined}
               />
             </div>
           )}

@@ -152,9 +152,15 @@ func (a *App) hasLokiFaroData(ctx context.Context, service, env string, at time.
 		lokiClient = lokiClient.WithAuthHeaders(headers)
 	}
 
+	// When using centralized Loki (no per-env datasource), inject the cluster filter.
+	var clusterFilter string
+	if env != "" && !a.settings.LogsDataSource.HasEnvironment(env) {
+		clusterFilter = env
+	}
+
 	checkQ := fmt.Sprintf(
 		`count_over_time(%s [6h])`,
-		a.otelCfg.LokiStreamSelector(service, a.otelCfg.FaroLoki.KindMeasurement),
+		a.otelCfg.LokiStreamSelector(service, a.otelCfg.FaroLoki.KindMeasurement, clusterFilter),
 	)
 	results, err := lokiClient.InstantQuery(ctx, checkQ, at)
 	if err != nil || len(results) == 0 {

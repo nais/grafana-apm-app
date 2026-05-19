@@ -33,3 +33,50 @@ func TestServiceFilter(t *testing.T) {
 		})
 	}
 }
+
+func TestLokiStreamSelector(t *testing.T) {
+	cfg := Default()
+
+	tests := []struct {
+		name    string
+		service string
+		kind    string
+		cluster string
+		want    string
+	}{
+		{
+			name:    "service and kind only",
+			service: "my-app",
+			kind:    "measurement",
+			want:    `{service_name="my-app", kind="measurement"}`,
+		},
+		{
+			name:    "without kind",
+			service: "my-app",
+			want:    `{service_name="my-app"}`,
+		},
+		{
+			name:    "with cluster filter",
+			service: "my-app",
+			kind:    "measurement",
+			cluster: "prod-gcp",
+			want:    `{service_name="my-app", kind="measurement", k8s_cluster_name="prod-gcp"}`,
+		},
+		{
+			name:    "empty cluster is ignored",
+			service: "my-app",
+			kind:    "exception",
+			cluster: "",
+			want:    `{service_name="my-app", kind="exception"}`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := cfg.LokiStreamSelector(tc.service, tc.kind, tc.cluster)
+			if got != tc.want {
+				t.Errorf("LokiStreamSelector() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

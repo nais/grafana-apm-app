@@ -8,6 +8,8 @@ interface PluginDatasources {
   logsUid: string;
   /** Whether the current traces/logs UIDs came from an environment override */
   isEnvSpecific: boolean;
+  /** Whether the Loki UID specifically came from a per-environment override */
+  isLogsEnvSpecific: boolean;
 }
 
 function resolveUid(ds: EnvAwareDs | undefined, env: string | undefined, fallback: string): string {
@@ -68,12 +70,14 @@ function getPluginDatasources(env?: string): PluginDatasources {
   const tracesUid = resolveUid(tracesDs, env, 'tempo');
   const logsUid = resolveUid(logsDs, env, 'loki');
   const isEnvSpecific = !!env && (!!tracesDs.byEnvironment?.[env]?.uid || !!logsDs.byEnvironment?.[env]?.uid);
+  const isLogsEnvSpecific = !!env && !!logsDs.byEnvironment?.[env]?.uid;
 
   return {
     metricsUid: jsonData.metricsDataSource?.uid || 'mimir',
     tracesUid,
     logsUid,
     isEnvSpecific,
+    isLogsEnvSpecific,
   };
 }
 
