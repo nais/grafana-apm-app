@@ -61,6 +61,14 @@
     },
     {
       "type": "page",
+      "name": "Ops Status",
+      "path": "/a/%PLUGIN_ID%/ops",
+      "icon": "monitor",
+      "addToNav": true,
+      "role": "Viewer"
+    },
+    {
+      "type": "page",
       "name": "Dependencies",
       "path": "/a/%PLUGIN_ID%/dependencies",
       "addToNav": true,

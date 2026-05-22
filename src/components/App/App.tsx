@@ -9,6 +9,7 @@ const ServiceInventory = React.lazy(() => import('../../pages/ServiceInventory')
 const ServiceOverview = React.lazy(() => import('../../pages/ServiceOverview'));
 const NamespaceOverview = React.lazy(() => import('../../pages/NamespaceOverview'));
 const StatusBoard = React.lazy(() => import('../../pages/StatusBoard'));
+const OpsStatusBoard = React.lazy(() => import('../../pages/OpsStatusBoard'));
 const Dependencies = React.lazy(() => import('../../pages/Dependencies'));
 const DependencyDetail = React.lazy(() => import('../../pages/DependencyDetail'));
 
@@ -33,6 +34,7 @@ function App(props: AppRootProps) {
         <Route path={ROUTES.ServiceOverview} element={<ServiceOverview />} />
         <Route path={`${ROUTES.ServiceOverview}/*`} element={<ServiceOverview />} />
         <Route path={ROUTES.StatusBoard} element={<StatusBoard />} />
+        <Route path={ROUTES.OpsStatus} element={<OpsStatusBoard />} />
         <Route path={ROUTES.NamespaceOverview} element={<NamespaceOverview />} />
         <Route path={ROUTES.DependencyDetail} element={<DependencyDetail />} />
         <Route path={ROUTES.Dependencies} element={<Dependencies />} />

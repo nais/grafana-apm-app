@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import pluginJson from '../plugin.json';
-import { AppPluginSettings, EnvAwareDs, LabelOverrides } from '../types/plugin';
+import { AppPluginSettings, EnvAwareDs, LabelOverrides, OpsWatchlistEntry } from '../types/plugin';
 
 interface PluginDatasources {
   metricsUid: string;
@@ -163,6 +163,25 @@ export function _resetForTesting(): void {
   _jsonDataCache = null;
   _jsonDataPromise = null;
   _listeners = [];
+}
+
+const EMPTY_WATCHLIST: OpsWatchlistEntry[] = [];
+
+/** Returns the global ops watchlist from plugin settings. */
+export function useOpsWatchlist(): OpsWatchlistEntry[] {
+  const [rev, setRev] = useState(0);
+  useEffect(() => {
+    const listener = () => setRev((r) => r + 1);
+    _listeners.push(listener);
+    return () => {
+      _listeners = _listeners.filter((l) => l !== listener);
+    };
+  }, []);
+  return useMemo(() => {
+    const list = getJsonData().opsWatchlist;
+    return list && list.length > 0 ? list : EMPTY_WATCHLIST;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rev]);
 }
 
 // Exported for testing — pure function, no side effects.

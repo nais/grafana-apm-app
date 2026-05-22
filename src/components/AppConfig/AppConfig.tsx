@@ -6,7 +6,7 @@ import { getBackendSrv } from '@grafana/runtime';
 import { Alert, Button, Field, FieldSet, IconButton, Input, SecretInput, Combobox, useStyles2 } from '@grafana/ui';
 import { testIds } from '../testIds';
 import { Capabilities, getCapabilities } from '../../api/client';
-import { AppPluginSettings, DsRef, EnvAwareDs, LabelOverrides } from '../../types/plugin';
+import { AppPluginSettings, DsRef, EnvAwareDs, LabelOverrides, OpsWatchlistEntry } from '../../types/plugin';
 
 interface GrafanaDataSource {
   uid: string;
@@ -35,6 +35,7 @@ type State = {
   labelOverrides: LabelOverrides;
   envOverrides: EnvOverride[];
   ingressAliases: IngressAlias[];
+  opsWatchlist: OpsWatchlistEntry[];
   serviceAccountToken: string;
   tokenConfigured: boolean;
 };
@@ -69,6 +70,7 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
       hostname,
       service,
     })),
+    opsWatchlist: jsonData?.opsWatchlist ?? [],
     serviceAccountToken: '',
     tokenConfigured: secureJsonFields?.serviceAccountToken === true,
   });
@@ -244,6 +246,29 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
     }));
   };
 
+  const onWatchlistChange =
+    (idx: number, field: keyof OpsWatchlistEntry) => (e: React.ChangeEvent<HTMLInputElement>) => {
+      setState((prev) => {
+        const list = [...prev.opsWatchlist];
+        list[idx] = { ...list[idx], [field]: e.target.value.trim() };
+        return { ...prev, opsWatchlist: list };
+      });
+    };
+
+  const addWatchlistEntry = () => {
+    setState((prev) => ({
+      ...prev,
+      opsWatchlist: [...prev.opsWatchlist, { namespace: '', service: '' }],
+    }));
+  };
+
+  const removeWatchlistEntry = (idx: number) => {
+    setState((prev) => ({
+      ...prev,
+      opsWatchlist: prev.opsWatchlist.filter((_, i) => i !== idx),
+    }));
+  };
+
   const onSubmit = () => {
     // Build byEnvironment maps from overrides
     const tracesByEnv: Record<string, DsRef> = {};
@@ -271,6 +296,9 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
       }
     }
 
+    // Build ops watchlist, filtering out incomplete entries
+    const opsWatchlist = state.opsWatchlist.filter((e) => e.namespace && e.service);
+
     updatePluginAndReload(plugin.meta.id, {
       enabled,
       pinned,
@@ -290,6 +318,7 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
         durationUnit: state.durationUnit || undefined,
         labelOverrides: Object.values(state.labelOverrides).some(Boolean) ? state.labelOverrides : undefined,
         ingressAliases: Object.keys(ingressAliases).length > 0 ? ingressAliases : undefined,
+        opsWatchlist: opsWatchlist.length > 0 ? opsWatchlist : undefined,
       },
       secureJsonData: state.serviceAccountToken ? { serviceAccountToken: state.serviceAccountToken } : undefined,
     } as any);
@@ -674,6 +703,41 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
         ))}
         <Button variant="secondary" icon="plus" size="sm" onClick={addAlias} type="button">
           Add alias
+        </Button>
+      </FieldSet>
+
+      <FieldSet label="Ops Status Board" className={s.marginTop}>
+        <p className={s.description}>
+          Define which services appear on the{' '}
+          <a href={`/a/${plugin.meta.id}/ops`} target="_blank" rel="noreferrer">
+            Ops Status Board
+          </a>
+          . This is a shared watchlist visible to all users — ideal for operations teams monitoring critical services
+          across namespaces.
+        </p>
+        {state.opsWatchlist.map((entry, idx) => (
+          <div key={idx} className={s.envRow}>
+            <Field label={idx === 0 ? 'Namespace' : undefined}>
+              <Input
+                width={25}
+                value={entry.namespace}
+                placeholder="namespace"
+                onChange={onWatchlistChange(idx, 'namespace')}
+              />
+            </Field>
+            <Field label={idx === 0 ? 'Service' : undefined}>
+              <Input
+                width={35}
+                value={entry.service}
+                placeholder="service-name"
+                onChange={onWatchlistChange(idx, 'service')}
+              />
+            </Field>
+            <IconButton name="trash-alt" tooltip="Remove" onClick={() => removeWatchlistEntry(idx)} />
+          </div>
+        ))}
+        <Button variant="secondary" icon="plus" size="sm" onClick={addWatchlistEntry} type="button">
+          Add service
         </Button>
       </FieldSet>
 

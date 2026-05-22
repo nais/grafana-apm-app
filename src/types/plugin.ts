@@ -23,6 +23,12 @@ export interface LabelOverrides {
   deploymentEnvLabel?: string;
 }
 
+/** An entry in the ops watchlist: a specific service in a namespace to monitor. */
+export interface OpsWatchlistEntry {
+  namespace: string;
+  service: string;
+}
+
 /** The plugin's jsonData schema — persisted in Grafana's plugin settings. */
 export interface AppPluginSettings {
   metricsDataSource?: DsRef;
@@ -33,4 +39,6 @@ export interface AppPluginSettings {
   labelOverrides?: LabelOverrides;
   /** Ingress hostname → service name mapping for discovering on-prem callers via nais ingress. */
   ingressAliases?: Record<string, string>;
+  /** Global ops watchlist — services monitored on the Ops Status Board (admin-editable). */
+  opsWatchlist?: OpsWatchlistEntry[];
 }
