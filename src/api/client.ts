@@ -688,3 +688,25 @@ export async function getRuntimeMetrics(
     params
   );
 }
+
+// --- Ops Watchlist API ---
+
+export interface OpsWatchlistEntry {
+  namespace: string;
+  service: string;
+}
+
+export async function getOpsWatchlist(): Promise<OpsWatchlistEntry[]> {
+  return fetchResource<OpsWatchlistEntry[]>('/ops-watchlist');
+}
+
+export async function saveOpsWatchlist(entries: OpsWatchlistEntry[]): Promise<OpsWatchlistEntry[]> {
+  const response = await lastValueFrom(
+    getBackendSrv().fetch<OpsWatchlistEntry[]>({
+      url: `${BASE_URL}/ops-watchlist`,
+      method: 'POST',
+      data: entries,
+    })
+  );
+  return response.data;
+}

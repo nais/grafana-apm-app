@@ -23,7 +23,7 @@ export interface LabelOverrides {
   deploymentEnvLabel?: string;
 }
 
-/** @deprecated Watchlist is now user-configured via favorites (localStorage). Kept for backward-compatible jsonData parsing. */
+/** An entry in the ops watchlist: a specific service in a namespace to monitor. */
 export interface OpsWatchlistEntry {
   namespace: string;
   service: string;
@@ -39,7 +39,6 @@ export interface AppPluginSettings {
   labelOverrides?: LabelOverrides;
   /** Ingress hostname → service name mapping for discovering on-prem callers via nais ingress. */
   ingressAliases?: Record<string, string>;
-  /** @deprecated Watchlist is now user-configured via favorites. Kept for backward compatibility. */
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
+  /** Global ops watchlist — services monitored on the Ops Status Board. Editable by any user via the backend API. */
   opsWatchlist?: OpsWatchlistEntry[];
 }
