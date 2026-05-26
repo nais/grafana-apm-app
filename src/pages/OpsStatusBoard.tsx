@@ -14,7 +14,7 @@ import { getServiceHealth, healthSeverity } from '../utils/health';
 import { useAutoRefresh, REFRESH_INTERVALS } from '../utils/useInterval';
 import { StatusCard, CardStatus, CardSize, CARD_DIMENSIONS } from '../components/StatusCard';
 import { DataState } from '../components/DataState';
-import { useOpsWatchlist } from '../utils/datasources';
+import { useFavorites, serviceKey } from '../utils/useFavorites';
 import { useUrlNumber } from '../utils/useUrlState';
 
 /** Grid gap in pixels (matches theme.spacing(1.5) ≈ 12px). */
@@ -42,9 +42,9 @@ function svcKey(s: ServiceSummary): string {
   return `${s.namespace}/${s.name}/${s.environment ?? ''}`;
 }
 
-/** Build a watchlist lookup key (namespace/service — no environment). */
-function watchlistKey(namespace: string, service: string): string {
-  return `${namespace}/${service}`;
+/** Build a favorites lookup key (namespace/service — no environment). */
+function favKey(namespace: string, service: string): string {
+  return serviceKey(namespace, service);
 }
 
 /** Calculate how many cards fit in a given area. */
@@ -66,7 +66,7 @@ function OpsStatusBoard() {
   const envParam = sanitizeParam(searchParams.get('environment') ?? '');
   const envFilters = useMemo(() => (envParam ? envParam.split(',').filter(Boolean) : []), [envParam]);
   const { from, fromMs, toMs, setTimeRange } = useTimeRange();
-  const watchlist = useOpsWatchlist();
+  const { favorites } = useFavorites();
 
   // Card size from URL (validated)
   const rawSize = searchParams.get('size') ?? 'md';
@@ -161,22 +161,13 @@ function OpsStatusBoard() {
 
   const { secondsUntilRefresh } = useAutoRefresh(handleRefresh, refreshInterval);
 
-  // Build watchlist lookup set
-  const watchlistSet = useMemo(() => {
-    const set = new Set<string>();
-    for (const entry of watchlist) {
-      set.add(watchlistKey(entry.namespace, entry.service));
-    }
-    return set;
-  }, [watchlist]);
-
-  // Filter to watchlist services and exclude sidecars
+  // Filter to favorite services and exclude sidecars
   const allServices = useMemo(() => {
     if (!fetchResult) {
       return [];
     }
-    return fetchResult.filter((s) => !s.isSidecar && watchlistSet.has(watchlistKey(s.namespace, s.name)));
-  }, [fetchResult, watchlistSet]);
+    return fetchResult.filter((s) => !s.isSidecar && favorites.has(favKey(s.namespace, s.name)));
+  }, [fetchResult, favorites]);
 
   const envOptions = useMemo(() => extractEnvironmentOptions(allServices), [allServices]);
 
@@ -195,12 +186,12 @@ function OpsStatusBoard() {
     }
     const m = new Map<string, ServiceSummary>();
     for (const s of prevServices) {
-      if (watchlistSet.has(watchlistKey(s.namespace, s.name))) {
+      if (favorites.has(favKey(s.namespace, s.name))) {
         m.set(svcKey(s), s);
       }
     }
     return m;
-  }, [prevServices, watchlistSet]);
+  }, [prevServices, favorites]);
 
   // Sparkline map
   const sparklineMap = useMemo(() => {
@@ -208,9 +199,9 @@ function OpsStatusBoard() {
       return new Map<string, ServiceSummary>();
     }
     return new Map(
-      sparklineResult.filter((s) => watchlistSet.has(watchlistKey(s.namespace, s.name))).map((s) => [svcKey(s), s])
+      sparklineResult.filter((s) => favorites.has(favKey(s.namespace, s.name))).map((s) => [svcKey(s), s])
     );
-  }, [sparklineResult, watchlistSet]);
+  }, [sparklineResult, favorites]);
 
   // Build the card list sorted by severity
   const cardItems = useMemo(() => {
@@ -313,7 +304,7 @@ function OpsStatusBoard() {
     [cardItems]
   );
 
-  const isEmpty = watchlist.length === 0;
+  const isEmpty = favorites.size === 0;
 
   return (
     <PluginPage layout={PageLayoutType.Canvas}>
@@ -325,7 +316,7 @@ function OpsStatusBoard() {
               <span className={styles.attentionBadge}>{needsAttentionCount} needs attention</span>
             )}
             <span className={styles.watchlistCount}>
-              {watchlist.length} service{watchlist.length !== 1 ? 's' : ''} monitored
+              {favorites.size} service{favorites.size !== 1 ? 's' : ''} monitored
             </span>
           </div>
           <div className={styles.controls}>
@@ -369,10 +360,9 @@ function OpsStatusBoard() {
           {isEmpty ? (
             <div className={styles.emptyState}>
               <Icon name="monitor" size="xxxl" />
-              <h3>No services configured</h3>
+              <h3>No favorite services</h3>
               <p>
-                Add services to the ops watchlist in the <a href={`/plugins/nais-apm-app`}>plugin configuration</a> to
-                get started.
+                Star services in the <a href={`/a/nais-apm-app/services`}>service inventory</a> to see them here.
               </p>
             </div>
           ) : (
@@ -384,8 +374,8 @@ function OpsStatusBoard() {
               emptyTitle="No matching services"
               emptyMessage={
                 envFilters.length > 0
-                  ? `No watchlist services found in environment${envFilters.length > 1 ? 's' : ''} ${envFilters.join(', ')}.`
-                  : 'No data available for the configured watchlist services in the selected time range.'
+                  ? `No favorite services found in environment${envFilters.length > 1 ? 's' : ''} ${envFilters.join(', ')}.`
+                  : 'No data available for your favorite services in the selected time range.'
               }
               loadingText="Loading ops status..."
             >
