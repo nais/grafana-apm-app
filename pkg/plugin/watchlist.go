@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 )
@@ -15,6 +16,9 @@ type OpsWatchlistEntry struct {
 	Namespace string `json:"namespace"`
 	Service   string `json:"service"`
 }
+
+// watchlistMu serializes write operations to prevent concurrent read-modify-write races.
+var watchlistMu sync.Mutex
 
 // handleOpsWatchlist handles GET and POST requests for the shared ops watchlist.
 // GET returns the current watchlist. POST replaces it.
@@ -32,14 +36,14 @@ func (a *App) handleOpsWatchlist(w http.ResponseWriter, req *http.Request) {
 }
 
 func (a *App) getOpsWatchlist(w http.ResponseWriter, req *http.Request) {
-	jsonData, err := a.fetchPluginJSONData(req)
+	settings, err := a.fetchPluginSettings(req)
 	if err != nil {
 		log.DefaultLogger.Error("Failed to fetch plugin settings", "error", err)
 		http.Error(w, "failed to fetch plugin settings", http.StatusInternalServerError)
 		return
 	}
 
-	watchlist := jsonData["opsWatchlist"]
+	watchlist := settings.JSONData["opsWatchlist"]
 	if watchlist == nil {
 		watchlist = []any{}
 	}
@@ -63,8 +67,12 @@ func (a *App) setOpsWatchlist(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	// Fetch current jsonData, merge in the new watchlist, and save
-	jsonData, err := a.fetchPluginJSONData(req)
+	// Serialize writes to prevent concurrent read-modify-write races
+	watchlistMu.Lock()
+	defer watchlistMu.Unlock()
+
+	// Fetch current settings (includes jsonData and secureJsonFields)
+	settings, err := a.fetchPluginSettings(req)
 	if err != nil {
 		log.DefaultLogger.Error("Failed to fetch plugin settings for update", "error", err)
 		http.Error(w, "failed to fetch plugin settings", http.StatusInternalServerError)
@@ -72,12 +80,12 @@ func (a *App) setOpsWatchlist(w http.ResponseWriter, req *http.Request) {
 	}
 
 	if len(valid) > 0 {
-		jsonData["opsWatchlist"] = valid
+		settings.JSONData["opsWatchlist"] = valid
 	} else {
-		delete(jsonData, "opsWatchlist")
+		delete(settings.JSONData, "opsWatchlist")
 	}
 
-	if err := a.savePluginJSONData(req, jsonData); err != nil {
+	if err := a.savePluginSettings(req, settings); err != nil {
 		log.DefaultLogger.Error("Failed to save plugin settings", "error", err)
 		http.Error(w, "failed to save plugin settings", http.StatusInternalServerError)
 		return
@@ -87,8 +95,16 @@ func (a *App) setOpsWatchlist(w http.ResponseWriter, req *http.Request) {
 	_ = json.NewEncoder(w).Encode(valid)
 }
 
-// fetchPluginJSONData retrieves the plugin's current jsonData from the Grafana API.
-func (a *App) fetchPluginJSONData(req *http.Request) (map[string]any, error) {
+// pluginSettings holds the subset of plugin settings needed for read-modify-write.
+type pluginSettings struct {
+	Enabled         bool              `json:"enabled"`
+	Pinned          bool              `json:"pinned"`
+	JSONData        map[string]any    `json:"jsonData"`
+	SecureJSONFields map[string]bool  `json:"secureJsonFields"`
+}
+
+// fetchPluginSettings retrieves the plugin's current settings from the Grafana API.
+func (a *App) fetchPluginSettings(req *http.Request) (*pluginSettings, error) {
 	token := a.resolveServiceToken(req.Context())
 	url := fmt.Sprintf("%s/api/plugins/nais-apm-app/settings", a.grafanaURL)
 
@@ -111,28 +127,35 @@ func (a *App) fetchPluginJSONData(req *http.Request) (map[string]any, error) {
 		return nil, fmt.Errorf("grafana API returned %d: %s", resp.StatusCode, string(body))
 	}
 
-	var pluginResp struct {
-		JSONData map[string]any `json:"jsonData"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&pluginResp); err != nil {
+	var settings pluginSettings
+	if err := json.NewDecoder(resp.Body).Decode(&settings); err != nil {
 		return nil, fmt.Errorf("failed to decode plugin settings: %w", err)
 	}
-	if pluginResp.JSONData == nil {
-		pluginResp.JSONData = make(map[string]any)
+	if settings.JSONData == nil {
+		settings.JSONData = make(map[string]any)
 	}
-	return pluginResp.JSONData, nil
+	return &settings, nil
 }
 
-// savePluginJSONData updates the plugin's jsonData via the Grafana API.
-func (a *App) savePluginJSONData(req *http.Request, jsonData map[string]any) error {
+// savePluginSettings updates the plugin's settings via the Grafana API.
+// It preserves secureJsonFields to avoid wiping existing secrets.
+func (a *App) savePluginSettings(req *http.Request, settings *pluginSettings) error {
 	token := a.resolveServiceToken(req.Context())
 	url := fmt.Sprintf("%s/api/plugins/nais-apm-app/settings", a.grafanaURL)
 
-	body, err := json.Marshal(map[string]any{
-		"enabled":  true,
-		"pinned":   true,
-		"jsonData": jsonData,
-	})
+	// Build the save payload preserving secure fields.
+	// When secureJsonFields are included with true values, Grafana keeps
+	// existing secrets intact without requiring us to re-send the actual values.
+	payload := map[string]any{
+		"enabled":  settings.Enabled,
+		"pinned":   settings.Pinned,
+		"jsonData": settings.JSONData,
+	}
+	if len(settings.SecureJSONFields) > 0 {
+		payload["secureJsonFields"] = settings.SecureJSONFields
+	}
+
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}

@@ -58,9 +58,15 @@ export function useOpsWatchlist(): UseOpsWatchlistResult {
     doFetch();
   }, [doFetch]);
 
+  // Use a ref to track the latest watchlist for computing optimistic updates
+  // without needing to re-create callbacks on every state change.
+  const watchlistRef = useRef<OpsWatchlistEntry[]>(watchlist);
+  useEffect(() => {
+    watchlistRef.current = watchlist;
+  }, [watchlist]);
+
   const persist = useCallback(
     (entries: OpsWatchlistEntry[]) => {
-      setWatchlist(entries);
       saveOpsWatchlist(entries).catch(() => {
         // Revert on error — refetch to get server state
         if (mountedRef.current) {
@@ -73,28 +79,26 @@ export function useOpsWatchlist(): UseOpsWatchlistResult {
 
   const add = useCallback(
     (namespace: string, service: string) => {
-      setWatchlist((prev) => {
-        if (prev.some((e) => e.namespace === namespace && e.service === service)) {
-          return prev;
-        }
-        const next = [...prev, { namespace, service }];
-        persist(next);
-        return next;
-      });
+      const prev = watchlistRef.current;
+      if (prev.some((e) => e.namespace === namespace && e.service === service)) {
+        return;
+      }
+      const next = [...prev, { namespace, service }];
+      setWatchlist(next);
+      persist(next);
     },
     [persist]
   );
 
   const remove = useCallback(
     (namespace: string, service: string) => {
-      setWatchlist((prev) => {
-        const next = prev.filter((e) => !(e.namespace === namespace && e.service === service));
-        if (next.length === prev.length) {
-          return prev;
-        }
-        persist(next);
-        return next;
-      });
+      const prev = watchlistRef.current;
+      const next = prev.filter((e) => !(e.namespace === namespace && e.service === service));
+      if (next.length === prev.length) {
+        return;
+      }
+      setWatchlist(next);
+      persist(next);
     },
     [persist]
   );
