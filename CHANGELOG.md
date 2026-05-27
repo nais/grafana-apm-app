@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.12.0 (2026-05-27)
+
+### Features
+
+- **Ops Status Board** — New cross-namespace monitoring page with curated watchlist, auto-rotating grid layout, and at-a-glance health indicators (error rate, latency P95, request rate). Designed for wall-mounted displays in team areas.
+- **Shared ops watchlist** — Globally editable watchlist stored in plugin settings via a backend API endpoint. Any authenticated user can add/remove services without admin access. Backend uses service account token to update plugin jsonData on the user's behalf.
+- **Centralized Loki support** — Cluster-scoped log queries for environments using a single centralized Loki instance instead of per-namespace datasources.
+
+### Fixes
+
+- **Watchlist security** — Preserve `secureJsonFields` when saving plugin settings to prevent wiping the service account token.
+- **Watchlist concurrency** — Mutex-protected read-modify-write cycle prevents concurrent API calls from overwriting each other.
+- **React concurrent mode safety** — Network calls moved out of state updater functions to avoid duplicate side effects.
+
 ## 0.11.0 (2026-05-19)
 
 ### Features
