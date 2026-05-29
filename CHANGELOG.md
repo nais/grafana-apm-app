@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.12.1 (2026-05-30)
+
+### Fixes
+
+- **Dependency vulnerabilities** — Patched js-cookie (CVE-2026-46625, HIGH), ws (memory disclosure), and qs (DoS) via pnpm overrides. Fixes Grafana plugin validator failure on release.
+
 ## 0.12.0 (2026-05-27)
 
 ### Features
