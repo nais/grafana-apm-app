@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+- **Inline ops service picker** — Ops Status Board can now add or remove monitored services directly from the dashboard with a Grafana modal, instead of forcing users into plugin configuration.
+
+### Fixes
+
+- **Watchlist diagnostics** — Ops watchlist fetch/save errors now surface a sanitized, contextual error message instead of a generic failure.
+- **ServiceInventory test stability** — Reduced unnecessary async wrapping in the favorites toggle test to avoid flaky timing behavior in the full suite.
+
 ## 0.12.1 (2026-05-30)
 
 ### Fixes
