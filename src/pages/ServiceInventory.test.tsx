@@ -135,9 +135,7 @@ describe('ServiceInventory — Favorites', () => {
     renderInventory();
     const addButtons = await screen.findAllByRole('button', { name: /Add .+ to My Apps/i });
     // Click the first star (my-api — alphabetically first)
-    await waitFor(() => {
-      fireEvent.click(addButtons[0]);
-    });
+    fireEvent.click(addButtons[0]);
 
     // Should now show "Remove from My Apps" for that service
     await waitFor(() => {

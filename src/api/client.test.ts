@@ -22,6 +22,8 @@ import {
   getGraphQLMetrics,
   getRuntimeMetrics,
   getFrontendMetrics,
+  getOpsWatchlist,
+  saveOpsWatchlist,
 } from './client';
 
 jest.mock('@grafana/runtime', () => ({
@@ -219,6 +221,46 @@ describe('getGraphQLMetrics', () => {
     await getGraphQLMetrics('ns', 'svc', 60000, 120000, 'prod-fss');
     const url = lastURL();
     expect(url.searchParams.get('environment')).toBe('prod-fss');
+  });
+});
+
+describe('ops watchlist endpoints', () => {
+  it('fetches watchlist settings', async () => {
+    mockLastValueFrom.mockResolvedValueOnce({ data: [{ namespace: 'demo', service: 'api' }] });
+
+    await expect(getOpsWatchlist()).resolves.toEqual([{ namespace: 'demo', service: 'api' }]);
+
+    const url = lastURL();
+    expect(url.pathname).toContain('/ops-watchlist');
+  });
+
+  it('wraps watchlist fetch errors with context', async () => {
+    mockLastValueFrom.mockRejectedValueOnce({
+      status: 500,
+      statusText: 'Internal Server Error',
+      data: { message: 'grafana settings api unavailable' },
+    });
+
+    await expect(getOpsWatchlist()).rejects.toThrow(
+      'failed to fetch plugin settings (500): grafana settings api unavailable'
+    );
+  });
+
+  it('saves the watchlist', async () => {
+    mockLastValueFrom.mockResolvedValueOnce({ data: [{ namespace: 'demo', service: 'api' }] });
+
+    await expect(saveOpsWatchlist([{ namespace: 'demo', service: 'api' }])).resolves.toEqual([
+      { namespace: 'demo', service: 'api' },
+    ]);
+
+    const url = lastURL();
+    expect(url.pathname).toContain('/ops-watchlist');
+    expect(mockFetch).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        method: 'POST',
+        data: [{ namespace: 'demo', service: 'api' }],
+      })
+    );
   });
 });
 

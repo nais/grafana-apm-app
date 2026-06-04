@@ -696,17 +696,74 @@ export interface OpsWatchlistEntry {
   service: string;
 }
 
+function extractErrorDetail(error: unknown): string {
+  if (typeof error !== 'object' || error === null) {
+    return String(error);
+  }
+
+  const data = (error as { data?: unknown }).data;
+  if (typeof data === 'string') {
+    return data;
+  }
+  if (typeof data === 'object' && data !== null) {
+    const detail = data as { message?: unknown; error?: unknown; status?: unknown };
+    if (typeof detail.message === 'string' && detail.message.trim()) {
+      return detail.message.trim();
+    }
+    if (typeof detail.error === 'string' && detail.error.trim()) {
+      return detail.error.trim();
+    }
+    if (typeof detail.status === 'string' && detail.status.trim()) {
+      return detail.status.trim();
+    }
+  }
+
+  const message = (error as { message?: unknown }).message;
+  if (typeof message === 'string' && message.trim()) {
+    return message.trim();
+  }
+
+  const statusText = (error as { statusText?: unknown }).statusText;
+  if (typeof statusText === 'string' && statusText.trim()) {
+    return statusText.trim();
+  }
+
+  return 'unknown error';
+}
+
+function formatWatchlistError(action: string, error: unknown): Error {
+  const status =
+    typeof (error as { status?: unknown }).status === 'number' ? ` (${(error as { status: number }).status})` : '';
+  const detail = extractErrorDetail(error).replace(/\s+/g, ' ').trim();
+  const clipped = detail.length > 300 ? `${detail.slice(0, 300)}…` : detail;
+  return new Error(`${action}${status}: ${clipped}`);
+}
+
 export async function getOpsWatchlist(): Promise<OpsWatchlistEntry[]> {
-  return fetchResource<OpsWatchlistEntry[]>('/ops-watchlist');
+  try {
+    const response = await lastValueFrom(
+      getBackendSrv().fetch<OpsWatchlistEntry[]>({
+        url: `${BASE_URL}/ops-watchlist`,
+        method: 'GET',
+      })
+    );
+    return response.data;
+  } catch (error) {
+    throw formatWatchlistError('failed to fetch plugin settings', error);
+  }
 }
 
 export async function saveOpsWatchlist(entries: OpsWatchlistEntry[]): Promise<OpsWatchlistEntry[]> {
-  const response = await lastValueFrom(
-    getBackendSrv().fetch<OpsWatchlistEntry[]>({
-      url: `${BASE_URL}/ops-watchlist`,
-      method: 'POST',
-      data: entries,
-    })
-  );
-  return response.data;
+  try {
+    const response = await lastValueFrom(
+      getBackendSrv().fetch<OpsWatchlistEntry[]>({
+        url: `${BASE_URL}/ops-watchlist`,
+        method: 'POST',
+        data: entries,
+      })
+    );
+    return response.data;
+  } catch (error) {
+    throw formatWatchlistError('failed to save plugin settings', error);
+  }
 }

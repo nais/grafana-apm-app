@@ -1,7 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { PluginPage } from '@grafana/runtime';
-import { Combobox, Icon, MultiCombobox, RadioButtonGroup, useStyles2 } from '@grafana/ui';
+import {
+  Alert,
+  Button,
+  Combobox,
+  Icon,
+  LoadingPlaceholder,
+  MultiCombobox,
+  RadioButtonGroup,
+  useStyles2,
+} from '@grafana/ui';
 import { GrafanaTheme2, PageLayoutType } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getServices, ServiceSummary } from '../api/client';
@@ -13,9 +22,9 @@ import { useFetch } from '../utils/useFetch';
 import { getServiceHealth, healthSeverity } from '../utils/health';
 import { useAutoRefresh, REFRESH_INTERVALS } from '../utils/useInterval';
 import { StatusCard, CardStatus, CardSize, CARD_DIMENSIONS } from '../components/StatusCard';
-import { DataState } from '../components/DataState';
 import { useOpsWatchlist, watchlistToSet, watchlistKey } from '../utils/useOpsWatchlist';
 import { useUrlNumber } from '../utils/useUrlState';
+import { OpsServicePicker } from '../components/OpsServicePicker';
 
 /** Grid gap in pixels (matches theme.spacing(1.5) ≈ 12px). */
 const GRID_GAP = 12;
@@ -61,7 +70,8 @@ function OpsStatusBoard() {
   const envParam = sanitizeParam(searchParams.get('environment') ?? '');
   const envFilters = useMemo(() => (envParam ? envParam.split(',').filter(Boolean) : []), [envParam]);
   const { from, fromMs, toMs, setTimeRange } = useTimeRange();
-  const { watchlist } = useOpsWatchlist();
+  const { watchlist, loading: watchlistLoading, error: watchlistError, add, remove } = useOpsWatchlist();
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   // Card size from URL (validated)
   const rawSize = searchParams.get('size') ?? 'md';
@@ -159,13 +169,18 @@ function OpsStatusBoard() {
   // Build watchlist lookup set
   const watchlistSet = useMemo(() => watchlistToSet(watchlist), [watchlist]);
 
-  // Filter to watchlist services and exclude sidecars
-  const allServices = useMemo(() => {
+  // All discovered services in the selected time range, excluding sidecars.
+  const discoveredServices = useMemo(() => {
     if (!fetchResult) {
       return [];
     }
-    return fetchResult.filter((s) => !s.isSidecar && watchlistSet.has(watchlistKey(s.namespace, s.name)));
-  }, [fetchResult, watchlistSet]);
+    return fetchResult.filter((s) => !s.isSidecar);
+  }, [fetchResult]);
+
+  // Watchlist services only — these are the cards shown on the board.
+  const allServices = useMemo(() => {
+    return discoveredServices.filter((s) => watchlistSet.has(watchlistKey(s.namespace, s.name)));
+  }, [discoveredServices, watchlistSet]);
 
   const envOptions = useMemo(() => extractEnvironmentOptions(allServices), [allServices]);
 
@@ -295,6 +310,8 @@ function OpsStatusBoard() {
   );
 
   const refreshOptions = useMemo(() => REFRESH_INTERVALS.map((r) => ({ label: r.label, value: String(r.value) })), []);
+  const openPicker = useCallback(() => setPickerOpen(true), []);
+  const closePicker = useCallback(() => setPickerOpen(false), []);
 
   // Count services that need attention (critical/warning)
   const needsAttentionCount = useMemo(
@@ -318,6 +335,9 @@ function OpsStatusBoard() {
             </span>
           </div>
           <div className={styles.controls}>
+            <Button size="sm" variant="secondary" icon="plus" onClick={openPicker}>
+              Add services
+            </Button>
             {(envOptions.length > 1 || envFilters.length > 0) && (
               <MultiCombobox
                 options={envOptions}
@@ -355,52 +375,63 @@ function OpsStatusBoard() {
         </div>
 
         <div className={styles.gridViewport} ref={gridRef}>
-          {isEmpty ? (
-            <div className={styles.emptyState}>
-              <Icon name="monitor" size="xxxl" />
-              <h3>No services configured</h3>
-              <p>
-                Add services to the watchlist in the <a href={`/plugins/nais-apm-app`}>plugin configuration</a> to get
-                started.
-              </p>
-            </div>
+          {servicesLoading || watchlistLoading ? (
+            <LoadingPlaceholder text="Loading ops status..." />
+          ) : servicesError ? (
+            <Alert severity="error" title="Error loading services">
+              {servicesError}
+            </Alert>
           ) : (
-            <DataState
-              loading={servicesLoading}
-              error={servicesError}
-              errorTitle="Error loading services"
-              empty={!servicesLoading && cardItems.length === 0 && !isEmpty}
-              emptyTitle="No matching services"
-              emptyMessage={
-                envFilters.length > 0
-                  ? `No watchlist services found in environment${envFilters.length > 1 ? 's' : ''} ${envFilters.join(', ')}.`
-                  : 'No data available for the configured watchlist services in the selected time range.'
-              }
-              loadingText="Loading ops status..."
-            >
-              <div
-                className={styles.grid}
-                style={{
-                  gridTemplateColumns: isMeasured
-                    ? `repeat(${columns}, 1fr)`
-                    : `repeat(auto-fill, minmax(${CARD_DIMENSIONS[cardSize].width}px, 1fr))`,
-                }}
-              >
-                {pageItems.map((item) => (
-                  <StatusCard
-                    key={svcKey(item.service)}
-                    service={item.service}
-                    status={item.status}
-                    size={cardSize}
-                    previous={item.previous}
-                    sparkline={item.sparkline}
-                    onClick={() =>
-                      handleServiceClick(item.service.namespace, item.service.name, item.service.environment)
-                    }
-                  />
-                ))}
-              </div>
-            </DataState>
+            <>
+              {watchlistError && (
+                <Alert severity="warning" title="Could not load plugin settings">
+                  {watchlistError}
+                </Alert>
+              )}
+
+              {isEmpty ? (
+                <div className={styles.emptyState}>
+                  <Icon name="monitor" size="xxxl" />
+                  <h3>No services configured</h3>
+                  <p>
+                    Add services directly from this dashboard, or use the{' '}
+                    <a href={`/plugins/nais-apm-app`}>plugin configuration</a> as a fallback.
+                  </p>
+                  <Button variant="secondary" onClick={openPicker}>
+                    Add services
+                  </Button>
+                </div>
+              ) : cardItems.length === 0 ? (
+                <Alert severity="info" title="No matching services">
+                  {envFilters.length > 0
+                    ? `No watchlist services found in environment${envFilters.length > 1 ? 's' : ''} ${envFilters.join(', ')}.`
+                    : 'No data available for the configured watchlist services in the selected time range.'}
+                </Alert>
+              ) : (
+                <div
+                  className={styles.grid}
+                  style={{
+                    gridTemplateColumns: isMeasured
+                      ? `repeat(${columns}, 1fr)`
+                      : `repeat(auto-fill, minmax(${CARD_DIMENSIONS[cardSize].width}px, 1fr))`,
+                  }}
+                >
+                  {pageItems.map((item) => (
+                    <StatusCard
+                      key={svcKey(item.service)}
+                      service={item.service}
+                      status={item.status}
+                      size={cardSize}
+                      previous={item.previous}
+                      sparkline={item.sparkline}
+                      onClick={() =>
+                        handleServiceClick(item.service.namespace, item.service.name, item.service.environment)
+                      }
+                    />
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
 
@@ -421,6 +452,14 @@ function OpsStatusBoard() {
           </div>
         )}
       </div>
+      <OpsServicePicker
+        isOpen={pickerOpen}
+        services={discoveredServices}
+        watchlist={watchlist}
+        onDismiss={closePicker}
+        onAdd={add}
+        onRemove={remove}
+      />
     </PluginPage>
   );
 }

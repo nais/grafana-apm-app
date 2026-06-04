@@ -6,6 +6,7 @@ export type { OpsWatchlistEntry } from '../api/client';
 interface UseOpsWatchlistResult {
   watchlist: OpsWatchlistEntry[];
   loading: boolean;
+  error: string | null;
   /** Add a service to the watchlist. */
   add: (namespace: string, service: string) => void;
   /** Remove a service from the watchlist by namespace/service. */
@@ -28,6 +29,7 @@ function entryKey(ns: string, svc: string): string {
 export function useOpsWatchlist(): UseOpsWatchlistResult {
   const [watchlist, setWatchlist] = useState<OpsWatchlistEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const mountedRef = useRef(true);
 
   const doFetch = useCallback(() => {
@@ -36,10 +38,12 @@ export function useOpsWatchlist(): UseOpsWatchlistResult {
         if (mountedRef.current) {
           setWatchlist(data ?? []);
           setLoading(false);
+          setError(null);
         }
       })
-      .catch(() => {
+      .catch((err) => {
         if (mountedRef.current) {
+          setError(err instanceof Error ? err.message : String(err));
           setLoading(false);
         }
       });
@@ -110,7 +114,7 @@ export function useOpsWatchlist(): UseOpsWatchlistResult {
     [watchlist]
   );
 
-  return { watchlist, loading, add, remove, has, refetch };
+  return { watchlist, loading, error, add, remove, has, refetch };
 }
 
 /** Build a lookup set from watchlist entries for efficient filtering. */
