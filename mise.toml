@@ -7,6 +7,13 @@ node = "22"
 go = "1.25"
 "golangci-lint" = "latest"
 
+[env]
+NODE_NO_WARNINGS = "1"
+NPM_CONFIG_USERCONFIG = "/dev/null"
+NPM_CONFIG_LOGLEVEL = "error"
+XDG_CONFIG_HOME = "/tmp"
+PNPM_HOME = "/tmp/pnpm"
+
 # --- Top-level tasks ---
 
 [tasks.all]

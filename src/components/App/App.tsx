@@ -1,7 +1,9 @@
-import React, { Suspense } from 'react';
+import React, { Suspense, useState, useEffect } from 'react';
 import { Navigate, Route, Routes, useNavigate, useLocation } from 'react-router-dom';
 import { AppRootProps } from '@grafana/data';
 import { LoadingPlaceholder } from '@grafana/ui';
+import { initPluginTranslations } from '@grafana/i18n';
+import { loadResources } from '@grafana/scenes';
 import { PLUGIN_BASE_URL, ROUTES } from '../../constants';
 import { useFavoritesSync } from '../../utils/useFavoritesSync';
 
@@ -25,8 +27,33 @@ function FavoritesRedirect() {
 }
 
 function App(props: AppRootProps) {
+  const [initialized, setInitialized] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    initPluginTranslations('nais-apm-app', [loadResources])
+      .then(() => {
+        if (active) {
+          setInitialized(true);
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to initialize plugin translations', err);
+        if (active) {
+          setInitialized(true); // Fallback to let the app load anyway
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   // Sync favorites to Grafana's per-user backend storage for cross-device persistence
   useFavoritesSync();
+
+  if (!initialized) {
+    return <LoadingPlaceholder text="Loading Nais APM..." />;
+  }
 
   return (
     <Suspense fallback={<LoadingPlaceholder text="Loading..." />}>

@@ -60,6 +60,10 @@ const config = async (env: Env): Promise<Configuration> => {
 
     externals,
 
+    performance: {
+      hints: false,
+    },
+
     // Support WebAssembly according to latest spec - makes WebAssembly module async
     experiments: {
       asyncWebAssembly: true,
