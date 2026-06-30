@@ -222,6 +222,9 @@ const config = async (env: Env): Promise<Configuration> => {
       // handle resolving "rootDir" paths
       modules: [path.resolve(process.cwd(), 'src'), 'node_modules'],
       unsafeCache: true,
+      alias: {
+        '@grafana/i18n': path.resolve(process.cwd(), 'node_modules', '@grafana', 'i18n'),
+      },
     },
   };
 

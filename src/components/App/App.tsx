@@ -1,9 +1,7 @@
 import React, { Suspense, useState, useEffect } from 'react';
-import { Navigate, Route, Routes, useNavigate, useLocation } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { AppRootProps } from '@grafana/data';
-import { LoadingPlaceholder } from '@grafana/ui';
 import { initPluginTranslations } from '@grafana/i18n';
-import { loadResources } from '@grafana/scenes';
 import { PLUGIN_BASE_URL, ROUTES } from '../../constants';
 import { useFavoritesSync } from '../../utils/useFavoritesSync';
 
@@ -31,7 +29,9 @@ function App(props: AppRootProps) {
 
   useEffect(() => {
     let active = true;
-    initPluginTranslations('nais-apm-app', [loadResources])
+    initPluginTranslations('nais-apm-app', [
+      (lang: string) => import('@grafana/scenes').then((m) => m.loadResources(lang)),
+    ])
       .then(() => {
         if (active) {
           setInitialized(true);
@@ -40,7 +40,7 @@ function App(props: AppRootProps) {
       .catch((err) => {
         console.error('Failed to initialize plugin translations', err);
         if (active) {
-          setInitialized(true); // Fallback to let the app load anyway
+          setInitialized(true);
         }
       });
     return () => {
@@ -52,11 +52,39 @@ function App(props: AppRootProps) {
   useFavoritesSync();
 
   if (!initialized) {
-    return <LoadingPlaceholder text="Loading Nais APM..." />;
+    return (
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: '100%',
+          color: '#8c95a5',
+          fontFamily: 'sans-serif',
+        }}
+      >
+        Loading Nais APM...
+      </div>
+    );
   }
 
   return (
-    <Suspense fallback={<LoadingPlaceholder text="Loading..." />}>
+    <Suspense
+      fallback={
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: '100%',
+            color: '#8c95a5',
+            fontFamily: 'sans-serif',
+          }}
+        >
+          Loading Nais APM...
+        </div>
+      }
+    >
       <Routes>
         <Route path={ROUTES.ServiceOverview} element={<ServiceOverview />} />
         <Route path={`${ROUTES.ServiceOverview}/*`} element={<ServiceOverview />} />
