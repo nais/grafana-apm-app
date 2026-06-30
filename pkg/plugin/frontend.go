@@ -160,7 +160,7 @@ func (a *App) hasLokiFaroData(ctx context.Context, service, env string, at time.
 
 	checkQ := fmt.Sprintf(
 		`count_over_time(%s [6h])`,
-		a.otelCfg.LokiStreamSelector(service, a.otelCfg.FaroLoki.KindMeasurement, clusterFilter),
+		a.otelCfg.LokiStreamSelector(service, "", clusterFilter),
 	)
 	results, err := lokiClient.InstantQuery(ctx, checkQ, at)
 	if err != nil || len(results) == 0 {

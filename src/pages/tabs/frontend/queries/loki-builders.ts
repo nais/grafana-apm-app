@@ -97,15 +97,15 @@ export function lokiTopExceptionsExpr(
 ): string {
   const fl = otel.faroLoki;
   const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindException}"${clusterMatcher(clusterOpts)}}`;
-  return `topk(20, sum by (value) (count_over_time(${stream} | logfmt | value!="" ${browserFilter} | keep value ${window})))`;
+  return `topk(20, sum by (${fl.hash}, value) (count_over_time(${stream} | logfmt | value!="" | ${fl.hash}!="" ${browserFilter} | keep value, ${fl.hash} ${window})))`;
 }
 
 /** Top exceptions ranked by number of unique sessions affected. */
 export function lokiExceptionSessionsExpr(service: string, window: string, clusterOpts?: LokiClusterOpts): string {
   const fl = otel.faroLoki;
   const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindException}"${clusterMatcher(clusterOpts)}}`;
-  // Count distinct sessions: group by (value, session_id) to deduplicate, then count by value
-  return `topk(20, count by (value) (count_over_time(${stream} | logfmt | value!="" | session_id!="" ${BROWSER_FILTER} | keep value, session_id ${window})))`;
+  // Count distinct sessions: group by (hash, value, session_id) to deduplicate, then count by hash and value
+  return `topk(20, count by (${fl.hash}, value) (count_over_time(${stream} | logfmt | value!="" | ${fl.hash}!="" | session_id!="" ${BROWSER_FILTER} | keep value, ${fl.hash}, session_id ${window})))`;
 }
 
 /** Session start events over time. */

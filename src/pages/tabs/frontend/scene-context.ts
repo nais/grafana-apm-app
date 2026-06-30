@@ -26,4 +26,6 @@ export interface FrontendSceneContext {
   ah: typeof import('../../../otelconfig').otel.alloyHistogram;
   /** Cluster filter for centralized Loki (injected when no per-env datasource exists). */
   clusterFilter?: string;
+  /** Custom label name for the cluster filter (overrides k8s_cluster_name). */
+  clusterLabel?: string;
 }

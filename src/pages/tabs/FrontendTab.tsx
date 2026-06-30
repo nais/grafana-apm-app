@@ -17,9 +17,11 @@ import {
 } from '@grafana/scenes';
 import { DashboardCursorSync } from '@grafana/schema';
 import { getFrontendMetrics } from '../../api/client';
-import { usePluginDatasources } from '../../utils/datasources';
+import { usePluginDatasources, usePluginLabelOverrides } from '../../utils/datasources';
 import { sanitizeLabelValue } from '../../utils/sanitize';
 import { otel } from '../../otelconfig';
+import { useUrlString } from '../../utils/useUrlState';
+import { ExceptionDrawer } from './frontend/components/ExceptionDrawer';
 
 import {
   WebVitalsBullets,
@@ -44,6 +46,8 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
   const [available, setAvailable] = useState<boolean | null>(null);
   const [hasLoki, setHasLoki] = useState<boolean>(false);
   const [vitals, setVitals] = useState<Record<string, number> | undefined>();
+  const [selectedHash, setSelectedHash] = useUrlString('exceptionHash');
+  const ds = usePluginDatasources(environment || undefined);
 
   useEffect(() => {
     let cancelled = false;
@@ -98,6 +102,17 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
         vitals={vitals}
         hasLoki={hasLoki}
       />
+      {selectedHash && (
+        <ExceptionDrawer
+          key={selectedHash}
+          hash={selectedHash}
+          service={service}
+          namespace={namespace}
+          environment={environment}
+          logsUid={ds.logsUid}
+          onClose={() => setSelectedHash('')}
+        />
+      )}
     </div>
   );
 }
@@ -122,6 +137,7 @@ function FrontendPanels({
   hasLoki: boolean;
 }) {
   const ds = usePluginDatasources(environment || undefined);
+  const labelOverrides = usePluginLabelOverrides();
 
   const ah = otel.alloyHistogram;
   const svcFilter = histogramFilter(
@@ -140,6 +156,7 @@ function FrontendPanels({
       hasLoki,
       ah,
       clusterFilter: !ds.isLogsEnvSpecific && environment ? environment : undefined,
+      clusterLabel: labelOverrides.deploymentEnvLabel,
     };
 
     // Build sections — core metrics always render, Loki enrichment is optional
@@ -186,7 +203,7 @@ function FrontendPanels({
         ],
       }),
     });
-  }, [ds, service, namespace, environment, svcFilter, ah, hasLoki, vitals]);
+  }, [ds, service, namespace, environment, svcFilter, ah, hasLoki, vitals, labelOverrides]);
 
   return <scene.Component model={scene} />;
 }

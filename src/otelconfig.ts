@@ -108,5 +108,6 @@ export const otel = {
     browserName: 'browser_name',
     pageUrl: 'page_url',
     pageId: 'page_id',
+    hash: 'hash',
   },
 } as const;

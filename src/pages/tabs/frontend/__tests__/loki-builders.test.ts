@@ -96,19 +96,21 @@ describe('loki-builders', () => {
   });
 
   describe('lokiTopExceptionsExpr', () => {
-    it('uses topk to rank exceptions by value', () => {
+    it('uses topk to rank exceptions by hash and value', () => {
       const result = lokiTopExceptionsExpr(service, '[$__range]');
       expect(result).toContain('topk(20');
-      expect(result).toContain('sum by (value)');
+      expect(result).toContain('sum by (hash, value)');
       expect(result).toContain('value!=""');
+      expect(result).toContain('hash!=""');
+      expect(result).toContain('keep value, hash');
     });
   });
 
   describe('lokiExceptionSessionsExpr', () => {
-    it('counts unique sessions per exception', () => {
+    it('counts unique sessions per exception hash and value', () => {
       const result = lokiExceptionSessionsExpr(service, '[$__range]');
-      expect(result).toContain('count by (value)');
-      expect(result).toContain('keep value, session_id');
+      expect(result).toContain('count by (hash, value)');
+      expect(result).toContain('keep value, hash, session_id');
       expect(result).toContain('session_id!=""');
     });
   });

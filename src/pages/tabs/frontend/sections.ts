@@ -26,7 +26,7 @@ import { FrontendSceneContext } from './scene-context';
 
 /** Derive LokiClusterOpts from scene context (undefined when no filter needed). */
 function clusterOpts(ctx: FrontendSceneContext): LokiClusterOpts | undefined {
-  return ctx.clusterFilter ? { cluster: ctx.clusterFilter } : undefined;
+  return ctx.clusterFilter ? { cluster: ctx.clusterFilter, clusterLabel: ctx.clusterLabel } : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -412,6 +412,7 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
           .setDescription('Most common JavaScript errors — click an error to see full details in the Logs tab')
           .setData(topExceptionsData)
           .setOverrides((b) => {
+            b.matchFieldsWithName(fl.hash).overrideCustomFieldConfig('hidden' as any, true);
             b.matchFieldsWithName('value').overrideDisplayName('Error');
             b.matchFieldsWithName('Value #count')
               .overrideDisplayName('Occurrences')
@@ -424,8 +425,13 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
             const nsSegment = encodeURIComponent(namespace || '_');
             b.matchFieldsWithName('value').overrideLinks([
               {
+                title: 'Inspect Exception',
+                url: `${PLUGIN_BASE_URL}/services/${nsSegment}/${encodeURIComponent(service)}?tab=frontend&from=\${__from}&to=\${__to}${envParam}&exceptionHash=\${__data.fields.${fl.hash}}`,
+                targetBlank: false,
+              } as any,
+              {
                 title: 'View in Logs',
-                url: `${PLUGIN_BASE_URL}/services/${nsSegment}/${encodeURIComponent(service)}?tab=logs&from=\${__from}&to=\${__to}${envParam}&includeFaro=true&kindFilter=exception`,
+                url: `${PLUGIN_BASE_URL}/services/${nsSegment}/${encodeURIComponent(service)}?tab=logs&from=\${__from}&to=\${__to}${envParam}&includeFaro=true&kindFilter=exception&logSearch=\${__data.fields.${fl.hash}}`,
                 targetBlank: false,
               } as any,
             ]);
