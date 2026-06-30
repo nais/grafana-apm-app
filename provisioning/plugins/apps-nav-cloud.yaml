@@ -30,18 +30,5 @@ apps:
             uid: prod-gcp-tempo
             type: tempo
       logsDataSource:
-        uid: dev-gcp-loki
+        uid: nav-logs
         type: loki
-        byEnvironment:
-          dev:
-            uid: dev-gcp-loki
-            type: loki
-          dev-fss:
-            uid: dev-gcp-loki
-            type: loki
-          prod:
-            uid: prod-gcp-loki
-            type: loki
-          prod-fss:
-            uid: prod-gcp-loki
-            type: loki

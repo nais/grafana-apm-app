@@ -36,7 +36,7 @@ datasources:
     jsonData:
       httpHeaderName1: X-Scope-OrgID
       tracesToLogs:
-        datasourceUid: dev-gcp-loki
+        datasourceUid: nav-logs
         filterByTraceID: true
         tags: ['service.name']
       tracesToMetrics:
@@ -45,21 +45,6 @@ datasources:
         datasourceUid: nav-metrics
       nodeGraph:
         enabled: true
-    secureJsonData:
-      httpHeaderValue1: nais
-
-  - name: dev-gcp-loki
-    type: loki
-    uid: dev-gcp-loki
-    url: https://loki.dev.nav.cloud.nais.io
-    access: proxy
-    jsonData:
-      httpHeaderName1: X-Scope-OrgID
-      derivedFields:
-        - name: TraceID
-          matcherRegex: '"traceID":"(\\w+)"'
-          url: '$${__value.raw}'
-          datasourceUid: dev-gcp-tempo
     secureJsonData:
       httpHeaderValue1: nais
 
@@ -71,7 +56,7 @@ datasources:
     jsonData:
       httpHeaderName1: X-Scope-OrgID
       tracesToLogs:
-        datasourceUid: prod-gcp-loki
+        datasourceUid: nav-logs
         filterByTraceID: true
         tags: ['service.name']
       tracesToMetrics:
@@ -83,10 +68,10 @@ datasources:
     secureJsonData:
       httpHeaderValue1: nais
 
-  - name: prod-gcp-loki
+  - name: nav-logs
     type: loki
-    uid: prod-gcp-loki
-    url: https://loki.prod.nav.cloud.nais.io
+    uid: nav-logs
+    url: https://loki.nav.cloud.nais.io
     access: proxy
     jsonData:
       httpHeaderName1: X-Scope-OrgID
@@ -94,6 +79,6 @@ datasources:
         - name: TraceID
           matcherRegex: '"traceID":"(\\w+)"'
           url: '$${__value.raw}'
-          datasourceUid: prod-gcp-tempo
+          datasourceUid: dev-gcp-tempo
     secureJsonData:
-      httpHeaderValue1: nais
+      httpHeaderValue1: tenant

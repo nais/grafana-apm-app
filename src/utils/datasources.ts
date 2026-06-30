@@ -64,16 +64,23 @@ function getJsonData(): AppPluginSettings {
 /** Read datasource UIDs from plugin config, optionally resolved for an environment */
 function getPluginDatasources(env?: string): PluginDatasources {
   const jsonData = getJsonData();
+  const metricsDs: EnvAwareDs = jsonData.metricsDataSource ?? {};
   const tracesDs: EnvAwareDs = jsonData.tracesDataSource ?? {};
   const logsDs: EnvAwareDs = jsonData.logsDataSource ?? {};
 
+  const metricsUid = resolveUid(metricsDs, env, 'mimir');
   const tracesUid = resolveUid(tracesDs, env, 'tempo');
   const logsUid = resolveUid(logsDs, env, 'loki');
-  const isEnvSpecific = !!env && (!!tracesDs.byEnvironment?.[env]?.uid || !!logsDs.byEnvironment?.[env]?.uid);
+
+  const isEnvSpecific =
+    !!env &&
+    (!!metricsDs.byEnvironment?.[env]?.uid ||
+      !!tracesDs.byEnvironment?.[env]?.uid ||
+      !!logsDs.byEnvironment?.[env]?.uid);
   const isLogsEnvSpecific = !!env && !!logsDs.byEnvironment?.[env]?.uid;
 
   return {
-    metricsUid: jsonData.metricsDataSource?.uid || 'mimir',
+    metricsUid,
     tracesUid,
     logsUid,
     isEnvSpecific,
@@ -109,9 +116,14 @@ export function useConfiguredEnvironments(): string[] {
   }, []);
   return useMemo(() => {
     const jsonData = getJsonData();
+    const metricsDs: EnvAwareDs = jsonData.metricsDataSource ?? {};
     const tracesDs: EnvAwareDs = jsonData.tracesDataSource ?? {};
     const logsDs: EnvAwareDs = jsonData.logsDataSource ?? {};
-    const envs = new Set([...Object.keys(tracesDs.byEnvironment ?? {}), ...Object.keys(logsDs.byEnvironment ?? {})]);
+    const envs = new Set([
+      ...Object.keys(metricsDs.byEnvironment ?? {}),
+      ...Object.keys(tracesDs.byEnvironment ?? {}),
+      ...Object.keys(logsDs.byEnvironment ?? {}),
+    ]);
     return [...envs].sort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rev]);

@@ -17,6 +17,7 @@ interface GrafanaDataSource {
 
 interface EnvOverride {
   env: string;
+  prometheusUid: string;
   tempoUid: string;
   lokiUid: string;
 }
@@ -40,13 +41,19 @@ type State = {
   tokenConfigured: boolean;
 };
 
-function parseEnvOverrides(tracesDs: EnvAwareDs | undefined, logsDs: EnvAwareDs | undefined): EnvOverride[] {
+function parseEnvOverrides(
+  metricsDs: EnvAwareDs | undefined,
+  tracesDs: EnvAwareDs | undefined,
+  logsDs: EnvAwareDs | undefined
+): EnvOverride[] {
   const envs = new Set<string>([
+    ...Object.keys(metricsDs?.byEnvironment ?? {}),
     ...Object.keys(tracesDs?.byEnvironment ?? {}),
     ...Object.keys(logsDs?.byEnvironment ?? {}),
   ]);
   return [...envs].sort().map((env) => ({
     env,
+    prometheusUid: metricsDs?.byEnvironment?.[env]?.uid || '',
     tempoUid: tracesDs?.byEnvironment?.[env]?.uid || '',
     lokiUid: logsDs?.byEnvironment?.[env]?.uid || '',
   }));
@@ -65,7 +72,7 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
     metricNamespace: jsonData?.metricNamespace || '',
     durationUnit: jsonData?.durationUnit || '',
     labelOverrides: jsonData?.labelOverrides ?? {},
-    envOverrides: parseEnvOverrides(jsonData?.tracesDataSource, jsonData?.logsDataSource),
+    envOverrides: parseEnvOverrides(jsonData?.metricsDataSource, jsonData?.tracesDataSource, jsonData?.logsDataSource),
     ingressAliases: Object.entries(jsonData?.ingressAliases ?? {}).map(([hostname, service]) => ({
       hostname,
       service,
@@ -132,18 +139,20 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
           }
 
           // Auto-detect environment overrides from naming patterns
-          if (prev.envOverrides.length === 0 && (tempo.length > 1 || loki.length > 1)) {
-            const envMap = new Map<string, { tempoUid: string; lokiUid: string }>();
-            const envPattern = /^(.+?)[-_](tempo|loki)$/i;
+          if (prev.envOverrides.length === 0 && (prom.length > 1 || tempo.length > 1 || loki.length > 1)) {
+            const envMap = new Map<string, { prometheusUid: string; tempoUid: string; lokiUid: string }>();
+            const envPattern = /^(.+?)[-_](prometheus|mimir|tempo|loki)$/i;
             for (const ds of datasources) {
-              if (ds.type !== 'tempo' && ds.type !== 'loki') {
+              if (ds.type !== 'tempo' && ds.type !== 'loki' && ds.type !== 'prometheus') {
                 continue;
               }
               const match = ds.name.match(envPattern) || ds.uid.match(envPattern);
               if (match) {
                 const env = match[1];
-                const entry = envMap.get(env) || { tempoUid: '', lokiUid: '' };
-                if (ds.type === 'tempo') {
+                const entry = envMap.get(env) || { prometheusUid: '', tempoUid: '', lokiUid: '' };
+                if (ds.type === 'prometheus') {
+                  entry.prometheusUid = ds.uid;
+                } else if (ds.type === 'tempo') {
                   entry.tempoUid = ds.uid;
                 } else {
                   entry.lokiUid = ds.uid;
@@ -154,6 +163,7 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
             if (envMap.size > 0) {
               updates.envOverrides = [...envMap.entries()].sort().map(([env, ds]) => ({
                 env,
+                prometheusUid: ds.prometheusUid,
                 tempoUid: ds.tempoUid,
                 lokiUid: ds.lokiUid,
               }));
@@ -213,7 +223,7 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
   const addEnvOverride = () => {
     setState((prev) => ({
       ...prev,
-      envOverrides: [...prev.envOverrides, { env: '', tempoUid: '', lokiUid: '' }],
+      envOverrides: [...prev.envOverrides, { env: '', prometheusUid: '', tempoUid: '', lokiUid: '' }],
     }));
   };
 
@@ -271,10 +281,14 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
 
   const onSubmit = () => {
     // Build byEnvironment maps from overrides
+    const metricsByEnv: Record<string, DsRef> = {};
     const tracesByEnv: Record<string, DsRef> = {};
     const logsByEnv: Record<string, DsRef> = {};
     for (const ov of state.envOverrides) {
       if (ov.env) {
+        if (ov.prometheusUid) {
+          metricsByEnv[ov.env] = { uid: ov.prometheusUid, type: 'prometheus' };
+        }
         if (ov.tempoUid) {
           tracesByEnv[ov.env] = { uid: ov.tempoUid, type: 'tempo' };
         }
@@ -303,7 +317,11 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
       enabled,
       pinned,
       jsonData: {
-        metricsDataSource: { uid: state.metricsUid, type: 'prometheus' },
+        metricsDataSource: {
+          uid: state.metricsUid,
+          type: 'prometheus',
+          ...(Object.keys(metricsByEnv).length > 0 ? { byEnvironment: metricsByEnv } : {}),
+        },
         tracesDataSource: {
           uid: state.tracesUid,
           type: 'tempo',
@@ -449,6 +467,31 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
                 />
               ) : (
                 <Input width={20} value={ov.env} placeholder="e.g., prod" onChange={onEnvChange(idx, 'env')} />
+              )}
+            </Field>
+            <Field label="Prometheus">
+              {dsLoaded && promOptions.length > 0 ? (
+                <Combobox
+                  options={promOptions}
+                  value={ov.prometheusUid || null}
+                  onChange={(v) =>
+                    setState((prev) => {
+                      const overrides = [...prev.envOverrides];
+                      overrides[idx] = { ...overrides[idx], prometheusUid: v?.value ?? '' };
+                      return { ...prev, envOverrides: overrides };
+                    })
+                  }
+                  width={25}
+                  placeholder="Select Prometheus..."
+                  isClearable
+                />
+              ) : (
+                <Input
+                  width={25}
+                  value={ov.prometheusUid}
+                  placeholder="e.g., dev-gcp-mimir"
+                  onChange={onEnvChange(idx, 'prometheusUid')}
+                />
               )}
             </Field>
             <Field label="Tempo">

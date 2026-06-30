@@ -146,7 +146,7 @@ func NewApp(_ context.Context, settings backend.AppInstanceSettings) (instancemg
 		"metricsDS", app.settings.MetricsDataSource.UID,
 		"tracesDS", app.settings.TracesDataSource.UID,
 		"logsDS", app.settings.LogsDataSource.UID,
-		"envOverrides", len(app.settings.TracesDataSource.ByEnvironment)+len(app.settings.LogsDataSource.ByEnvironment),
+		"envOverrides", len(app.settings.TracesDataSource.ByEnvironment)+len(app.settings.LogsDataSource.ByEnvironment)+len(app.settings.MetricsDataSource.ByEnvironment),
 		"grafanaURL", app.grafanaURL,
 	)
 
@@ -234,17 +234,23 @@ func (a *App) callsMetric(ctx context.Context) string {
 // promClientForRequest returns a PrometheusClient with auth resolved for the request.
 // Auth priority: 1) auto-managed SA token (via IAM/externalServiceAccounts),
 // 2) manual SA token (from secureJsonData), 3) forwarded user headers.
+// Resolves the metrics datasource for the specified environment if configured.
 func (a *App) promClientForRequest(r *http.Request) *queries.PrometheusClient {
-	if a.promClient == nil {
-		return nil
+	env := parseEnvironment(r)
+	uid := a.settings.MetricsDataSource.Resolve(env).UID
+	if uid == "" {
+		if a.promClient == nil {
+			return nil
+		}
+		if token := a.resolveServiceToken(r.Context()); token != "" {
+			return a.promClient.WithServiceToken(token).WithAuthHeaders(r.Header)
+		}
+		return a.promClient.WithAuthHeaders(r.Header)
 	}
 
-	// Try auto-managed service account token from Grafana (zero-config)
-	if token := a.resolveServiceToken(r.Context()); token != "" {
-		return a.promClient.WithServiceToken(token).WithAuthHeaders(r.Header)
-	}
-
-	return a.promClient.WithAuthHeaders(r.Header)
+	proxyURL := fmt.Sprintf("%s/api/datasources/proxy/uid/%s", a.grafanaURL, uid)
+	client := queries.NewPrometheusClient(proxyURL, a.resolveServiceToken(r.Context()))
+	return client.WithAuthHeaders(r.Header)
 }
 
 // resolveServiceToken returns the best available service account token.

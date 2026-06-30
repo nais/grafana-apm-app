@@ -53,7 +53,7 @@ type LabelOverrides struct {
 
 // PluginSettings holds parsed jsonData from the app plugin configuration.
 type PluginSettings struct {
-	MetricsDataSource DataSourceRef      `json:"metricsDataSource"`
+	MetricsDataSource EnvAwareDataSource `json:"metricsDataSource"`
 	TracesDataSource  EnvAwareDataSource `json:"tracesDataSource"`
 	LogsDataSource    EnvAwareDataSource `json:"logsDataSource"`
 

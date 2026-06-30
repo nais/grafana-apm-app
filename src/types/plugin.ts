@@ -31,7 +31,7 @@ export interface OpsWatchlistEntry {
 
 /** The plugin's jsonData schema — persisted in Grafana's plugin settings. */
 export interface AppPluginSettings {
-  metricsDataSource?: DsRef;
+  metricsDataSource?: EnvAwareDs;
   tracesDataSource?: EnvAwareDs;
   logsDataSource?: EnvAwareDs;
   metricNamespace?: string;
