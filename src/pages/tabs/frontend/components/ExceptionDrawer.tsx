@@ -44,6 +44,15 @@ interface Breadcrumb {
   message: string;
   type?: string;
   value?: string;
+  eventName?: string;
+  eventDomain?: string;
+  level?: string;
+  fcp?: string;
+  lcp?: string;
+  cls?: string;
+  inp?: string;
+  ttfb?: string;
+  rating?: string;
 }
 
 interface AggregatedStats {
@@ -196,6 +205,15 @@ export function ExceptionDrawer({ hash, service, namespace, environment, logsUid
                     message: p.message || p.value || '',
                     type: p.type,
                     value: p.value,
+                    eventName: p.event_name,
+                    eventDomain: p.event_domain,
+                    level: p.level,
+                    fcp: p.fcp,
+                    lcp: p.lcp,
+                    cls: p.cls,
+                    inp: p.inp,
+                    ttfb: p.ttfb,
+                    rating: p.context_rating,
                   });
                 });
               });
@@ -368,8 +386,11 @@ export function ExceptionDrawer({ hash, service, namespace, environment, logsUid
                     {breadcrumbs.map((bc, idx) => (
                       <div key={idx} className={styles.breadcrumbItem}>
                         <span className={styles.bcTime}>{formatTimestampNs(bc.timestampNs)}</span>
-                        <span className={styles.bcKind(bc.kind)}>{bc.kind}</span>
-                        <span className={styles.bcMessage}>{bc.message || bc.value || bc.type}</span>
+                        <span className={styles.bcKind(bc.kind)}>
+                          <Icon name={getBreadcrumbIcon(bc.kind) as any} size="sm" style={{ marginRight: '4px' }} />
+                          {bc.kind}
+                        </span>
+                        <span className={styles.bcMessage}>{getBreadcrumbMessage(bc)}</span>
                       </div>
                     ))}
                     <div className={styles.bcFooter}>
@@ -424,6 +445,49 @@ function parseLogfmt(line: string): Record<string, string> {
     result[key] = val;
   }
   return result;
+}
+
+function getBreadcrumbMessage(bc: Breadcrumb): string {
+  if (bc.kind === 'event') {
+    return bc.eventName ? `${bc.eventDomain ? bc.eventDomain + '/' : ''}${bc.eventName}` : 'Unknown Event';
+  }
+  if (bc.kind === 'measurement' && bc.type === 'web-vitals') {
+    const vitals = [];
+    if (bc.fcp) {
+      vitals.push(`FCP=${parseFloat(bc.fcp).toFixed(0)}ms`);
+    }
+    if (bc.lcp) {
+      vitals.push(`LCP=${parseFloat(bc.lcp).toFixed(0)}ms`);
+    }
+    if (bc.cls) {
+      vitals.push(`CLS=${parseFloat(bc.cls).toFixed(3)}`);
+    }
+    if (bc.inp) {
+      vitals.push(`INP=${parseFloat(bc.inp).toFixed(0)}ms`);
+    }
+    if (bc.ttfb) {
+      vitals.push(`TTFB=${parseFloat(bc.ttfb).toFixed(0)}ms`);
+    }
+    const val = vitals.length > 0 ? vitals.join(', ') : 'Empty Measurement';
+    return bc.rating ? `${val} [${bc.rating}]` : val;
+  }
+  if (bc.kind === 'exception' || bc.level === 'error') {
+    return bc.message || bc.value || bc.type || 'Error';
+  }
+  return bc.message || bc.value || bc.type || '';
+}
+
+function getBreadcrumbIcon(kind: string): string {
+  if (kind === 'event') {
+    return 'bolt';
+  }
+  if (kind === 'measurement') {
+    return 'chart-line';
+  }
+  if (kind === 'exception' || kind === 'error') {
+    return 'exclamation-triangle';
+  }
+  return 'file-alt';
 }
 
 function formatTimestampNs(tsNs: string): string {
@@ -655,16 +719,22 @@ const getStyles = (theme: GrafanaTheme2) => ({
     border-radius: 4px;
     background: ${kind === 'exception' || kind === 'error'
       ? theme.colors.error.transparent
-      : kind === 'log'
-        ? theme.colors.primary.transparent
-        : theme.colors.secondary.transparent};
+      : kind === 'measurement'
+        ? theme.colors.warning.transparent
+        : kind === 'event'
+          ? theme.colors.success.transparent
+          : theme.colors.primary.transparent};
     color: ${kind === 'exception' || kind === 'error'
       ? theme.colors.error.text
-      : kind === 'log'
-        ? theme.colors.primary.text
-        : theme.colors.text.secondary};
-    min-width: 60px;
-    text-align: center;
+      : kind === 'measurement'
+        ? theme.colors.warning.text
+        : kind === 'event'
+          ? theme.colors.success.text
+          : theme.colors.primary.text};
+    min-width: 90px;
+    text-align: left;
+    display: flex;
+    align-items: center;
   `,
   bcMessage: css`
     color: ${theme.colors.text.primary};
