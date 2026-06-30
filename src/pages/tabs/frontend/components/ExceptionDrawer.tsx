@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Drawer, Icon, Spinner, Alert, useStyles2, Combobox } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
@@ -97,6 +97,14 @@ export function ExceptionDrawer({
   const clusterLabel = labelOverrides.deploymentEnvLabel || otel.labels.deploymentEnv;
   const clusterStream = environment ? `, ${clusterLabel}="${sanitizeLabelValue(environment)}"` : '';
 
+  const selectedSessionIdRef = useRef(selectedSessionId);
+  const onSessionChangeRef = useRef(onSessionChange);
+
+  useEffect(() => {
+    selectedSessionIdRef.current = selectedSessionId;
+    onSessionChangeRef.current = onSessionChange;
+  }, [selectedSessionId, onSessionChange]);
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -190,11 +198,11 @@ export function ExceptionDrawer({
         setOccurrences(sessionList);
 
         if (sessionList.length > 0) {
-          const matched = selectedSessionId ? sessionList.find((s) => s.sessionId === selectedSessionId) : null;
+          const matched = selectedSessionIdRef.current ? sessionList.find((s) => s.sessionId === selectedSessionIdRef.current) : null;
           const defaultSession = matched || sessionList[0];
           setException(defaultSession);
-          if (defaultSession.sessionId && defaultSession.sessionId !== selectedSessionId) {
-            onSessionChange(defaultSession.sessionId);
+          if (defaultSession.sessionId && defaultSession.sessionId !== selectedSessionIdRef.current) {
+            onSessionChangeRef.current(defaultSession.sessionId);
           }
         }
 
@@ -221,8 +229,6 @@ export function ExceptionDrawer({
     fl.kind,
     fl.kindException,
     fl.serviceName,
-    selectedSessionId,
-    onSessionChange,
   ]);
 
   // Fetch breadcrumbs whenever the selected session ID changes
