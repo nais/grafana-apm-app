@@ -15,6 +15,8 @@ interface ExceptionDrawerProps {
   namespace: string;
   environment?: string;
   logsUid: string;
+  selectedSessionId: string;
+  onSessionChange: (id: string) => void;
   onClose: () => void;
 }
 
@@ -71,14 +73,22 @@ interface AggregatedStats {
   total: number;
 }
 
-export function ExceptionDrawer({ hash, service, namespace, environment, logsUid, onClose }: ExceptionDrawerProps) {
+export function ExceptionDrawer({
+  hash,
+  service,
+  namespace,
+  environment,
+  logsUid,
+  selectedSessionId,
+  onSessionChange,
+  onClose,
+}: ExceptionDrawerProps) {
   const styles = useStyles2(getStyles);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [exception, setException] = useState<ParsedException | null>(null);
   const [stats, setStats] = useState<AggregatedStats | null>(null);
   const [occurrences, setOccurrences] = useState<ParsedException[]>([]);
-  const [selectedSessionId, setSelectedSessionId] = useState<string>('');
   const [breadcrumbs, setBreadcrumbs] = useState<GroupedBreadcrumb[]>([]);
   const [loadingBreadcrumbs, setLoadingBreadcrumbs] = useState(false);
   const labelOverrides = usePluginLabelOverrides();
@@ -180,8 +190,12 @@ export function ExceptionDrawer({ hash, service, namespace, environment, logsUid
         setOccurrences(sessionList);
 
         if (sessionList.length > 0) {
-          setException(sessionList[0]);
-          setSelectedSessionId(sessionList[0].sessionId || '');
+          const matched = selectedSessionId ? sessionList.find((s) => s.sessionId === selectedSessionId) : null;
+          const defaultSession = matched || sessionList[0];
+          setException(defaultSession);
+          if (defaultSession.sessionId && defaultSession.sessionId !== selectedSessionId) {
+            onSessionChange(defaultSession.sessionId);
+          }
         }
 
         setLoading(false);
@@ -207,6 +221,8 @@ export function ExceptionDrawer({ hash, service, namespace, environment, logsUid
     fl.kind,
     fl.kindException,
     fl.serviceName,
+    selectedSessionId,
+    onSessionChange,
   ]);
 
   // Fetch breadcrumbs whenever the selected session ID changes
@@ -308,8 +324,17 @@ export function ExceptionDrawer({ hash, service, namespace, environment, logsUid
     };
   }, [selectedSessionId, service, environment, logsUid, clusterStream, fl.serviceName, fl.sessionId]);
 
+  useEffect(() => {
+    if (occurrences.length > 0 && selectedSessionId) {
+      const matched = occurrences.find((o) => o.sessionId === selectedSessionId);
+      if (matched) {
+        setException(matched);
+      }
+    }
+  }, [selectedSessionId, occurrences]);
+
   const handleSessionChange = (sessionId: string) => {
-    setSelectedSessionId(sessionId);
+    onSessionChange(sessionId);
     const matched = occurrences.find((o) => o.sessionId === sessionId);
     if (matched) {
       setException(matched);

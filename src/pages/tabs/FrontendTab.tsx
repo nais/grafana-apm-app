@@ -47,6 +47,7 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
   const [hasLoki, setHasLoki] = useState<boolean>(false);
   const [vitals, setVitals] = useState<Record<string, number> | undefined>();
   const [selectedHash, setSelectedHash] = useUrlString('exceptionHash');
+  const [selectedSessionId, setSelectedSessionId] = useUrlString('exceptionSessionId');
   const ds = usePluginDatasources(environment || undefined);
 
   useEffect(() => {
@@ -110,7 +111,12 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
           namespace={namespace}
           environment={environment}
           logsUid={ds.logsUid}
-          onClose={() => setSelectedHash('')}
+          selectedSessionId={selectedSessionId}
+          onSessionChange={setSelectedSessionId}
+          onClose={() => {
+            setSelectedHash('');
+            setSelectedSessionId('');
+          }}
         />
       )}
     </div>
