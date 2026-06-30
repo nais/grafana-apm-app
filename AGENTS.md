@@ -64,6 +64,15 @@ docker compose -f docker-compose.demo.yaml up  # With OTel Demo traffic
 - **No co-author trailers** — do not add `Co-authored-by` lines to commit messages.
 - **Always run `mise run all` after every coding session** — before committing or marking a task complete, run the full check+test+build pipeline to catch regressions.
 
+## Gotchas & Troubleshooting
+
+- **i18n Duplicate Instances (`t()` error):**
+  - `@grafana/i18n` must be bundled, but doing so under `pnpm` nested layout duplicates the module. We use Webpack `resolve.alias` in `.config/webpack/webpack.config.ts` to deduplicate it. Do not remove this alias.
+  - `@grafana/schema` must be bundled instead of externalized to prevent deep-import 404s. Do not add it to `externals.ts`.
+- **Backend Binary Missing (`App not found` / provisioning 404):**
+  - If the `dist/` folder is deleted or cleaned, the Go backend binary is lost. Running `mise run dev` (or frontend build) alone will NOT compile the Go backend.
+  - You must compile the Linux backend binaries (`CGO_ENABLED=0 GOOS=linux GOARCH=arm64/amd64 go build -o dist/gpx_apm_linux_... ./pkg`) and restart the Docker stack (`docker compose restart grafana`) for the plugin to be provisioned.
+
 ## Testing
 
 - Unit tests live next to source files (`*.test.tsx`)
