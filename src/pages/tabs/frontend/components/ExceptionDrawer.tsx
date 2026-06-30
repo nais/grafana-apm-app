@@ -198,7 +198,9 @@ export function ExceptionDrawer({
         setOccurrences(sessionList);
 
         if (sessionList.length > 0) {
-          const matched = selectedSessionIdRef.current ? sessionList.find((s) => s.sessionId === selectedSessionIdRef.current) : null;
+          const matched = selectedSessionIdRef.current
+            ? sessionList.find((s) => s.sessionId === selectedSessionIdRef.current)
+            : null;
           const defaultSession = matched || sessionList[0];
           setException(defaultSession);
           if (defaultSession.sessionId && defaultSession.sessionId !== selectedSessionIdRef.current) {

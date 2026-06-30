@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.13.4 (2026-07-01)
+
+### Fixes
+
+- **Exception Drawer Close Loop** — Solved a React state update race condition where closing the Exception Drawer would update parameters sequentially. Both the `exceptionHash` and `exceptionSessionId` query parameters are now deleted atomically in a single `setSearchParams` transaction, guaranteeing that the drawer closes immediately.
+
 ## 0.13.3 (2026-07-01)
 
 ### Fixes
