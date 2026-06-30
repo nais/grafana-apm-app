@@ -128,8 +128,8 @@ export function lokiConsoleErrorsExpr(
   clusterOpts?: LokiClusterOpts
 ): string {
   const fl = otel.faroLoki;
-  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindLog}"${clusterMatcher(clusterOpts)}}`;
-  return `topk(10, sum by (value) (count_over_time(${stream} | logfmt | level="error" | value!="" ${browserFilter} | keep value ${window})))`;
+  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}=~"${fl.kindLog}|${fl.kindException}"${clusterMatcher(clusterOpts)}}`;
+  return `topk(10, sum by (value) (count_over_time(${stream} | logfmt | (kind="log" and level="error") or (kind="exception" and (hash="" or value=~"(?i)console.error:.*")) | value!="" ${browserFilter} | keep value ${window})))`;
 }
 
 /** Total web-vitals measurement count over time. */

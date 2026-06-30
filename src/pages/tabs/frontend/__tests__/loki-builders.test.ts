@@ -124,10 +124,11 @@ describe('loki-builders', () => {
   });
 
   describe('lokiConsoleErrorsExpr', () => {
-    it('filters for error-level logs', () => {
+    it('filters for console errors in log and exception streams', () => {
       const result = lokiConsoleErrorsExpr(service, '[$__range]');
-      expect(result).toContain('level="error"');
-      expect(result).toContain('kind="log"');
+      expect(result).toContain('kind=~"log|exception"');
+      expect(result).toContain('kind="log" and level="error"');
+      expect(result).toContain('kind="exception" and (hash="" or value=~"(?i)console.error:.*")');
       expect(result).toContain('topk(10');
     });
   });
