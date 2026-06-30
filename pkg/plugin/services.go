@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,6 +30,7 @@ func (a *App) handleServices(w http.ResponseWriter, req *http.Request) {
 	withSeries := req.URL.Query().Get("withSeries") != "false"
 	filterNamespace := queries.MustSanitizeLabel(req.URL.Query().Get("namespace"))
 	filterEnvironment := parseEnvironment(req)
+	filterServices := req.URL.Query().Get("services")
 
 	// Check response cache (keyed on time range rounded to 30s + filters + org)
 	roundedFrom := fmt.Sprintf("%d", from.Unix()/30*30)
@@ -38,7 +40,7 @@ func (a *App) handleServices(w http.ResponseWriter, req *http.Request) {
 		seriesStr = "true"
 	}
 	orgID := req.Header.Get("X-Grafana-Org-Id")
-	ck := cacheKey("services", orgID, roundedFrom, roundedTo, seriesStr, filterNamespace, filterEnvironment)
+	ck := cacheKey("services", orgID, roundedFrom, roundedTo, seriesStr, filterNamespace, filterEnvironment, filterServices)
 	if cached, ok := a.respCache.get(ck); ok {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-Cache", "HIT")
@@ -54,7 +56,7 @@ func (a *App) handleServices(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	services := a.fetchServiceSummaries(ctx, caps, from, to, step, withSeries, filterNamespace, filterEnvironment, req.Header)
+	services := a.fetchServiceSummaries(ctx, caps, from, to, step, withSeries, filterNamespace, filterEnvironment, filterServices, req.Header)
 
 	// Cache the response
 	a.respCache.setJSON(ck, services)
@@ -68,7 +70,7 @@ func (a *App) fetchServiceSummaries(
 	from, to time.Time,
 	step time.Duration,
 	withSeries bool,
-	filterNamespace, filterEnvironment string,
+	filterNamespace, filterEnvironment, filterServices string,
 	headers http.Header,
 ) []queries.ServiceSummary {
 	logger := log.DefaultLogger.With("handler", "services")
@@ -78,13 +80,43 @@ func (a *App) fetchServiceSummaries(
 
 	rangeStr := "[5m]"
 
-	// Build optional label filters for namespace/environment
+	// Build optional label filters for namespace/environment/services
 	extraFilters := ""
 	if filterNamespace != "" {
 		extraFilters += fmt.Sprintf(`, %s="%s"`, a.otelCfg.Labels.ServiceNamespace, filterNamespace)
 	}
 	if m := envMatcher(a.otelCfg.Labels.DeploymentEnv, filterEnvironment); m != "" {
 		extraFilters += ", " + m
+	}
+	if filterServices != "" {
+		parts := strings.Split(filterServices, ",")
+		namespaces := make(map[string]bool)
+		services := make(map[string]bool)
+		for _, part := range parts {
+			subParts := strings.SplitN(part, "/", 2)
+			if len(subParts) == 2 {
+				ns := queries.MustSanitizeLabel(subParts[0])
+				svc := queries.MustSanitizeLabel(subParts[1])
+				if ns != "" && svc != "" {
+					namespaces[ns] = true
+					services[svc] = true
+				}
+			}
+		}
+		if len(namespaces) > 0 {
+			nsList := make([]string, 0, len(namespaces))
+			for ns := range namespaces {
+				nsList = append(nsList, ns)
+			}
+			extraFilters += fmt.Sprintf(`, %s=~"%s"`, a.otelCfg.Labels.ServiceNamespace, strings.Join(nsList, "|"))
+		}
+		if len(services) > 0 {
+			svcList := make([]string, 0, len(services))
+			for svc := range services {
+				svcList = append(svcList, svc)
+			}
+			extraFilters += fmt.Sprintf(`, %s=~"%s"`, a.otelCfg.Labels.ServiceName, strings.Join(svcList, "|"))
+		}
 	}
 
 	// Queries: rate, error rate, P95 duration (all grouped by service_name, service_namespace, environment)

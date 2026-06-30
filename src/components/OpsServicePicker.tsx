@@ -57,11 +57,12 @@ export function OpsServicePicker({ isOpen, services, watchlist, onDismiss, onAdd
           </Alert>
         ) : (
           <div className={styles.list} role="list" aria-label="Available services">
-            {filteredServices.map((service) => {
-              const key = watchlistKey(service.namespace, service.name);
-              const selected = watchlistSet.has(key);
+            {filteredServices.slice(0, 100).map((service) => {
+              const itemKey = `${service.namespace}/${service.name}/${service.environment ?? ''}`;
+              const watchlistSetKey = watchlistKey(service.namespace, service.name);
+              const selected = watchlistSet.has(watchlistSetKey);
               return (
-                <div key={key} className={styles.row} role="listitem">
+                <div key={itemKey} className={styles.row} role="listitem">
                   <div className={styles.meta}>
                     <div className={styles.name}>{service.name}</div>
                     <div className={styles.namespace}>{serviceLabel(service)}</div>
@@ -78,6 +79,11 @@ export function OpsServicePicker({ isOpen, services, watchlist, onDismiss, onAdd
                 </div>
               );
             })}
+            {filteredServices.length > 100 && (
+              <div style={{ textAlign: 'center', color: 'var(--text-color-secondary, #8e8e8e)', padding: '8px' }}>
+                Showing top 100 of {filteredServices.length} services. Use search to narrow down results.
+              </div>
+            )}
           </div>
         )}
 

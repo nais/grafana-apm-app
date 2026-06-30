@@ -82,7 +82,7 @@ export async function getServices(
   to: number,
   step = 60,
   withSeries = true,
-  filters?: { namespace?: string; environment?: string }
+  filters?: { namespace?: string; environment?: string; services?: string[] }
 ): Promise<ServiceSummary[]> {
   const params: Record<string, string> = {
     ...timeParams(from, to),
@@ -94,6 +94,9 @@ export async function getServices(
   }
   if (filters?.environment) {
     params.environment = filters.environment;
+  }
+  if (filters?.services?.length) {
+    params.services = filters.services.join(',');
   }
   return fetchResource<ServiceSummary[]>('/services', params);
 }

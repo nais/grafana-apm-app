@@ -127,13 +127,19 @@ function OpsStatusBoard() {
     [gridDims.width, gridDims.height, cardSize]
   );
 
-  // Fetch ALL services (no namespace filter) — we filter to watchlist client-side
+  const watchlistParam = useMemo(() => watchlist.map((w) => `${w.namespace}/${w.service}`), [watchlist]);
+
+  // Fetch services — we filter to watchlist client-side, but pass filters to backend for performance
   const {
     data: fetchResult,
     loading: servicesLoading,
     error: servicesError,
     refetch,
-  } = useFetch<ServiceSummary[]>(() => getServices(fromMs, toMs, 60, false), [fromMs, toMs]);
+  } = useFetch<ServiceSummary[]>(
+    () => getServices(fromMs, toMs, 60, false, { services: watchlistParam }),
+    [fromMs, toMs, watchlistParam],
+    { skip: watchlistLoading }
+  );
 
   // Fetch previous period for delta arrows (skip for sm cards)
   const isRelativeRange = from.startsWith('now');
@@ -141,16 +147,16 @@ function OpsStatusBoard() {
   const prevFromMs = fromMs - rangeDuration;
   const prevToMs = fromMs;
   const { data: prevServices, refetch: refetchPrev } = useFetch<ServiceSummary[]>(
-    () => getServices(prevFromMs, prevToMs, 60, false),
-    [prevFromMs, prevToMs],
-    { skip: !isRelativeRange || cardSize === 'sm' }
+    () => getServices(prevFromMs, prevToMs, 60, false, { services: watchlistParam }),
+    [prevFromMs, prevToMs, watchlistParam],
+    { skip: !isRelativeRange || cardSize === 'sm' || watchlist.length === 0 }
   );
 
   // Sparklines only for lg
   const { data: sparklineResult, refetch: refetchSparklines } = useFetch<ServiceSummary[]>(
-    () => getServices(fromMs, toMs, 60, true),
-    [fromMs, toMs],
-    { skip: !fetchResult || cardSize !== 'lg' }
+    () => getServices(fromMs, toMs, 60, true, { services: watchlistParam }),
+    [fromMs, toMs, watchlistParam],
+    { skip: !fetchResult || cardSize !== 'lg' || watchlist.length === 0 }
   );
 
   // Auto-refresh
@@ -313,11 +319,17 @@ function OpsStatusBoard() {
   const openPicker = useCallback(() => setPickerOpen(true), []);
   const closePicker = useCallback(() => setPickerOpen(false), []);
 
-  // Count services that need attention (critical/warning)
-  const needsAttentionCount = useMemo(
-    () => cardItems.filter((i) => i.status === 'critical' || i.status === 'warning').length,
-    [cardItems]
-  );
+  // Count services that need attention (critical/warning) globally across all environments
+  const needsAttentionCount = useMemo(() => {
+    let count = 0;
+    for (const svc of allServices) {
+      const health = getServiceHealth(svc.errorRate, svc.p95Duration, svc.durationUnit);
+      if (health === 'critical' || health === 'warning') {
+        count++;
+      }
+    }
+    return count;
+  }, [allServices]);
 
   const isEmpty = watchlist.length === 0;
 
@@ -389,7 +401,7 @@ function OpsStatusBoard() {
                 </Alert>
               )}
 
-              {isEmpty ? (
+              {isEmpty && !watchlistError ? (
                 <div className={styles.emptyState}>
                   <Icon name="monitor" size="xxxl" />
                   <h3>No services configured</h3>

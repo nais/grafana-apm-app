@@ -36,7 +36,7 @@ export function useOpsWatchlist(): UseOpsWatchlistResult {
     getOpsWatchlist()
       .then((data) => {
         if (mountedRef.current) {
-          setWatchlist(data ?? []);
+          setWatchlist(Array.isArray(data) ? data : []);
           setLoading(false);
           setError(null);
         }

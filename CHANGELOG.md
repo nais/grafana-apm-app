@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.12.3 (2026-06-30)
+
+### Features
+
+- **Watchlist PromQL Performance Optimization** — Constrained queries for the Ops Status Board to only fetch services configured on the watchlist (including rate, error, latency, sparklines, and delta comparisons), preventing expensive cluster-wide Prometheus range queries.
+- **UI Render Virtualization** — Limited the Ops Status Board service picker modal list to the top 100 entries to prevent browser stutter and rendering lag on large clusters.
+
+### Fixes
+
+- **React Key Collisions** — Switched service picker list elements to use unique compound keys (`${namespace}/${name}/${environment}`) to solve duplicate key warnings when services exist in multiple environments.
+- **Misleading Empty State** — Hidden the "No services configured" empty state illustration if settings or watchlist loading fails with an error.
+- **Attention Badge Accuracy** — Decoupled the attention badge calculation from the environment-filtered cards, ensuring critical issues are globally visible regardless of environment filters.
+- **AppConfig Robustness** — Ensured `opsWatchlist` defaults to an empty array even if stored settings value is `null` or a non-array value.
+
 ## 0.12.2 (2026-06-04)
 
 ### Features

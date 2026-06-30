@@ -70,7 +70,7 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
       hostname,
       service,
     })),
-    opsWatchlist: jsonData?.opsWatchlist ?? [],
+    opsWatchlist: Array.isArray(jsonData?.opsWatchlist) ? jsonData.opsWatchlist : [],
     serviceAccountToken: '',
     tokenConfigured: secureJsonFields?.serviceAccountToken === true,
   });
