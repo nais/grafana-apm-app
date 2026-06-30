@@ -20,7 +20,7 @@ import { getFrontendMetrics } from '../../api/client';
 import { usePluginDatasources, usePluginLabelOverrides } from '../../utils/datasources';
 import { sanitizeLabelValue } from '../../utils/sanitize';
 import { otel } from '../../otelconfig';
-import { useUrlString } from '../../utils/useUrlState';
+import { useSearchParams } from 'react-router-dom';
 import { ExceptionDrawer } from './frontend/components/ExceptionDrawer';
 
 import {
@@ -46,8 +46,20 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
   const [available, setAvailable] = useState<boolean | null>(null);
   const [hasLoki, setHasLoki] = useState<boolean>(false);
   const [vitals, setVitals] = useState<Record<string, number> | undefined>();
-  const [selectedHash, setSelectedHash] = useUrlString('exceptionHash');
-  const [selectedSessionId, setSelectedSessionId] = useUrlString('exceptionSessionId');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedHash = searchParams.get('exceptionHash') ?? '';
+  const selectedSessionId = searchParams.get('exceptionSessionId') ?? '';
+  const setSelectedSessionId = (id: string) => {
+    setSearchParams((prev) => {
+      const params = new URLSearchParams(prev);
+      if (id) {
+        params.set('exceptionSessionId', id);
+      } else {
+        params.delete('exceptionSessionId');
+      }
+      return params;
+    });
+  };
   const ds = usePluginDatasources(environment || undefined);
 
   useEffect(() => {
@@ -114,8 +126,12 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
           selectedSessionId={selectedSessionId}
           onSessionChange={setSelectedSessionId}
           onClose={() => {
-            setSelectedHash('');
-            setSelectedSessionId('');
+            setSearchParams((prev) => {
+              const params = new URLSearchParams(prev);
+              params.delete('exceptionHash');
+              params.delete('exceptionSessionId');
+              return params;
+            });
           }}
         />
       )}
