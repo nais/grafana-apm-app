@@ -298,72 +298,62 @@ export function ExceptionDrawer({ hash, service, namespace, environment, logsUid
 
             {stats && (
               <div className={styles.section}>
-                <h4 className={styles.sectionTitle}>Impact (Last {stats.total} occurrences)</h4>
-                <div className={styles.impactGrid}>
-                  <div className={styles.impactCard}>
-                    <div className={styles.impactCardTitle}>
-                      <Icon name="users-alt" /> Users
+                <h4 className={styles.sectionTitle}>Context & Impact (Last {stats.total} occurrences)</h4>
+                <div className={styles.contextImpactContainer}>
+                  <div className={styles.contextColumn}>
+                    <h5 className={styles.subSectionTitle}>Most Recent Occurrence</h5>
+                    <div className={styles.metaList}>
+                      <MetaItem
+                        label="Browser"
+                        value={
+                          exception.browserName
+                            ? `${exception.browserName} ${exception.browserVersion ?? ''}`
+                            : undefined
+                        }
+                        icon="monitor"
+                      />
+                      <MetaItem label="OS" value={exception.browserOs} icon="desktop" />
+                      <MetaItem label="URL" value={exception.pageUrl} link={exception.pageUrl} icon="link" />
+                      <MetaItem label="Page ID / Route" value={exception.pageId} icon="compass" />
+                      <MetaItem
+                        label="App instance"
+                        value={
+                          exception.appName
+                            ? `${exception.appName}${exception.appVersion ? ` @ ${exception.appVersion}` : ''}`
+                            : undefined
+                        }
+                        icon="cube"
+                      />
+                      <MetaItem label="Environment" value={exception.appEnvironment} icon="cloud" />
+                      <MetaItem
+                        label="User"
+                        value={exception.userEmail || exception.userName || exception.userId || 'Anonymous'}
+                        icon="users-alt"
+                      />
+                      <MetaItem label="Session ID" value={exception.sessionId} icon="user" />
+                      <MetaItem label="Timestamp" value={exception.timestamp} icon="clock-nine" />
                     </div>
-                    <div className={styles.impactCardValue}>{stats.uniqueUsers || 'Unknown'}</div>
                   </div>
-                  <div className={styles.impactCard}>
-                    <div className={styles.impactCardTitle}>
-                      <Icon name="user" /> Sessions
-                    </div>
-                    <div className={styles.impactCardValue}>{stats.uniqueSessions || 'Unknown'}</div>
-                  </div>
-                  <div className={styles.impactCard}>
-                    <div className={styles.impactCardTitle}>
-                      <Icon name="cube" /> App Versions
-                    </div>
-                    <div className={styles.impactCardValueList}>
-                      {stats.appVersions.length > 0 ? stats.appVersions.join(', ') : 'Unknown'}
-                    </div>
-                  </div>
-                  <div className={styles.impactCard}>
-                    <div className={styles.impactCardTitle}>
-                      <Icon name={'monitor' as any} /> Browsers
-                    </div>
-                    <div className={styles.impactCardValueList}>
-                      {stats.browsers.length > 0 ? stats.browsers.join(', ') : 'Unknown'}
+                  <div className={styles.impactColumn}>
+                    <h5 className={styles.subSectionTitle}>Aggregate Impact</h5>
+                    <div className={styles.metaList}>
+                      <MetaItem
+                        label="Impacted Users"
+                        value={stats.uniqueUsers > 0 ? `${stats.uniqueUsers} identified` : '0 (Anonymous)'}
+                        icon="users-alt"
+                      />
+                      <MetaItem
+                        label="Unique Sessions"
+                        value={stats.uniqueSessions ? `${stats.uniqueSessions} sessions` : '0'}
+                        icon="user"
+                      />
+                      <MetaItem label="App Versions" value={formatListWithMore(stats.appVersions, 2)} icon="cube" />
+                      <MetaItem label="Browsers" value={formatListWithMore(stats.browsers, 2)} icon="monitor" />
                     </div>
                   </div>
                 </div>
               </div>
             )}
-
-            <div className={styles.section}>
-              <h4 className={styles.sectionTitle}>Most Recent Context</h4>
-              <div className={styles.metadataGrid}>
-                <MetaItem
-                  label="Browser"
-                  value={
-                    exception.browserName ? `${exception.browserName} ${exception.browserVersion ?? ''}` : undefined
-                  }
-                  icon="monitor"
-                />
-                <MetaItem label="OS" value={exception.browserOs} icon="desktop" />
-                <MetaItem label="URL" value={exception.pageUrl} link={exception.pageUrl} icon="link" />
-                <MetaItem label="Page ID / Route" value={exception.pageId} icon="compass" />
-                <MetaItem
-                  label="App instance"
-                  value={
-                    exception.appName
-                      ? `${exception.appName}${exception.appVersion ? ` @ ${exception.appVersion}` : ''}`
-                      : undefined
-                  }
-                  icon="cube"
-                />
-                <MetaItem label="Environment" value={exception.appEnvironment} icon="cloud" />
-                <MetaItem
-                  label="User"
-                  value={exception.userEmail || exception.userName || exception.userId}
-                  icon="users-alt"
-                />
-                <MetaItem label="Session ID" value={exception.sessionId} icon="user" />
-                <MetaItem label="Timestamp" value={exception.timestamp} icon="clock-nine" />
-              </div>
-            </div>
 
             {exception.stacktrace && (
               <div className={styles.section}>
@@ -496,6 +486,16 @@ function formatTimestampNs(tsNs: string): string {
   return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}.${d.getMilliseconds().toString().padStart(3, '0')}`;
 }
 
+function formatListWithMore(items: string[], max = 2): string {
+  if (items.length === 0) {
+    return 'N/A';
+  }
+  if (items.length <= max) {
+    return items.join(', ');
+  }
+  return `${items.slice(0, max).join(', ')} (+${items.length - max} more)`;
+}
+
 function formatStackTrace(stack: string): React.ReactNode[] {
   const lines = stack.split('\n');
   return lines.map((line, i) => {
@@ -612,6 +612,11 @@ const getStyles = (theme: GrafanaTheme2) => ({
       grid-template-columns: 1fr;
     }
   `,
+  metaList: css`
+    display: flex;
+    flex-direction: column;
+    gap: ${theme.spacing(1)};
+  `,
   metaItem: css`
     display: flex;
     gap: ${theme.spacing(1)};
@@ -633,39 +638,45 @@ const getStyles = (theme: GrafanaTheme2) => ({
     color: ${theme.colors.text.link};
     text-decoration: underline;
   `,
-  impactGrid: css`
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: ${theme.spacing(2)};
-    @media (max-width: 800px) {
-      grid-template-columns: repeat(2, 1fr);
-    }
-  `,
-  impactCard: css`
+  contextImpactContainer: css`
+    display: flex;
+    flex-direction: row;
+    gap: ${theme.spacing(3)};
     background: ${theme.colors.background.secondary};
     border: 1px solid ${theme.colors.border.weak};
     border-radius: ${theme.shape.radius.default};
-    padding: ${theme.spacing(1.5)};
+    padding: ${theme.spacing(2)};
+    @media (max-width: 900px) {
+      flex-direction: column;
+    }
+  `,
+  contextColumn: css`
+    flex: 1.2;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: ${theme.spacing(1.5)};
   `,
-  impactCardTitle: css`
-    font-size: ${theme.typography.bodySmall.fontSize};
-    color: ${theme.colors.text.secondary};
+  impactColumn: css`
+    flex: 0.8;
     display: flex;
-    align-items: center;
-    gap: 6px;
+    flex-direction: column;
+    gap: ${theme.spacing(1.5)};
+    border-left: 1px solid ${theme.colors.border.weak};
+    padding-left: ${theme.spacing(3)};
+    @media (max-width: 900px) {
+      border-left: none;
+      padding-left: 0;
+      border-top: 1px solid ${theme.colors.border.weak};
+      padding-top: ${theme.spacing(2)};
+    }
   `,
-  impactCardValue: css`
-    font-size: ${theme.typography.h4.fontSize};
-    font-weight: ${theme.typography.fontWeightMedium};
-    color: ${theme.colors.text.primary};
-  `,
-  impactCardValueList: css`
+  subSectionTitle: css`
     font-size: ${theme.typography.bodySmall.fontSize};
-    color: ${theme.colors.text.primary};
-    word-break: break-word;
+    font-weight: ${theme.typography.fontWeightBold};
+    color: ${theme.colors.text.secondary};
+    margin: 0 0 ${theme.spacing(0.5)} 0;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
   `,
   stacktrace: css`
     background: ${theme.colors.background.secondary};
