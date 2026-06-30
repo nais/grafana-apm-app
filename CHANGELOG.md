@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.13.3 (2026-07-01)
+
+### Fixes
+
+- **Exception Drawer Close Loop** — Fixed an issue where closing the Exception Drawer caused it to instantly reopen. This was resolved by using React state refs inside the main occurrences loader to prevent changes to the active session ID query parameter from triggering full re-query loops.
+- **Stable Session Sharing** — Added sync for `?exceptionSessionId` to the browser URL so that selected session timelines inside the drawer are fully stable and shareable.
+
 ## 0.13.2 (2026-07-01)
 
 ### Fixes
