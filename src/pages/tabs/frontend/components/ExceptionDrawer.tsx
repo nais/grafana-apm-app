@@ -546,6 +546,31 @@ function parseLogfmt(line: string): Record<string, string> {
 function getBreadcrumbMessage(bc: Breadcrumb): string {
   if (bc.kind === 'event') {
     const name = bc.eventName ? `${bc.eventDomain ? bc.eventDomain + '/' : ''}${bc.eventName}` : 'Unknown Event';
+
+    if (bc.eventName === 'faro.performance.resource' && bc.attributes) {
+      const resUrl = bc.attributes.name || '';
+      const cleanUrl = resUrl.split('?')[0];
+      const duration = bc.attributes.duration ? `${parseInt(bc.attributes.duration, 10)}ms` : '';
+      const initiator = bc.attributes.initiatorType || '';
+      const cache = bc.attributes.cacheHitStatus || '';
+      let sizeStr = '';
+      if (bc.attributes.transferSize) {
+        const bytes = parseInt(bc.attributes.transferSize, 10);
+        if (bytes > 0) {
+          sizeStr = bytes >= 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${bytes} B`;
+        }
+      }
+      const details = [initiator, duration, sizeStr, cache].filter(Boolean).join(', ');
+      return `resource: ${cleanUrl}${details ? ` [${details}]` : ''}`;
+    }
+
+    if (bc.eventName === 'faro.performance.navigation' && bc.attributes) {
+      const pageUrl = bc.attributes.name || '';
+      const cleanUrl = pageUrl.split('?')[0];
+      const duration = bc.attributes.duration ? `${parseInt(bc.attributes.duration, 10)}ms` : '';
+      return `navigation: ${cleanUrl}${duration ? ` [${duration}]` : ''}`;
+    }
+
     if (bc.attributes) {
       const attrStr = Object.entries(bc.attributes)
         .map(([k, v]) => `${k}="${v}"`)
