@@ -30,7 +30,28 @@ interface ParsedException {
   pageId?: string;
   appName?: string;
   appNamespace?: string;
+  appVersion?: string;
+  appEnvironment?: string;
   sessionId?: string;
+  userId?: string;
+  userName?: string;
+  userEmail?: string;
+}
+
+interface Breadcrumb {
+  timestampNs: string;
+  kind: string;
+  message: string;
+  type?: string;
+  value?: string;
+}
+
+interface AggregatedStats {
+  uniqueUsers: number;
+  uniqueSessions: number;
+  appVersions: string[];
+  browsers: string[];
+  total: number;
 }
 
 export function ExceptionDrawer({ hash, service, namespace, environment, logsUid, onClose }: ExceptionDrawerProps) {
@@ -38,6 +59,9 @@ export function ExceptionDrawer({ hash, service, namespace, environment, logsUid
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [exception, setException] = useState<ParsedException | null>(null);
+  const [stats, setStats] = useState<AggregatedStats | null>(null);
+  const [breadcrumbs, setBreadcrumbs] = useState<Breadcrumb[]>([]);
+  const [loadingBreadcrumbs, setLoadingBreadcrumbs] = useState(false);
   const labelOverrides = usePluginLabelOverrides();
 
   useEffect(() => {
@@ -53,7 +77,7 @@ export function ExceptionDrawer({ hash, service, namespace, environment, logsUid
         url: `/api/datasources/proxy/uid/${encodeURIComponent(logsUid)}/loki/api/v1/query_range`,
         params: {
           query,
-          limit: '1',
+          limit: '100', // Fetch up to 100 instances to aggregate impact
         },
         method: 'GET',
       })
@@ -70,25 +94,122 @@ export function ExceptionDrawer({ hash, service, namespace, environment, logsUid
           return;
         }
 
-        // Loki returns values as [timestamp_ns, log_line_string]
-        const rawLine = streams[0].values[0][1];
-        const parsed = parseLogfmt(rawLine);
+        let firstParsed: ParsedException | null = null;
+        let total = 0;
+        const users = new Set<string>();
+        const sessions = new Set<string>();
+        const versions = new Set<string>();
+        const browsers = new Set<string>();
 
-        setException({
-          timestamp: parsed.timestamp,
-          type: parsed.type,
-          value: parsed.value,
-          stacktrace: parsed.stacktrace?.replace(/\\n/g, '\n'),
-          browserName: parsed.browser_name,
-          browserVersion: parsed.browser_version,
-          browserOs: parsed.browser_os,
-          pageUrl: parsed.page_url,
-          pageId: parsed.page_id,
-          appName: parsed.app_name,
-          appNamespace: parsed.app_namespace,
-          sessionId: parsed.session_id,
+        // Aggregate across all returned streams (Loki might return multiple streams if labels differ)
+        streams.forEach((stream: any) => {
+          stream.values.forEach((val: [string, string]) => {
+            total++;
+            const parsed = parseLogfmt(val[1]);
+
+            if (!firstParsed) {
+              firstParsed = {
+                timestamp: parsed.timestamp,
+                type: parsed.type,
+                value: parsed.value,
+                stacktrace: parsed.stacktrace?.replace(/\\n/g, '\n'),
+                browserName: parsed.browser_name,
+                browserVersion: parsed.browser_version,
+                browserOs: parsed.browser_os,
+                pageUrl: parsed.page_url,
+                pageId: parsed.page_id,
+                appName: parsed.app_name,
+                appVersion: parsed.app_version,
+                appEnvironment: parsed.app_environment,
+                appNamespace: parsed.app_namespace,
+                sessionId: parsed.session_id,
+                userId: parsed.user_id,
+                userName: parsed.user_username,
+                userEmail: parsed.user_email,
+              };
+            }
+
+            const user = parsed.user_email || parsed.user_username || parsed.user_id;
+            if (user) {
+              users.add(user);
+            }
+            if (parsed.session_id) {
+              sessions.add(parsed.session_id);
+            }
+            if (parsed.app_version) {
+              versions.add(parsed.app_version);
+            }
+            if (parsed.browser_name) {
+              const b = `${parsed.browser_name} ${parsed.browser_version || ''}`.trim();
+              browsers.add(b);
+            }
+          });
         });
+
+        if (!firstParsed) {
+          setError('Failed to parse exception details.');
+          setLoading(false);
+          return;
+        }
+
+        setStats({
+          uniqueUsers: users.size,
+          uniqueSessions: sessions.size,
+          appVersions: Array.from(versions),
+          browsers: Array.from(browsers),
+          total,
+        });
+
+        const ex = firstParsed as ParsedException;
+        setException(ex);
         setLoading(false);
+
+        // Fetch breadcrumbs if session ID is available
+        if (ex.sessionId) {
+          setLoadingBreadcrumbs(true);
+          const breadcrumbsQuery = `{${fl.serviceName}="${sanitizeLabelValue(service)}"${clusterStream}} | logfmt | ${fl.sessionId}="${sanitizeLabelValue(ex.sessionId)}"`;
+
+          lastValueFrom(
+            getBackendSrv().fetch<any>({
+              url: `/api/datasources/proxy/uid/${encodeURIComponent(logsUid)}/loki/api/v1/query_range`,
+              params: {
+                query: breadcrumbsQuery,
+                limit: '20',
+                direction: 'backward', // get the most recent 20 events for the session
+              },
+              method: 'GET',
+            })
+          )
+            .then((bcRes) => {
+              if (cancelled) {
+                return;
+              }
+              const bcStreams = bcRes.data?.data?.result ?? [];
+              const crumbs: Breadcrumb[] = [];
+              bcStreams.forEach((stream: any) => {
+                stream.values.forEach((val: [string, string]) => {
+                  const ts = val[0];
+                  const p = parseLogfmt(val[1]);
+                  crumbs.push({
+                    timestampNs: ts,
+                    kind: p.kind || p.level || 'unknown',
+                    message: p.message || p.value || '',
+                    type: p.type,
+                    value: p.value,
+                  });
+                });
+              });
+              // Sort chronologically (oldest first)
+              crumbs.sort((a, b) => (a.timestampNs > b.timestampNs ? 1 : -1));
+              setBreadcrumbs(crumbs);
+              setLoadingBreadcrumbs(false);
+            })
+            .catch(() => {
+              if (!cancelled) {
+                setLoadingBreadcrumbs(false);
+              }
+            });
+        }
       })
       .catch((err) => {
         if (!cancelled) {
@@ -157,20 +278,70 @@ export function ExceptionDrawer({ hash, service, namespace, environment, logsUid
               </Button>
             </div>
 
+            {stats && (
+              <div className={styles.section}>
+                <h4 className={styles.sectionTitle}>Impact (Last {stats.total} occurrences)</h4>
+                <div className={styles.impactGrid}>
+                  <div className={styles.impactCard}>
+                    <div className={styles.impactCardTitle}>
+                      <Icon name="users-alt" /> Users
+                    </div>
+                    <div className={styles.impactCardValue}>{stats.uniqueUsers || 'Unknown'}</div>
+                  </div>
+                  <div className={styles.impactCard}>
+                    <div className={styles.impactCardTitle}>
+                      <Icon name="user" /> Sessions
+                    </div>
+                    <div className={styles.impactCardValue}>{stats.uniqueSessions || 'Unknown'}</div>
+                  </div>
+                  <div className={styles.impactCard}>
+                    <div className={styles.impactCardTitle}>
+                      <Icon name="cube" /> App Versions
+                    </div>
+                    <div className={styles.impactCardValueList}>
+                      {stats.appVersions.length > 0 ? stats.appVersions.join(', ') : 'Unknown'}
+                    </div>
+                  </div>
+                  <div className={styles.impactCard}>
+                    <div className={styles.impactCardTitle}>
+                      <Icon name={'monitor' as any} /> Browsers
+                    </div>
+                    <div className={styles.impactCardValueList}>
+                      {stats.browsers.length > 0 ? stats.browsers.join(', ') : 'Unknown'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className={styles.section}>
-              <h4 className={styles.sectionTitle}>Context Metadata</h4>
+              <h4 className={styles.sectionTitle}>Most Recent Context</h4>
               <div className={styles.metadataGrid}>
                 <MetaItem
                   label="Browser"
                   value={
                     exception.browserName ? `${exception.browserName} ${exception.browserVersion ?? ''}` : undefined
                   }
-                  icon="chrome"
+                  icon="monitor"
                 />
                 <MetaItem label="OS" value={exception.browserOs} icon="desktop" />
                 <MetaItem label="URL" value={exception.pageUrl} link={exception.pageUrl} icon="link" />
                 <MetaItem label="Page ID / Route" value={exception.pageId} icon="compass" />
-                <MetaItem label="App instance" value={exception.appName} icon="cube" />
+                <MetaItem
+                  label="App instance"
+                  value={
+                    exception.appName
+                      ? `${exception.appName}${exception.appVersion ? ` @ ${exception.appVersion}` : ''}`
+                      : undefined
+                  }
+                  icon="cube"
+                />
+                <MetaItem label="Environment" value={exception.appEnvironment} icon="cloud" />
+                <MetaItem
+                  label="User"
+                  value={exception.userEmail || exception.userName || exception.userId}
+                  icon="users-alt"
+                />
                 <MetaItem label="Session ID" value={exception.sessionId} icon="user" />
                 <MetaItem label="Timestamp" value={exception.timestamp} icon="clock-nine" />
               </div>
@@ -182,6 +353,35 @@ export function ExceptionDrawer({ hash, service, namespace, environment, logsUid
                 <pre className={styles.stacktrace}>
                   <code>{formatStackTrace(exception.stacktrace)}</code>
                 </pre>
+              </div>
+            )}
+
+            {exception.sessionId && (
+              <div className={styles.section}>
+                <h4 className={styles.sectionTitle}>Session Timeline (Breadcrumbs)</h4>
+                {loadingBreadcrumbs ? (
+                  <div className={styles.bcLoading}>
+                    <Spinner inline /> Loading breadcrumbs...
+                  </div>
+                ) : breadcrumbs.length > 0 ? (
+                  <div className={styles.breadcrumbs}>
+                    {breadcrumbs.map((bc, idx) => (
+                      <div key={idx} className={styles.breadcrumbItem}>
+                        <span className={styles.bcTime}>{formatTimestampNs(bc.timestampNs)}</span>
+                        <span className={styles.bcKind(bc.kind)}>{bc.kind}</span>
+                        <span className={styles.bcMessage}>{bc.message || bc.value || bc.type}</span>
+                      </div>
+                    ))}
+                    <div className={styles.bcFooter}>
+                      Showing last {breadcrumbs.length} events.{' '}
+                      <a href={logsUrl} target="_blank" rel="noopener noreferrer">
+                        View full session in Logs
+                      </a>
+                    </div>
+                  </div>
+                ) : (
+                  <span style={{ color: '#8c95a5', fontSize: '12px' }}>No session events found.</span>
+                )}
               </div>
             )}
           </>
@@ -224,6 +424,12 @@ function parseLogfmt(line: string): Record<string, string> {
     result[key] = val;
   }
   return result;
+}
+
+function formatTimestampNs(tsNs: string): string {
+  const tsMs = Math.floor(parseInt(tsNs, 10) / 1000000);
+  const d = new Date(tsMs);
+  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}.${d.getMilliseconds().toString().padStart(3, '0')}`;
 }
 
 function formatStackTrace(stack: string): React.ReactNode[] {
@@ -363,6 +569,40 @@ const getStyles = (theme: GrafanaTheme2) => ({
     color: ${theme.colors.text.link};
     text-decoration: underline;
   `,
+  impactGrid: css`
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: ${theme.spacing(2)};
+    @media (max-width: 800px) {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  `,
+  impactCard: css`
+    background: ${theme.colors.background.secondary};
+    border: 1px solid ${theme.colors.border.weak};
+    border-radius: ${theme.shape.radius.default};
+    padding: ${theme.spacing(1.5)};
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  `,
+  impactCardTitle: css`
+    font-size: ${theme.typography.bodySmall.fontSize};
+    color: ${theme.colors.text.secondary};
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  `,
+  impactCardValue: css`
+    font-size: ${theme.typography.h4.fontSize};
+    font-weight: ${theme.typography.fontWeightMedium};
+    color: ${theme.colors.text.primary};
+  `,
+  impactCardValueList: css`
+    font-size: ${theme.typography.bodySmall.fontSize};
+    color: ${theme.colors.text.primary};
+    word-break: break-word;
+  `,
   stacktrace: css`
     background: ${theme.colors.background.secondary};
     border: 1px solid ${theme.colors.border.weak};
@@ -373,5 +613,74 @@ const getStyles = (theme: GrafanaTheme2) => ({
     overflow-x: auto;
     white-space: pre-wrap;
     line-height: 1.6;
+  `,
+  bcLoading: css`
+    font-size: ${theme.typography.bodySmall.fontSize};
+    color: ${theme.colors.text.secondary};
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  `,
+  breadcrumbs: css`
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    background: ${theme.colors.background.secondary};
+    border: 1px solid ${theme.colors.border.weak};
+    border-radius: ${theme.shape.radius.default};
+    padding: ${theme.spacing(1)};
+    font-family: ${theme.typography.fontFamilyMonospace};
+    font-size: ${theme.typography.bodySmall.fontSize};
+  `,
+  breadcrumbItem: css`
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    padding: 2px 4px;
+    border-bottom: 1px solid ${theme.colors.border.weak};
+    &:last-child {
+      border-bottom: none;
+    }
+  `,
+  bcTime: css`
+    color: ${theme.colors.text.secondary};
+    font-size: 11px;
+    min-width: 85px;
+  `,
+  bcKind: (kind: string) => css`
+    font-size: 10px;
+    text-transform: uppercase;
+    font-weight: bold;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: ${kind === 'exception' || kind === 'error'
+      ? theme.colors.error.transparent
+      : kind === 'log'
+        ? theme.colors.primary.transparent
+        : theme.colors.secondary.transparent};
+    color: ${kind === 'exception' || kind === 'error'
+      ? theme.colors.error.text
+      : kind === 'log'
+        ? theme.colors.primary.text
+        : theme.colors.text.secondary};
+    min-width: 60px;
+    text-align: center;
+  `,
+  bcMessage: css`
+    color: ${theme.colors.text.primary};
+    word-break: break-all;
+    white-space: pre-wrap;
+  `,
+  bcFooter: css`
+    padding-top: 8px;
+    margin-top: 4px;
+    text-align: center;
+    color: ${theme.colors.text.secondary};
+    font-size: 11px;
+    border-top: 1px dashed ${theme.colors.border.weak};
+    a {
+      color: ${theme.colors.text.link};
+      text-decoration: underline;
+    }
   `,
 });

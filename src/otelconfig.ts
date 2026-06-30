@@ -109,5 +109,6 @@ export const otel = {
     pageUrl: 'page_url',
     pageId: 'page_id',
     hash: 'hash',
+    sessionId: 'session_id',
   },
 } as const;
