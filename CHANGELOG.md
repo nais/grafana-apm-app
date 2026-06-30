@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.13.0 (2026-07-01)
+
+### Features
+
+- **Session context switcher** — The Exception Drawer now allows developers to select different sessions (or occurrences) for the same exception hash directly from a Combobox dropdown. This dynamically updates both the metadata and the Session Timeline (breadcrumbs) in-place without losing context.
+- **Custom event attribute rendering** — The Session Timeline now parses, extracts, and renders custom event attributes (e.g. from `faro.api.pushEvent`) formatted inline. Events with different attributes are no longer collapsed/deduplicated together to allow tracing distinct event progressions.
+
+### Fixes
+
+- **Console errors panel visibility** — Solved a gap where some console errors logged via Faro's console integration (captured as `kind="exception"` without a stack trace/hash) did not show up in the Top Exceptions table or the Console Errors panel. The panel query was expanded to match both `kind="log"` and `kind="exception"` console errors.
+- **Duplicate event grouping** — Timeline breadcrumbs now group consecutive identical events in a row (e.g. repeated resource loads or console errors) and show a count badge (e.g. `(5x)`) to keep the history compact.
+
 ## 0.12.3 (2026-06-30)
 
 ### Features
