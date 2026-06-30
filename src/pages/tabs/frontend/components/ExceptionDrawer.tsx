@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Drawer, Button, Icon, Spinner, Alert, useStyles2 } from '@grafana/ui';
+import { Drawer, Icon, Spinner, Alert, useStyles2 } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getBackendSrv } from '@grafana/runtime';
@@ -272,30 +272,6 @@ export function ExceptionDrawer({ hash, service, namespace, environment, logsUid
 
         {exception && (
           <>
-            <div className={styles.actions}>
-              {exception.sessionId && (
-                <Button
-                  variant="primary"
-                  icon="history"
-                  onClick={() => {
-                    window.location.href = logsUrl;
-                  }}
-                >
-                  View Session Timeline (Breadcrumbs)
-                </Button>
-              )}
-              <Button
-                variant="secondary"
-                icon="file-alt"
-                onClick={() => {
-                  const fallbackUrl = `${PLUGIN_BASE_URL}/services/${nsSegment}/${encodeURIComponent(service)}?tab=logs&from=now-6h&to=now${envParam}&includeFaro=true&kindFilter=exception&logSearch=${encodeURIComponent(hash)}`;
-                  window.location.href = fallbackUrl;
-                }}
-              >
-                View Raw Log
-              </Button>
-            </div>
-
             {stats && (
               <div className={styles.section}>
                 <h4 className={styles.sectionTitle}>Context & Impact (Last {stats.total} occurrences)</h4>
@@ -313,7 +289,12 @@ export function ExceptionDrawer({ hash, service, namespace, environment, logsUid
                         icon="monitor"
                       />
                       <MetaItem label="OS" value={exception.browserOs} icon="desktop" />
-                      <MetaItem label="URL" value={exception.pageUrl} link={exception.pageUrl} icon="link" />
+                      <MetaItem
+                        label="URL"
+                        value={cleanUrl(exception.pageUrl)}
+                        link={cleanUrl(exception.pageUrl)}
+                        icon="link"
+                      />
                       <MetaItem label="Page ID / Route" value={exception.pageId} icon="compass" />
                       <MetaItem
                         label="App instance"
@@ -347,8 +328,8 @@ export function ExceptionDrawer({ hash, service, namespace, environment, logsUid
                         value={stats.uniqueSessions ? `${stats.uniqueSessions} sessions` : '0'}
                         icon="user"
                       />
-                      <MetaItem label="App Versions" value={formatListWithMore(stats.appVersions, 2)} icon="cube" />
-                      <MetaItem label="Browsers" value={formatListWithMore(stats.browsers, 2)} icon="monitor" />
+                      <MetaItem label="App Versions" value={formatListWithMore(stats.appVersions, 4)} icon="cube" />
+                      <MetaItem label="Browsers" value={formatListWithMore(stats.browsers, 4)} icon="monitor" />
                     </div>
                   </div>
                 </div>
@@ -395,6 +376,25 @@ export function ExceptionDrawer({ hash, service, namespace, environment, logsUid
                 )}
               </div>
             )}
+
+            <div className={styles.footerLinks}>
+              {exception.sessionId && (
+                <>
+                  <a href={logsUrl} target="_blank" rel="noopener noreferrer" className={styles.footerLink}>
+                    <Icon name="history" /> View Full Session Timeline in Logs
+                  </a>
+                  <span className={styles.footerDivider}>|</span>
+                </>
+              )}
+              <a
+                href={`${PLUGIN_BASE_URL}/services/${nsSegment}/${encodeURIComponent(service)}?tab=logs&from=now-6h&to=now${envParam}&includeFaro=true&kindFilter=exception&logSearch=${encodeURIComponent(hash)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.footerLink}
+              >
+                <Icon name="file-alt" /> View Raw Loki Log
+              </a>
+            </div>
           </>
         )}
       </div>
@@ -494,6 +494,13 @@ function formatListWithMore(items: string[], max = 2): string {
     return items.join(', ');
   }
   return `${items.slice(0, max).join(', ')} (+${items.length - max} more)`;
+}
+
+function cleanUrl(url?: string): string | undefined {
+  if (!url) {
+    return undefined;
+  }
+  return url.endsWith('.') ? url.slice(0, -1) : url;
 }
 
 function formatStackTrace(stack: string): React.ReactNode[] {
@@ -763,5 +770,29 @@ const getStyles = (theme: GrafanaTheme2) => ({
       color: ${theme.colors.text.link};
       text-decoration: underline;
     }
+  `,
+  footerLinks: css`
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: ${theme.spacing(2)};
+    padding-top: ${theme.spacing(2)};
+    border-top: 1px solid ${theme.colors.border.weak};
+    margin-top: ${theme.spacing(1)};
+  `,
+  footerLink: css`
+    color: ${theme.colors.text.link};
+    text-decoration: underline;
+    font-size: ${theme.typography.bodySmall.fontSize};
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    &:hover {
+      color: ${theme.colors.text.primary};
+    }
+  `,
+  footerDivider: css`
+    color: ${theme.colors.border.weak};
+    font-size: ${theme.typography.bodySmall.fontSize};
   `,
 });
