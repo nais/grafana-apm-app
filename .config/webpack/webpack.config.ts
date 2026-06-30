@@ -162,6 +162,9 @@ const config = async (env: Env): Promise<Configuration> => {
     },
 
     plugins: [
+      new webpack.optimize.LimitChunkCountPlugin({
+        maxChunks: 1,
+      }),
       new BuildModeWebpackPlugin(),
       virtualPublicPath,
       // Insert create plugin version information into the bundle

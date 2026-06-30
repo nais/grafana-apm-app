@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.13.2 (2026-07-01)
+
+### Fixes
+
+- **Production Plugin Config Crash** — Disabled Webpack code-splitting (chunk limit = 1) to bundle all pages and config components directly into `module.js`. This completely eliminates `ChunkLoadError` issues caused by missing or deleted chunk files (like `732.js`) in production deployments.
+
 ## 0.13.1 (2026-07-01)
 
 ### Fixes
