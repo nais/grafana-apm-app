@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Drawer, Icon, Spinner, Alert, useStyles2 } from '@grafana/ui';
+import { Drawer, Icon, Spinner, Alert, useStyles2, Combobox } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getBackendSrv } from '@grafana/runtime';
@@ -53,6 +53,14 @@ interface Breadcrumb {
   inp?: string;
   ttfb?: string;
   rating?: string;
+  attributes?: Record<string, string>;
+}
+
+interface GroupedBreadcrumb {
+  timestampNs: string;
+  kind: string;
+  message: string;
+  count: number;
 }
 
 interface AggregatedStats {
@@ -69,16 +77,20 @@ export function ExceptionDrawer({ hash, service, namespace, environment, logsUid
   const [error, setError] = useState<string | null>(null);
   const [exception, setException] = useState<ParsedException | null>(null);
   const [stats, setStats] = useState<AggregatedStats | null>(null);
-  const [breadcrumbs, setBreadcrumbs] = useState<Breadcrumb[]>([]);
+  const [occurrences, setOccurrences] = useState<ParsedException[]>([]);
+  const [selectedSessionId, setSelectedSessionId] = useState<string>('');
+  const [breadcrumbs, setBreadcrumbs] = useState<GroupedBreadcrumb[]>([]);
   const [loadingBreadcrumbs, setLoadingBreadcrumbs] = useState(false);
   const labelOverrides = usePluginLabelOverrides();
 
+  const fl = otel.faroLoki;
+  const clusterLabel = labelOverrides.deploymentEnvLabel || otel.labels.deploymentEnv;
+  const clusterStream = environment ? `, ${clusterLabel}="${sanitizeLabelValue(environment)}"` : '';
+
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
 
-    const fl = otel.faroLoki;
-    const clusterLabel = labelOverrides.deploymentEnvLabel || otel.labels.deploymentEnv;
-    const clusterStream = environment ? `, ${clusterLabel}="${sanitizeLabelValue(environment)}"` : '';
     const query = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindException}"${clusterStream}} | logfmt | ${fl.hash}="${sanitizeLabelValue(hash)}"`;
 
     lastValueFrom(
@@ -103,7 +115,7 @@ export function ExceptionDrawer({ hash, service, namespace, environment, logsUid
           return;
         }
 
-        let firstParsed: ParsedException | null = null;
+        const uniqueSessionsMap = new Map<string, ParsedException>();
         let total = 0;
         const users = new Set<string>();
         const sessions = new Set<string>();
@@ -115,27 +127,28 @@ export function ExceptionDrawer({ hash, service, namespace, environment, logsUid
           stream.values.forEach((val: [string, string]) => {
             total++;
             const parsed = parseLogfmt(val[1]);
+            const ex: ParsedException = {
+              timestamp: parsed.timestamp,
+              type: parsed.type,
+              value: parsed.value,
+              stacktrace: parsed.stacktrace?.replace(/\\n/g, '\n'),
+              browserName: parsed.browser_name,
+              browserVersion: parsed.browser_version,
+              browserOs: parsed.browser_os,
+              pageUrl: parsed.page_url,
+              pageId: parsed.page_id,
+              appName: parsed.app_name,
+              appVersion: parsed.app_version,
+              appEnvironment: parsed.app_environment,
+              appNamespace: parsed.app_namespace,
+              sessionId: parsed.session_id,
+              userId: parsed.user_id,
+              userName: parsed.user_username,
+              userEmail: parsed.user_email,
+            };
 
-            if (!firstParsed) {
-              firstParsed = {
-                timestamp: parsed.timestamp,
-                type: parsed.type,
-                value: parsed.value,
-                stacktrace: parsed.stacktrace?.replace(/\\n/g, '\n'),
-                browserName: parsed.browser_name,
-                browserVersion: parsed.browser_version,
-                browserOs: parsed.browser_os,
-                pageUrl: parsed.page_url,
-                pageId: parsed.page_id,
-                appName: parsed.app_name,
-                appVersion: parsed.app_version,
-                appEnvironment: parsed.app_environment,
-                appNamespace: parsed.app_namespace,
-                sessionId: parsed.session_id,
-                userId: parsed.user_id,
-                userName: parsed.user_username,
-                userEmail: parsed.user_email,
-              };
+            if (ex.sessionId && !uniqueSessionsMap.has(ex.sessionId)) {
+              uniqueSessionsMap.set(ex.sessionId, ex);
             }
 
             const user = parsed.user_email || parsed.user_username || parsed.user_id;
@@ -155,12 +168,6 @@ export function ExceptionDrawer({ hash, service, namespace, environment, logsUid
           });
         });
 
-        if (!firstParsed) {
-          setError('Failed to parse exception details.');
-          setLoading(false);
-          return;
-        }
-
         setStats({
           uniqueUsers: users.size,
           uniqueSessions: sessions.size,
@@ -169,65 +176,15 @@ export function ExceptionDrawer({ hash, service, namespace, environment, logsUid
           total,
         });
 
-        const ex = firstParsed as ParsedException;
-        setException(ex);
-        setLoading(false);
+        const sessionList = Array.from(uniqueSessionsMap.values());
+        setOccurrences(sessionList);
 
-        // Fetch breadcrumbs if session ID is available
-        if (ex.sessionId) {
-          setLoadingBreadcrumbs(true);
-          const breadcrumbsQuery = `{${fl.serviceName}="${sanitizeLabelValue(service)}"${clusterStream}} | logfmt | ${fl.sessionId}="${sanitizeLabelValue(ex.sessionId)}"`;
-
-          lastValueFrom(
-            getBackendSrv().fetch<any>({
-              url: `/api/datasources/proxy/uid/${encodeURIComponent(logsUid)}/loki/api/v1/query_range`,
-              params: {
-                query: breadcrumbsQuery,
-                limit: '20',
-                direction: 'backward', // get the most recent 20 events for the session
-              },
-              method: 'GET',
-            })
-          )
-            .then((bcRes) => {
-              if (cancelled) {
-                return;
-              }
-              const bcStreams = bcRes.data?.data?.result ?? [];
-              const crumbs: Breadcrumb[] = [];
-              bcStreams.forEach((stream: any) => {
-                stream.values.forEach((val: [string, string]) => {
-                  const ts = val[0];
-                  const p = parseLogfmt(val[1]);
-                  crumbs.push({
-                    timestampNs: ts,
-                    kind: p.kind || p.level || 'unknown',
-                    message: p.message || p.value || '',
-                    type: p.type,
-                    value: p.value,
-                    eventName: p.event_name,
-                    eventDomain: p.event_domain,
-                    level: p.level,
-                    fcp: p.fcp,
-                    lcp: p.lcp,
-                    cls: p.cls,
-                    inp: p.inp,
-                    ttfb: p.ttfb,
-                    rating: p.context_rating,
-                  });
-                });
-              });
-              // Sort chronologically (oldest first)
-              crumbs.sort((a, b) => (a.timestampNs > b.timestampNs ? 1 : -1));
-              setBreadcrumbs(crumbs);
-              setLoadingBreadcrumbs(false);
-            })
-            .catch(() => {
-              if (!cancelled) {
-                setLoadingBreadcrumbs(false);
-              }
-            });
+        if (sessionList.length > 0) {
+          setException(sessionList[0]);
+          setSelectedSessionId(sessionList[0].sessionId || '');
         }
+
+        setLoading(false);
       })
       .catch((err) => {
         if (!cancelled) {
@@ -239,7 +196,125 @@ export function ExceptionDrawer({ hash, service, namespace, environment, logsUid
     return () => {
       cancelled = true;
     };
-  }, [hash, service, environment, logsUid, labelOverrides]);
+  }, [
+    hash,
+    service,
+    environment,
+    logsUid,
+    labelOverrides,
+    clusterStream,
+    fl.hash,
+    fl.kind,
+    fl.kindException,
+    fl.serviceName,
+  ]);
+
+  // Fetch breadcrumbs whenever the selected session ID changes
+  useEffect(() => {
+    if (!selectedSessionId) {
+      return;
+    }
+    let cancelled = false;
+    setLoadingBreadcrumbs(true);
+
+    const breadcrumbsQuery = `{${fl.serviceName}="${sanitizeLabelValue(service)}"${clusterStream}} | logfmt | ${fl.sessionId}="${sanitizeLabelValue(selectedSessionId)}"`;
+
+    lastValueFrom(
+      getBackendSrv().fetch<any>({
+        url: `/api/datasources/proxy/uid/${encodeURIComponent(logsUid)}/loki/api/v1/query_range`,
+        params: {
+          query: breadcrumbsQuery,
+          limit: '20',
+          direction: 'backward', // get the most recent 20 events for the session
+        },
+        method: 'GET',
+      })
+    )
+      .then((bcRes) => {
+        if (cancelled) {
+          return;
+        }
+        const bcStreams = bcRes.data?.data?.result ?? [];
+        const crumbs: Breadcrumb[] = [];
+        bcStreams.forEach((stream: any) => {
+          stream.values.forEach((val: [string, string]) => {
+            const ts = val[0];
+            const p = parseLogfmt(val[1]);
+
+            const attrs: Record<string, string> = {};
+            Object.keys(p).forEach((key) => {
+              if (key.startsWith('event_data_')) {
+                const cleanKey = key.slice('event_data_'.length);
+                attrs[cleanKey] = p[key];
+              } else if (key.startsWith('event_attribute_')) {
+                const cleanKey = key.slice('event_attribute_'.length);
+                attrs[cleanKey] = p[key];
+              } else if (key.startsWith('event_attributes_')) {
+                const cleanKey = key.slice('event_attributes_'.length);
+                attrs[cleanKey] = p[key];
+              }
+            });
+
+            crumbs.push({
+              timestampNs: ts,
+              kind: p.kind || p.level || 'unknown',
+              message: p.message || p.value || '',
+              type: p.type,
+              value: p.value,
+              eventName: p.event_name,
+              eventDomain: p.event_domain,
+              level: p.level,
+              fcp: p.fcp,
+              lcp: p.lcp,
+              cls: p.cls,
+              inp: p.inp,
+              ttfb: p.ttfb,
+              rating: p.context_rating,
+              attributes: Object.keys(attrs).length > 0 ? attrs : undefined,
+            });
+          });
+        });
+        // Sort chronologically (oldest first)
+        crumbs.sort((a, b) => (a.timestampNs > b.timestampNs ? 1 : -1));
+
+        // Group consecutive duplicates
+        const groupedCrumbs: GroupedBreadcrumb[] = [];
+        crumbs.forEach((crumb) => {
+          const msg = getBreadcrumbMessage(crumb);
+          const last = groupedCrumbs[groupedCrumbs.length - 1];
+          if (last && last.kind === crumb.kind && last.message === msg) {
+            last.count++;
+          } else {
+            groupedCrumbs.push({
+              timestampNs: crumb.timestampNs,
+              kind: crumb.kind,
+              message: msg,
+              count: 1,
+            });
+          }
+        });
+
+        setBreadcrumbs(groupedCrumbs);
+        setLoadingBreadcrumbs(false);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLoadingBreadcrumbs(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSessionId, service, environment, logsUid, clusterStream, fl.serviceName, fl.sessionId]);
+
+  const handleSessionChange = (sessionId: string) => {
+    setSelectedSessionId(sessionId);
+    const matched = occurrences.find((o) => o.sessionId === sessionId);
+    if (matched) {
+      setException(matched);
+    }
+  };
 
   const envParam = environment ? `&environment=${encodeURIComponent(environment)}` : '';
   const nsSegment = encodeURIComponent(namespace || '_');
@@ -311,7 +386,35 @@ export function ExceptionDrawer({ hash, service, namespace, environment, logsUid
                         value={exception.userEmail || exception.userName || exception.userId || 'Anonymous'}
                         icon="users-alt"
                       />
-                      <MetaItem label="Session ID" value={exception.sessionId} icon="user" />
+                      {occurrences.length > 1 ? (
+                        <div className={styles.metaItem} style={{ alignItems: 'center' }}>
+                          <span
+                            className={styles.metaLabel}
+                            style={{ display: 'inline-flex', alignItems: 'center', height: '32px' }}
+                          >
+                            <Icon name="user" className={styles.metaIcon} /> Session ID:
+                          </span>
+                          <span className={styles.metaValue} style={{ width: '220px' }}>
+                            <Combobox<string>
+                              options={occurrences.map((occ) => {
+                                const browserStr = occ.browserName
+                                  ? `${occ.browserName} ${occ.browserVersion || ''}`.trim()
+                                  : '';
+                                const sysStr = occ.browserOs ? `on ${occ.browserOs}` : '';
+                                return {
+                                  label: `${occ.sessionId?.slice(0, 8)}... (${occ.timestamp ? new Date(occ.timestamp).toLocaleTimeString() : 'unknown'})`,
+                                  value: occ.sessionId || '',
+                                  description: `${browserStr} ${sysStr}`.trim() || undefined,
+                                };
+                              })}
+                              value={selectedSessionId}
+                              onChange={(opt) => opt && handleSessionChange(opt.value || '')}
+                            />
+                          </span>
+                        </div>
+                      ) : (
+                        <MetaItem label="Session ID" value={exception.sessionId} icon="user" />
+                      )}
                       <MetaItem label="Timestamp" value={exception.timestamp} icon="clock-nine" />
                     </div>
                   </div>
@@ -361,7 +464,10 @@ export function ExceptionDrawer({ hash, service, namespace, environment, logsUid
                           <Icon name={getBreadcrumbIcon(bc.kind) as any} size="sm" style={{ marginRight: '4px' }} />
                           {bc.kind}
                         </span>
-                        <span className={styles.bcMessage}>{getBreadcrumbMessage(bc)}</span>
+                        <span className={styles.bcMessage}>
+                          {bc.message}
+                          {bc.count > 1 && <span className={styles.bcCount}> ({bc.count}x)</span>}
+                        </span>
                       </div>
                     ))}
                     <div className={styles.bcFooter}>
@@ -439,7 +545,14 @@ function parseLogfmt(line: string): Record<string, string> {
 
 function getBreadcrumbMessage(bc: Breadcrumb): string {
   if (bc.kind === 'event') {
-    return bc.eventName ? `${bc.eventDomain ? bc.eventDomain + '/' : ''}${bc.eventName}` : 'Unknown Event';
+    const name = bc.eventName ? `${bc.eventDomain ? bc.eventDomain + '/' : ''}${bc.eventName}` : 'Unknown Event';
+    if (bc.attributes) {
+      const attrStr = Object.entries(bc.attributes)
+        .map(([k, v]) => `${k}="${v}"`)
+        .join(', ');
+      return `${name} {${attrStr}}`;
+    }
+    return name;
   }
   if (bc.kind === 'measurement' && bc.type === 'web-vitals') {
     const vitals = [];
@@ -758,6 +871,12 @@ const getStyles = (theme: GrafanaTheme2) => ({
     color: ${theme.colors.text.primary};
     word-break: break-all;
     white-space: pre-wrap;
+  `,
+  bcCount: css`
+    color: ${theme.colors.text.secondary};
+    font-weight: ${theme.typography.fontWeightBold};
+    font-size: 11px;
+    margin-left: 4px;
   `,
   bcFooter: css`
     padding-top: 8px;
