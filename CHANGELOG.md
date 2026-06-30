@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.13.1 (2026-07-01)
+
+### Fixes
+
+- **Statically Linked Backend Binaries** — Statically compiled all Linux backend binaries with `CGO_ENABLED=0` to prevent execution failures (like `no such file or directory` or missing dynamic linker) inside minimal Alpine/Debian-slim Docker containers.
+- **Dependency Security Fixes** — Upgraded `react-router-dom` to `6.30.4` to remediate the open redirect vulnerability (CVE-2026-40181).
+
 ## 0.13.0 (2026-07-01)
 
 ### Features
