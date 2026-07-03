@@ -66,6 +66,9 @@ docker compose -f docker-compose.demo.yaml up  # With OTel Demo traffic
 
 ## Gotchas & Troubleshooting
 
+- **URL search params: one user action = ONE update call.**
+  - react-router's `setSearchParams(prev => …)` functional updater receives the params of the *last render*, not the pending update — consecutive calls in the same React batch silently clobber each other. This caused the ExceptionDrawer close/reopen loop (v0.13.2–v0.13.4).
+  - Use `useUrlParams()` from `src/utils/useUrlState.ts` and pass every param change for an action in a single call (`update({ a: '1', b: null })`). Never call two param setters for one user action.
 - **i18n Duplicate Instances (`t()` error):**
   - `@grafana/i18n` must be bundled, but doing so under `pnpm` nested layout duplicates the module. We use Webpack `resolve.alias` in `.config/webpack/webpack.config.ts` to deduplicate it. Do not remove this alias.
   - `@grafana/schema` must be bundled instead of externalized to prevent deep-import 404s. Do not add it to `externals.ts`.

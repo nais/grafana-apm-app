@@ -21,6 +21,7 @@ import { usePluginDatasources, usePluginLabelOverrides } from '../../utils/datas
 import { sanitizeLabelValue } from '../../utils/sanitize';
 import { otel } from '../../otelconfig';
 import { useSearchParams } from 'react-router-dom';
+import { useUrlParams } from '../../utils/useUrlState';
 import { ExceptionDrawer } from './frontend/components/ExceptionDrawer';
 
 import {
@@ -46,19 +47,12 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
   const [available, setAvailable] = useState<boolean | null>(null);
   const [hasLoki, setHasLoki] = useState<boolean>(false);
   const [vitals, setVitals] = useState<Record<string, number> | undefined>();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
+  const updateParams = useUrlParams();
   const selectedHash = searchParams.get('exceptionHash') ?? '';
   const selectedSessionId = searchParams.get('exceptionSessionId') ?? '';
   const setSelectedSessionId = (id: string) => {
-    setSearchParams((prev) => {
-      const params = new URLSearchParams(prev);
-      if (id) {
-        params.set('exceptionSessionId', id);
-      } else {
-        params.delete('exceptionSessionId');
-      }
-      return params;
-    });
+    updateParams({ exceptionSessionId: id || null });
   };
   const ds = usePluginDatasources(environment || undefined);
 
@@ -126,12 +120,8 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
           selectedSessionId={selectedSessionId}
           onSessionChange={setSelectedSessionId}
           onClose={() => {
-            setSearchParams((prev) => {
-              const params = new URLSearchParams(prev);
-              params.delete('exceptionHash');
-              params.delete('exceptionSessionId');
-              return params;
-            });
+            // Both params in one transaction — see useUrlParams docs.
+            updateParams({ exceptionHash: null, exceptionSessionId: null });
           }}
         />
       )}

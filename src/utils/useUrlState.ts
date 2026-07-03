@@ -2,6 +2,39 @@ import { useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 /**
+ * Batch URL-param updater: applies every change in ONE setSearchParams call.
+ *
+ * Rule: one user action = one atomic params transaction. Sequential
+ * single-param updates race each other under React 18 batching (each update
+ * re-runs against a different snapshot) — the root cause of the
+ * ExceptionDrawer close/reopen loop fixed across v0.13.2–v0.13.4.
+ *
+ * Pass a string to set a param; pass null/undefined/'' to delete it.
+ */
+export function useUrlParams(): (
+  changes: Record<string, string | null | undefined>,
+  opts?: { replace?: boolean }
+) => void {
+  const [, setSearchParams] = useSearchParams();
+  return useCallback(
+    (changes, opts) => {
+      setSearchParams((prev) => {
+        const params = new URLSearchParams(prev);
+        for (const [key, value] of Object.entries(changes)) {
+          if (value === null || value === undefined || value === '') {
+            params.delete(key);
+          } else {
+            params.set(key, value);
+          }
+        }
+        return params;
+      }, opts);
+    },
+    [setSearchParams]
+  );
+}
+
+/**
  * URL-backed string state. Reads/writes a single query parameter.
  * When value equals defaultValue, the param is removed from the URL to keep it clean.
  */
