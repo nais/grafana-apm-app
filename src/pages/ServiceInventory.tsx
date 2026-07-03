@@ -29,6 +29,7 @@ import { useFetch } from '../utils/useFetch';
 import { FrameworkBadge } from '../components/FrameworkBadge';
 import { Sparkline } from '../components/Sparkline';
 import { useFavorites, serviceKey } from '../utils/useFavorites';
+import { createServiceSearchIndex, searchServices } from '../utils/serviceSearch';
 
 type SortField = 'name' | 'namespace' | 'environment' | 'p95Duration' | 'errorRate' | 'rate';
 type SortDir = 'asc' | 'desc';
@@ -139,6 +140,22 @@ function ServiceInventory() {
   const sdkFilters = useMemo(() => rawSdkFilter.split(',').filter(Boolean), [rawSdkFilter]);
   const setSdkFilters = (sdks: string[]) => updateParams({ sdk: sdks.length > 0 ? sdks.join(',') : null, page: null });
 
+  // Fuzzy search index — indexing is the expensive part, so memoize it on the
+  // service list rather than rebuilding it on every keystroke.
+  const searchIndex = useMemo(() => createServiceSearchIndex(services), [services]);
+  const isSearching = search.trim().length > 0;
+  const searchResults = useMemo(
+    () => (isSearching ? searchServices(services, search, searchIndex) : services),
+    [services, search, searchIndex, isSearching]
+  );
+  // Position of each service in the relevance-ranked search results, used to
+  // order rows by match quality (best match first) while searching.
+  const searchRank = useMemo(() => {
+    const rank = new Map<ServiceSummary, number>();
+    searchResults.forEach((s, i) => rank.set(s, i));
+    return rank;
+  }, [searchResults]);
+
   // Client-side filtering and sorting — computed every render to avoid
   // stale-closure issues with React 18 batching.
   let filtered = services;
@@ -151,9 +168,9 @@ function ServiceInventory() {
   if (envFilters.length > 0) {
     filtered = filtered.filter((s) => s.environment != null && envFilters.includes(s.environment));
   }
-  if (search) {
-    const q = search.toLowerCase();
-    filtered = filtered.filter((s) => s.name.toLowerCase().includes(q) || s.namespace.toLowerCase().includes(q));
+  if (isSearching) {
+    const matched = new Set(searchResults);
+    filtered = filtered.filter((s) => matched.has(s));
   }
   if (showFavoritesOnly) {
     filtered = filtered.filter((s) => isFavorite(serviceKey(s.namespace, s.name)));
@@ -169,6 +186,10 @@ function ServiceInventory() {
   const dir = sortDir === 'desc' ? -1 : 1;
   const isDefaultSort = sortField === 'name' && sortDir === 'asc';
   filtered = [...filtered].sort((a, b) => {
+    // While searching, order by fuzzy match relevance instead of the selected column
+    if (isSearching) {
+      return (searchRank.get(a) ?? 0) - (searchRank.get(b) ?? 0);
+    }
     // Sort boost: favorites float to top on default sort
     if (isDefaultSort) {
       const fa = isFavorite(serviceKey(a.namespace, a.name)) ? 0 : 1;

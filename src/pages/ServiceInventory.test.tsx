@@ -176,3 +176,37 @@ describe('ServiceInventory — Favorites', () => {
     expect(firstDataRow).toHaveTextContent('payment');
   });
 });
+
+describe('ServiceInventory — Fuzzy search', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    activeStore = createStore();
+  });
+
+  afterEach(() => {
+    activeStore.destroy();
+  });
+
+  it('finds a service from a misspelled query', async () => {
+    renderInventory('/services?q=paymnt');
+    expect(await screen.findByText('payment')).toBeInTheDocument();
+    expect(screen.queryByText('my-api')).not.toBeInTheDocument();
+    expect(screen.queryByText('frontend')).not.toBeInTheDocument();
+  });
+
+  it('matches on namespace', async () => {
+    // 'team-b' is an exact namespace match for 'payment' and should rank first,
+    // even though 'team-a' (my-api/frontend) is a close fuzzy neighbor too.
+    renderInventory('/services?q=team-b');
+    const rows = await screen.findAllByRole('row');
+    expect(rows[1]).toHaveTextContent('payment');
+  });
+
+  it('shows no rows for a query that matches nothing', async () => {
+    renderInventory('/services?q=zzzznonexistentzzzz');
+    await waitFor(() => expect(screen.queryByText(/Loading services/i)).not.toBeInTheDocument());
+    expect(screen.queryByText('my-api')).not.toBeInTheDocument();
+    expect(screen.queryByText('payment')).not.toBeInTheDocument();
+    expect(screen.queryByText('frontend')).not.toBeInTheDocument();
+  });
+});
