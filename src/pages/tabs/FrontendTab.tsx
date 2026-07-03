@@ -232,8 +232,10 @@ function FrontendPanels({
         children: [
           ...(bulletsItem ? [bulletsItem] : []),
           insightsRow,
-          trendsRow,
+          // Errors directly under the health stats: error tracking is the
+          // primary workflow of this tab, ahead of the vitals trend charts.
           errorsRow,
+          trendsRow,
           ...(perPageTable ? [perPageTable] : []),
           trafficRow,
           ...(supportRow ? [supportRow] : []),

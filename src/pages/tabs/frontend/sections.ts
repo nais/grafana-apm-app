@@ -346,13 +346,14 @@ export function buildPerPageSection(ctx: FrontendSceneContext): SceneFlexItem | 
 // Section 4: Errors Row (Exception Types + Top Exceptions + Browser)
 // ---------------------------------------------------------------------------
 
-/** Errors section — split into two rows: exceptions row + browser row. */
+/**
+ * Errors section. Top Exceptions is the core error-tracking surface and gets
+ * a full-width row of its own; the Exception Types breakdown shares the
+ * following row with the browser panels so no row is left half-empty.
+ */
 export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
   const { logsDs, metricsDs, service, namespace, environment, svcFilter, ah, hasLoki } = ctx;
   const fl = otel.faroLoki;
-
-  // --- Exceptions row (always has at least the Mimir types panel) ---
-  const exceptionsChildren: SceneFlexItem[] = [];
 
   // Exception Types from Mimir counter (fast PromQL)
   const exceptionTypeQ = new SceneQueryRunner({
@@ -367,46 +368,44 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
       },
     ],
   });
-  exceptionsChildren.push(
-    new SceneFlexItem({
-      minHeight: 250,
-      width: '30%',
-      body: PanelBuilders.table()
-        .setTitle('Exception Types')
-        .setDescription('Which error types occur most often')
-        .setData(exceptionTypeQ)
-        .setOverrides((b) => {
-          b.matchFieldsWithName(ah.exceptionTypeLabel).overrideDisplayName('Exception Type');
-          b.matchFieldsWithName('Value').overrideDisplayName('Count').overrideDecimals(0);
-          b.matchFieldsWithName('Time').overrideCustomFieldConfig('hidden' as any, true);
-        })
-        .build(),
-    })
-  );
+  const exceptionTypesItem = new SceneFlexItem({
+    minHeight: 250,
+    width: '25%',
+    body: PanelBuilders.table()
+      .setTitle('Exception Types')
+      .setDescription('Which error types occur most often')
+      .setData(exceptionTypeQ)
+      .setOverrides((b) => {
+        b.matchFieldsWithName(ah.exceptionTypeLabel).overrideDisplayName('Exception Type');
+        b.matchFieldsWithName('Value').overrideDisplayName('Count').overrideDecimals(0);
+        b.matchFieldsWithName('Time').overrideCustomFieldConfig('hidden' as any, true);
+      })
+      .build(),
+  });
+
+  // Without Loki there is no issues list — the types panel is all we have.
+  if (!hasLoki) {
+    return new SceneFlexLayout({ direction: 'row', children: [exceptionTypesItem] });
+  }
 
   // Top Exceptions grouped by stable fingerprint via the backend (#62):
   // upstream Alloy hash groups merge when messages differ only by dynamic
   // content. Rendered as a React table (fed by /exceptions/groups) instead of
   // a raw Loki panel; rows open the ExceptionDrawer via the issueId param.
-  if (hasLoki) {
-    exceptionsChildren.push(
+  // Full-width: this is the primary error-tracking surface of the tab.
+  const issuesRow = new SceneFlexLayout({
+    direction: 'row',
+    children: [
       new SceneFlexItem({
-        minHeight: 250,
+        minHeight: 320,
         body: new SceneReactObject({
           reactNode: React.createElement(IssuesTable, { namespace, service, environment }),
         }),
-      })
-    );
-  }
+      }),
+    ],
+  });
 
-  const exceptionsRow = new SceneFlexLayout({ direction: 'row', children: exceptionsChildren });
-
-  // --- Browser row (only when Loki available) ---
-  if (!hasLoki) {
-    return exceptionsRow;
-  }
-
-  const browserChildren: SceneFlexItem[] = [];
+  const browserChildren: SceneFlexItem[] = [exceptionTypesItem];
 
   // Browser breakdown (Loki vitals per browser)
   const co2 = clusterOpts(ctx);
@@ -485,7 +484,7 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
   browserChildren.push(
     new SceneFlexItem({
       minHeight: 250,
-      width: '35%',
+      width: '25%',
       body: PanelBuilders.piechart()
         .setTitle('Browser Volume')
         .setDescription('Traffic share per browser')
@@ -498,7 +497,7 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
 
   return new SceneFlexLayout({
     direction: 'column',
-    children: [exceptionsRow, browserRow],
+    children: [issuesRow, browserRow],
   });
 }
 

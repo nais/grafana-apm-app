@@ -32,6 +32,7 @@ export function IssuesTable({ namespace, service, environment }: IssuesTableProp
   );
 
   const groups = data?.groups ?? [];
+  const totalCount = groups.reduce((sum, g) => sum + g.count, 0);
 
   return (
     <div className={styles.container}>
@@ -51,13 +52,19 @@ export function IssuesTable({ namespace, service, environment }: IssuesTableProp
           <thead>
             <tr>
               <th>Error</th>
+              <th className={styles.shareCol}>Share</th>
               <th className={styles.num}>Occurrences</th>
               <th className={styles.num}>Sessions</th>
             </tr>
           </thead>
           <tbody>
             {groups.map((g) => (
-              <IssueRow key={g.fingerprint} group={g} onOpen={() => updateParams({ issueId: g.fingerprint })} />
+              <IssueRow
+                key={g.fingerprint}
+                group={g}
+                totalCount={totalCount}
+                onOpen={() => updateParams({ issueId: g.fingerprint })}
+              />
             ))}
           </tbody>
         </table>
@@ -66,8 +73,9 @@ export function IssuesTable({ namespace, service, environment }: IssuesTableProp
   );
 }
 
-function IssueRow({ group, onOpen }: { group: ExceptionGroup; onOpen: () => void }) {
+function IssueRow({ group, totalCount, onOpen }: { group: ExceptionGroup; totalCount: number; onOpen: () => void }) {
   const styles = useStyles2(getStyles);
+  const share = totalCount > 0 ? group.count / totalCount : 0;
   return (
     <tr
       className={styles.row}
@@ -86,6 +94,12 @@ function IssueRow({ group, onOpen }: { group: ExceptionGroup; onOpen: () => void
           </Tooltip>
         )}
       </td>
+      <td className={styles.shareCol}>
+        <div className={styles.shareBar}>
+          <div className={styles.shareFill} style={{ width: `${Math.max(2, Math.round(share * 100))}%` }} />
+        </div>
+        <span className={styles.shareLabel}>{Math.round(share * 100)}%</span>
+      </td>
       <td className={styles.num}>{Math.round(group.count)}</td>
       <td className={styles.num}>{Math.round(group.sessions)}</td>
     </tr>
@@ -98,6 +112,7 @@ const getStyles = (theme: GrafanaTheme2) => ({
     border: 1px solid ${theme.colors.border.weak};
     border-radius: ${theme.shape.radius.default};
     padding: ${theme.spacing(1)};
+    width: 100%;
     height: 100%;
     overflow: auto;
   `,
@@ -153,5 +168,28 @@ const getStyles = (theme: GrafanaTheme2) => ({
     text-align: right;
     white-space: nowrap;
     width: 1%;
+  `,
+  shareCol: css`
+    white-space: nowrap;
+    width: 140px;
+  `,
+  shareBar: css`
+    display: inline-block;
+    vertical-align: middle;
+    width: 80px;
+    height: 6px;
+    border-radius: 3px;
+    background: ${theme.colors.background.secondary};
+    margin-right: ${theme.spacing(1)};
+  `,
+  shareFill: css`
+    height: 100%;
+    border-radius: 3px;
+    background: ${theme.colors.error.main};
+    opacity: 0.7;
+  `,
+  shareLabel: css`
+    color: ${theme.colors.text.secondary};
+    font-size: ${theme.typography.bodySmall.fontSize};
   `,
 });
