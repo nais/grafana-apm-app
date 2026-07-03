@@ -58,20 +58,7 @@ function ServiceInventory() {
     return { caps: capsResult, services: servicesResult };
   }, [fromMs, toMs]);
 
-  // Lazy-load sparklines after initial data is on screen (stored separately to avoid re-sorting)
-  const { data: sparklineResult } = useFetch<ServiceSummary[]>(
-    () => getServices(fromMs, toMs, 60, true),
-    [fromMs, toMs],
-    { skip: !fetchResult }
-  );
-
   const services = useMemo(() => fetchResult?.services ?? [], [fetchResult]);
-  const sparklineMap = useMemo(() => {
-    if (!sparklineResult) {
-      return new Map<string, ServiceSummary>();
-    }
-    return new Map(sparklineResult.map((s) => [`${s.namespace}/${s.name}/${s.environment ?? ''}`, s]));
-  }, [sparklineResult]);
   const caps = fetchResult?.caps ?? null;
 
   // Read all UI state from query params (persisted across navigation)
@@ -260,6 +247,24 @@ function ServiceInventory() {
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
+
+  // Lazy-load sparklines for the VISIBLE page only (stored separately to
+  // avoid re-sorting). An unfiltered withSeries fetch would pull series for
+  // the whole fleet (~4000 services) to render 25 rows. The fetch keys on the
+  // JOINED string — `paginated` is a fresh array every render, and an array
+  // dep would refetch in a loop.
+  const visibleServicesKey = Array.from(new Set(paginated.map((s) => `${s.namespace}/${s.name}`))).join(',');
+  const { data: sparklineResult } = useFetch<ServiceSummary[]>(
+    () => getServices(fromMs, toMs, 60, true, { services: visibleServicesKey.split(',') }),
+    [fromMs, toMs, visibleServicesKey],
+    { skip: !fetchResult || visibleServicesKey === '' }
+  );
+  const sparklineMap = useMemo(() => {
+    if (!sparklineResult) {
+      return new Map<string, ServiceSummary>();
+    }
+    return new Map(sparklineResult.map((s) => [`${s.namespace}/${s.name}/${s.environment ?? ''}`, s]));
+  }, [sparklineResult]);
 
   const toggleSort = (field: SortField) => {
     if (sortField === field) {
