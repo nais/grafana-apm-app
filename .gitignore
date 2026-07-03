@@ -49,3 +49,6 @@ ci/
 
 .eslintcache
 coverage.out
+
+# Sibling checkout of nais/helm-charts (real Alloy config lives there)
+helm-charts/
