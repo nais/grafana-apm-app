@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useStyles2, MultiCombobox, Input, Icon, Switch, Combobox } from '@grafana/ui';
+import { useStyles2, MultiCombobox, Input, Icon, Switch, Combobox, LinkButton } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { GraphDrawStyle, StackingMode } from '@grafana/schema';
@@ -16,6 +16,7 @@ import {
 import { useDebouncedValue, escapeRegex } from '../../utils/debounce';
 import { sanitizeLabelValue } from '../../utils/sanitize';
 import { useUrlString, useUrlCsv, useUrlBoolean } from '../../utils/useUrlState';
+import { buildLogsDrilldownUrl } from '../../utils/explore';
 import { otel } from '../../otelconfig';
 
 interface LogsTabProps {
@@ -249,6 +250,21 @@ export function LogsTab({
             />
           </>
         )}
+        <LinkButton
+          variant="secondary"
+          size="sm"
+          icon="gf-logs"
+          className={styles.drilldownLink}
+          href={buildLogsDrilldownUrl(logsUid, service, {
+            namespace,
+            from,
+            to,
+            serviceNameLabel,
+          })}
+          tooltip="Open this service's logs in Grafana's queryless Logs Drilldown app"
+        >
+          Open in Logs Drilldown
+        </LinkButton>
       </div>
       <div className={styles.sceneWrapper}>
         <scene.Component model={scene} />
@@ -288,5 +304,8 @@ const getStyles = (theme: GrafanaTheme2) => ({
     font-size: ${theme.typography.bodySmall.fontSize};
     cursor: pointer;
     margin-left: ${theme.spacing(0.5)};
+  `,
+  drilldownLink: css`
+    margin-left: auto;
   `,
 });
