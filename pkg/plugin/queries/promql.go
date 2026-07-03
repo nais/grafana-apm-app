@@ -259,6 +259,58 @@ func (c *PrometheusClient) LabelValues(ctx context.Context, labelName string, st
 	return envelope.Data, nil
 }
 
+// MetricMetadata is one entry from the Prometheus /api/v1/metadata endpoint:
+// the metric's type, HELP text, and OpenMetrics UNIT as ingested from scrape
+// targets. Mimir serves the same endpoint (metadata ingestion permitting).
+type MetricMetadata struct {
+	Type string `json:"type"`
+	Help string `json:"help"`
+	Unit string `json:"unit"`
+}
+
+// Metadata fetches metadata for a single metric family via
+// /api/v1/metadata?metric=<name>. Returns the (possibly empty) list of
+// metadata entries for that family — multiple targets may disagree, so
+// Prometheus returns a list. Absence of metadata is not an error.
+func (c *PrometheusClient) Metadata(ctx context.Context, metric string) ([]MetricMetadata, error) {
+	u, err := url.Parse(c.baseURL + "/api/v1/metadata")
+	if err != nil {
+		return nil, fmt.Errorf("parsing metadata URL: %w", err)
+	}
+	q := u.Query()
+	q.Set("metric", metric)
+	u.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	c.applyAuth(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetching metadata: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("metadata returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var envelope struct {
+		Status string                      `json:"status"`
+		Data   map[string][]MetricMetadata `json:"data"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return nil, fmt.Errorf("unmarshaling metadata: %w", err)
+	}
+	return envelope.Data[metric], nil
+}
+
 func (c *PrometheusClient) doQuery(ctx context.Context, path string, params url.Values) ([]PromResult, error) {
 	u, err := url.Parse(c.baseURL + path)
 	if err != nil {

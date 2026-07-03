@@ -1043,3 +1043,41 @@ export async function saveOpsWatchlist(entries: OpsWatchlistEntry[]): Promise<Op
     throw formatWatchlistError('failed to save plugin settings', error);
   }
 }
+
+// ---- Custom metrics (#68 Phase 0) ----
+
+export interface CustomMetric {
+  name: string;
+  /** Prometheus metadata type (counter, gauge, histogram, …) or a suffix-heuristic guess. */
+  type: string;
+  help: string;
+  unit: string;
+  /** Active series count for the family within the service filter. */
+  series: number;
+  /** Families over the series threshold are listed but not auto-charted. */
+  highCardinality: boolean;
+  /** Auto-chart hint derived from the metric type. */
+  chart: 'rate' | 'p95' | 'gauge';
+}
+
+export interface CustomMetricsResponse {
+  metrics: CustomMetric[];
+  truncated: boolean;
+}
+
+export async function getCustomMetrics(
+  namespace: string,
+  service: string,
+  from: number,
+  to: number,
+  environment?: string
+): Promise<CustomMetricsResponse> {
+  const params: Record<string, string> = { ...timeParams(from, to) };
+  if (environment) {
+    params.environment = environment;
+  }
+  return fetchResource<CustomMetricsResponse>(
+    `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/custom-metrics`,
+    params
+  );
+}

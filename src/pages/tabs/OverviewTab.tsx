@@ -6,6 +6,7 @@ import { EmbeddedScene } from '@grafana/scenes';
 import { OperationSummary, ConnectedServicesResponse, DependencySummary, HealthSummary } from '../../api/client';
 import { formatDuration, formatRate, formatErrorRate } from '../../utils/format';
 import { DepTypeIcon } from '../../components/DepTypeIcon';
+import { CustomMetricsPanel } from '../../components/CustomMetricsPanel';
 import { getSectionStyles } from '../../utils/styles';
 import { ServiceGraph, ServiceGraphNode, ServiceGraphEdge } from '../../components/ServiceGraph';
 import { CopyMermaidButton } from '../../components/CopyMermaidButton';
@@ -21,6 +22,8 @@ const DEPTH_OPTIONS = [
 
 interface OverviewTabProps {
   scene: EmbeddedScene | null;
+  namespace: string;
+  environment?: string;
   sceneKey: string;
   operations: OperationSummary[];
   opsLoading: boolean;
@@ -43,6 +46,8 @@ interface OverviewTabProps {
 
 export function OverviewTab({
   scene,
+  namespace,
+  environment,
   sceneKey,
   operations,
   opsLoading,
@@ -256,6 +261,9 @@ export function OverviewTab({
           </div>
         </div>
       )}
+
+      {/* Custom application metrics (#68 Phase 0) — auto-discovered, hidden when none */}
+      <CustomMetricsPanel namespace={namespace} service={service} environment={environment} />
     </>
   );
 }

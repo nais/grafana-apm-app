@@ -336,6 +336,8 @@ function ServiceOverview() {
           <div style={{ display: activeTab === 'overview' ? undefined : 'none' }}>
             <OverviewTab
               scene={scene}
+              namespace={namespace}
+              environment={envFilter || undefined}
               sceneKey={sceneKey}
               operations={operations}
               opsLoading={opsLoading}

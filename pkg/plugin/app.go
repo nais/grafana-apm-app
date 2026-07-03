@@ -376,6 +376,7 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/services/{namespace}/{service}/connected", a.handleConnectedServices)
 	mux.HandleFunc("/services/{namespace}/{service}/graphql", a.handleGraphQLMetrics)
 	mux.HandleFunc("/services/{namespace}/{service}/runtime", a.handleRuntime)
+	mux.HandleFunc("/services/{namespace}/{service}/custom-metrics", a.handleCustomMetrics)
 	mux.HandleFunc("/service-map", a.handleServiceMap)
 	mux.HandleFunc("/dependencies", a.handleGlobalDependencies)
 	mux.HandleFunc("/dependencies/{name}", a.handleDependencyDetail)

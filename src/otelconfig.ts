@@ -58,6 +58,14 @@ export const otel = {
     serviceNamespace: 'resource.service.namespace',
   },
 
+  /** App-emitted metrics from Prometheus scraping (runtime + custom metrics).
+   * These use app/namespace labels, NOT service_name/service_namespace —
+   * mirrors the backend's `otelconfig.RuntimeLabels`. */
+  runtime: {
+    appLabel: 'app',
+    namespaceLabel: 'namespace',
+  },
+
   /** Faro histogram metrics from improved Alloy pipeline.
    * The loki_process_custom_ prefix is hardcoded by Alloy's loki.process stage. */
   alloyHistogram: {

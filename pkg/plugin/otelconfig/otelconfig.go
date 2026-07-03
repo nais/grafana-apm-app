@@ -290,6 +290,21 @@ type RuntimeMetrics struct {
 }
 
 // ---------------------------------------------------------------------------
+// Custom metrics — zero-config discovery of app/business metrics (#68).
+// ---------------------------------------------------------------------------
+
+// CustomMetrics groups settings for custom-metric auto-discovery. The
+// denylist lives here as data (not code) so it can be made extensible via
+// plugin settings without a rebuild; misclassification is cosmetic — a
+// platform metric showing up under "Custom" — never corrupting.
+type CustomMetrics struct {
+	// Denylist is the __name__!~ regex that excludes platform/runtime metric
+	// families from discovery: the runtime.go allowlist plus known platform
+	// families (scrape internals, OTel pipeline, container/kube, Alloy Faro).
+	Denylist string
+}
+
+// ---------------------------------------------------------------------------
 // Root config
 // ---------------------------------------------------------------------------
 
@@ -305,6 +320,7 @@ type Config struct {
 	FaroLoki              FaroLoki
 	ServiceGraph          ServiceGraph
 	Runtime               RuntimeMetrics
+	CustomMetrics         CustomMetrics
 }
 
 // Default returns the standard OTel + Grafana Faro naming conventions.
@@ -416,6 +432,10 @@ func Default() Config {
 			RequestTotal:        "_request_total",
 			RequestFailedTotal:  "_request_failed_total",
 			RequestServerBucket: "_request_server_seconds_bucket",
+		},
+
+		CustomMetrics: CustomMetrics{
+			Denylist: `jvm_.*|nodejs_.*|go_.*|process_.*|system_.*|hikaricp_.*|db_client_.*|kafka_(consumer|producer)_.*|http_(server|client)_.*|jdk_.*|logback_.*|tomcat_.*|jetty_.*|executor_.*|spring_.*|application_.*|up|scrape_.*|promhttp_.*|otel_.*|target_info|traces_.*|container_.*|kube_.*|loki_process_custom_.*`,
 		},
 
 		Runtime: RuntimeMetrics{
