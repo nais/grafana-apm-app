@@ -10,6 +10,16 @@ import { sanitizeLabelValue } from '../../../../utils/sanitize';
 import { usePluginLabelOverrides } from '../../../../utils/datasources';
 import { useTimeRange } from '../../../../utils/timeRange';
 import { StackTraceView, isConsoleCaptureValue } from './StackTraceView';
+import {
+  parseLogfmt,
+  getBreadcrumbIcon,
+  groupBreadcrumbs,
+  formatTimestampNs,
+  formatListWithMore,
+  cleanUrl,
+  Breadcrumb,
+  GroupedBreadcrumb,
+} from '../exception-utils';
 
 /** Millisecond timestamp → Loki nanosecond string (string concat avoids float precision loss). */
 function msToNs(ms: number): string {
@@ -52,31 +62,6 @@ interface ParsedException {
   userId?: string;
   userName?: string;
   userEmail?: string;
-}
-
-interface Breadcrumb {
-  timestampNs: string;
-  kind: string;
-  message: string;
-  type?: string;
-  value?: string;
-  eventName?: string;
-  eventDomain?: string;
-  level?: string;
-  fcp?: string;
-  lcp?: string;
-  cls?: string;
-  inp?: string;
-  ttfb?: string;
-  rating?: string;
-  attributes?: Record<string, string>;
-}
-
-interface GroupedBreadcrumb {
-  timestampNs: string;
-  kind: string;
-  message: string;
-  count: number;
 }
 
 interface AggregatedStats {
@@ -337,23 +322,7 @@ export function ExceptionDrawer({
         crumbs.sort((a, b) => (a.timestampNs > b.timestampNs ? 1 : -1));
 
         // Group consecutive duplicates
-        const groupedCrumbs: GroupedBreadcrumb[] = [];
-        crumbs.forEach((crumb) => {
-          const msg = getBreadcrumbMessage(crumb);
-          const last = groupedCrumbs[groupedCrumbs.length - 1];
-          if (last && last.kind === crumb.kind && last.message === msg) {
-            last.count++;
-          } else {
-            groupedCrumbs.push({
-              timestampNs: crumb.timestampNs,
-              kind: crumb.kind,
-              message: msg,
-              count: 1,
-            });
-          }
-        });
-
-        setBreadcrumbs(groupedCrumbs);
+        setBreadcrumbs(groupBreadcrumbs(crumbs));
         setLoadingBreadcrumbs(false);
       })
       .catch(() => {
@@ -613,116 +582,6 @@ function MetaItem({ label, value, link, icon }: { label: string; value?: string;
       </span>
     </div>
   );
-}
-
-function parseLogfmt(line: string): Record<string, string> {
-  const result: Record<string, string> = {};
-  const regex = /([a-zA-Z0-9_-]+)=(?:"([^"]*)"|([^\s]+))/g;
-  let match;
-  while ((match = regex.exec(line)) !== null) {
-    const key = match[1];
-    const val = match[2] !== undefined ? match[2] : match[3];
-    result[key] = val;
-  }
-  return result;
-}
-
-function getBreadcrumbMessage(bc: Breadcrumb): string {
-  if (bc.kind === 'event') {
-    const name = bc.eventName ? `${bc.eventDomain ? bc.eventDomain + '/' : ''}${bc.eventName}` : 'Unknown Event';
-
-    if (bc.eventName === 'faro.performance.resource' && bc.attributes) {
-      const resUrl = bc.attributes.name || '';
-      const cleanUrl = resUrl.split('?')[0];
-      const duration = bc.attributes.duration ? `${parseInt(bc.attributes.duration, 10)}ms` : '';
-      const initiator = bc.attributes.initiatorType || '';
-      const cache = bc.attributes.cacheHitStatus || '';
-      let sizeStr = '';
-      if (bc.attributes.transferSize) {
-        const bytes = parseInt(bc.attributes.transferSize, 10);
-        if (bytes > 0) {
-          sizeStr = bytes >= 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${bytes} B`;
-        }
-      }
-      const details = [initiator, duration, sizeStr, cache].filter(Boolean).join(', ');
-      return `resource: ${cleanUrl}${details ? ` [${details}]` : ''}`;
-    }
-
-    if (bc.eventName === 'faro.performance.navigation' && bc.attributes) {
-      const pageUrl = bc.attributes.name || '';
-      const cleanUrl = pageUrl.split('?')[0];
-      const duration = bc.attributes.duration ? `${parseInt(bc.attributes.duration, 10)}ms` : '';
-      return `navigation: ${cleanUrl}${duration ? ` [${duration}]` : ''}`;
-    }
-
-    if (bc.attributes) {
-      const attrStr = Object.entries(bc.attributes)
-        .map(([k, v]) => `${k}="${v}"`)
-        .join(', ');
-      return `${name} {${attrStr}}`;
-    }
-    return name;
-  }
-  if (bc.kind === 'measurement' && bc.type === 'web-vitals') {
-    const vitals = [];
-    if (bc.fcp) {
-      vitals.push(`FCP=${parseFloat(bc.fcp).toFixed(0)}ms`);
-    }
-    if (bc.lcp) {
-      vitals.push(`LCP=${parseFloat(bc.lcp).toFixed(0)}ms`);
-    }
-    if (bc.cls) {
-      vitals.push(`CLS=${parseFloat(bc.cls).toFixed(3)}`);
-    }
-    if (bc.inp) {
-      vitals.push(`INP=${parseFloat(bc.inp).toFixed(0)}ms`);
-    }
-    if (bc.ttfb) {
-      vitals.push(`TTFB=${parseFloat(bc.ttfb).toFixed(0)}ms`);
-    }
-    const val = vitals.length > 0 ? vitals.join(', ') : 'Empty Measurement';
-    return bc.rating ? `${val} [${bc.rating}]` : val;
-  }
-  if (bc.kind === 'exception' || bc.level === 'error') {
-    return bc.message || bc.value || bc.type || 'Error';
-  }
-  return bc.message || bc.value || bc.type || '';
-}
-
-function getBreadcrumbIcon(kind: string): string {
-  if (kind === 'event') {
-    return 'bolt';
-  }
-  if (kind === 'measurement') {
-    return 'chart-line';
-  }
-  if (kind === 'exception' || kind === 'error') {
-    return 'exclamation-triangle';
-  }
-  return 'file-alt';
-}
-
-function formatTimestampNs(tsNs: string): string {
-  const tsMs = Math.floor(parseInt(tsNs, 10) / 1000000);
-  const d = new Date(tsMs);
-  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}.${d.getMilliseconds().toString().padStart(3, '0')}`;
-}
-
-function formatListWithMore(items: string[], max = 2): string {
-  if (items.length === 0) {
-    return 'N/A';
-  }
-  if (items.length <= max) {
-    return items.join(', ');
-  }
-  return `${items.slice(0, max).join(', ')} (+${items.length - max} more)`;
-}
-
-function cleanUrl(url?: string): string | undefined {
-  if (!url) {
-    return undefined;
-  }
-  return url.endsWith('.') ? url.slice(0, -1) : url;
 }
 
 const getStyles = (theme: GrafanaTheme2) => ({
