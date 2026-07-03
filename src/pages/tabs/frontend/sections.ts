@@ -5,24 +5,30 @@
  * Loki provides enrichment panels (per-page, full error messages, console logs,
  * sessions) when available. Each function builds one logical section (row).
  */
-import { SceneFlexLayout, SceneFlexItem, SceneQueryRunner, SceneDataTransformer, PanelBuilders } from '@grafana/scenes';
+import React from 'react';
+import {
+  SceneFlexLayout,
+  SceneFlexItem,
+  SceneQueryRunner,
+  SceneDataTransformer,
+  SceneReactObject,
+  PanelBuilders,
+} from '@grafana/scenes';
 import { ThresholdsMode, GraphThresholdsStyleMode } from '@grafana/schema';
 
 import { otel } from '../../../otelconfig';
 import { sanitizeLabelValue } from '../../../utils/sanitize';
-import { PLUGIN_BASE_URL } from '../../../constants';
 import { VITAL_THRESHOLDS, CWV_BUCKET_BOUNDARIES, type VitalKey } from './constants';
 import { makePromQuery, makeLokiQuery } from './panel-helpers';
 import {
   lokiVitalByGroupExpr,
   lokiVitalByPageExpr,
-  lokiTopExceptionsExpr,
-  lokiExceptionSessionsExpr,
   lokiSessionStartExpr,
   lokiConsoleErrorsExpr,
   type LokiClusterOpts,
 } from './queries/loki-builders';
 import { FrontendSceneContext } from './scene-context';
+import { IssuesTable } from './components/IssuesTable';
 
 /** Derive LokiClusterOpts from scene context (undefined when no filter needed). */
 function clusterOpts(ctx: FrontendSceneContext): LokiClusterOpts | undefined {
@@ -378,65 +384,17 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
     })
   );
 
-  // Top Exceptions with full messages and session count (Loki enrichment)
+  // Top Exceptions grouped by stable fingerprint via the backend (#62):
+  // upstream Alloy hash groups merge when messages differ only by dynamic
+  // content. Rendered as a React table (fed by /exceptions/groups) instead of
+  // a raw Loki panel; rows open the ExceptionDrawer via the issueId param.
   if (hasLoki) {
-    const co = clusterOpts(ctx);
-    const topExceptionsQ = new SceneQueryRunner({
-      datasource: { uid: logsDs.uid, type: 'loki' },
-      queries: [
-        {
-          refId: 'count',
-          expr: lokiTopExceptionsExpr(service, '[$__range]', undefined, co),
-          legendFormat: '__auto',
-          format: 'table',
-          instant: true,
-        },
-        {
-          refId: 'sessions',
-          expr: lokiExceptionSessionsExpr(service, '[$__range]', co),
-          legendFormat: '__auto',
-          format: 'table',
-          instant: true,
-        },
-      ],
-    });
-    const topExceptionsData = new SceneDataTransformer({
-      $data: topExceptionsQ,
-      transformations: [{ id: 'merge', options: {} }],
-    });
     exceptionsChildren.push(
       new SceneFlexItem({
         minHeight: 250,
-        body: PanelBuilders.table()
-          .setTitle('Top Exceptions')
-          .setDescription('Most common JavaScript errors — click an error to see full details in the Logs tab')
-          .setData(topExceptionsData)
-          .setOverrides((b) => {
-            b.matchFieldsWithName(fl.hash).overrideCustomFieldConfig('hidden' as any, true);
-            b.matchFieldsWithName('value').overrideDisplayName('Error');
-            b.matchFieldsWithName('Value #count')
-              .overrideDisplayName('Occurrences')
-              .overrideCustomFieldConfig('width' as any, 120);
-            b.matchFieldsWithName('Value #sessions')
-              .overrideDisplayName('Sessions Affected')
-              .overrideCustomFieldConfig('width' as any, 140);
-            b.matchFieldsWithName('Time').overrideCustomFieldConfig('hidden' as any, true);
-            const envParam = environment ? `&environment=${encodeURIComponent(environment)}` : '';
-            const nsSegment = encodeURIComponent(namespace || '_');
-            b.matchFieldsWithName('value').overrideLinks([
-              {
-                title: 'Inspect Exception',
-                url: `${PLUGIN_BASE_URL}/services/${nsSegment}/${encodeURIComponent(service)}?tab=frontend&from=\${__from}&to=\${__to}${envParam}&exceptionHash=\${__data.fields.${fl.hash}}`,
-                targetBlank: false,
-              } as any,
-              {
-                title: 'View in Logs',
-                url: `${PLUGIN_BASE_URL}/services/${nsSegment}/${encodeURIComponent(service)}?tab=logs&from=\${__from}&to=\${__to}${envParam}&includeFaro=true&kindFilter=exception&logSearch=\${__data.fields.${fl.hash}}`,
-                targetBlank: false,
-              } as any,
-            ]);
-          })
-          .build(),
+        body: new SceneReactObject({
+          reactNode: React.createElement(IssuesTable, { namespace, service, environment }),
+        }),
       })
     );
   }

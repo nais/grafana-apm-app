@@ -111,7 +111,6 @@ function ServiceOverview() {
   // Track which tabs have been visited so we keep them mounted.
   const [visitedTabs, setVisitedTabs] = useState<Set<TabId>>(new Set(['overview']));
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setVisitedTabs((prev) => {
       if (prev.has(activeTab)) {
         return prev;

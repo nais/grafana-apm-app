@@ -33,8 +33,9 @@ for alert notifications (#65) and shared investigations:
 
 | Param | Meaning |
 |---|---|
-| `exceptionHash` | Exception group identity (today: the Faro/Alloy `hash` field in Loki). Opens the drawer. When #62 lands, an `issueId` fingerprint parameter will supersede this — `exceptionHash` must keep resolving as an alias. |
-| `exceptionSessionId` | Selected session inside the drawer (optional). Never meaningful without `exceptionHash`. |
+| `issueId` | Fingerprint-based issue identity (#62), e.g. `v1:9f2ab31c04d7e655`. The primary drawer key: resolved to the group's member hashes via `/exceptions/groups`. |
+| `exceptionHash` | Legacy identity: a single Faro/Alloy `hash`. Still resolves (opens the drawer scoped to that one hash) — keep supporting it; old alert annotations and shared links use it. |
+| `exceptionSessionId` | Selected session inside the drawer (optional). Never meaningful without `issueId`/`exceptionHash`. |
 
 Rules for maintainers:
 

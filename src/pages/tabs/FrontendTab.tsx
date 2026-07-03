@@ -16,8 +16,10 @@ import {
   behaviors,
 } from '@grafana/scenes';
 import { DashboardCursorSync } from '@grafana/schema';
-import { getFrontendMetrics } from '../../api/client';
+import { getFrontendMetrics, getExceptionGroups } from '../../api/client';
 import { usePluginDatasources, usePluginLabelOverrides } from '../../utils/datasources';
+import { useFetch } from '../../utils/useFetch';
+import { useTimeRange } from '../../utils/timeRange';
 import { sanitizeLabelValue } from '../../utils/sanitize';
 import { otel } from '../../otelconfig';
 import { useSearchParams } from 'react-router-dom';
@@ -49,12 +51,26 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
   const [vitals, setVitals] = useState<Record<string, number> | undefined>();
   const [searchParams] = useSearchParams();
   const updateParams = useUrlParams();
+  // issueId (fingerprint, #62) is the primary drawer key; exceptionHash is the
+  // legacy deep-link param and keeps resolving (docs/url-contract.md).
+  const selectedIssueId = searchParams.get('issueId') ?? '';
   const selectedHash = searchParams.get('exceptionHash') ?? '';
   const selectedSessionId = searchParams.get('exceptionSessionId') ?? '';
   const setSelectedSessionId = (id: string) => {
     updateParams({ exceptionSessionId: id || null });
   };
   const ds = usePluginDatasources(environment || undefined);
+  const { fromMs, toMs, from, to } = useTimeRange();
+
+  // Resolve the fingerprint to its member hashes (the drawer queries Loki by
+  // hash). The groups response is backend-cached, so this is cheap.
+  const { data: groupsData } = useFetch(
+    () => getExceptionGroups(namespace, service, fromMs, toMs, environment || undefined),
+    [namespace, service, fromMs, toMs, environment],
+    { skip: !selectedIssueId }
+  );
+  const selectedGroup = selectedIssueId ? groupsData?.groups.find((g) => g.fingerprint === selectedIssueId) : undefined;
+  const drawerHashes = selectedIssueId ? (selectedGroup?.memberHashes ?? null) : selectedHash ? [selectedHash] : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -108,11 +124,14 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
         environment={environment}
         vitals={vitals}
         hasLoki={hasLoki}
+        from={from}
+        to={to}
       />
-      {selectedHash && (
+      {drawerHashes && drawerHashes.length > 0 && (
         <ExceptionDrawer
-          key={selectedHash}
-          hash={selectedHash}
+          key={selectedIssueId || selectedHash}
+          hashes={drawerHashes}
+          title={selectedGroup?.title}
           service={service}
           namespace={namespace}
           environment={environment}
@@ -120,8 +139,8 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
           selectedSessionId={selectedSessionId}
           onSessionChange={setSelectedSessionId}
           onClose={() => {
-            // Both params in one transaction — see useUrlParams docs.
-            updateParams({ exceptionHash: null, exceptionSessionId: null });
+            // All drawer params in one transaction — see useUrlParams docs.
+            updateParams({ issueId: null, exceptionHash: null, exceptionSessionId: null });
           }}
         />
       )}
@@ -141,10 +160,14 @@ function FrontendPanels({
   environment,
   vitals,
   hasLoki,
+  from,
+  to,
 }: {
   service: string;
   namespace: string;
   environment?: string;
+  from: string;
+  to: string;
   vitals?: Record<string, number>;
   hasLoki: boolean;
 }) {
@@ -198,7 +221,9 @@ function FrontendPanels({
       : null;
 
     return new EmbeddedScene({
-      $timeRange: new SceneTimeRange({ from: 'now-1h', to: 'now' }),
+      // Synced to the shared URL time range (was hardcoded now-1h, which left
+      // scene panels and the drawer/issues table querying different windows).
+      $timeRange: new SceneTimeRange({ from, to }),
       $variables: new SceneVariableSet({ variables: [browserVar] }),
       $behaviors: [new behaviors.CursorSync({ sync: DashboardCursorSync.Crosshair })],
       controls: [new VariableValueSelectors({}), new SceneTimePicker({}), new SceneRefreshPicker({})],
@@ -215,7 +240,7 @@ function FrontendPanels({
         ],
       }),
     });
-  }, [ds, service, namespace, environment, svcFilter, ah, hasLoki, vitals, labelOverrides]);
+  }, [ds, service, namespace, environment, svcFilter, ah, hasLoki, vitals, labelOverrides, from, to]);
 
   return <scene.Component model={scene} />;
 }

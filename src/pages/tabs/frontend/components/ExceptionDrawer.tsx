@@ -17,7 +17,14 @@ function msToNs(ms: number): string {
 }
 
 interface ExceptionDrawerProps {
-  hash: string;
+  /**
+   * Upstream Alloy hashes to load occurrences for. One entry for legacy
+   * exceptionHash links; several when a fingerprint group (#62) merged
+   * multiple raw hashes.
+   */
+  hashes: string[];
+  /** Group title from the fingerprint pipeline (falls back to parsed value). */
+  title?: string;
   service: string;
   namespace: string;
   environment?: string;
@@ -81,7 +88,8 @@ interface AggregatedStats {
 }
 
 export function ExceptionDrawer({
-  hash,
+  hashes,
+  title,
   service,
   namespace,
   environment,
@@ -113,12 +121,19 @@ export function ExceptionDrawer({
     onSessionChangeRef.current = onSessionChange;
   }, [selectedSessionId, onSessionChange]);
 
+  // Stable key so the occurrences effect doesn't refire on array identity.
+  const hashesKey = hashes.map(sanitizeLabelValue).join('|');
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
 
-    // The |= line filter lets Loki skip logfmt-parsing lines for other hashes.
-    const query = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindException}"${clusterStream}} |= \`${fl.hash}=${sanitizeLabelValue(hash)}\` | logfmt | ${fl.hash}="${sanitizeLabelValue(hash)}"`;
+    // Line prefilters let Loki skip logfmt-parsing lines for other hashes.
+    // Multiple hashes = one fingerprint group's members (#62).
+    const single = !hashesKey.includes('|');
+    const lineFilter = single ? `|= \`${fl.hash}=${hashesKey}\`` : `|~ \`${fl.hash}=(${hashesKey})\``;
+    const fieldFilter = single ? `${fl.hash}="${hashesKey}"` : `${fl.hash}=~"(${hashesKey})"`;
+    const query = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindException}"${clusterStream}} ${lineFilter} | logfmt | ${fieldFilter}`;
 
     lastValueFrom(
       getBackendSrv().fetch<any>({
@@ -232,7 +247,7 @@ export function ExceptionDrawer({
       cancelled = true;
     };
   }, [
-    hash,
+    hashesKey,
     service,
     environment,
     logsUid,
@@ -372,14 +387,16 @@ export function ExceptionDrawer({
   const envParam = environment ? `&environment=${encodeURIComponent(environment)}` : '';
   const nsSegment = encodeURIComponent(namespace || '_');
 
+  // Logs search takes one term — use the session when known, else the first
+  // member hash (merged groups: searching a single member is still useful).
   const logsUrl = exception?.sessionId
     ? `${PLUGIN_BASE_URL}/services/${nsSegment}/${encodeURIComponent(service)}?tab=logs&from=now-6h&to=now${envParam}&includeFaro=true&logSearch=${encodeURIComponent(exception.sessionId)}`
-    : `${PLUGIN_BASE_URL}/services/${nsSegment}/${encodeURIComponent(service)}?tab=logs&from=now-6h&to=now${envParam}&includeFaro=true&kindFilter=exception&logSearch=${encodeURIComponent(hash)}`;
+    : `${PLUGIN_BASE_URL}/services/${nsSegment}/${encodeURIComponent(service)}?tab=logs&from=now-6h&to=now${envParam}&includeFaro=true&kindFilter=exception&logSearch=${encodeURIComponent(hashes[0] ?? '')}`;
 
   return (
     <Drawer
       title={exception?.type || 'Exception Details'}
-      subtitle={exception?.value || hash}
+      subtitle={title || exception?.value || hashes[0]}
       onClose={onClose}
       closeOnMaskClick={true}
       size="lg"
@@ -560,7 +577,7 @@ export function ExceptionDrawer({
                 </>
               )}
               <a
-                href={`${PLUGIN_BASE_URL}/services/${nsSegment}/${encodeURIComponent(service)}?tab=logs&from=now-6h&to=now${envParam}&includeFaro=true&kindFilter=exception&logSearch=${encodeURIComponent(hash)}`}
+                href={`${PLUGIN_BASE_URL}/services/${nsSegment}/${encodeURIComponent(service)}?tab=logs&from=now-6h&to=now${envParam}&includeFaro=true&kindFilter=exception&logSearch=${encodeURIComponent(hashes[0] ?? '')}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className={styles.footerLink}

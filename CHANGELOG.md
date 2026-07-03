@@ -4,6 +4,9 @@
 
 ### Features
 
+- **Fingerprint-grouped exceptions** — Top Exceptions now groups by a stable, versioned fingerprint computed in the backend (exception type + normalized message) instead of the raw per-message Alloy hash: one logical error is one row even when messages carry UUIDs, URLs, or timestamps, with a "merged ×N" badge showing how many raw hashes combined. The Exception Drawer opens via a shareable `issueId` and aggregates occurrences across all member hashes; legacy `exceptionHash` links keep working. (#62)
+- **Frontend tab follows the page time range** — The Frontend tab's panels were pinned to a hardcoded last-1h window; they now honor the shared `from`/`to` URL range like every other tab.
+
 - **Readable stack traces for console-captured exceptions** — The Exception Drawer now collapses runs of Faro SDK, vendored-dependency, and browser-native frames behind an expandable toggle and highlights the first in-app frame as the likely error origin. Exceptions captured via `console.error` get an explanatory badge: their stack shows the console call site, not where the error was thrown. Works retroactively on existing Loki data. (#66)
 - **Grafana-managed alerts on the namespace page** — Namespace alert surfacing now merges Grafana unified-alerting rules (with a "Grafana alert" badge) alongside Mimir ruler rules, fetched in parallel and deduplicated by name. (#65)
 - **Fuzzy service search** — The service inventory search matches partial, misspelled, and out-of-order tokens (e.g. `paymnt svc` finds `nais-payment-service`), ranked by relevance with exact prefix matches first. (#61)

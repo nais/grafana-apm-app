@@ -405,6 +405,44 @@ export async function getNamespaceAlerts(namespace: string): Promise<NamespaceAl
   return fetchResource<NamespaceAlertsResponse>(`/namespaces/${encodeURIComponent(namespace)}/alerts`);
 }
 
+// ---- Exception groups (fingerprint-keyed issues, #62) ----
+
+export interface ExceptionGroup {
+  /** Versioned fingerprint, e.g. "v1:9f2ab31c04d7e655" — the stable issue identity. */
+  fingerprint: string;
+  tier: number;
+  title: string;
+  types?: string[];
+  count: number;
+  sessions: number;
+  /** Upstream Alloy hashes merged into this group (drawer queries by these). */
+  memberHashes: string[];
+  truncated?: boolean;
+}
+
+export interface ExceptionGroupsResponse {
+  fingerprintVersion: string;
+  groups: ExceptionGroup[];
+  unavailable?: boolean;
+}
+
+export async function getExceptionGroups(
+  namespace: string,
+  service: string,
+  from: number,
+  to: number,
+  environment?: string
+): Promise<ExceptionGroupsResponse> {
+  const params: Record<string, string> = { ...timeParams(from, to) };
+  if (environment) {
+    params.environment = environment;
+  }
+  return fetchResource<ExceptionGroupsResponse>(
+    `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/exceptions/groups`,
+    params
+  );
+}
+
 export async function getDependencyDetail(
   name: string,
   from: number,
