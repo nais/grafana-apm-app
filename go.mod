@@ -5,6 +5,7 @@ go 1.25.7
 require (
 	github.com/grafana/grafana-plugin-sdk-go v0.291.1
 	golang.org/x/sync v0.20.0
+	golang.org/x/text v0.35.0
 )
 
 require (
@@ -82,7 +83,6 @@ require (
 	golang.org/x/net v0.52.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/telemetry v0.0.0-20260209163413-e7419c687ee4 // indirect
-	golang.org/x/text v0.35.0 // indirect
 	golang.org/x/tools v0.42.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
 	google.golang.org/genproto v0.0.0-20210630183607-d20f26d13c79 // indirect

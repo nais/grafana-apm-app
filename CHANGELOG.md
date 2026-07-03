@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+- **Readable stack traces for console-captured exceptions** — The Exception Drawer now collapses runs of Faro SDK, vendored-dependency, and browser-native frames behind an expandable toggle and highlights the first in-app frame as the likely error origin. Exceptions captured via `console.error` get an explanatory badge: their stack shows the console call site, not where the error was thrown. Works retroactively on existing Loki data. (#66)
+- **Grafana-managed alerts on the namespace page** — Namespace alert surfacing now merges Grafana unified-alerting rules (with a "Grafana alert" badge) alongside Mimir ruler rules, fetched in parallel and deduplicated by name. (#65)
+- **Fuzzy service search** — The service inventory search matches partial, misspelled, and out-of-order tokens (e.g. `paymnt svc` finds `nais-payment-service`), ranked by relevance with exact prefix matches first. (#61)
+
+### Fixes
+
+- **Infrequent dependencies missing from the service map** — The service-graph rate window now spans the full selected time range (floor 5m, cap 24h) instead of capping at 1h, so hourly batch jobs and cron-driven dependencies stay visible on wide dashboard ranges. (#36)
+- **Status boards re-queried a frozen time window** — Auto-refresh on the Ops Status Board and namespace Status Board now re-resolves relative time ranges (`now-1h`) each tick instead of re-querying the window resolved at first page render forever.
+
+### Performance
+
+- **Request coalescing and wider caching** — Concurrent cache misses for the same key (wallboards polling in lockstep) now share a single backend query fan-out; the fleet-wide `/dependencies` endpoint is cached; `/services` sparkline resolution is clamped server-side to ≤50 points per series; label-values lookups are bounded to the request time range; the Exception Drawer's Loki queries use line prefilters and explicit time bounds. (#69)
+- **Fewer redundant fetches** — Dependency detail no longer fetches fleet-wide sparkline series for its namespace lookup, and label-override settings no longer produce a fresh object per render (which cascaded into scene rebuilds and drawer refetch loops).
+
+### Documentation
+
+- **Development roadmap** — `docs/roadmap.md` sequences milestones M0–M7 across the plugin, `@nais/apm` SDK, and platform tracks.
+- **Stable URL contract** — `docs/url-contract.md` freezes the Exception Drawer deep-link parameters as a stable API for alert annotations and shared links.
+
 ## 0.13.4 (2026-07-01)
 
 ### Fixes
