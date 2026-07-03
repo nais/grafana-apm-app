@@ -41,7 +41,7 @@ export function SessionsPanel({ namespace, service, environment }: SessionsPanel
     <div className={styles.container}>
       <div className={styles.header}>
         <h6 className={styles.title}>Sessions</h6>
-        <span className={styles.subtitle}>Sessions with the most errors — click through to the session's logs</span>
+        <span className={styles.subtitle}>Sessions with the most errors — click through to the session&apos;s logs</span>
         <div className={styles.search}>
           <Input
             prefix={<Icon name="search" />}

@@ -216,18 +216,23 @@ func (c *PrometheusClient) SeriesExists(ctx context.Context, metricName string) 
 // Loki scan their full retention for label values. RFC3339 timestamps are
 // accepted by both backends. Zero times are omitted.
 func (c *PrometheusClient) LabelValues(ctx context.Context, labelName string, start, end time.Time) ([]string, error) {
-	u, err := url.Parse(c.baseURL + "/api/v1/label/" + url.PathEscape(labelName) + "/values")
+	base, err := url.Parse(c.baseURL)
 	if err != nil {
-		return nil, fmt.Errorf("parsing label values URL: %w", err)
+		return nil, fmt.Errorf("parsing base URL: %w", err)
 	}
-	q := u.Query()
+	q := url.Values{}
 	if !start.IsZero() {
 		q.Set("start", start.UTC().Format(time.RFC3339))
 	}
 	if !end.IsZero() {
 		q.Set("end", end.UTC().Format(time.RFC3339))
 	}
-	u.RawQuery = q.Encode()
+	u := &url.URL{
+		Scheme:   base.Scheme,
+		Host:     base.Host,
+		Path:     strings.TrimRight(base.Path, "/") + "/api/v1/label/" + url.PathEscape(labelName) + "/values",
+		RawQuery: q.Encode(),
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
@@ -273,13 +278,16 @@ type MetricMetadata struct {
 // metadata entries for that family — multiple targets may disagree, so
 // Prometheus returns a list. Absence of metadata is not an error.
 func (c *PrometheusClient) Metadata(ctx context.Context, metric string) ([]MetricMetadata, error) {
-	u, err := url.Parse(c.baseURL + "/api/v1/metadata")
+	base, err := url.Parse(c.baseURL)
 	if err != nil {
-		return nil, fmt.Errorf("parsing metadata URL: %w", err)
+		return nil, fmt.Errorf("parsing base URL: %w", err)
 	}
-	q := u.Query()
-	q.Set("metric", metric)
-	u.RawQuery = q.Encode()
+	u := &url.URL{
+		Scheme:   base.Scheme,
+		Host:     base.Host,
+		Path:     strings.TrimRight(base.Path, "/") + "/api/v1/metadata",
+		RawQuery: url.Values{"metric": {metric}}.Encode(),
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
@@ -312,11 +320,16 @@ func (c *PrometheusClient) Metadata(ctx context.Context, metric string) ([]Metri
 }
 
 func (c *PrometheusClient) doQuery(ctx context.Context, path string, params url.Values) ([]PromResult, error) {
-	u, err := url.Parse(c.baseURL + path)
+	base, err := url.Parse(c.baseURL)
 	if err != nil {
 		return nil, fmt.Errorf("parsing base URL: %w", err)
 	}
-	u.RawQuery = params.Encode()
+	u := &url.URL{
+		Scheme:   base.Scheme,
+		Host:     base.Host,
+		Path:     strings.TrimRight(base.Path, "/") + path,
+		RawQuery: params.Encode(),
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
