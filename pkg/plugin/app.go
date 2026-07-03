@@ -152,6 +152,10 @@ func NewApp(_ context.Context, settings backend.AppInstanceSettings) (instancemg
 		"grafanaURL", app.grafanaURL,
 	)
 
+	// nais deploy sync (#64 Phase 2) — enabled only when both the GraphQL URL
+	// (jsonData.naisApiUrl) and token (secureJsonData.naisApiToken) are set.
+	app.startNaisDeploySync(settings.DecryptedSecureJSONData["naisApiToken"])
+
 	mux := http.NewServeMux()
 	app.registerRoutes(mux)
 	app.CallResourceHandler = httpadapter.New(mux)

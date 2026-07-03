@@ -69,6 +69,11 @@ type PluginSettings struct {
 	// ingress hostname (e.g., on-prem services calling via nais ingress).
 	// Key: hostname (e.g., "tilgangsmaskin.intern.nav.no"), Value: service_name.
 	IngressAliases map[string]string `json:"ingressAliases,omitempty"`
+
+	// NaisAPIURL enables the deploy-annotation sync (#64 Phase 2): the nais
+	// Console GraphQL endpoint, e.g. https://console.<tenant>.cloud.nais.io/graphql.
+	// The token lives in secureJsonData under "naisApiToken".
+	NaisAPIURL string `json:"naisApiUrl,omitempty"`
 }
 
 // Capabilities represents the detected OTel data capabilities.
