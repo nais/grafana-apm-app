@@ -150,6 +150,14 @@ func (a *App) handleAlertTemplate(w http.ResponseWriter, req *http.Request) {
 		}
 		defaults = a.webVitalsDefaults(namespace, service, env, uid)
 
+	case "new-exceptions":
+		uid := a.settings.LogsDataSource.Resolve(env).UID
+		if uid == "" {
+			http.Error(w, `{"error":"logs datasource not configured"}`, http.StatusServiceUnavailable)
+			return
+		}
+		defaults = a.newExceptionsDefaults(namespace, service, env, uid)
+
 	default:
 		http.Error(w, `{"error":"unknown alert template kind"}`, http.StatusNotFound)
 		return
@@ -272,6 +280,55 @@ func (a *App) webVitalsDefaults(namespace, service, env, dsUID string) ruleFormD
 		Annotations: []alertKeyValue{
 			{Key: "summary", Value: fmt.Sprintf("Largest Contentful Paint p75 for %s is above %dms (Core Web Vitals \"poor\")", service, lcpP75ThresholdMs)},
 			{Key: "nais_apm_url", Value: serviceDeepLink(namespace, service, env, "frontend", "", "")},
+		},
+		Labels: templateLabels(namespace, service),
+	}
+}
+
+// newExceptionsDefaults builds the #65 Phase 2a "first seen" approximation:
+// one alert instance per exception hash present in the last 30m but absent
+// from the preceding 7 days. This is stateless and therefore APPROXIMATE —
+// the trade-offs are stated in the alert's own summary annotation:
+//   - a hash last seen just beyond the lookback re-fires as "new"
+//   - Loki retention shorter than 7d silently shrinks the baseline
+//   - resolved-issue regressions do NOT fire (no notion of triage state);
+//     exact detection is the #57 Phase 2 backend worker
+//
+// Cost, measured against the chattiest NAV Faro app (tms-min-side,
+// >150k exception lines/day): ~11s per evaluation — acceptable at the 5m
+// evaluation interval this template ships with.
+func (a *App) newExceptionsDefaults(namespace, service, env, dsUID string) ruleFormDefaults {
+	fl := a.otelCfg.FaroLoki
+
+	sel := []string{
+		fmt.Sprintf(`%s="%s"`, fl.ServiceName, service),
+		fmt.Sprintf(`%s="%s"`, fl.Kind, fl.KindException),
+	}
+	if m := envMatcher(a.otelCfg.Labels.DeploymentEnv, env); m != "" {
+		sel = append(sel, m)
+	}
+	stream := "{" + strings.Join(sel, ", ") + "}"
+
+	expr := fmt.Sprintf(
+		`sum by (%[1]s, value) (count_over_time(%[2]s | logfmt | %[1]s!="" | keep %[1]s, value [30m]))
+unless on (%[1]s)
+sum by (%[1]s) (count_over_time(%[2]s | logfmt | %[1]s!="" | keep %[1]s [7d] offset 30m))`,
+		fl.Hash, stream,
+	)
+
+	return ruleFormDefaults{
+		Type:        "grafana",
+		Name:        fmt.Sprintf("New exception types – %s%s", service, envSuffix(env)),
+		Condition:   "C",
+		EvaluateFor: "5m",
+		Queries:     append([]alertQuery{dataQuery(dsUID, expr)}, expressionQueries(0)...),
+		Annotations: []alertKeyValue{
+			{Key: "summary", Value: fmt.Sprintf(
+				"Exception {{ $labels.value }} in %s was not seen in the previous 7 days (approximate stateless detection: "+
+					"issues older than the 7d lookback re-fire as new, and resolved-issue regressions do not fire)", service)},
+			// Templated per-instance deep link: each firing hash opens its
+			// own drawer (docs/url-contract.md).
+			{Key: "nais_apm_url", Value: serviceDeepLink(namespace, service, env, "frontend", "", "{{ $labels."+fl.Hash+" }}")},
 		},
 		Labels: templateLabels(namespace, service),
 	}
