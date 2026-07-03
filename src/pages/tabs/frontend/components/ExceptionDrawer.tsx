@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Drawer, Icon, Spinner, Alert, useStyles2, Combobox } from '@grafana/ui';
+import { Drawer, Icon, Spinner, Alert, useStyles2, Combobox, Badge, Tooltip } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getBackendSrv } from '@grafana/runtime';
@@ -8,6 +8,13 @@ import { otel } from '../../../../otelconfig';
 import { PLUGIN_BASE_URL } from '../../../../constants';
 import { sanitizeLabelValue } from '../../../../utils/sanitize';
 import { usePluginLabelOverrides } from '../../../../utils/datasources';
+import { useTimeRange } from '../../../../utils/timeRange';
+import { StackTraceView, isConsoleCaptureValue } from './StackTraceView';
+
+/** Millisecond timestamp → Loki nanosecond string (string concat avoids float precision loss). */
+function msToNs(ms: number): string {
+  return `${Math.floor(ms)}000000`;
+}
 
 interface ExceptionDrawerProps {
   hash: string;
@@ -96,6 +103,7 @@ export function ExceptionDrawer({
   const fl = otel.faroLoki;
   const clusterLabel = labelOverrides.deploymentEnvLabel || otel.labels.deploymentEnv;
   const clusterStream = environment ? `, ${clusterLabel}="${sanitizeLabelValue(environment)}"` : '';
+  const { fromMs, toMs } = useTimeRange();
 
   const selectedSessionIdRef = useRef(selectedSessionId);
   const onSessionChangeRef = useRef(onSessionChange);
@@ -109,7 +117,8 @@ export function ExceptionDrawer({
     let cancelled = false;
     setLoading(true);
 
-    const query = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindException}"${clusterStream}} | logfmt | ${fl.hash}="${sanitizeLabelValue(hash)}"`;
+    // The |= line filter lets Loki skip logfmt-parsing lines for other hashes.
+    const query = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindException}"${clusterStream}} |= \`${fl.hash}=${sanitizeLabelValue(hash)}\` | logfmt | ${fl.hash}="${sanitizeLabelValue(hash)}"`;
 
     lastValueFrom(
       getBackendSrv().fetch<any>({
@@ -117,6 +126,8 @@ export function ExceptionDrawer({
         params: {
           query,
           limit: '100', // Fetch up to 100 instances to aggregate impact
+          start: msToNs(fromMs),
+          end: msToNs(toMs),
         },
         method: 'GET',
       })
@@ -227,6 +238,8 @@ export function ExceptionDrawer({
     logsUid,
     labelOverrides,
     clusterStream,
+    fromMs,
+    toMs,
     fl.hash,
     fl.kind,
     fl.kindException,
@@ -241,7 +254,12 @@ export function ExceptionDrawer({
     let cancelled = false;
     setLoadingBreadcrumbs(true);
 
-    const breadcrumbsQuery = `{${fl.serviceName}="${sanitizeLabelValue(service)}"${clusterStream}} | logfmt | ${fl.sessionId}="${sanitizeLabelValue(selectedSessionId)}"`;
+    // The |= line filter lets Loki skip logfmt-parsing every Faro line for the app.
+    const breadcrumbsQuery = `{${fl.serviceName}="${sanitizeLabelValue(service)}"${clusterStream}} |= \`${fl.sessionId}=${sanitizeLabelValue(selectedSessionId)}\` | logfmt | ${fl.sessionId}="${sanitizeLabelValue(selectedSessionId)}"`;
+
+    // Pad the page range by an hour on both sides so a session that started
+    // before (or ended after) the selected range isn't clipped.
+    const padMs = 3600_000;
 
     lastValueFrom(
       getBackendSrv().fetch<any>({
@@ -250,6 +268,8 @@ export function ExceptionDrawer({
           query: breadcrumbsQuery,
           limit: '20',
           direction: 'backward', // get the most recent 20 events for the session
+          start: msToNs(fromMs - padMs),
+          end: msToNs(toMs + padMs),
         },
         method: 'GET',
       })
@@ -330,7 +350,7 @@ export function ExceptionDrawer({
     return () => {
       cancelled = true;
     };
-  }, [selectedSessionId, service, environment, logsUid, clusterStream, fl.serviceName, fl.sessionId]);
+  }, [selectedSessionId, service, environment, logsUid, clusterStream, fromMs, toMs, fl.serviceName, fl.sessionId]);
 
   useEffect(() => {
     if (occurrences.length > 0 && selectedSessionId) {
@@ -474,10 +494,24 @@ export function ExceptionDrawer({
 
             {exception.stacktrace && (
               <div className={styles.section}>
-                <h4 className={styles.sectionTitle}>Stack Trace</h4>
-                <pre className={styles.stacktrace}>
-                  <code>{formatStackTrace(exception.stacktrace)}</code>
-                </pre>
+                <h4 className={styles.sectionTitle}>
+                  Stack Trace
+                  {isConsoleCaptureValue(exception.value) && (
+                    <Tooltip content="This exception was captured via console.error — the stack shows the call site of console.error (often a shared logger), not where the error was thrown. The first in-app frame below is the best origin guess.">
+                      <Badge
+                        className={styles.captureBadge}
+                        text="Captured via console.error"
+                        color="orange"
+                        icon="exclamation-triangle"
+                      />
+                    </Tooltip>
+                  )}
+                </h4>
+                <StackTraceView
+                  stack={exception.stacktrace}
+                  isConsoleCapture={isConsoleCaptureValue(exception.value)}
+                  className={styles.stacktrace}
+                />
               </div>
             )}
 
@@ -674,79 +708,6 @@ function cleanUrl(url?: string): string | undefined {
   return url.endsWith('.') ? url.slice(0, -1) : url;
 }
 
-function formatStackTrace(stack: string): React.ReactNode[] {
-  const lines = stack.split('\n');
-  return lines.map((line, i) => {
-    const isAtLine = line.trim().startsWith('at ');
-    if (!isAtLine) {
-      return (
-        <div key={i} style={{ color: '#a6acb9' }}>
-          {line}
-        </div>
-      );
-    }
-
-    // Parse: "at FunctionName (http://url/path/file.js:line:col)" or "at http://url/path/file.js:line:col"
-    const atRegex = /at\s+(.+?)\s*\((.+?)\)/;
-    const directRegex = /at\s+(https?:\/\/.+)/;
-
-    let funcName = '';
-    let filePath = '';
-
-    const matchAt = line.match(atRegex);
-    if (matchAt) {
-      funcName = matchAt[1];
-      filePath = matchAt[2];
-    } else {
-      const matchDirect = line.match(directRegex);
-      if (matchDirect) {
-        filePath = matchDirect[1];
-      }
-    }
-
-    if (!filePath) {
-      return (
-        <div key={i} style={{ color: '#8c95a5' }}>
-          {line}
-        </div>
-      );
-    }
-
-    // Check if the path contains line/col numbers
-    const parts = filePath.split(':');
-    let lineCol = '';
-    let fileClean = filePath;
-    if (parts.length >= 3) {
-      // e.g. ["https", "//site/file.js", "12", "34"] -> line:col is the last two
-      const col = parts.pop();
-      const ln = parts.pop();
-      lineCol = `:${ln}:${col}`;
-      fileClean = parts.join(':');
-    }
-
-    // Try to get clean file name (strip protocol/host)
-    let displayFile = fileClean;
-    try {
-      if (fileClean.startsWith('http')) {
-        const url = new URL(fileClean);
-        displayFile = url.pathname;
-      }
-    } catch {
-      // ignore
-    }
-
-    return (
-      <div key={i} style={{ margin: '2px 0' }}>
-        <span style={{ color: '#f97316', fontWeight: 500 }}>at </span>
-        {funcName && <span style={{ color: '#38bdf8' }}>{funcName} </span>}
-        <span style={{ color: '#8c95a5' }}>({displayFile}</span>
-        <span style={{ color: '#f43f5e', fontWeight: 'bold' }}>{lineCol}</span>
-        <span style={{ color: '#8c95a5' }}>)</span>
-      </div>
-    );
-  });
-}
-
 const getStyles = (theme: GrafanaTheme2) => ({
   container: css`
     display: flex;
@@ -855,6 +816,10 @@ const getStyles = (theme: GrafanaTheme2) => ({
     margin: 0 0 ${theme.spacing(0.5)} 0;
     text-transform: uppercase;
     letter-spacing: 0.05em;
+  `,
+  captureBadge: css`
+    margin-left: ${theme.spacing(1)};
+    vertical-align: middle;
   `,
   stacktrace: css`
     background: ${theme.colors.background.secondary};

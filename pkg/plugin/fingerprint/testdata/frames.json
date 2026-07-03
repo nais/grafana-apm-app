@@ -1,0 +1,105 @@
+{
+  "description": "Golden fixtures for in-app stack-frame classification (#66). Consumed by both pkg/plugin/fingerprint/frames_test.go and src/pages/tabs/frontend/frames.test.ts — keep the Go and TS classifiers in sync with this file.",
+  "cases": [
+    {
+      "path": "webpack://_N_E/../../node_modules/.pnpm/@grafana+faro-web-sdk@2.7.1/node_modules/@grafana/faro-web-sdk/dist/esm/instrumentations/console/instrumentation.js",
+      "inApp": false,
+      "note": "Faro console instrumentation frame from a real NAV pnpm/Next.js build — the console-capture synthetic Error top frame"
+    },
+    {
+      "path": "webpack://_N_E/../../node_modules/.pnpm/@grafana+faro-core@2.7.1/node_modules/@grafana/faro-core/dist/esm/utils/reactive.js",
+      "inApp": false,
+      "note": "faro-core internals (reactive.js) — second frame of console captures"
+    },
+    {
+      "path": "webpack://_N_E/../../node_modules/.pnpm/@grafana+faro-web-sdk@2.7.1/node_modules/@grafana/faro-web-sdk/dist/esm/instrumentations/_internal/monitors/consoleMonitor.js",
+      "inApp": false,
+      "note": "Faro console monitor frame"
+    },
+    {
+      "path": "[native code]",
+      "inApp": false,
+      "note": "browser-native frame (forEach etc.)"
+    },
+    {
+      "path": "/personbruker/shared/logger.ts",
+      "inApp": true,
+      "note": "source-mapped app code — a shared logger utility calling console.error (the best origin guess for console captures)"
+    },
+    {
+      "path": "/personbruker/decorator-next/src/helpers/auth.ts",
+      "inApp": true,
+      "note": "source-mapped app code — the real error origin in the reference example"
+    },
+    {
+      "path": "webpack://_N_E/./src/components/Checkout.tsx",
+      "inApp": true,
+      "note": "webpack app source path (unminified dev or source-mapped)"
+    },
+    {
+      "path": "webpack://my-app/./app/routes/index.ts",
+      "inApp": true,
+      "note": "webpack app source with custom namespace"
+    },
+    {
+      "path": "webpack://_N_E/webpack/bootstrap",
+      "inApp": false,
+      "note": "webpack runtime bootstrap plumbing"
+    },
+    {
+      "path": "webpack://_N_E/webpack/runtime/chunk loaded",
+      "inApp": false,
+      "note": "webpack runtime chunk machinery"
+    },
+    {
+      "path": "/assets/index-BhX2r9.js",
+      "inApp": true,
+      "note": "hashed minified app bundle — still the app's own code (source maps not resolved, #60)"
+    },
+    {
+      "path": "https://cdn.nav.no/team/app/1.2.3/assets/vendor-Cq2ZL9.js",
+      "inApp": true,
+      "note": "CDN-served app bundle without node_modules in path — conservatively in-app (cannot distinguish vendor chunks without source maps)"
+    },
+    {
+      "path": "webpack://_N_E/../../node_modules/.pnpm/react-dom@18.3.1/node_modules/react-dom/cjs/react-dom.production.min.js",
+      "inApp": false,
+      "note": "vendored dependency (react-dom)"
+    },
+    {
+      "path": "node_modules/@grafana/faro-web-tracing/dist/esm/instrumentation.js",
+      "inApp": false,
+      "note": "Faro tracing module via plain node_modules path"
+    },
+    {
+      "path": "@grafana/faro-web-sdk/dist/esm/transports/fetch/transport.js",
+      "inApp": false,
+      "note": "bare Faro module path without node_modules prefix (vendor-chunked source maps)"
+    },
+    {
+      "path": "<anonymous>",
+      "inApp": false,
+      "note": "anonymous eval frame"
+    },
+    {
+      "path": "",
+      "inApp": false,
+      "note": "empty path"
+    },
+    {
+      "path": "?",
+      "inApp": false,
+      "note": "unknown location placeholder"
+    },
+    {
+      "path": "WEBPACK://_N_E/./SRC/App.TSX",
+      "inApp": true,
+      "note": "case-insensitive handling of app source"
+    },
+    {
+      "path": "webpack:///./src/index.ts",
+      "inApp": true,
+      "note": "webpack URL with empty namespace (webpack:///) — app source"
+    }
+  ]
+}
