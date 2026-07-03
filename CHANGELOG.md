@@ -13,6 +13,10 @@
 - **Versions panel** — per-release sessions, adoption share, error-free rate, and exception counts under Top Exceptions, enriched with deploy timestamps from deploy annotations ("did this start with today's release?"). (#64)
 - **Web-vitals attribution** — three new panels show the slowest LCP elements, INP interaction targets, and CLS layout-shift sources from the attribution data Faro v2 already ships.
 
+- **Issue triage** — resolve, ignore, reopen, and assign exceptions, shared across all users and Grafana replicas via an append-only event log in org annotations (zero new infrastructure; the log is the audit history). The Top Exceptions list gains an Unresolved/All/Resolved/Ignored filter (default hides handled issues), per-user "mute for me", and a Regressed badge that bubbles resolved-but-recurring issues to the top after a newer deploy. The drawer gets a triage bar with assignee. (#57)
+- **Automatic deploy annotations** — configure `naisApiUrl` + `naisApiToken` and the backend mirrors successful nais deployments as deploy markers, idempotently — no per-team CI step needed. (#64)
+- **"New exceptions" alert template** — a fourth one-click alert rule fires per exception hash first seen in the last 30 minutes (7-day lookback, honest about its approximations in the alert text). (#65)
+
 ### Fixes
 
 - **Session counts zeroed out on wide time ranges** — the distinct-sessions query exceeds Loki's series limit for chatty apps; it now retries over a narrowing recent window (labelled in the column header, e.g. "Sessions (last 5m)") and shows a dash instead of a misleading 0 when even that fails. Exception queries now use Grafana's `/api/ds/query` API instead of the deprecated datasource proxy.
