@@ -38,6 +38,7 @@ import {
   buildTrafficSection,
   type FrontendSceneContext,
 } from './frontend';
+import { buildAttributionSection } from './frontend/attribution';
 
 interface FrontendTabProps {
   service: string;
@@ -200,6 +201,7 @@ function FrontendPanels({
     const trendsRow = buildTrendsSection(ctx);
     const perPageTable = buildPerPageSection(ctx);
     const errorsRow = buildErrorsSection(ctx);
+    const attributionRow = buildAttributionSection(ctx);
     const supportRow = buildSupportSection(ctx);
     const trafficRow = buildTrafficSection(ctx);
 
@@ -239,6 +241,9 @@ function FrontendPanels({
           // primary workflow of this tab, ahead of the vitals trend charts.
           errorsRow,
           trendsRow,
+          // Web-vitals attribution: which LCP element / interaction / layout
+          // shift is responsible — right after the vitals trends they explain.
+          ...(attributionRow ? [attributionRow] : []),
           ...(perPageTable ? [perPageTable] : []),
           trafficRow,
           ...(supportRow ? [supportRow] : []),

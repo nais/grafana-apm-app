@@ -81,6 +81,64 @@ export function lokiVitalByPageExpr(
   return `topk(20, sum by (${pageLabel}) (sum_over_time(${pipeline} ${labelFormat} | unwrap ${vital} ${window})) / sum by (${pageLabel}) (count_over_time(${pipeline} ${labelFormat} ${window})))`;
 }
 
+/**
+ * Base pipeline for web-vitals attribution breakdowns.
+ *
+ * Like lokiVitalPipeline but additionally requires the attribution context
+ * field to be non-empty, so rows without attribution (older SDKs, vitals
+ * without a target) are excluded before aggregation.
+ *
+ * Attribution field names (verified against @grafana/faro-web-sdk 2.8.2,
+ * instrumentations/webVitals/webVitalsWithAttribution.ts; Alloy prefixes
+ * measurement context entries with `context_` in logfmt):
+ *   lcp → context_element, inp → context_interaction_target,
+ *   cls → context_largest_shift_target
+ */
+export function lokiVitalAttributionPipeline(
+  service: string,
+  vital: string,
+  attrField: string,
+  browserFilter = BROWSER_FILTER,
+  clusterOpts?: LokiClusterOpts
+): string {
+  const fl = otel.faroLoki;
+  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindMeasurement}"${clusterMatcher(clusterOpts)}}`;
+  return `${stream} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" | ${vital}!="" | ${attrField}!="" ${browserFilter} | keep ${vital}, ${attrField}`;
+}
+
+/**
+ * Average vital value per attribution target, limited to the top 8 targets.
+ * e.g. "which LCP elements are slowest", "which interactions have worst INP".
+ */
+export function lokiVitalAttributionAvgExpr(
+  service: string,
+  vital: string,
+  attrField: string,
+  window: string,
+  browserFilter = BROWSER_FILTER,
+  clusterOpts?: LokiClusterOpts
+): string {
+  const pipeline = lokiVitalAttributionPipeline(service, vital, attrField, browserFilter, clusterOpts);
+  return `topk(8, avg by (${attrField}) (avg_over_time(${pipeline} | unwrap ${vital} ${window})))`;
+}
+
+/**
+ * Measurement count per attribution target, limited to the top 8 targets.
+ * Companion to lokiVitalAttributionAvgExpr — shows how often each target
+ * is responsible for the vital, so rare-but-slow outliers stand out.
+ */
+export function lokiVitalAttributionCountExpr(
+  service: string,
+  vital: string,
+  attrField: string,
+  window: string,
+  browserFilter = BROWSER_FILTER,
+  clusterOpts?: LokiClusterOpts
+): string {
+  const pipeline = lokiVitalAttributionPipeline(service, vital, attrField, browserFilter, clusterOpts);
+  return `topk(8, sum by (${attrField}) (count_over_time(${pipeline} ${window})))`;
+}
+
 /** Total exception count over time (for timeseries). */
 export function lokiExceptionExpr(service: string, window: string, clusterOpts?: LokiClusterOpts): string {
   const fl = otel.faroLoki;

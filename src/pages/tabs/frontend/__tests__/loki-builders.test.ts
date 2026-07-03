@@ -3,6 +3,9 @@ import {
   lokiVitalExpr,
   lokiVitalByGroupExpr,
   lokiVitalByPageExpr,
+  lokiVitalAttributionPipeline,
+  lokiVitalAttributionAvgExpr,
+  lokiVitalAttributionCountExpr,
   lokiExceptionExpr,
   lokiTopExceptionsExpr,
   lokiExceptionSessionsExpr,
@@ -84,6 +87,63 @@ describe('loki-builders', () => {
       const result = lokiVitalByPageExpr(service, 'lcp', 'page_url', '[$__range]');
       // The template uses if/else to fall back to page_url
       expect(result).toContain('{{if .page_id}}{{.page_id}}{{else}}{{.page_url}}{{end}}');
+    });
+  });
+
+  describe('lokiVitalAttributionPipeline', () => {
+    it('filters web-vitals measurements requiring both vital and attribution field', () => {
+      const result = lokiVitalAttributionPipeline(service, 'lcp', 'context_element');
+      expect(result).toContain(`service_name="my-app"`);
+      expect(result).toContain('kind="measurement"');
+      expect(result).toContain('type="web-vitals"');
+      expect(result).toContain('lcp!=""');
+      expect(result).toContain('context_element!=""');
+      expect(result).toContain('keep lcp, context_element');
+    });
+
+    it('applies browser filter by default', () => {
+      const result = lokiVitalAttributionPipeline(service, 'lcp', 'context_element');
+      expect(result).toContain('browser_name=~"$browser|"');
+    });
+
+    it('sanitizes service names with special characters', () => {
+      const result = lokiVitalAttributionPipeline('my"app', 'lcp', 'context_element');
+      expect(result).not.toContain('"my"app"');
+    });
+  });
+
+  describe('lokiVitalAttributionAvgExpr', () => {
+    it('ranks top 8 LCP elements by average vital value', () => {
+      const result = lokiVitalAttributionAvgExpr(service, 'lcp', 'context_element', '[$__range]');
+      expect(result).toContain('topk(8');
+      expect(result).toContain('avg by (context_element)');
+      expect(result).toContain('avg_over_time');
+      expect(result).toContain('unwrap lcp');
+      expect(result).toContain('[$__range]');
+    });
+
+    it('groups INP by interaction target', () => {
+      const result = lokiVitalAttributionAvgExpr(service, 'inp', 'context_interaction_target', '[$__range]');
+      expect(result).toContain('avg by (context_interaction_target)');
+      expect(result).toContain('inp!=""');
+      expect(result).toContain('context_interaction_target!=""');
+      expect(result).toContain('unwrap inp');
+    });
+
+    it('groups CLS by largest shift target', () => {
+      const result = lokiVitalAttributionAvgExpr(service, 'cls', 'context_largest_shift_target', '[$__range]');
+      expect(result).toContain('avg by (context_largest_shift_target)');
+      expect(result).toContain('unwrap cls');
+    });
+  });
+
+  describe('lokiVitalAttributionCountExpr', () => {
+    it('counts measurements per attribution target', () => {
+      const result = lokiVitalAttributionCountExpr(service, 'lcp', 'context_element', '[$__range]');
+      expect(result).toContain('topk(8');
+      expect(result).toContain('sum by (context_element)');
+      expect(result).toContain('count_over_time');
+      expect(result).not.toContain('unwrap');
     });
   });
 
@@ -175,6 +235,13 @@ describe('loki-builders', () => {
     it('injects cluster filter into measurement count expr', () => {
       const result = lokiMeasurementCountExpr(service, '[$__range]', co);
       expect(result).toContain('k8s_cluster_name="prod-gcp"');
+    });
+
+    it('injects cluster filter into attribution exprs', () => {
+      const avg = lokiVitalAttributionAvgExpr(service, 'lcp', 'context_element', '[$__range]', undefined, co);
+      expect(avg).toContain('k8s_cluster_name="prod-gcp"');
+      const count = lokiVitalAttributionCountExpr(service, 'lcp', 'context_element', '[$__range]', undefined, co);
+      expect(count).toContain('k8s_cluster_name="prod-gcp"');
     });
 
     it('does not inject cluster filter when cluster is empty', () => {

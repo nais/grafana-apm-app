@@ -110,5 +110,18 @@ export const otel = {
     pageId: 'page_id',
     hash: 'hash',
     sessionId: 'session_id',
+    // Web-vitals attribution context fields (Faro Web SDK v2, always collected).
+    // Source: @grafana/faro-web-sdk 2.8.2
+    // instrumentations/webVitals/webVitalsWithAttribution.ts — the SDK pushes
+    // these keys on the measurement *context*, and Alloy's faro.receiver
+    // flattens context entries into logfmt with a `context_` prefix:
+    //   LCP: context.element              = attribution.target        → context_element
+    //   INP: context.interaction_target   = attribution.interactionTarget → context_interaction_target
+    //   CLS: context.largest_shift_target = attribution.largestShiftTarget → context_largest_shift_target
+    // (Timing sub-parts like element_render_delay / input_delay /
+    // largest_shift_value land in *values*, i.e. unprefixed logfmt keys.)
+    lcpElement: 'context_element',
+    inpInteractionTarget: 'context_interaction_target',
+    clsShiftTarget: 'context_largest_shift_target',
   },
 } as const;
