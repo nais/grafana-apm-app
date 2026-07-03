@@ -99,7 +99,13 @@ export function _resetDevModeWarning(): void {
 export function resolveConfig(options: ConfigOptions = {}): ResolvedConfig {
   const envApp = safeEnv(() => process.env.NAIS_APP_NAME);
   const envCluster = safeEnv(() => process.env.NAIS_CLUSTER_NAME);
-  const envVersion = versionFromImage(safeEnv(() => process.env.NAIS_APP_IMAGE));
+  // The commit SHA is the release identity that deploy annotations carry
+  // (nais/grafana-apm-app#64: the deploy-annotation action defaults to
+  // github.sha), so preferring GITHUB_SHA makes app.version join deploy
+  // markers and release tracking without per-team convention work. The
+  // image-tag derivation stays as the fallback.
+  const envSha = safeEnv(() => process.env.GITHUB_SHA);
+  const envVersion = envSha ?? versionFromImage(safeEnv(() => process.env.NAIS_APP_IMAGE));
 
   const app = options.app ?? readMeta('nais-app') ?? envApp;
   const environment = options.environment ?? readMeta('nais-cluster') ?? envCluster;

@@ -64,6 +64,12 @@ describe('resolveConfig', () => {
     expect(resolveConfig().app).toBe('meta-app');
   });
 
+  it('prefers GITHUB_SHA over the image tag for the version (release identity, #64)', () => {
+    vi.stubEnv('GITHUB_SHA', 'abc1234def5678');
+    vi.stubEnv('NAIS_APP_IMAGE', 'europe-north1-docker.pkg.dev/nais/env-app:1.2.3-cafebabe');
+    expect(resolveConfig({ app: 'a', environment: 'dev-gcp' }).version).toBe('abc1234def5678');
+  });
+
   it('derives the well-known collector from the cluster name', () => {
     expect(resolveConfig({ app: 'a', environment: 'prod-gcp' }).telemetryUrl).toBe(
       'https://telemetry.nav.no/collect'
