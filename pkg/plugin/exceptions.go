@@ -18,6 +18,10 @@ import (
 // cap the list so pathological groups can't produce unbounded regexes (#62).
 const maxMemberHashes = 50
 
+// Response cap: groups are sorted by occurrence count, and noisy apps produce
+// hundreds of long-tail groups nobody pages through — cap the payload.
+const maxGroups = 100
+
 // ExceptionGroup is one fingerprint-keyed issue group (#62 Phase 0):
 // upstream Alloy hash groups (xxh3 of the raw message) merged by the
 // versioned fingerprint so dynamic message content doesn't splinter issues.
@@ -175,6 +179,9 @@ func (a *App) queryExceptionGroups(ctx context.Context, loki *queries.Prometheus
 		}
 		return out[i].Fingerprint < out[j].Fingerprint
 	})
+	if len(out) > maxGroups {
+		out = out[:maxGroups]
+	}
 
 	return ExceptionGroupsResponse{FingerprintVersion: fingerprint.Version, Groups: out}
 }

@@ -1,5 +1,5 @@
-import React from 'react';
-import { Badge, Tooltip, useStyles2 } from '@grafana/ui';
+import React, { useState } from 'react';
+import { Badge, Pagination, Tooltip, useStyles2 } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getExceptionGroups, ExceptionGroup } from '../../../../api/client';
@@ -34,6 +34,15 @@ export function IssuesTable({ namespace, service, environment }: IssuesTableProp
   const groups = data?.groups ?? [];
   const totalCount = groups.reduce((sum, g) => sum + g.count, 0);
 
+  // Client-side pagination: noisy apps produce hundreds of groups and the
+  // panel would otherwise grow unbounded. The page is clamped at render so a
+  // shrinking result set (time range/service change) snaps back without any
+  // state juggling. The share bar stays relative to the WHOLE result set.
+  const [rawPage, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(groups.length / PAGE_SIZE));
+  const page = Math.min(rawPage, totalPages);
+  const pageGroups = groups.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
   return (
     <div className={styles.container}>
       <div className={styles.header}>
@@ -58,7 +67,7 @@ export function IssuesTable({ namespace, service, environment }: IssuesTableProp
             </tr>
           </thead>
           <tbody>
-            {groups.map((g) => (
+            {pageGroups.map((g) => (
               <IssueRow
                 key={g.fingerprint}
                 group={g}
@@ -68,10 +77,19 @@ export function IssuesTable({ namespace, service, environment }: IssuesTableProp
             ))}
           </tbody>
         </table>
+        <div className={styles.footer}>
+          <span className={styles.footerCount}>
+            {groups.length === 1 ? '1 issue' : `${groups.length} issues`}
+            {totalPages > 1 && ` · showing ${(page - 1) * PAGE_SIZE + 1}–${Math.min(page * PAGE_SIZE, groups.length)}`}
+          </span>
+          <Pagination currentPage={page} numberOfPages={totalPages} onNavigate={setPage} hideWhenSinglePage />
+        </div>
       </DataState>
     </div>
   );
 }
+
+const PAGE_SIZE = 10;
 
 function IssueRow({ group, totalCount, onOpen }: { group: ExceptionGroup; totalCount: number; onOpen: () => void }) {
   const styles = useStyles2(getStyles);
@@ -189,6 +207,16 @@ const getStyles = (theme: GrafanaTheme2) => ({
     opacity: 0.7;
   `,
   shareLabel: css`
+    color: ${theme.colors.text.secondary};
+    font-size: ${theme.typography.bodySmall.fontSize};
+  `,
+  footer: css`
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: ${theme.spacing(1, 1, 0.5)};
+  `,
+  footerCount: css`
     color: ${theme.colors.text.secondary};
     font-size: ${theme.typography.bodySmall.fontSize};
   `,
