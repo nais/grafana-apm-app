@@ -11,6 +11,15 @@ importers:
       '@grafana/faro-web-sdk':
         specifier: ^2.8.2
         version: 2.8.2
+      '@grafana/rrweb':
+        specifier: 2.0.0-grafana.2
+        version: 2.0.0-grafana.2
+      '@grafana/rrweb-snapshot':
+        specifier: 2.0.0-grafana.2
+        version: 2.0.0-grafana.2
+      fflate:
+        specifier: ^0.8.3
+        version: 0.8.3
     devDependencies:
       jsdom:
         specifier: ^26.1.0
@@ -217,6 +226,21 @@ packages:
   '@grafana/faro-web-sdk@2.8.2':
     resolution: {integrity: sha512-WnUDnyQSQRq22Nb5kqm+g9SellSEUfiEuWQ7Pgwnvj5tnIO72E9JHNnJdurk4MveX8ulWrdyKxyk1L10FUJyzg==}
 
+  '@grafana/rrdom@2.0.0-grafana.2':
+    resolution: {integrity: sha512-eZFrDVTaoaiERuKyxv378XyzndcLz/oji8aWIIv9PD0yzCAnNA9jL9pCZvwrbas86ZEJmwKISWhioHAycPF2VA==}
+
+  '@grafana/rrweb-snapshot@2.0.0-grafana.2':
+    resolution: {integrity: sha512-IFJnlW+3MmOxI53B1t1Fsu2sqrfWkA2c8pLo0jkqNmUnTqQbqEp9iuwA/mXRViMnQRm9QrpCnHf/Y5P/K5Mq6w==}
+
+  '@grafana/rrweb-types@2.0.0-grafana.2':
+    resolution: {integrity: sha512-/xFgQ8ztj5N0R1G6EBWoUXthcdosue9MdSIjLgLOrhAQrr6JhFzrH04NAEWzKmXSBzMEBTvbBu6L6R4NLzV2pA==}
+
+  '@grafana/rrweb-utils@2.0.0-grafana.2':
+    resolution: {integrity: sha512-UytD4i76BZRruGUZ1O2th32FzbcItqIlcdGTXm2neW93xrhMCHXNyMTUr9OnN/rjxRcLzcjNCfFzSXD86Aq85w==}
+
+  '@grafana/rrweb@2.0.0-grafana.2':
+    resolution: {integrity: sha512-sQZj50i0t6YjLL8vY5CogSAXusmWusWhLifGK7RXLluQhlUZLB5Qfz+DUGN17UuJoE/Zrhe0nEF2gA+LqEEUDg==}
+
   '@jridgewell/sourcemap-codec@1.5.5':
     resolution: {integrity: sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og==}
 
@@ -396,6 +420,9 @@ packages:
   '@types/chai@5.2.3':
     resolution: {integrity: sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==}
 
+  '@types/css-font-loading-module@0.0.7':
+    resolution: {integrity: sha512-nl09VhutdjINdWyXxHWN/w9zlNCfr60JUqJbd24YXUuCwgeL0TpFSdElCwb6cxfB6ybE19Gjj4g0jsgkXxKv1Q==}
+
   '@types/deep-eql@4.0.2':
     resolution: {integrity: sha512-c9h9dVVMigMPc4bwTvC5dxqtqJZwQPePsWjPlpSOnojbor6pGqdk541lfA7AqFQr5pB1BRdq0juY9db81BwyFw==}
 
@@ -431,6 +458,9 @@ packages:
   '@vitest/utils@3.2.6':
     resolution: {integrity: sha512-lI23nIs4bnT3T8NIoh+vFaz5s2/DdP0Jgt2jxwgWljvwn82cLJtyi/If+fjFyoLMGIOz0U/fKvWE0d4jsNQEfg==}
 
+  '@xstate/fsm@1.6.5':
+    resolution: {integrity: sha512-b5o1I6aLNeYlU/3CPlj/Z91ybk1gUsKT+5NAJI+2W4UjvS5KLG28K9v5UvNoFVjHV8PajVZ00RH3vnjyQO7ZAw==}
+
   agent-base@7.1.4:
     resolution: {integrity: sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==}
     engines: {node: '>= 14'}
@@ -438,6 +468,10 @@ packages:
   assertion-error@2.0.1:
     resolution: {integrity: sha512-Izi8RQcffqCeNVgFigKli1ssklIbpHnCYc6AknXGYoB6grJqyeby7jv12JUQgmTAnIDnbck1uxksT4dzN3PWBA==}
     engines: {node: '>=12'}
+
+  base64-arraybuffer@1.0.2:
+    resolution: {integrity: sha512-I3yl4r9QB5ZRY3XuJVEPfc2XhZO6YweFPI+UovAzn+8/hb3oJ6lnysaFcjVpkCPfVWFUDvoZ8kmVDP7WyRtYtQ==}
+    engines: {node: '>= 0.6.0'}
 
   cac@6.7.14:
     resolution: {integrity: sha512-b6Ilus+c3RrdDk+JhLKUAQfzzgLEPy6wcXqS7f/xe1EETvsDP6GORG7SFuOs6cID5YkqchW/LXZbX5bc8j7ZcQ==}
@@ -503,6 +537,9 @@ packages:
       picomatch:
         optional: true
 
+  fflate@0.8.3:
+    resolution: {integrity: sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA==}
+
   fsevents@2.3.3:
     resolution: {integrity: sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==}
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
@@ -547,6 +584,9 @@ packages:
 
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
+
+  mitt@3.0.1:
+    resolution: {integrity: sha512-vKivATfr97l2/QBCYAkXYDbrIWPM2IIKEl7YPhjCvKlG3kE2gm+uBo6nEXK3M5/Ffh/FLpKExzOQ3JJoJGFKBw==}
 
   ms@2.1.3:
     resolution: {integrity: sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==}
@@ -904,6 +944,29 @@ snapshots:
       ua-parser-js: 1.0.41
       web-vitals: 5.3.0
 
+  '@grafana/rrdom@2.0.0-grafana.2':
+    dependencies:
+      '@grafana/rrweb-snapshot': 2.0.0-grafana.2
+
+  '@grafana/rrweb-snapshot@2.0.0-grafana.2':
+    dependencies:
+      postcss: 8.5.16
+
+  '@grafana/rrweb-types@2.0.0-grafana.2': {}
+
+  '@grafana/rrweb-utils@2.0.0-grafana.2': {}
+
+  '@grafana/rrweb@2.0.0-grafana.2':
+    dependencies:
+      '@grafana/rrdom': 2.0.0-grafana.2
+      '@grafana/rrweb-snapshot': 2.0.0-grafana.2
+      '@grafana/rrweb-types': 2.0.0-grafana.2
+      '@grafana/rrweb-utils': 2.0.0-grafana.2
+      '@types/css-font-loading-module': 0.0.7
+      '@xstate/fsm': 1.6.5
+      base64-arraybuffer: 1.0.2
+      mitt: 3.0.1
+
   '@jridgewell/sourcemap-codec@1.5.5': {}
 
   '@opentelemetry/api-logs@0.219.0':
@@ -1036,6 +1099,8 @@ snapshots:
       '@types/deep-eql': 4.0.2
       assertion-error: 2.0.1
 
+  '@types/css-font-loading-module@0.0.7': {}
+
   '@types/deep-eql@4.0.2': {}
 
   '@types/estree@1.0.9': {}
@@ -1082,9 +1147,13 @@ snapshots:
       loupe: 3.2.1
       tinyrainbow: 2.0.0
 
+  '@xstate/fsm@1.6.5': {}
+
   agent-base@7.1.4: {}
 
   assertion-error@2.0.1: {}
+
+  base64-arraybuffer@1.0.2: {}
 
   cac@6.7.14: {}
 
@@ -1159,6 +1228,8 @@ snapshots:
     optionalDependencies:
       picomatch: 4.0.5
 
+  fflate@0.8.3: {}
+
   fsevents@2.3.3:
     optional: true
 
@@ -1222,6 +1293,8 @@ snapshots:
   magic-string@0.30.21:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
+
+  mitt@3.0.1: {}
 
   ms@2.1.3: {}
 

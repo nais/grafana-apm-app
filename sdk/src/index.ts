@@ -61,6 +61,27 @@ export interface InitOptions extends ConfigOptions {
    * top-level options.
    */
   faro?: Partial<BrowserConfig>;
+  /**
+   * Error-triggered session replay (nais/grafana-apm-app#58). Off by default —
+   * opt-in per app, and the recording is masked at capture time by a
+   * non-overridable privacy floor (all text and inputs; unmasking only via
+   * explicit `data-apm-unmask` markup). `block` can only tighten masking.
+   */
+  sessionReplay?: {
+    enabled?: boolean;
+    /** 'on-error' (default): buffer in memory, send only once an error occurs. */
+    mode?: 'on-error' | 'always';
+    /** Fraction of sessions recorded, 0..1 (default 1). */
+    sampleRate?: number;
+    /** Extra CSS selectors to block entirely (tighten-only). */
+    block?: string[];
+  };
+  /**
+   * Capture one masked DOM snapshot per new error (nais/grafana-apm-app#67).
+   * Works without sessionReplay; automatically off when sessionReplay is
+   * enabled (a recording's checkout already contains the snapshot).
+   */
+  screenshotOnError?: boolean;
 }
 
 /**
@@ -107,7 +128,58 @@ export function init(options: InitOptions = {}): Faro {
     ),
   };
 
+  // Replay/snapshot error trigger: the composed beforeSend sees every
+  // exception item regardless of capture path (uncaught, unhandledrejection,
+  // captureException, console capture) — one choke point, set after the
+  // lazily imported replay machinery is ready.
+  let onErrorItem: ((message: string) => void) | undefined;
+  const composed = browserConfig.beforeSend!;
+  browserConfig.beforeSend = (item) => {
+    const result = composed(item);
+    if (result && onErrorItem && (item as { type?: string }).type === 'exception') {
+      const payload = (item as { payload?: { value?: unknown } }).payload;
+      onErrorItem(String(payload?.value ?? ''));
+    }
+    return result;
+  };
+
   const faro = initializeFaro(browserConfig);
   setFaroInstance(faro);
+
+  const replay = options.sessionReplay;
+  const wantRecording = replay?.enabled === true;
+  const wantSnapshot = options.screenshotOnError === true && !wantRecording;
+  if (wantRecording || wantSnapshot) {
+    const push = (name: string, attributes: Record<string, string>): void => {
+      faro.api.pushEvent(name, attributes);
+    };
+    if (wantRecording) {
+      void import('./replay/recording.js')
+        .then(({ startRecording }) =>
+          startRecording({
+            mode: replay?.mode ?? 'on-error',
+            sampleRate: replay?.sampleRate,
+            block: replay?.block,
+            push,
+            sessionId: faro.api.getSession?.()?.id,
+          })
+        )
+        .then((handle) => {
+          if (handle) {
+            onErrorItem = () => handle.notifyError();
+          }
+        })
+        .catch(() => {});
+    } else {
+      void import('./replay/snapshot.js')
+        .then(({ captureSnapshot }) => {
+          onErrorItem = (message) => {
+            void captureSnapshot(message, push, { block: replay?.block });
+          };
+        })
+        .catch(() => {});
+    }
+  }
+
   return faro;
 }

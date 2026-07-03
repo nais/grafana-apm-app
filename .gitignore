@@ -52,3 +52,5 @@ coverage.out
 
 # Sibling checkout of nais/helm-charts (real Alloy config lives there)
 helm-charts/
+# SDK future home (github.com/nais/apm) — sibling checkout
+apm-client/

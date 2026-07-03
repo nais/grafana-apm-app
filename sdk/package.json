@@ -29,7 +29,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@grafana/faro-web-sdk": "^2.8.2"
+    "@grafana/faro-web-sdk": "^2.8.2",
+    "@grafana/rrweb": "2.0.0-grafana.2",
+    "@grafana/rrweb-snapshot": "2.0.0-grafana.2",
+    "fflate": "^0.8.3"
   },
   "devDependencies": {
     "jsdom": "^26.1.0",
