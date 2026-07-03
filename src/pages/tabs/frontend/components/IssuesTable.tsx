@@ -15,6 +15,8 @@ import { useFetch } from '../../../../utils/useFetch';
 import { useTimeRange } from '../../../../utils/timeRange';
 import { useUrlParams } from '../../../../utils/useUrlState';
 import { useUserMutes } from '../../../../utils/userStorage';
+import { usePluginDatasources } from '../../../../utils/datasources';
+import { buildExceptionTracesExploreUrl } from '../../../../utils/explore';
 import { DataState } from '../../../../components/DataState';
 
 interface IssuesTableProps {
@@ -49,8 +51,9 @@ const SOURCE_OPTIONS: Array<{ label: string; value: SourceFilter }> = [
  */
 export function IssuesTable({ namespace, service, environment }: IssuesTableProps) {
   const styles = useStyles2(getStyles);
-  const { fromMs, toMs } = useTimeRange();
+  const { fromMs, toMs, from, to } = useTimeRange();
   const updateParams = useUrlParams();
+  const ds = usePluginDatasources(environment || undefined);
 
   const { data, loading, error } = useFetch(
     () => getIssues(namespace, service, fromMs, toMs, environment),
@@ -177,6 +180,15 @@ export function IssuesTable({ namespace, service, environment }: IssuesTableProp
               <IssueRow
                 key={g.fingerprint}
                 group={g}
+                tracesUrl={
+                  g.source === 'server' && ds.tracesUid
+                    ? buildExceptionTracesExploreUrl(ds.tracesUid, service, {
+                        exceptionType: g.types?.[0],
+                        from,
+                        to,
+                      })
+                    : undefined
+                }
                 state={stateOf(g.fingerprint)}
                 regressed={isRegressed(g)}
                 muted={mutes.has(g.fingerprint)}
@@ -221,6 +233,7 @@ const PAGE_SIZE = 10;
 
 function IssueRow({
   group,
+  tracesUrl,
   state,
   regressed,
   muted,
@@ -231,6 +244,8 @@ function IssueRow({
   onMute,
 }: {
   group: UnifiedIssue;
+  /** Explore deep link to traces carrying this issue's exception events (#63 P2, server issues). */
+  tracesUrl?: string;
   state?: TriageState;
   regressed: boolean;
   muted: boolean;
@@ -302,6 +317,11 @@ function IssueRow({
             </>
           ) : (
             <IconButton name="history" size="sm" tooltip="Reopen (unresolve)" onClick={() => onAct('unresolve')} />
+          )}
+          {tracesUrl && (
+            <a href={tracesUrl} target="_blank" rel="noopener noreferrer" aria-label="View example traces">
+              <IconButton name="gf-traces" size="sm" tooltip="View traces with this exception (Tempo ≥ 2.6)" />
+            </a>
           )}
           <IconButton
             name={muted ? 'bell' : 'bell-slash'}

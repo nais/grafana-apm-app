@@ -6,6 +6,7 @@ import {
   buildLogsDrilldownUrl,
   buildMetricsDrilldownUrl,
   buildTracesDrilldownUrl,
+  buildExceptionTracesExploreUrl,
 } from './explore';
 
 /** Parse the `left` param from a Grafana Explore URL */
@@ -262,5 +263,22 @@ describe('buildTracesDrilldownUrl', () => {
     const params = new URLSearchParams(url.split('?')[1]);
     expect(params.get('from')).toBe('now-1h');
     expect(params.get('to')).toBe('now');
+  });
+});
+
+describe('buildExceptionTracesExploreUrl', () => {
+  it('builds an event-scope TraceQL query for exception span events', () => {
+    const url = buildExceptionTracesExploreUrl('tempo-uid', 'my-app', { exceptionType: 'PSQLException' });
+    const left = JSON.parse(new URLSearchParams(url.split('?')[1]).get('left')!);
+    expect(left.datasource).toBe('tempo-uid');
+    expect(left.queries[0].query).toBe(
+      '{resource.service.name="my-app" && event:name="exception" && event.exception.type="PSQLException"}'
+    );
+  });
+
+  it('omits the type filter when no exception type is known', () => {
+    const url = buildExceptionTracesExploreUrl('tempo-uid', 'my-app');
+    const left = JSON.parse(new URLSearchParams(url.split('?')[1]).get('left')!);
+    expect(left.queries[0].query).toBe('{resource.service.name="my-app" && event:name="exception"}');
   });
 });

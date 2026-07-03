@@ -23,6 +23,29 @@ export function buildExploreUrl(params: ExploreParams): string {
 /**
  * Build an Explore URL for Tempo traces filtered by service.
  */
+/**
+ * Explore URL finding traces that carry exception span events for a service
+ * (#63 Phase 2). Uses TraceQL's event scope — requires Tempo >= 2.6; on older
+ * Tempo the query errors visibly in Explore, which is the documented fallback
+ * for a deep link (no in-product query to probe for).
+ */
+export function buildExceptionTracesExploreUrl(
+  tempoUid: string,
+  serviceName: string,
+  options?: { exceptionType?: string; from?: string; to?: string }
+): string {
+  let query = `{${otel.traceQL.serviceName}="${escapeQueryString(serviceName)}" && event:name="exception"`;
+  if (options?.exceptionType) {
+    query += ` && event.exception.type="${escapeQueryString(options.exceptionType)}"`;
+  }
+  query += '}';
+  return buildExploreUrl({
+    datasourceUid: tempoUid,
+    queries: [{ refId: 'A', queryType: 'traceql', query }],
+    range: options?.from && options?.to ? { from: options.from, to: options.to } : undefined,
+  });
+}
+
 export function buildTempoExploreUrl(
   tempoUid: string,
   serviceName: string,
