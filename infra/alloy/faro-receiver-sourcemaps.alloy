@@ -1,0 +1,78 @@
+// Alloy `faro.receiver` sourcemaps config — Phase 0 of nais/grafana-apm-app#60
+// "Faro source maps via cdn.nav.no (auth & CORS wall)"
+//
+// TARGET REPO: the platform's Alloy config repo (wherever the tenant's
+// `faro.receiver` instances are defined — one per collector deployment,
+// e.g. telemetry.nav.no / telemetry.ekstern.dev.nav.no). NOT this repo.
+// Apply to every `faro.receiver` block in every environment.
+//
+// Milestone: M0 (target v0.14), Platform track.
+//
+// Why this change is needed:
+// Alloy symbolicates stack traces AT INGEST by downloading the minified JS
+// referenced in each stack frame and resolving its `sourceMappingURL`. NAV
+// apps sit behind Wonderwall (Azure AD / ID-porten), so an unauthenticated
+// fetch to the app's own origin gets a 302/401. That failure is cached for
+// `error_cleanup_interval` (default 1h) and the stack is stored minified in
+// Loki PERMANENTLY — symbolication only happens once, at write time.
+//
+// Fix: point Alloy at cdn.nav.no (public, no auth wall) instead of the app
+// origin, and tune the timeout/cache-retry knobs for that CDN's realities
+// (multi-MB maps, occasional upload-vs-deploy races).
+
+faro.receiver "frontend" {
+  sourcemaps {
+    // Keep symbolication enabled (this is the default, stated for clarity).
+    download = true
+
+    // Only ever attempt direct-download symbolication against cdn.nav.no.
+    // Default is ["*"], which today means Alloy also tries (and fails) to
+    // hit Wonderwall-protected app origins directly — every one of those
+    // failures poisons the error cache below for `error_cleanup_interval`.
+    // Note: origin matching is `wildcard.Match(origin+"*", url)`, so this
+    // string matches everything served from that host, any path.
+    download_from_origins = ["https://cdn.nav.no"]
+
+    // Default is "1s" — far too tight for multi-MB source maps served from
+    // a CDN under normal internet latency. 4s gives headroom without
+    // stalling the receiver's ingest path indefinitely.
+    download_timeout = "4s"
+
+    cache {
+      // Default is 1h. A failed download/parse (e.g. app deployed before
+      // its maps finished uploading to the CDN) is cached as a failure and
+      // NOT retried until this interval elapses — so the first exception
+      // after a bad deploy stays minified for up to an hour even after the
+      // maps land. 10m shortens that blast radius substantially while still
+      // protecting the CDN from being hammered on every request.
+      error_cleanup_interval = "10m"
+
+      // Open question from #60: cache size `ttl` for successful downloads
+      // defaults to infinite. With many apps × many releases this grows
+      // unbounded. Left unset here deliberately — watch
+      // `faro_receiver_sourcemap_cache_size{origin}` and set a `ttl` if it
+      // becomes a problem. Do not set this speculatively.
+    }
+
+    // --- Opt-out path for apps that must NOT publish source maps publicly ---
+    // Not the happy path — public CDN is the default recommendation (#60).
+    // Use only when a team has an explicit reason to keep maps non-public.
+    // Filesystem/remote `location` blocks are checked BEFORE the direct
+    // download above, so this composes cleanly with the config as a whole:
+    // it does not need to be mutually exclusive with `download_from_origins`.
+    //
+    // location {
+    //   // The prefix that appears in the app's stack-frame URLs; this part
+    //   // of the URL is stripped before resolving the map.
+    //   minified_path_prefix = "https://cdn.nav.no/<team>/<app>/"
+    //
+    //   // `path` is a disk path OR a base URL. `{{ .Release }}` is the one
+    //   // template variable Alloy supports here, filled from the Faro SDK's
+    //   // `app.release` meta field (set by @nais/apm, see #59) — this is how
+    //   // per-release map resolution works without per-deploy Alloy config.
+    //   // `.map` is appended automatically; `minified_path_prefix` is
+    //   // stripped from the frame URL before this path is applied.
+    //   path = "https://internal-maps.<team>.svc/<app>/{{ .Release }}/"
+    // }
+  }
+}
