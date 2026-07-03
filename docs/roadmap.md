@@ -1,9 +1,43 @@
 # Roadmap
 
-> Status: draft, 2026-07-03. Based on the PRD/research pass covering issues
+> Status: updated 2026-07-03 (end of the M0–M6 implementation pass on PR #71).
+> Based on the PRD/research pass covering issues
 > [#57](https://github.com/nais/grafana-apm-app/issues/57)–[#70](https://github.com/nais/grafana-apm-app/issues/70)
 > and the extended gap analysis vs Sentry, Datadog/New Relic, and Grafana's own app layer.
 > Issue numbers are the source of truth for scope; this document owns sequencing.
+
+## Implementation status
+
+| Milestone | Status | Notes |
+|---|---|---|
+| M0 Foundations | ✅ done | perf quick wins, useUrlParams, frame classifier, #36 fix, fuzzy search |
+| M1 Identity + SDK | ✅ done | #62 fingerprints end-to-end; `@nais/apm` Phase 0 in `sdk/` (migrating to github.com/nais/apm) |
+| M2 Alerts + releases | ✅ done | deploy markers, alert templates, versions panel, attribution, Drilldown links |
+| M3 Triage | ✅ done | annotations event-log store, mutes, Regressed; nais deploy sync; new-exceptions template |
+| M4 Unified issues | ✅ done | browser+server issues, source badges, trace links. Deferred: #62 P2 frame splitting (gated on #60 prod source-map adoption), server-issue drawer parity |
+| M5 Replay | ✅ done (code) | capture+playback+sessions shipped; ENABLING gated on team opt-in + personvernombud conversation (Hans driving) |
+| M6 Breadth | 🟡 partial | done: #30 auto-refresh, #68 P0 custom metrics. Remaining below |
+| M7 Platform | ⬜ open | needs platform decisions (see below) |
+
+### Open follow-ups (accumulated during implementation)
+
+- **Issues tab** (Hans's decision): dedicated service-page Issues tab defaulting
+  to all sources; Frontend tab keeps the table defaulting to browser. In progress.
+- **IA review**: functionality/placement inventory (subagent report) → apply moves.
+- **Smoke tests in a real env**: alert-rule `defaults=` contract against deployed
+  Grafana; nais deploy sync against a real Console token; triage actor attribution
+  in a browser session (curl showed "unknown").
+- **AppConfig UI** fields for `naisApiUrl`/`naisApiToken` (settings exist backend-only).
+- **SDK migration** `sdk/` → github.com/nais/apm (`./apm-client`); registry decision
+  pending (GHPR leaning — weigh the public-read PAT tax).
+- **#70 remaining**: Go module splits, otelconfig drift-test → codegen,
+  DataState sweep, RuntimeTab/ServerTab refresh unification.
+- **M6 remaining**: #14 database tab, log patterns (needs Loki `pattern_ingester`
+  platform flag), #35 overview redesign + baseline deltas, faceted issue search,
+  user feedback widget, trace analytics, #22 map clustering, #68 P1 curation +
+  Faro measurement discovery.
+- **M7**: SLO/burn-rate panels, Pyroscope tab (needs platform to run Pyroscope),
+  nais Console scorecards, documented resource API, mobile/React Native story.
 
 ## Vision
 

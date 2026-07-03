@@ -34,12 +34,14 @@ export function SessionsPanel({ namespace, service, environment }: SessionsPanel
   );
 
   const sessions = data?.sessions ?? [];
+  // Most apps don't call setUser yet — hide the column until it carries data.
+  const hasUserData = sessions.some((s) => s.userId || s.userEmail);
 
   return (
     <div className={styles.container}>
       <div className={styles.header}>
         <h6 className={styles.title}>Sessions</h6>
-        <span className={styles.subtitle}>Answering: what happened to this user?</span>
+        <span className={styles.subtitle}>Sessions with the most errors — click through to the session's logs</span>
         <div className={styles.search}>
           <Input
             prefix={<Icon name="search" />}
@@ -66,7 +68,7 @@ export function SessionsPanel({ namespace, service, environment }: SessionsPanel
           <thead>
             <tr>
               <th>Session</th>
-              <th>User</th>
+              {hasUserData && <th>User</th>}
               <th>Browser</th>
               <th>Version</th>
               <th className={styles.num}>Pages</th>
@@ -88,6 +90,7 @@ export function SessionsPanel({ namespace, service, environment }: SessionsPanel
               <SessionRow
                 key={s.sessionId}
                 session={s}
+                showUser={hasUserData}
                 onOpen={() => updateParams({ tab: 'logs', logSearch: s.sessionId, includeFaro: 'true' })}
               />
             ))}
@@ -101,7 +104,15 @@ export function SessionsPanel({ namespace, service, environment }: SessionsPanel
   );
 }
 
-function SessionRow({ session: s, onOpen }: { session: SessionSummary; onOpen: () => void }) {
+function SessionRow({
+  session: s,
+  showUser,
+  onOpen,
+}: {
+  session: SessionSummary;
+  showUser: boolean;
+  onOpen: () => void;
+}) {
   const styles = useStyles2(getStyles);
   const browser = [s.browser, s.os].filter(Boolean).join(' / ');
   return (
@@ -120,9 +131,11 @@ function SessionRow({ session: s, onOpen }: { session: SessionSummary; onOpen: (
       <td className={styles.mono} title={s.sessionId}>
         {shortId(s.sessionId)}
       </td>
-      <td className={styles.user} title={s.userEmail || s.userId || undefined}>
-        {s.userEmail || s.userId || '—'}
-      </td>
+      {showUser && (
+        <td className={styles.user} title={s.userEmail || s.userId || undefined}>
+          {s.userEmail || s.userId || '—'}
+        </td>
+      )}
       <td className={styles.secondary}>{browser || '—'}</td>
       <td className={styles.mono} title={s.appVersion || undefined}>
         {s.appVersion ? shortId(s.appVersion) : '—'}

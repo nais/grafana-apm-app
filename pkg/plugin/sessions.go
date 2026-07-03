@@ -102,51 +102,21 @@ func (a *App) queryFrontendSessions(ctx context.Context, ds *queries.DsQueryClie
 	allStream := a.otelCfg.LokiStreamSelector(service, "", env)
 	excStream := a.otelCfg.LokiStreamSelector(service, fl.KindException, env)
 
-	// Total Faro lines per session over ALL kinds — one aggregate query keeps
-	// the series set at one per session instead of session × kind × page.
-	eventsExpr := func(window string) string {
-		return fmt.Sprintf(
-			`sum by (%[1]s) (count_over_time(%[2]s | logfmt | %[1]s!="" | keep %[1]s %[3]s))`,
-			fl.SessionID, allStream, window,
-		)
-	}
-	// Exception occurrences per session.
+	// Phase 1 — errors per session over the exception stream (the cheap one)
+	// drives everything: it picks the top sessions AND the effective window,
+	// so every other column is computed over the SAME window. Running the
+	// queries independently produced incoherent rows ("0 events, 30 errors")
+	// whenever their series-limit fallbacks landed on different rungs.
 	errorsExpr := func(window string) string {
 		return fmt.Sprintf(
 			`sum by (%[1]s) (count_over_time(%[2]s | logfmt | %[1]s!="" | keep %[1]s %[3]s))`,
 			fl.SessionID, excStream, window,
 		)
 	}
-	// Raw recent lines carrying session context — parsed server-side for
-	// user/browser/version/page metadata and first/last-seen timestamps.
-	metaExpr := fmt.Sprintf(`%s | logfmt | %s!=""`, allStream, fl.SessionID)
-
-	var (
-		wg                 sync.WaitGroup
-		eventsRes, errsRes []queries.PromResult
-		metaRes            []queries.LogEntry
-		eventsErr, errsErr error
-		metaErr            error
-		eventsWin, errsWin int
-	)
-	wg.Go(func() {
-		eventsRes, eventsWin, eventsErr = instantWithSessionFallback(ctx, ds, lokiUID, eventsExpr, from, to)
-	})
-	wg.Go(func() {
-		errsRes, errsWin, errsErr = instantWithSessionFallback(ctx, ds, lokiUID, errorsExpr, from, to)
-	})
-	wg.Go(func() { metaRes, metaErr = ds.LogQuery(ctx, lokiUID, metaExpr, from, to, sessionMetaLimit) })
-	wg.Wait()
-
-	if eventsErr != nil {
-		logger.Warn("Session events query failed", "error", eventsErr)
-		return FrontendSessionsResponse{Sessions: []SessionSummary{}, Unavailable: true}
-	}
+	errsRes, winSecs, errsErr := instantWithSessionFallback(ctx, ds, lokiUID, errorsExpr, from, to)
 	if errsErr != nil {
 		logger.Warn("Session errors query failed", "error", errsErr)
-	}
-	if metaErr != nil {
-		logger.Warn("Session metadata query failed", "error", metaErr)
+		return FrontendSessionsResponse{Sessions: []SessionSummary{}, Unavailable: true}
 	}
 
 	sessions := make(map[string]*SessionSummary)
@@ -158,15 +128,75 @@ func (a *App) queryFrontendSessions(ctx context.Context, ds *queries.DsQueryClie
 		}
 		return s
 	}
-
-	for _, r := range eventsRes {
-		if id := r.Metric[fl.SessionID]; id != "" {
-			get(id).Events += r.Value.Float()
-		}
-	}
 	for _, r := range errsRes {
 		if id := r.Metric[fl.SessionID]; id != "" {
 			get(id).Errors += r.Value.Float()
+		}
+	}
+
+	// Top sessions by errors — the only entry point this panel promises.
+	// Sessions without errors in the window are out of scope by design.
+	ranked := make([]*SessionSummary, 0, len(sessions))
+	for _, s := range sessions {
+		ranked = append(ranked, s)
+	}
+	sort.Slice(ranked, func(i, j int) bool {
+		if ranked[i].Errors != ranked[j].Errors {
+			return ranked[i].Errors > ranked[j].Errors
+		}
+		return ranked[i].SessionID < ranked[j].SessionID
+	})
+	truncated := len(ranked) > maxSessions
+	if truncated {
+		ranked = ranked[:maxSessions]
+	}
+	if len(ranked) == 0 {
+		return FrontendSessionsResponse{Sessions: []SessionSummary{}, WindowSeconds: winSecs}
+	}
+
+	// Effective range matching the errors window.
+	effFrom := from
+	if winSecs > 0 {
+		effFrom = to.Add(-time.Duration(winSecs) * time.Second)
+	}
+
+	// Phase 2 — events + metadata scoped to exactly these session ids: the
+	// series set is bounded (≤ maxSessions) so no fallback ladder is needed,
+	// and every fetched metadata line is relevant (a global newest-500 sample
+	// covers seconds of a chatty app and left the whole table dashed out).
+	ids := make([]string, 0, len(ranked))
+	for _, s := range ranked {
+		ids = append(ids, sanitizeSessionID(s.SessionID))
+	}
+	alt := strings.Join(ids, "|")
+	eventsExpr := fmt.Sprintf(
+		"sum by (%[1]s) (count_over_time(%[2]s |~ `%[1]s=(%[3]s)` | logfmt | %[1]s=~\"(%[3]s)\" | keep %[1]s %[4]s))",
+		fl.SessionID, allStream, alt, lokiWindow(effFrom, to),
+	)
+	metaExpr := fmt.Sprintf("%[2]s |~ `%[1]s=(%[3]s)` | logfmt | %[1]s=~\"(%[3]s)\"", fl.SessionID, allStream, alt)
+
+	var (
+		wg        sync.WaitGroup
+		eventsRes []queries.PromResult
+		metaRes   []queries.LogEntry
+		eventsErr error
+		metaErr   error
+	)
+	wg.Go(func() { eventsRes, eventsErr = ds.InstantQuery(ctx, lokiUID, eventsExpr, to) })
+	wg.Go(func() { metaRes, metaErr = ds.LogQuery(ctx, lokiUID, metaExpr, effFrom, to, sessionMetaLimit) })
+	wg.Wait()
+	if eventsErr != nil {
+		logger.Warn("Session events query failed", "error", eventsErr)
+	}
+	if metaErr != nil {
+		logger.Warn("Session metadata query failed", "error", metaErr)
+	}
+
+	for _, r := range eventsRes {
+		if id := r.Metric[fl.SessionID]; id != "" {
+			if s, ok := sessions[id]; ok {
+				s.Events += r.Value.Float()
+			}
 		}
 	}
 
@@ -176,10 +206,10 @@ func (a *App) queryFrontendSessions(ctx context.Context, ds *queries.DsQueryClie
 	for _, entry := range metaRes {
 		fields := parseLogfmt(entry.Line)
 		id := fields[fl.SessionID]
-		if id == "" {
+		s, ok := sessions[id]
+		if !ok {
 			continue
 		}
-		s := get(id)
 		if s.FirstSeenMs == 0 || entry.TimeMs < s.FirstSeenMs {
 			s.FirstSeenMs = entry.TimeMs
 		}
@@ -199,34 +229,34 @@ func (a *App) queryFrontendSessions(ctx context.Context, ds *queries.DsQueryClie
 		}
 	}
 	for id, pages := range pagesBySession {
-		sessions[id].Pages = len(pages)
+		if s, ok := sessions[id]; ok {
+			s.Pages = len(pages)
+		}
 	}
 
-	out := make([]SessionSummary, 0, len(sessions))
-	for _, s := range sessions {
+	// The q filter applies to the enriched top set — sessions outside the
+	// top-by-errors are not searchable here by design (this is an error-first
+	// entry point, not a full session store).
+	out := make([]SessionSummary, 0, len(ranked))
+	for _, s := range ranked {
 		if matchesSessionQuery(s, q) {
 			out = append(out, *s)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Errors != out[j].Errors {
-			return out[i].Errors > out[j].Errors
-		}
-		if out[i].LastSeenMs != out[j].LastSeenMs {
-			return out[i].LastSeenMs > out[j].LastSeenMs
-		}
-		return out[i].SessionID < out[j].SessionID
-	})
-	truncated := len(out) > maxSessions
-	if truncated {
-		out = out[:maxSessions]
-	}
 
-	windowSecs := eventsWin
-	if windowSecs == 0 {
-		windowSecs = errsWin
-	}
-	return FrontendSessionsResponse{Sessions: out, Truncated: truncated, WindowSeconds: windowSecs}
+	return FrontendSessionsResponse{Sessions: out, Truncated: truncated, WindowSeconds: winSecs}
+}
+
+// sanitizeSessionID keeps regex-safe characters only — Faro session ids are
+// alphanumeric, so anything else is stripped rather than escaped.
+func sanitizeSessionID(id string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
+			return r
+		}
+		return -1
+	}, id)
 }
 
 // instantWithSessionFallback runs an instant query built for the full range,

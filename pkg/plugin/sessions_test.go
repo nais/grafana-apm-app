@@ -114,8 +114,8 @@ func sessionsBySessionID(resp FrontendSessionsResponse) map[string]SessionSummar
 }
 
 func TestQueryFrontendSessionsAggregatesAndSorts(t *testing.T) {
-	// Three sessions: s2 has errors and must sort first; s1 and s3 are
-	// error-free and sort by last-seen recency (s3 newer than s1).
+	// Errors drive the panel (error-first entry point): s2 sorts first with
+	// the most errors, then s3, then s1. Error-free sessions never appear.
 	events := []queries.PromResult{
 		{Metric: map[string]string{"session_id": "s1"}, Value: queries.NewPromValue(0, "12")},
 		{Metric: map[string]string{"session_id": "s2"}, Value: queries.NewPromValue(0, "30")},
@@ -123,6 +123,8 @@ func TestQueryFrontendSessionsAggregatesAndSorts(t *testing.T) {
 	}
 	errors := []queries.PromResult{
 		{Metric: map[string]string{"session_id": "s2"}, Value: queries.NewPromValue(0, "3")},
+		{Metric: map[string]string{"session_id": "s3"}, Value: queries.NewPromValue(0, "2")},
+		{Metric: map[string]string{"session_id": "s1"}, Value: queries.NewPromValue(0, "1")},
 	}
 	logLines := []queries.LogEntry{
 		{TimeMs: 5000, Line: `kind=log session_id=s3 page_url=https://x/three browser_name=Firefox browser_os="Ubuntu 24.04" app_version=v3`},
@@ -132,8 +134,8 @@ func TestQueryFrontendSessionsAggregatesAndSorts(t *testing.T) {
 		{TimeMs: 1000, Line: `kind=log session_id=s2 page_url=https://x/a`},
 	}
 	app, ds := sessionsTestApp(t, map[string][]queries.PromResult{
-		`kind="exception"`:            errors,
-		`{service_name="my-app"} | l`: events,
+		`kind="exception"`: errors,
+		"session_id=(":     events, // scoped phase-2 events query
 	}, nil, logLines, "")
 
 	resp := app.queryFrontendSessions(context.Background(), ds, "loki-uid", "my-app", "", time.Unix(0, 0), time.Unix(3600, 0), "")
@@ -145,7 +147,7 @@ func TestQueryFrontendSessionsAggregatesAndSorts(t *testing.T) {
 		t.Fatalf("expected 3 sessions, got %d: %+v", len(resp.Sessions), resp.Sessions)
 	}
 	if got := []string{resp.Sessions[0].SessionID, resp.Sessions[1].SessionID, resp.Sessions[2].SessionID}; got[0] != "s2" || got[1] != "s3" || got[2] != "s1" {
-		t.Errorf("sort order = %v, want [s2 s3 s1] (errors desc, then recency)", got)
+		t.Errorf("sort order = %v, want [s2 s3 s1] (errors desc)", got)
 	}
 
 	by := sessionsBySessionID(resp)
@@ -165,7 +167,7 @@ func TestQueryFrontendSessionsAggregatesAndSorts(t *testing.T) {
 	if s3 := by["s3"]; s3.OS != "Ubuntu 24.04" {
 		t.Errorf("s3 quoted logfmt OS = %q, want %q", s3.OS, "Ubuntu 24.04")
 	}
-	if s1 := by["s1"]; s1.UserEmail != "alice@nav.no" || s1.Errors != 0 || s1.Pages != 1 {
+	if s1 := by["s1"]; s1.UserEmail != "alice@nav.no" || s1.Errors != 1 || s1.Pages != 1 {
 		t.Errorf("s1 = %+v", s1)
 	}
 }
@@ -179,8 +181,13 @@ func TestQueryFrontendSessionsFiltersByQuery(t *testing.T) {
 		{TimeMs: 2000, Line: `session_id=abc123 user_email=Alice@Nav.no`},
 		{TimeMs: 1000, Line: `session_id=def456 user_id=u-77`},
 	}
+	errors := []queries.PromResult{
+		{Metric: map[string]string{"session_id": "abc123"}, Value: queries.NewPromValue(0, "5")},
+		{Metric: map[string]string{"session_id": "def456"}, Value: queries.NewPromValue(0, "3")},
+	}
 	app, ds := sessionsTestApp(t, map[string][]queries.PromResult{
-		`{service_name="my-app"} | l`: events,
+		`kind="exception"`: errors,
+		"session_id=(":     events,
 	}, nil, logLines, "")
 
 	for _, tc := range []struct {
@@ -205,14 +212,18 @@ func TestQueryFrontendSessionsFiltersByQuery(t *testing.T) {
 }
 
 func TestQueryFrontendSessionsWindowFallback(t *testing.T) {
-	// The full-range events query blows Loki's series limit; the 1h fallback
-	// succeeds and the response reports the narrowed window.
+	// The full-range errors query blows Loki's series limit; the 1h fallback
+	// succeeds and the response reports the narrowed window. Phase-2 queries
+	// then run over that same window (coherent columns by construction).
+	errors := []queries.PromResult{
+		{Metric: map[string]string{"session_id": "s1"}, Value: queries.NewPromValue(0, "2")},
+	}
 	events := []queries.PromResult{
 		{Metric: map[string]string{"session_id": "s1"}, Value: queries.NewPromValue(0, "9")},
 	}
 	app, ds := sessionsTestApp(t,
-		map[string][]queries.PromResult{`{service_name="my-app"} | l`: events},
-		map[string]string{`{service_name="my-app"} | logfmt | session_id!="" | keep session_id [86400s]`: "maximum number of series (5000) reached for a single query"},
+		map[string][]queries.PromResult{`kind="exception"`: errors, "session_id=(": events},
+		map[string]string{`keep session_id [86400s]`: "maximum number of series (5000) reached for a single query"},
 		nil, "")
 
 	to := time.Unix(200000, 0)
@@ -230,7 +241,7 @@ func TestQueryFrontendSessionsWindowFallback(t *testing.T) {
 }
 
 func TestQueryFrontendSessionsUnavailableWhenEventsFail(t *testing.T) {
-	// Every rung of the events ladder fails → unavailable, no misleading zeros.
+	// Every rung of the errors ladder fails → unavailable, no misleading zeros.
 	app, ds := sessionsTestApp(t, nil,
 		map[string]string{`keep session_id`: "maximum number of series (5000) reached for a single query"},
 		nil, "")
@@ -249,11 +260,14 @@ func TestQueryFrontendSessionsUnavailableWhenEventsFail(t *testing.T) {
 func TestQueryFrontendSessionsDegradesWithoutMetadata(t *testing.T) {
 	// The raw metadata query failing must not take the list down: counts
 	// still render, metadata fields stay empty.
+	errors := []queries.PromResult{
+		{Metric: map[string]string{"session_id": "s1"}, Value: queries.NewPromValue(0, "2")},
+	}
 	events := []queries.PromResult{
 		{Metric: map[string]string{"session_id": "s1"}, Value: queries.NewPromValue(0, "7")},
 	}
 	app, ds := sessionsTestApp(t,
-		map[string][]queries.PromResult{`{service_name="my-app"} | l`: events},
+		map[string][]queries.PromResult{`kind="exception"`: errors, "session_id=(": events},
 		nil, nil, "query too complex")
 
 	resp := app.queryFrontendSessions(context.Background(), ds, "loki-uid", "my-app", "", time.Unix(0, 0), time.Unix(3600, 0), "")
@@ -279,7 +293,7 @@ func TestQueryFrontendSessionsTruncates(t *testing.T) {
 		})
 	}
 	app, ds := sessionsTestApp(t, map[string][]queries.PromResult{
-		`{service_name="my-app"} | l`: events,
+		`kind="exception"`: events, // reused as the errors fixture
 	}, nil, nil, "")
 
 	resp := app.queryFrontendSessions(context.Background(), ds, "loki-uid", "my-app", "", time.Unix(0, 0), time.Unix(3600, 0), "")
