@@ -15,6 +15,7 @@
 
 - **Issue triage** — resolve, ignore, reopen, and assign exceptions, shared across all users and Grafana replicas via an append-only event log in org annotations (zero new infrastructure; the log is the audit history). The Top Exceptions list gains an Unresolved/All/Resolved/Ignored filter (default hides handled issues), per-user "mute for me", and a Regressed badge that bubbles resolved-but-recurring issues to the top after a newer deploy. The drawer gets a triage bar with assignee. (#57)
 - **Automatic deploy annotations** — configure `naisApiUrl` + `naisApiToken` and the backend mirrors successful nais deployments as deploy markers, idempotently — no per-team CI step needed. (#64)
+- **Unified Issues: backend errors join the list** — the Top Exceptions panel now also groups exceptions from the service's own backend logs (OTLP structured-metadata and JSON logstash shapes) through the same fingerprint pipeline, with browser/server source badges, a source filter, pod-impact counts, pre-filtered Logs deep links, and example-trace links via event-scope TraceQL (Tempo ≥ 2.6). Triage works identically for server issues. (#63)
 - **"New exceptions" alert template** — a fourth one-click alert rule fires per exception hash first seen in the last 30 minutes (7-day lookback, honest about its approximations in the alert text). (#65)
 
 ### Fixes
