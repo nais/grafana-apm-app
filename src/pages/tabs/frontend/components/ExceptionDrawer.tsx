@@ -1,11 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Button, Drawer, Icon, Spinner, Alert, useStyles2, Combobox, Badge, Tooltip } from '@grafana/ui';
+import { Button, Drawer, Icon, Input, Spinner, Alert, useStyles2, Combobox, Badge, Tooltip } from '@grafana/ui';
 import { AppEvents, GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getAppEvents, getBackendSrv, locationService } from '@grafana/runtime';
 import { lastValueFrom } from 'rxjs';
-import { getAlertTemplate, buildAlertRuleUrl } from '../../../../api/client';
+import {
+  getAlertTemplate,
+  buildAlertRuleUrl,
+  getTriageStates,
+  postTriageAction,
+  TriageState,
+} from '../../../../api/client';
 import { otel } from '../../../../otelconfig';
 import { PLUGIN_BASE_URL } from '../../../../constants';
 import { sanitizeLabelValue } from '../../../../utils/sanitize';
@@ -400,6 +406,7 @@ export function ExceptionDrawer({
       size="lg"
     >
       <div className={styles.container}>
+        {issueId && <TriageControls namespace={namespace} service={service} fingerprint={issueId} />}
         {loading && (
           <div className={styles.center}>
             <Spinner size="lg" />
@@ -623,7 +630,102 @@ function MetaItem({ label, value, link, icon }: { label: string; value?: string;
   );
 }
 
+/**
+ * Issue triage controls (#57): resolve / ignore / reopen + assignee, shared
+ * across all users via the backend's annotations event log. Rendered only
+ * when the drawer was opened with a fingerprint (issueId param) — legacy
+ * exceptionHash links have no stable identity to attach state to.
+ */
+function TriageControls({
+  namespace,
+  service,
+  fingerprint,
+}: {
+  namespace: string;
+  service: string;
+  fingerprint: string;
+}) {
+  const styles = useStyles2(getStyles);
+  const [state, setState] = useState<TriageState | null>(null);
+  const [assignee, setAssignee] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getTriageStates(namespace, service)
+      .then((states) => {
+        if (!cancelled) {
+          setState(states[fingerprint] ?? null);
+          setAssignee(states[fingerprint]?.assignee ?? '');
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [namespace, service, fingerprint]);
+
+  const act = async (action: 'resolve' | 'ignore' | 'unresolve' | 'assign', extra?: { assignee?: string }) => {
+    setBusy(true);
+    try {
+      const next = await postTriageAction(namespace, service, fingerprint, { action, ...extra });
+      setState(next);
+      setAssignee(next.assignee ?? '');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const status = state?.status ?? 'active';
+  return (
+    <div className={styles.triageBar}>
+      {status === 'resolved' && <Badge text="Resolved" color="green" />}
+      {status === 'ignored' && <Badge text="Ignored" color="darkgrey" />}
+      {status === 'active' && <Badge text="Unresolved" color="orange" />}
+      {status === 'active' ? (
+        <>
+          <Button size="sm" variant="secondary" icon="check" disabled={busy} onClick={() => act('resolve')}>
+            Resolve
+          </Button>
+          <Button size="sm" variant="secondary" icon="eye-slash" disabled={busy} onClick={() => act('ignore')}>
+            Ignore
+          </Button>
+        </>
+      ) : (
+        <Button size="sm" variant="secondary" icon="history" disabled={busy} onClick={() => act('unresolve')}>
+          Reopen
+        </Button>
+      )}
+      <Input
+        width={22}
+        placeholder="Assignee…"
+        value={assignee}
+        disabled={busy}
+        onChange={(e) => setAssignee(e.currentTarget.value)}
+        onKeyDown={(e) => e.key === 'Enter' && act('assign', { assignee })}
+        onBlur={() => (state?.assignee ?? '') !== assignee && act('assign', { assignee })}
+        prefix={<Icon name="user" />}
+      />
+      {state?.updatedBy && <span className={styles.triageMeta}>last change by {state.updatedBy}</span>}
+    </div>
+  );
+}
+
 const getStyles = (theme: GrafanaTheme2) => ({
+  triageBar: css`
+    display: flex;
+    align-items: center;
+    gap: ${theme.spacing(1)};
+    padding: ${theme.spacing(1)};
+    border: 1px solid ${theme.colors.border.weak};
+    border-radius: ${theme.shape.radius.default};
+    background: ${theme.colors.background.secondary};
+  `,
+  triageMeta: css`
+    color: ${theme.colors.text.secondary};
+    font-size: ${theme.typography.bodySmall.fontSize};
+    margin-left: auto;
+  `,
   container: css`
     display: flex;
     flex-direction: column;

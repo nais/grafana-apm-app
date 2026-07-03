@@ -533,6 +533,46 @@ export async function getFrontendVersions(
   );
 }
 
+// ---- Issue triage (#57) ----
+
+export interface TriageState {
+  status: 'active' | 'resolved' | 'ignored';
+  assignee?: string;
+  resolvedInVersion?: string;
+  updatedAt: number;
+  updatedBy: string;
+}
+
+export interface TriageAction {
+  action: 'resolve' | 'ignore' | 'unresolve' | 'assign';
+  assignee?: string;
+  resolvedInVersion?: string;
+  note?: string;
+}
+
+export async function getTriageStates(namespace: string, service: string): Promise<Record<string, TriageState>> {
+  const resp = await fetchResource<{ states: Record<string, TriageState> }>(
+    `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/triage`
+  );
+  return resp.states ?? {};
+}
+
+export async function postTriageAction(
+  namespace: string,
+  service: string,
+  fingerprint: string,
+  body: TriageAction
+): Promise<TriageState> {
+  const response = await lastValueFrom(
+    getBackendSrv().fetch<TriageState>({
+      url: `${BASE_URL}/services/${nsParam(namespace)}/${encodeURIComponent(service)}/triage/${encodeURIComponent(fingerprint)}`,
+      method: 'POST',
+      data: body,
+    })
+  );
+  return response.data;
+}
+
 export async function getDependencyDetail(
   name: string,
   from: number,
