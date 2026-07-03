@@ -405,6 +405,51 @@ export async function getNamespaceAlerts(namespace: string): Promise<NamespaceAl
   return fetchResource<NamespaceAlertsResponse>(`/namespaces/${encodeURIComponent(namespace)}/alerts`);
 }
 
+// ---- Alert rule templates (#65 Phase 1) ----
+
+export type AlertTemplateKind = 'error-rate' | 'exception-spike' | 'web-vitals';
+
+export interface AlertTemplateResponse {
+  /**
+   * Ready-to-navigate Grafana URL (`/alerting/new?defaults=<encoded JSON>`).
+   * Append `&returnTo=<encoded current plugin URL>` before navigating — see
+   * buildAlertRuleUrl().
+   */
+  url: string;
+  /** The decoded RuleFormValues-shaped defaults object (debugging aid). */
+  defaults: unknown;
+}
+
+export async function getAlertTemplate(
+  kind: AlertTemplateKind,
+  opts: { namespace?: string; service: string; environment?: string; fingerprint?: string; hashes?: string[] }
+): Promise<AlertTemplateResponse> {
+  const params: Record<string, string> = { service: opts.service };
+  if (opts.namespace) {
+    params.namespace = opts.namespace;
+  }
+  if (opts.environment) {
+    params.environment = opts.environment;
+  }
+  if (opts.fingerprint) {
+    params.fingerprint = opts.fingerprint;
+  }
+  if (opts.hashes?.length) {
+    params.hash = opts.hashes.join(',');
+  }
+  return fetchResource<AlertTemplateResponse>(`/alert-templates/${kind}`, params);
+}
+
+/**
+ * Append returnTo (the current plugin URL) to a template URL so Grafana's
+ * alert editor navigates back here on save/cancel. Call at click time — the
+ * template URL from the backend never embeds returnTo.
+ */
+export function buildAlertRuleUrl(templateUrl: string): string {
+  const returnTo = window.location.pathname + window.location.search;
+  return `${templateUrl}&returnTo=${encodeURIComponent(returnTo)}`;
+}
+
 // ---- Exception groups (fingerprint-keyed issues, #62) ----
 
 export interface ExceptionGroup {

@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Drawer, Icon, Spinner, Alert, useStyles2, Combobox, Badge, Tooltip } from '@grafana/ui';
-import { GrafanaTheme2 } from '@grafana/data';
+import { useSearchParams } from 'react-router-dom';
+import { Button, Drawer, Icon, Spinner, Alert, useStyles2, Combobox, Badge, Tooltip } from '@grafana/ui';
+import { AppEvents, GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
-import { getBackendSrv } from '@grafana/runtime';
+import { getAppEvents, getBackendSrv, locationService } from '@grafana/runtime';
 import { lastValueFrom } from 'rxjs';
+import { getAlertTemplate, buildAlertRuleUrl } from '../../../../api/client';
 import { otel } from '../../../../otelconfig';
 import { PLUGIN_BASE_URL } from '../../../../constants';
 import { sanitizeLabelValue } from '../../../../utils/sanitize';
@@ -91,7 +93,12 @@ export function ExceptionDrawer({
   const [occurrences, setOccurrences] = useState<ParsedException[]>([]);
   const [breadcrumbs, setBreadcrumbs] = useState<GroupedBreadcrumb[]>([]);
   const [loadingBreadcrumbs, setLoadingBreadcrumbs] = useState(false);
+  const [creatingAlert, setCreatingAlert] = useState(false);
   const labelOverrides = usePluginLabelOverrides();
+  // The drawer is opened purely from URL state (docs/url-contract.md) — the
+  // fingerprint identity lives in the `issueId` search param, not in props.
+  const [searchParams] = useSearchParams();
+  const issueId = searchParams.get('issueId') ?? '';
 
   const fl = otel.faroLoki;
   const clusterLabel = labelOverrides.deploymentEnvLabel || otel.labels.deploymentEnv;
@@ -353,6 +360,28 @@ export function ExceptionDrawer({
     }
   };
 
+  // "Create alert" (#65): fetch the server-rendered exception-spike template
+  // and open Grafana's new-alert-rule form pre-filled for this issue.
+  const onCreateAlert = async () => {
+    setCreatingAlert(true);
+    try {
+      const template = await getAlertTemplate('exception-spike', {
+        namespace: namespace || undefined,
+        service,
+        environment,
+        fingerprint: issueId || undefined,
+        hashes,
+      });
+      locationService.push(buildAlertRuleUrl(template.url));
+    } catch (err) {
+      setCreatingAlert(false);
+      getAppEvents().publish({
+        type: AppEvents.alertError.name,
+        payload: ['Could not prepare alert rule', err instanceof Error ? err.message : String(err)],
+      });
+    }
+  };
+
   const envParam = environment ? `&environment=${encodeURIComponent(environment)}` : '';
   const nsSegment = encodeURIComponent(namespace || '_');
 
@@ -553,6 +582,16 @@ export function ExceptionDrawer({
               >
                 <Icon name="file-alt" /> View Raw Loki Log
               </a>
+              <span className={styles.footerDivider}>|</span>
+              <Button
+                size="sm"
+                variant="secondary"
+                icon="bell"
+                onClick={onCreateAlert}
+                disabled={creatingAlert || hashes.length === 0}
+              >
+                {creatingAlert ? 'Preparing alert…' : 'Create alert'}
+              </Button>
             </div>
           </>
         )}

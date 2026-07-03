@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { PluginPage } from '@grafana/runtime';
-import { useStyles2, Tab, TabsBar, LinkButton, Combobox, Alert } from '@grafana/ui';
-import { GrafanaTheme2, PageLayoutType } from '@grafana/data';
+import { PluginPage, getAppEvents, locationService } from '@grafana/runtime';
+import { useStyles2, Tab, TabsBar, Button, LinkButton, Combobox, Alert } from '@grafana/ui';
+import { AppEvents, GrafanaTheme2, PageLayoutType } from '@grafana/data';
 import { useUrlString, useUrlNumber } from '../utils/useUrlState';
 import { css } from '@emotion/css';
 import { buildTempoExploreUrl, buildLokiExploreUrl } from '../utils/explore';
@@ -13,6 +13,7 @@ import { useTimeRange } from '../utils/timeRange';
 import { useCapabilities, getMetricNames } from '../utils/capabilities';
 import { useAppNavigate, sanitizeParam } from '../utils/navigation';
 import { useServiceData } from '../utils/useServiceData';
+import { getAlertTemplate, buildAlertRuleUrl } from '../api/client';
 import { buildServiceScene } from './buildServiceScene';
 import { OverviewTab } from './tabs/OverviewTab';
 import { TracesTab } from './tabs/TracesTab';
@@ -197,6 +198,28 @@ function ServiceOverview() {
     [appNavigate]
   );
 
+  // "Alert on error rate" (#65): fetch the server-rendered template (uses the
+  // backend-detected spanmetrics calls metric) and open Grafana's pre-filled
+  // new-alert-rule form. returnTo brings the user back here after save/cancel.
+  const [creatingAlert, setCreatingAlert] = useState(false);
+  const onErrorRateAlert = useCallback(async () => {
+    setCreatingAlert(true);
+    try {
+      const template = await getAlertTemplate('error-rate', {
+        namespace: namespace || undefined,
+        service,
+        environment: envFilter || undefined,
+      });
+      locationService.push(buildAlertRuleUrl(template.url));
+    } catch (err) {
+      setCreatingAlert(false);
+      getAppEvents().publish({
+        type: AppEvents.alertError.name,
+        payload: ['Could not prepare alert rule', err instanceof Error ? err.message : String(err)],
+      });
+    }
+  }, [namespace, service, envFilter]);
+
   // Service detail pages always use Canvas layout (no plugin-level header)
   return (
     <PluginPage layout={PageLayoutType.Canvas}>
@@ -265,6 +288,16 @@ function ServiceOverview() {
                   Logs
                 </LinkButton>
               )}
+              <Button
+                variant="secondary"
+                size="sm"
+                icon="bell"
+                onClick={onErrorRateAlert}
+                disabled={creatingAlert}
+                tooltip="Create a pre-filled Grafana alert rule for this service's error rate"
+              >
+                Alert on error rate
+              </Button>
             </>
           }
         />
