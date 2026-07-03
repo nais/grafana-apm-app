@@ -391,6 +391,8 @@ export interface AlertRuleSummary {
   activeSince: string;
   activeCount: number;
   groupName: string;
+  /** Where the rule is defined: Mimir ruler or Grafana unified alerting. */
+  source?: 'mimir' | 'grafana';
 }
 
 export interface NamespaceAlertsResponse {

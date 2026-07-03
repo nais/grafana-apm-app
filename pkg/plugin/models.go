@@ -150,6 +150,7 @@ type AlertRuleSummary struct {
 	ActiveSince string `json:"activeSince,omitempty"`
 	ActiveCount int    `json:"activeCount"`
 	GroupName   string `json:"groupName"`
+	Source      string `json:"source,omitempty"` // "mimir" (ruler) or "grafana" (unified alerting)
 }
 
 // NamespaceAlertsResponse wraps alert rules for a namespace.
