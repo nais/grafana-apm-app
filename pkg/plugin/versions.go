@@ -193,9 +193,11 @@ func (a *App) queryFrontendVersions(ctx context.Context, loki *queries.Prometheu
 	return FrontendVersionsResponse{Versions: out, LatestVersion: latestVersion}
 }
 
-// grafanaAnnotation is the subset of Grafana's annotation payload we consume.
+// grafanaAnnotation is the subset of Grafana's annotation payload we consume
+// (deploy markers here; the triage event log in triage.go).
 type grafanaAnnotation struct {
 	Time int64    `json:"time"` // epoch ms
+	Text string   `json:"text"`
 	Tags []string `json:"tags"`
 }
 
