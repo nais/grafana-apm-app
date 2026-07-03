@@ -138,6 +138,8 @@ type FaroLoki struct {
 	// logfmt field names
 	TypeField     string
 	TypeWebVitals string
+	Hash          string
+	SessionID     string
 
 	// Vital field names in logfmt
 	FCP  string
@@ -372,6 +374,8 @@ func Default() Config {
 
 			TypeField:     "type",
 			TypeWebVitals: "web-vitals",
+			Hash:          "hash",
+			SessionID:     "session_id",
 
 			FCP:  "fcp",
 			LCP:  "lcp",
