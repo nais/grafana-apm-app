@@ -27,6 +27,7 @@ import { sparklineColors } from '../utils/colors';
 import { extractEnvironmentOptions, extractNamespaceOptions } from '../utils/options';
 import { useFetch } from '../utils/useFetch';
 import { FrameworkBadge } from '../components/FrameworkBadge';
+import { RefreshControl } from '../components/RefreshControl';
 import { Sparkline } from '../components/Sparkline';
 import { useFavorites, serviceKey } from '../utils/useFavorites';
 import { createServiceSearchIndex, searchServices } from '../utils/serviceSearch';
@@ -45,7 +46,7 @@ function ServiceInventory() {
   const theme = useTheme2();
   const sc = sparklineColors(theme);
   const appNavigate = useAppNavigate();
-  const { from, fromMs, toMs, setTimeRange } = useTimeRange();
+  const { from, fromMs, toMs, setTimeRange, refresh: refreshTimeRange } = useTimeRange();
   const { isFavorite, toggle: toggleFavorite, count: favCount } = useFavorites();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -53,6 +54,7 @@ function ServiceInventory() {
     data: fetchResult,
     loading,
     error,
+    refetch,
   } = useFetch<{ services: ServiceSummary[]; caps: Capabilities }>(async () => {
     const [capsResult, servicesResult] = await Promise.all([getCapabilities(), getServices(fromMs, toMs, 60, false)]);
     return { caps: capsResult, services: servicesResult };
@@ -256,7 +258,7 @@ function ServiceInventory() {
   // JOINED string — `paginated` is a fresh array every render, and an array
   // dep would refetch in a loop.
   const visibleServicesKey = Array.from(new Set(paginated.map((s) => `${s.namespace}/${s.name}`))).join(',');
-  const { data: sparklineResult } = useFetch<ServiceSummary[]>(
+  const { data: sparklineResult, refetch: refetchSparklines } = useFetch<ServiceSummary[]>(
     () => getServices(fromMs, toMs, 60, true, { services: visibleServicesKey.split(',') }),
     [fromMs, toMs, visibleServicesKey],
     { skip: !fetchResult || visibleServicesKey === '' }
@@ -267,6 +269,19 @@ function ServiceInventory() {
     }
     return new Map(sparklineResult.map((s) => [`${s.namespace}/${s.name}/${s.environment ?? ''}`, s]));
   }, [sparklineResult]);
+
+  // Auto-refresh. For relative ranges (now-1h), re-resolving the range updates
+  // fromMs/toMs and every useFetch above refetches via its deps — without this
+  // each refresh would re-query the window resolved at first render forever.
+  const isRelativeRange = from.startsWith('now');
+  const handleRefresh = useCallback(() => {
+    if (isRelativeRange) {
+      refreshTimeRange();
+      return;
+    }
+    refetch();
+    refetchSparklines();
+  }, [isRelativeRange, refreshTimeRange, refetch, refetchSparklines]);
 
   const toggleSort = (field: SortField) => {
     if (sortField === field) {
@@ -353,6 +368,7 @@ function ServiceInventory() {
                   width={22}
                   prefixIcon="clock-nine"
                 />
+                <RefreshControl onRefresh={handleRefresh} />
               </div>
               {/* Row 2: View options (pills) */}
               <div className={styles.viewRow}>

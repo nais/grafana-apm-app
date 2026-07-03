@@ -9,6 +9,7 @@ import { useTimeRange } from '../utils/timeRange';
 import { QUICK_TIME_RANGES } from '../utils/timeRangeOptions';
 import { useAppNavigate, sanitizeParam } from '../utils/navigation';
 import { DepTypeIcon, formatDepType } from '../components/DepTypeIcon';
+import { RefreshControl } from '../components/RefreshControl';
 import { SortHeader, ImpactBar, useTableSort, getTableStyles } from '../components/SortableTable';
 import { useFetch } from '../utils/useFetch';
 import { useConfiguredEnvironments } from '../utils/datasources';
@@ -19,7 +20,7 @@ function Dependencies() {
   const appNavigate = useAppNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const envFilter = sanitizeParam(searchParams.get('environment') ?? '');
-  const { from, fromMs, toMs, setTimeRange } = useTimeRange();
+  const { from, fromMs, toMs, setTimeRange, refresh: refreshTimeRange } = useTimeRange();
 
   // Read configured environment names from plugin datasource config
   const configuredEnvs = useConfiguredEnvironments();
@@ -49,11 +50,24 @@ function Dependencies() {
     data: depsResp,
     loading,
     error,
+    refetch,
   } = useFetch<DependenciesResponse>(
     () => getGlobalDependencies(fromMs, toMs, envFilter || undefined),
     [fromMs, toMs, envFilter]
   );
   const deps = useMemo(() => depsResp?.dependencies ?? [], [depsResp]);
+
+  // Auto-refresh. For relative ranges (now-1h), re-resolving the range updates
+  // fromMs/toMs and the useFetch above refetches via its deps — without this
+  // each refresh would re-query the window resolved at first render forever.
+  const isRelativeRange = from.startsWith('now');
+  const handleRefresh = useCallback(() => {
+    if (isRelativeRange) {
+      refreshTimeRange();
+      return;
+    }
+    refetch();
+  }, [isRelativeRange, refreshTimeRange, refetch]);
 
   const { sortField, sortDir, toggleSort, comparator } = useTableSort<keyof DependencySummary>('impact');
   const [search, setSearch] = useState('');
@@ -100,12 +114,15 @@ function Dependencies() {
             External dependencies detected from service graph edges. Shows databases, caches, message brokers, and other
             services called by your applications.
           </p>
-          <Combobox
-            options={QUICK_TIME_RANGES}
-            value={from}
-            onChange={(v) => setTimeRange(v?.value ?? 'now-1h', 'now')}
-            width={22}
-          />
+          <div className={styles.headerControls}>
+            <Combobox
+              options={QUICK_TIME_RANGES}
+              value={from}
+              onChange={(v) => setTimeRange(v?.value ?? 'now-1h', 'now')}
+              width={22}
+            />
+            <RefreshControl onRefresh={handleRefresh} />
+          </div>
         </div>
 
         {!loading && !error && deps.length > 0 && (
@@ -267,6 +284,11 @@ const getStyles = (theme: GrafanaTheme2) => ({
     margin-bottom: ${theme.spacing(2)};
     gap: ${theme.spacing(1)};
     flex-wrap: wrap;
+  `,
+  headerControls: css`
+    display: flex;
+    align-items: center;
+    gap: ${theme.spacing(1)};
   `,
   filters: css`
     display: flex;

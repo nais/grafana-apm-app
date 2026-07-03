@@ -211,6 +211,22 @@ describe('ServiceInventory — Fuzzy search', () => {
   });
 });
 
+describe('ServiceInventory — Auto-refresh', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    activeStore = createStore();
+  });
+
+  afterEach(() => {
+    activeStore.destroy();
+  });
+
+  it('renders the refresh control in the toolbar', async () => {
+    renderInventory();
+    expect(await screen.findByTestId('refresh-control')).toBeInTheDocument();
+  });
+});
+
 describe('ServiceInventory — Column sorting', () => {
   beforeEach(() => {
     activeStore = createStore([]);
