@@ -29,6 +29,7 @@ import {
 } from './queries/loki-builders';
 import { FrontendSceneContext } from './scene-context';
 import { IssuesTable } from './components/IssuesTable';
+import { VersionsPanel } from './components/VersionsPanel';
 
 /** Derive LokiClusterOpts from scene context (undefined when no filter needed). */
 function clusterOpts(ctx: FrontendSceneContext): LokiClusterOpts | undefined {
@@ -495,9 +496,23 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
 
   const browserRow = new SceneFlexLayout({ direction: 'row', children: browserChildren });
 
+  // Versions panel (#64): per-release sessions, adoption, and error-free rate
+  // — answers "did this start with today's release?" right under the issues.
+  const versionsRow = new SceneFlexLayout({
+    direction: 'row',
+    children: [
+      new SceneFlexItem({
+        minHeight: 220,
+        body: new SceneReactObject({
+          reactNode: React.createElement(VersionsPanel, { namespace, service, environment }),
+        }),
+      }),
+    ],
+  });
+
   return new SceneFlexLayout({
     direction: 'column',
-    children: [issuesRow, browserRow],
+    children: [issuesRow, versionsRow, browserRow],
   });
 }
 

@@ -140,6 +140,7 @@ type FaroLoki struct {
 	TypeWebVitals string
 	Hash          string
 	SessionID     string
+	AppVersion    string
 
 	// Vital field names in logfmt
 	FCP  string
@@ -376,6 +377,7 @@ func Default() Config {
 			TypeWebVitals: "web-vitals",
 			Hash:          "hash",
 			SessionID:     "session_id",
+			AppVersion:    "app_version",
 
 			FCP:  "fcp",
 			LCP:  "lcp",
