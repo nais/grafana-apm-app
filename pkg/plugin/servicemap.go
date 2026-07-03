@@ -88,23 +88,24 @@ func (a *App) handleServiceMap(w http.ResponseWriter, req *http.Request) {
 }
 
 // computeRangeStr derives a PromQL range duration from the dashboard time window.
-// It uses a floor of 5m (need enough samples for rate()) and a ceiling of 1h
-// (avoid over-smoothing). This ensures infrequent callers are visible when the
-// user has a wider dashboard time range.
+// The window spans the full selected range — floor 5m (rate() needs samples),
+// cap 24h (query cost) — so any edge with traffic anywhere in the range shows
+// up in the graph. A 1h cap here used to make infrequent callers (hourly batch
+// jobs, cron-driven dependencies) vanish from wide time ranges (#36). Edge
+// rates consequently read as averages over the selected range.
 func computeRangeStr(from, to time.Time) string {
 	d := to.Sub(from)
-	switch {
-	case d <= 5*time.Minute:
-		return "[5m]"
-	case d <= 15*time.Minute:
-		return "[10m]"
-	case d <= 30*time.Minute:
-		return "[15m]"
-	case d <= time.Hour:
-		return "[30m]"
-	default:
-		return "[1h]"
+	if d < 5*time.Minute {
+		d = 5 * time.Minute
 	}
+	if d > 24*time.Hour {
+		d = 24 * time.Hour
+	}
+	d = d.Round(time.Minute)
+	if m := int(d.Minutes()); m%60 != 0 {
+		return fmt.Sprintf("[%dm]", m)
+	}
+	return fmt.Sprintf("[%dh]", int(d.Hours()))
 }
 
 // sgEdgeKey identifies a directed edge in the service graph.
