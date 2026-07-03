@@ -10,6 +10,13 @@
 - **Deploy markers on charts** — RED and Frontend panels render deployment annotations (org annotations tagged `nais-apm:deploy`) as markers with version and workflow link in the tooltip; a reusable GitHub Action for writing them ships under `infra/actions`. (#64)
 - **One-click alert rules** — "Create alert" in the Exception Drawer and "Alert on error rate" in the service header open Grafana's alert editor pre-filled with the right query (detected metric names, fingerprint-scoped exception spikes with a deep link back to the drawer, web-vitals degradation). Rules belong to the team, not the plugin. (#65)
 - **Grafana Drilldown integration** — "Open in Logs Drilldown" from the Logs tab, and an "Open in Nais APM" link on Grafana's Explore toolbar that recognizes `service_name` in the current query.
+- **Versions panel** — per-release sessions, adoption share, error-free rate, and exception counts under Top Exceptions, enriched with deploy timestamps from deploy annotations ("did this start with today's release?"). (#64)
+- **Web-vitals attribution** — three new panels show the slowest LCP elements, INP interaction targets, and CLS layout-shift sources from the attribution data Faro v2 already ships.
+
+### Fixes
+
+- **Session counts zeroed out on wide time ranges** — the distinct-sessions query exceeds Loki's series limit for chatty apps; it now retries over a narrowing recent window (labelled in the column header, e.g. "Sessions (last 5m)") and shows a dash instead of a misleading 0 when even that fails. Exception queries now use Grafana's `/api/ds/query` API instead of the deprecated datasource proxy.
+- **Column sorting was dead while searching** — fuzzy-search relevance ranking silently overrode explicit column sorts; relevance is now only the default order during a search.
 
 - **Readable stack traces for console-captured exceptions** — The Exception Drawer now collapses runs of Faro SDK, vendored-dependency, and browser-native frames behind an expandable toggle and highlights the first in-app frame as the likely error origin. Exceptions captured via `console.error` get an explanatory badge: their stack shows the console call site, not where the error was thrown. Works retroactively on existing Loki data. (#66)
 - **Grafana-managed alerts on the namespace page** — Namespace alert surfacing now merges Grafana unified-alerting rules (with a "Grafana alert" badge) alongside Mimir ruler rules, fetched in parallel and deduplicated by name. (#65)
