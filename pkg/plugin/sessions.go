@@ -21,7 +21,7 @@ const maxSessions = 50
 // Metadata harvest cap: user/browser/version/page context comes from a raw
 // backward log query; 500 recent lines is enough to enrich the sessions the
 // list can show without hammering Loki.
-const sessionMetaLimit = 500
+const sessionMetaLimit = 2000
 
 // Faro logfmt field names not modeled in otelconfig.FaroLoki — user identity
 // and OS ride on every Faro line under these keys.
@@ -173,7 +173,11 @@ func (a *App) queryFrontendSessions(ctx context.Context, ds *queries.DsQueryClie
 		"sum by (%[1]s) (count_over_time(%[2]s |~ `%[1]s=(%[3]s)` | logfmt | %[1]s=~\"(%[3]s)\" | keep %[1]s %[4]s))",
 		fl.SessionID, allStream, alt, lokiWindow(effFrom, to),
 	)
-	metaExpr := fmt.Sprintf("%[2]s |~ `%[1]s=(%[3]s)` | logfmt | %[1]s=~\"(%[3]s)\"", fl.SessionID, allStream, alt)
+	// Harvest metadata from the EXCEPTION stream: every listed session has
+	// exception lines by definition and they carry the same session context,
+	// so the newest-N sample can't be monopolized by one chatty healthy
+	// session the way an all-kinds harvest was.
+	metaExpr := fmt.Sprintf("%[2]s |~ `%[1]s=(%[3]s)` | logfmt | %[1]s=~\"(%[3]s)\"", fl.SessionID, excStream, alt)
 
 	var (
 		wg        sync.WaitGroup
