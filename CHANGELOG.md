@@ -12,6 +12,9 @@
 - **Grafana Drilldown integration** — "Open in Logs Drilldown" from the Logs tab, and an "Open in Nais APM" link on Grafana's Explore toolbar that recognizes `service_name` in the current query.
 - **Versions panel** — per-release sessions, adoption share, error-free rate, and exception counts under Top Exceptions, enriched with deploy timestamps from deploy annotations ("did this start with today's release?"). (#64)
 - **Web-vitals attribution** — three new panels show the slowest LCP elements, INP interaction targets, and CLS layout-shift sources from the attribution data Faro v2 already ships.
+- **Readable stack traces for console-captured exceptions** — The Exception Drawer now collapses runs of Faro SDK, vendored-dependency, and browser-native frames behind an expandable toggle and highlights the first in-app frame as the likely error origin. Exceptions captured via `console.error` get an explanatory badge: their stack shows the console call site, not where the error was thrown. Works retroactively on existing Loki data. (#66)
+- **Grafana-managed alerts on the namespace page** — Namespace alert surfacing now merges Grafana unified-alerting rules (with a "Grafana alert" badge) alongside Mimir ruler rules, fetched in parallel and deduplicated by name. (#65)
+- **Fuzzy service search** — The service inventory search matches partial, misspelled, and out-of-order tokens (e.g. `paymnt svc` finds `nais-payment-service`), ranked by relevance with exact prefix matches first. (#61)
 
 - **Issue triage** — resolve, ignore, reopen, and assign exceptions, shared across all users and Grafana replicas via an append-only event log in org annotations (zero new infrastructure; the log is the audit history). The Top Exceptions list gains an Unresolved/All/Resolved/Ignored filter (default hides handled issues), per-user "mute for me", and a Regressed badge that bubbles resolved-but-recurring issues to the top after a newer deploy. The drawer gets a triage bar with assignee. (#57)
 - **Automatic deploy annotations** — configure `naisApiUrl` + `naisApiToken` and the backend mirrors successful nais deployments as deploy markers, idempotently — no per-team CI step needed. (#64)
@@ -23,11 +26,6 @@
 - **Session counts zeroed out on wide time ranges** — the distinct-sessions query exceeds Loki's series limit for chatty apps; it now retries over a narrowing recent window (labelled in the column header, e.g. "Sessions (last 5m)") and shows a dash instead of a misleading 0 when even that fails. Exception queries now use Grafana's `/api/ds/query` API instead of the deprecated datasource proxy.
 - **Column sorting was dead while searching** — fuzzy-search relevance ranking silently overrode explicit column sorts; relevance is now only the default order during a search.
 
-- **Readable stack traces for console-captured exceptions** — The Exception Drawer now collapses runs of Faro SDK, vendored-dependency, and browser-native frames behind an expandable toggle and highlights the first in-app frame as the likely error origin. Exceptions captured via `console.error` get an explanatory badge: their stack shows the console call site, not where the error was thrown. Works retroactively on existing Loki data. (#66)
-- **Grafana-managed alerts on the namespace page** — Namespace alert surfacing now merges Grafana unified-alerting rules (with a "Grafana alert" badge) alongside Mimir ruler rules, fetched in parallel and deduplicated by name. (#65)
-- **Fuzzy service search** — The service inventory search matches partial, misspelled, and out-of-order tokens (e.g. `paymnt svc` finds `nais-payment-service`), ranked by relevance with exact prefix matches first. (#61)
-
-### Fixes
 
 - **Infrequent dependencies missing from the service map** — The service-graph rate window now spans the full selected time range (floor 5m, cap 24h) instead of capping at 1h, so hourly batch jobs and cron-driven dependencies stay visible on wide dashboard ranges. (#36)
 - **Status boards re-queried a frozen time window** — Auto-refresh on the Ops Status Board and namespace Status Board now re-resolves relative time ranges (`now-1h`) each tick instead of re-querying the window resolved at first page render forever.
