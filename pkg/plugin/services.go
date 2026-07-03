@@ -27,6 +27,12 @@ func (a *App) handleServices(w http.ResponseWriter, req *http.Request) {
 	// Parse time range from query params (defaults: last 1h)
 	from, to := parseTimeRange(req)
 	step := parseDurationParam(req, "step", 60*time.Second)
+	// Clamp step so a range query returns at most ~50 points per series —
+	// sparklines don't need more, and at fleet scale (1000s of services) the
+	// difference is tens of megabytes per response.
+	if minStep := (to.Sub(from) / 50).Round(time.Second); step < minStep {
+		step = minStep
+	}
 	withSeries := req.URL.Query().Get("withSeries") != "false"
 	filterNamespace := queries.MustSanitizeLabel(req.URL.Query().Get("namespace"))
 	filterEnvironment := parseEnvironment(req)
@@ -48,20 +54,20 @@ func (a *App) handleServices(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Get capability info for metric names
-	caps := a.cachedOrDetectCapabilities(ctx)
-
-	if !caps.SpanMetrics.Detected {
-		writeJSON(w, []queries.ServiceSummary{})
+	data, err := a.respCache.getOrCompute(ck, func() (any, error) {
+		// Get capability info for metric names
+		caps := a.cachedOrDetectCapabilities(ctx)
+		if !caps.SpanMetrics.Detected {
+			return []queries.ServiceSummary{}, nil
+		}
+		return a.fetchServiceSummaries(ctx, caps, from, to, step, withSeries, filterNamespace, filterEnvironment, filterServices, req.Header), nil
+	})
+	if err != nil {
+		http.Error(w, "querying services failed", http.StatusInternalServerError)
 		return
 	}
-
-	services := a.fetchServiceSummaries(ctx, caps, from, to, step, withSeries, filterNamespace, filterEnvironment, filterServices, req.Header)
-
-	// Cache the response
-	a.respCache.setJSON(ck, services)
-
-	writeJSON(w, services)
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(data)
 }
 
 func (a *App) fetchServiceSummaries(
@@ -207,7 +213,7 @@ func (a *App) fetchServiceSummaries(
 			if headers != nil {
 				lokiClient = lokiClient.WithAuthHeaders(headers)
 			}
-			apps, err := lokiClient.LabelValues(ctx, a.otelCfg.FaroLoki.AppName)
+			apps, err := lokiClient.LabelValues(ctx, a.otelCfg.FaroLoki.AppName, from, to)
 			if err != nil {
 				logger.Warn("Faro label query failed", "error", err)
 				return

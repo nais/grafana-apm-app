@@ -211,12 +211,23 @@ func (c *PrometheusClient) SeriesExists(ctx context.Context, metricName string) 
 	return false, nil
 }
 
-// LabelValues fetches all values for a given label name via /api/v1/label/<name>/values.
-func (c *PrometheusClient) LabelValues(ctx context.Context, labelName string) ([]string, error) {
+// LabelValues fetches values for a given label name via /api/v1/label/<name>/values,
+// bounded to the given time range. Without start/end both Prometheus/Mimir and
+// Loki scan their full retention for label values. RFC3339 timestamps are
+// accepted by both backends. Zero times are omitted.
+func (c *PrometheusClient) LabelValues(ctx context.Context, labelName string, start, end time.Time) ([]string, error) {
 	u, err := url.Parse(c.baseURL + "/api/v1/label/" + url.PathEscape(labelName) + "/values")
 	if err != nil {
 		return nil, fmt.Errorf("parsing label values URL: %w", err)
 	}
+	q := u.Query()
+	if !start.IsZero() {
+		q.Set("start", start.UTC().Format(time.RFC3339))
+	}
+	if !end.IsZero() {
+		q.Set("end", end.UTC().Format(time.RFC3339))
+	}
+	u.RawQuery = q.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {

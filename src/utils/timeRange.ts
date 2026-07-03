@@ -14,6 +14,13 @@ interface TimeRangeState {
   toMs: number;
   /** Update the time range (persists to URL) */
   setTimeRange: (from: string, to: string) => void;
+  /**
+   * Re-resolve a relative range (e.g. now-1h) to fresh absolute timestamps.
+   * Auto-refresh must call this before refetching, otherwise every refresh
+   * re-queries the window that was resolved when the page first rendered.
+   * Consumers with fromMs/toMs in their fetch deps refetch automatically.
+   */
+  refresh: () => void;
 }
 
 /**
@@ -28,6 +35,8 @@ export function useTimeRange(): TimeRangeState {
 
   // Stable fallback for when parsing fails (lazy init runs once, avoids impure Date.now in render)
   const [fallbackNow] = useState(() => Date.now());
+  // Bumped by refresh() to re-resolve relative ranges to fresh absolute timestamps.
+  const [resolveTick, setResolveTick] = useState(0);
 
   const { fromMs, toMs } = useMemo(() => {
     const parsedFrom = dateMath.toDateTime(from, {});
@@ -39,7 +48,11 @@ export function useTimeRange(): TimeRangeState {
       };
     }
     return { fromMs: fallbackNow - 3600000, toMs: fallbackNow };
-  }, [from, to, fallbackNow]);
+    // resolveTick intentionally busts the memo so `now`-relative ranges re-resolve.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [from, to, fallbackNow, resolveTick]);
+
+  const refresh = useCallback(() => setResolveTick((t) => t + 1), []);
 
   const setTimeRange = useCallback(
     (newFrom: string, newTo: string) => {
@@ -56,5 +69,5 @@ export function useTimeRange(): TimeRangeState {
     [setSearchParams]
   );
 
-  return { from, to, fromMs, toMs, setTimeRange };
+  return { from, to, fromMs, toMs, setTimeRange, refresh };
 }

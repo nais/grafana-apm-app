@@ -2,7 +2,10 @@ module github.com/nais/grafana-otel-plugin
 
 go 1.25.7
 
-require github.com/grafana/grafana-plugin-sdk-go v0.291.1
+require (
+	github.com/grafana/grafana-plugin-sdk-go v0.291.1
+	golang.org/x/sync v0.20.0
+)
 
 require (
 	github.com/BurntSushi/toml v1.5.0 // indirect
@@ -77,7 +80,6 @@ require (
 	golang.org/x/exp v0.0.0-20260112195511-716be5621a96 // indirect
 	golang.org/x/mod v0.33.0 // indirect
 	golang.org/x/net v0.52.0 // indirect
-	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/telemetry v0.0.0-20260209163413-e7419c687ee4 // indirect
 	golang.org/x/text v0.35.0 // indirect

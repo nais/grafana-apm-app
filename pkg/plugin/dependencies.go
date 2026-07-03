@@ -59,8 +59,28 @@ func (a *App) handleGlobalDependencies(w http.ResponseWriter, req *http.Request)
 	from := parseUnixParam(req, "from", now.Add(-1*time.Hour))
 	to := parseUnixParam(req, "to", now)
 
-	deps := a.queryDependencies(ctx, from, to, "", "", "", filterEnv)
-	writeJSON(w, DependenciesResponse{Dependencies: deps})
+	// This is an unscoped, fleet-wide service-graph aggregation — cache it
+	// (time range rounded to 30s, singleflighted against stampedes).
+	orgID := req.Header.Get("X-Grafana-Org-Id")
+	roundedFrom := fmt.Sprintf("%d", from.Unix()/30*30)
+	roundedTo := fmt.Sprintf("%d", to.Unix()/30*30)
+	ck := cacheKey("globaldeps", orgID, roundedFrom, roundedTo, filterEnv)
+	if cached, ok := a.respCache.get(ck); ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Cache", "HIT")
+		_, _ = w.Write(cached)
+		return
+	}
+
+	data, err := a.respCache.getOrCompute(ck, func() (any, error) {
+		return DependenciesResponse{Dependencies: a.queryDependencies(ctx, from, to, "", "", "", filterEnv)}, nil
+	})
+	if err != nil {
+		http.Error(w, "querying dependencies failed", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(data)
 }
 
 // handleNamespaceDependencies returns external dependencies for all services in a namespace.

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
 
 // responseCache is a simple in-memory cache for expensive API responses.
@@ -16,6 +18,7 @@ type responseCache struct {
 	entries map[string]*cacheEntry
 	ttl     time.Duration
 	maxSize int
+	group   singleflight.Group
 }
 
 type cacheEntry struct {
@@ -93,4 +96,35 @@ func (c *responseCache) setJSON(key string, v any) {
 		return
 	}
 	c.set(key, data)
+}
+
+// getOrCompute returns cached JSON bytes on hit; on miss it runs compute,
+// coalescing concurrent callers for the same key into a single execution
+// (stampede protection — wallboards polling in lockstep would otherwise all
+// re-run the expensive query fan-out when an entry expires).
+func (c *responseCache) getOrCompute(key string, compute func() (any, error)) ([]byte, error) {
+	if data, ok := c.get(key); ok {
+		return data, nil
+	}
+	v, err, _ := c.group.Do(key, func() (any, error) {
+		// Re-check: another caller may have populated the cache while we
+		// waited for the flight slot.
+		if data, ok := c.get(key); ok {
+			return data, nil
+		}
+		val, err := compute()
+		if err != nil {
+			return nil, err
+		}
+		data, err := json.Marshal(val)
+		if err != nil {
+			return nil, fmt.Errorf("marshaling response: %w", err)
+		}
+		c.set(key, data)
+		return data, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return v.([]byte), nil
 }

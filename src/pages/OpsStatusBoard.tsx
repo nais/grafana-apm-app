@@ -69,7 +69,7 @@ function OpsStatusBoard() {
   const styles = useStyles2(getStyles);
   const envParam = sanitizeParam(searchParams.get('environment') ?? '');
   const envFilters = useMemo(() => (envParam ? envParam.split(',').filter(Boolean) : []), [envParam]);
-  const { from, fromMs, toMs, setTimeRange } = useTimeRange();
+  const { from, fromMs, toMs, setTimeRange, refresh: refreshTimeRange } = useTimeRange();
   const { watchlist, loading: watchlistLoading, error: watchlistError, add, remove } = useOpsWatchlist();
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -159,8 +159,14 @@ function OpsStatusBoard() {
     { skip: !fetchResult || cardSize !== 'lg' || watchlist.length === 0 }
   );
 
-  // Auto-refresh
+  // Auto-refresh. For relative ranges (now-1h), re-resolving the range updates
+  // fromMs/toMs and every useFetch above refetches via its deps — without this
+  // the board would re-query the window resolved at first render forever.
   const handleRefresh = useCallback(() => {
+    if (isRelativeRange) {
+      refreshTimeRange();
+      return;
+    }
     refetch();
     if (cardSize !== 'sm') {
       refetchPrev();
@@ -168,7 +174,7 @@ function OpsStatusBoard() {
     if (cardSize === 'lg') {
       refetchSparklines();
     }
-  }, [refetch, refetchPrev, refetchSparklines, cardSize]);
+  }, [isRelativeRange, refreshTimeRange, refetch, refetchPrev, refetchSparklines, cardSize]);
 
   const { secondsUntilRefresh } = useAutoRefresh(handleRefresh, refreshInterval);
 
