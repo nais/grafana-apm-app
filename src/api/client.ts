@@ -586,6 +586,56 @@ export async function getFrontendVersions(
   );
 }
 
+// ---- Frontend sessions (M5) ----
+
+export interface SessionSummary {
+  sessionId: string;
+  /** Activity bounds from the metadata harvest (epoch ms); 0 when unknown. */
+  firstSeenMs: number;
+  lastSeenMs: number;
+  /** Total Faro lines (all kinds) for the session in range. */
+  events: number;
+  /** Exception count for the session in range. */
+  errors: number;
+  userId: string;
+  userEmail: string;
+  browser: string;
+  os: string;
+  appVersion: string;
+  /** Distinct page URLs seen for the session in the metadata harvest. */
+  pages: number;
+}
+
+export interface FrontendSessionsResponse {
+  sessions: SessionSummary[];
+  /** True when more sessions matched than the response cap (50). */
+  truncated: boolean;
+  unavailable: boolean;
+  /** Set when counts cover a narrower recent window than the requested range. */
+  windowSeconds?: number;
+}
+
+export async function getFrontendSessions(
+  namespace: string,
+  service: string,
+  from: number,
+  to: number,
+  environment?: string,
+  q?: string
+): Promise<FrontendSessionsResponse> {
+  const params: Record<string, string> = { ...timeParams(from, to) };
+  if (environment) {
+    params.environment = environment;
+  }
+  if (q) {
+    params.q = q;
+  }
+  return fetchResource<FrontendSessionsResponse>(
+    `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/frontend/sessions`,
+    params
+  );
+}
+
 // ---- Issue triage (#57) ----
 
 export interface TriageState {

@@ -58,46 +58,39 @@ type dsQueryTarget struct {
 	QueryType string `json:"queryType,omitempty"`
 	Instant   bool   `json:"instant"`
 	Range     bool   `json:"range"`
+	// MaxLines/Direction apply to Loki log (range) queries only.
+	MaxLines  int    `json:"maxLines,omitempty"`
+	Direction string `json:"direction,omitempty"`
 }
 
 type dsQueryDsRef struct {
 	UID string `json:"uid"`
 }
 
+// dsQueryFrame is one data frame in a /api/ds/query response.
+type dsQueryFrame struct {
+	Schema struct {
+		Fields []struct {
+			Name   string            `json:"name"`
+			Labels map[string]string `json:"labels,omitempty"`
+		} `json:"fields"`
+	} `json:"schema"`
+	Data struct {
+		Values []json.RawMessage `json:"values"`
+	} `json:"data"`
+}
+
 // dsQueryResponse mirrors the frame envelope of /api/ds/query.
 type dsQueryResponse struct {
 	Results map[string]struct {
-		Error  string `json:"error,omitempty"`
-		Frames []struct {
-			Schema struct {
-				Fields []struct {
-					Name   string            `json:"name"`
-					Labels map[string]string `json:"labels,omitempty"`
-				} `json:"fields"`
-			} `json:"schema"`
-			Data struct {
-				Values []json.RawMessage `json:"values"`
-			} `json:"data"`
-		} `json:"frames"`
+		Error  string         `json:"error,omitempty"`
+		Frames []dsQueryFrame `json:"frames"`
 	} `json:"results"`
 }
 
-// InstantQuery runs an instant metric query (LogQL or PromQL) via the
-// datasource query API and flattens the resulting frames into PromResults.
-func (c *DsQueryClient) InstantQuery(ctx context.Context, dsUID, expr string, at time.Time) ([]PromResult, error) {
-	// A zero-width window confuses some datasource implementations; give the
-	// request a nominal from while anchoring evaluation at `to`.
-	body, err := json.Marshal(dsQueryRequest{
-		From: strconv.FormatInt(at.Add(-time.Minute).UnixMilli(), 10),
-		To:   strconv.FormatInt(at.UnixMilli(), 10),
-		Queries: []dsQueryTarget{{
-			RefID:      "A",
-			Datasource: dsQueryDsRef{UID: dsUID},
-			Expr:       expr,
-			QueryType:  "instant",
-			Instant:    true,
-		}},
-	})
+// execute posts a single-target ds query and returns the frames for refId A.
+func (c *DsQueryClient) execute(ctx context.Context, dsReq dsQueryRequest) ([]dsQueryFrame, error) {
+	body, err := json.Marshal(dsReq)
 	if err != nil {
 		return nil, fmt.Errorf("marshaling ds query: %w", err)
 	}
@@ -142,11 +135,33 @@ func (c *DsQueryClient) InstantQuery(ctx context.Context, dsUID, expr string, at
 	if result.Error != "" {
 		return nil, fmt.Errorf("ds query error: %s", result.Error)
 	}
+	return result.Frames, nil
+}
+
+// InstantQuery runs an instant metric query (LogQL or PromQL) via the
+// datasource query API and flattens the resulting frames into PromResults.
+func (c *DsQueryClient) InstantQuery(ctx context.Context, dsUID, expr string, at time.Time) ([]PromResult, error) {
+	// A zero-width window confuses some datasource implementations; give the
+	// request a nominal from while anchoring evaluation at `to`.
+	frames, err := c.execute(ctx, dsQueryRequest{
+		From: strconv.FormatInt(at.Add(-time.Minute).UnixMilli(), 10),
+		To:   strconv.FormatInt(at.UnixMilli(), 10),
+		Queries: []dsQueryTarget{{
+			RefID:      "A",
+			Datasource: dsQueryDsRef{UID: dsUID},
+			Expr:       expr,
+			QueryType:  "instant",
+			Instant:    true,
+		}},
+	})
+	if err != nil {
+		return nil, err
+	}
 
 	// Instant vector: one frame per series (or one frame with multiple value
 	// fields); labels ride on the value field, values as [times[], values[]].
 	var out []PromResult
-	for _, frame := range result.Frames {
+	for _, frame := range frames {
 		if len(frame.Schema.Fields) < 2 || len(frame.Data.Values) < 2 {
 			continue
 		}
@@ -159,6 +174,70 @@ func (c *DsQueryClient) InstantQuery(ctx context.Context, dsUID, expr string, at
 				Metric: frame.Schema.Fields[i].Labels,
 				Value:  NewPromValue(float64(at.UnixMilli())/1000, strconv.FormatFloat(vals[len(vals)-1], 'f', -1, 64)),
 			})
+		}
+	}
+	return out, nil
+}
+
+// LogEntry is one raw log line returned by a Loki log query.
+type LogEntry struct {
+	// TimeMs is the entry timestamp in epoch milliseconds.
+	TimeMs int64
+	// Line is the raw log line (logfmt for Faro streams).
+	Line string
+}
+
+// LogQuery runs a Loki log (range) query via the datasource query API and
+// flattens the log frames into timestamped raw lines. Direction is backward:
+// with limit lines available, the newest ones win.
+func (c *DsQueryClient) LogQuery(ctx context.Context, dsUID, expr string, from, to time.Time, limit int) ([]LogEntry, error) {
+	frames, err := c.execute(ctx, dsQueryRequest{
+		From: strconv.FormatInt(from.UnixMilli(), 10),
+		To:   strconv.FormatInt(to.UnixMilli(), 10),
+		Queries: []dsQueryTarget{{
+			RefID:      "A",
+			Datasource: dsQueryDsRef{UID: dsUID},
+			Expr:       expr,
+			QueryType:  "range",
+			Range:      true,
+			MaxLines:   limit,
+			Direction:  "backward",
+		}},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Log frames carry parallel value arrays; the time and line columns are
+	// named "Time"/"Line" (legacy) or "timestamp"/"body" (dataplane).
+	var out []LogEntry
+	for _, frame := range frames {
+		timeIdx, lineIdx := -1, -1
+		for i, f := range frame.Schema.Fields {
+			switch f.Name {
+			case "Time", "time", "timestamp", "ts":
+				if timeIdx < 0 {
+					timeIdx = i
+				}
+			case "Line", "line", "body":
+				if lineIdx < 0 {
+					lineIdx = i
+				}
+			}
+		}
+		if timeIdx < 0 || lineIdx < 0 || timeIdx >= len(frame.Data.Values) || lineIdx >= len(frame.Data.Values) {
+			continue
+		}
+		var times []float64
+		var lines []string
+		if err := json.Unmarshal(frame.Data.Values[timeIdx], &times); err != nil {
+			continue
+		}
+		if err := json.Unmarshal(frame.Data.Values[lineIdx], &lines); err != nil {
+			continue
+		}
+		for i := 0; i < len(times) && i < len(lines); i++ {
+			out = append(out, LogEntry{TimeMs: int64(times[i]), Line: lines[i]})
 		}
 	}
 	return out, nil

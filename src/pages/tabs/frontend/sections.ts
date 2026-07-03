@@ -30,6 +30,7 @@ import {
 import { FrontendSceneContext } from './scene-context';
 import { IssuesTable } from './components/IssuesTable';
 import { VersionsPanel } from './components/VersionsPanel';
+import { SessionsPanel } from './components/SessionsPanel';
 
 /** Derive LokiClusterOpts from scene context (undefined when no filter needed). */
 function clusterOpts(ctx: FrontendSceneContext): LokiClusterOpts | undefined {
@@ -510,9 +511,23 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
     ],
   });
 
+  // Sessions explorer (roadmap M5): the user-centric entry point — search by
+  // session/user, see error counts, jump to the session's logs.
+  const sessionsRow = new SceneFlexLayout({
+    direction: 'row',
+    children: [
+      new SceneFlexItem({
+        minHeight: 260,
+        body: new SceneReactObject({
+          reactNode: React.createElement(SessionsPanel, { namespace, service, environment }),
+        }),
+      }),
+    ],
+  });
+
   return new SceneFlexLayout({
     direction: 'column',
-    children: [issuesRow, versionsRow, browserRow],
+    children: [issuesRow, versionsRow, sessionsRow, browserRow],
   });
 }
 
