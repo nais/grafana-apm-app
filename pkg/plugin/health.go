@@ -100,15 +100,22 @@ func (a *App) handleHealth(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	caps := a.cachedOrDetectCapabilities(ctx)
-	if !caps.SpanMetrics.Detected {
-		writeJSON(w, HealthSummary{DurationUnit: "ms"})
-		return
-	}
-
 	from, to := parseTimeRange(req)
-	summary := a.queryHealth(ctx, caps, namespace, service, environment, from, to, serverOnly)
-	writeJSON(w, summary)
+
+	// Cache key: org + time range rounded to 30s + all filter params
+	orgID := req.Header.Get("X-Grafana-Org-Id")
+	serverStr := "false"
+	if serverOnly {
+		serverStr = "true"
+	}
+	ck := cacheKey("health", orgID, roundedUnix(from), roundedUnix(to), namespace, service, environment, serverStr)
+	a.writeCached(w, ck, "querying health failed", func() (any, error) {
+		caps := a.cachedOrDetectCapabilities(ctx)
+		if !caps.SpanMetrics.Detected {
+			return HealthSummary{DurationUnit: "ms"}, nil
+		}
+		return a.queryHealth(ctx, caps, namespace, service, environment, from, to, serverOnly), nil
+	})
 }
 
 func (a *App) queryHealth(

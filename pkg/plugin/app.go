@@ -19,6 +19,7 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/backend/resource/httpadapter"
 	"github.com/nais/grafana-otel-plugin/pkg/plugin/otelconfig"
 	"github.com/nais/grafana-otel-plugin/pkg/plugin/queries"
+	"golang.org/x/sync/singleflight"
 )
 
 var (
@@ -40,6 +41,7 @@ type App struct {
 
 	capMu    sync.RWMutex
 	capCache *cachedCapabilities
+	capSF    singleflight.Group // coalesces concurrent capability probes on cache expiry
 
 	respCache *responseCache // short-lived response cache for expensive queries
 

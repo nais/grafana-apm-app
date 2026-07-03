@@ -71,43 +71,62 @@ const (
 	capabilitiesNegativeTTL = 30 * time.Second
 )
 
+// freshCapabilities returns the cached capabilities if they are still within
+// TTL. Uses a short TTL for negative results so detection retries sooner.
+func (a *App) freshCapabilities() (queries.Capabilities, bool) {
+	a.capMu.RLock()
+	cached := a.capCache
+	a.capMu.RUnlock()
+
+	if cached == nil {
+		return queries.Capabilities{}, false
+	}
+	ttl := capabilitiesCacheTTL
+	if !cached.caps.SpanMetrics.Detected {
+		ttl = capabilitiesNegativeTTL
+	}
+	if time.Since(cached.fetchedAt) < ttl {
+		return cached.caps, true
+	}
+	return queries.Capabilities{}, false
+}
+
 func (a *App) handleCapabilities(w http.ResponseWriter, req *http.Request) {
 	if !requireGET(w, req) {
 		return
 	}
 
-	// Check cache — use short TTL for negative results so we retry sooner.
-	a.capMu.RLock()
-	cached := a.capCache
-	a.capMu.RUnlock()
-
-	if cached != nil {
-		ttl := capabilitiesCacheTTL
-		if !cached.caps.SpanMetrics.Detected {
-			ttl = capabilitiesNegativeTTL
-		}
-		if time.Since(cached.fetchedAt) < ttl {
-			writeJSON(w, cached.caps)
-			return
-		}
+	if caps, ok := a.freshCapabilities(); ok {
+		writeJSON(w, caps)
+		return
 	}
 
-	authClient := a.promClientForRequest(req)
-	resolvedToken := a.resolveServiceToken(req.Context())
+	// Singleflight the probe: detection runs several fleet-wide queries, and
+	// concurrent callers hitting an expired cache would stampede Mimir. The
+	// key is shared with cachedOrDetectCapabilities so all probe paths coalesce.
+	v, _, _ := a.capSF.Do("detect", func() (any, error) {
+		if caps, ok := a.freshCapabilities(); ok {
+			return caps, nil
+		}
 
-	// Use a bounded context: preserve tracing/values from the request but
-	// detach from its cancellation so slow health checks aren't cut short.
-	detachedCtx, cancel := context.WithTimeout(context.WithoutCancel(req.Context()), 30*time.Second)
-	defer cancel()
-	detachedCtx = withAuthContext(detachedCtx, authClient)
+		authClient := a.promClientForRequest(req)
+		resolvedToken := a.resolveServiceToken(req.Context())
 
-	caps := a.detectCapabilities(detachedCtx, req.Header, resolvedToken)
+		// Use a bounded context: preserve tracing/values from the request but
+		// detach from its cancellation so slow health checks aren't cut short.
+		detachedCtx, cancel := context.WithTimeout(context.WithoutCancel(req.Context()), 30*time.Second)
+		defer cancel()
+		detachedCtx = withAuthContext(detachedCtx, authClient)
 
-	a.capMu.Lock()
-	a.capCache = &cachedCapabilities{caps: caps, fetchedAt: time.Now()}
-	a.capMu.Unlock()
+		caps := a.detectCapabilities(detachedCtx, req.Header, resolvedToken)
 
-	writeJSON(w, caps)
+		a.capMu.Lock()
+		a.capCache = &cachedCapabilities{caps: caps, fetchedAt: time.Now()}
+		a.capMu.Unlock()
+		return caps, nil
+	})
+
+	writeJSON(w, v.(queries.Capabilities))
 }
 
 func (a *App) detectCapabilities(ctx context.Context, headers http.Header, serviceToken string) queries.Capabilities {

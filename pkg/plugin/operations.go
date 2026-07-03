@@ -23,16 +23,17 @@ func (a *App) handleOperations(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	caps := a.cachedOrDetectCapabilities(ctx)
-	if !caps.SpanMetrics.Detected {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte("[]"))
-		return
-	}
-
 	from, to := parseTimeRange(req)
-	operations := a.queryOperations(ctx, caps, namespace, service, environment, from, to)
-	writeJSON(w, operations)
+
+	orgID := req.Header.Get("X-Grafana-Org-Id")
+	ck := cacheKey("operations", orgID, roundedUnix(from), roundedUnix(to), namespace, service, environment)
+	a.writeCached(w, ck, "querying operations failed", func() (any, error) {
+		caps := a.cachedOrDetectCapabilities(ctx)
+		if !caps.SpanMetrics.Detected {
+			return []queries.OperationSummary{}, nil
+		}
+		return a.queryOperations(ctx, caps, namespace, service, environment, from, to), nil
+	})
 }
 
 func (a *App) queryOperations(

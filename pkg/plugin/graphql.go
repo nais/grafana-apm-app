@@ -105,8 +105,11 @@ func (a *App) handleGraphQLMetrics(w http.ResponseWriter, req *http.Request) {
 
 	from, to := parseTimeRange(req)
 
-	result := a.queryGraphQLMetrics(ctx, namespace, service, environment, from, to)
-	writeJSON(w, result)
+	orgID := req.Header.Get("X-Grafana-Org-Id")
+	ck := cacheKey("graphql", orgID, roundedUnix(from), roundedUnix(to), namespace, service, environment)
+	a.writeCached(w, ck, "querying graphql metrics failed", func() (any, error) {
+		return a.queryGraphQLMetrics(ctx, namespace, service, environment, from, to), nil
+	})
 }
 
 func (a *App) queryGraphQLMetrics(ctx context.Context, namespace, service, environment string, _, to time.Time) GraphQLMetricsResponse {

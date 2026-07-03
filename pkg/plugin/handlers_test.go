@@ -1,6 +1,8 @@
 package plugin
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -500,6 +502,289 @@ func TestResponseCache(t *testing.T) {
 		}
 		if len(s1) != len(s2) {
 			t.Errorf("service count mismatch: %d vs %d", len(s1), len(s2))
+		}
+	})
+}
+
+// TestReadHandlersServeSecondRequestFromCache verifies that every cached read
+// handler serves a second identical request from respCache (X-Cache: HIT)
+// with a byte-identical body.
+func TestReadHandlersServeSecondRequestFromCache(t *testing.T) {
+	now := time.Now()
+	from := fmt.Sprintf("%d", now.Add(-1*time.Hour).Unix())
+	to := fmt.Sprintf("%d", now.Unix())
+	tr := "from=" + from + "&to=" + to
+
+	svcPath := map[string]string{"namespace": "team", "service": "svc"}
+	tests := []struct {
+		name     string
+		url      string
+		pathVals map[string]string
+		call     func(*App, http.ResponseWriter, *http.Request)
+	}{
+		{"health", "/services/team/svc/health?" + tr, svcPath, (*App).handleHealth},
+		{"operations", "/services/team/svc/operations?" + tr, svcPath, (*App).handleOperations},
+		{"endpoints", "/services/team/svc/endpoints?" + tr, svcPath, (*App).handleEndpoints},
+		{"connected", "/services/team/svc/connected?" + tr, svcPath, (*App).handleConnectedServices},
+		{"service dependencies", "/services/team/svc/dependencies?" + tr, svcPath, (*App).handleServiceDependencies},
+		{"graphql", "/services/team/svc/graphql?" + tr, svcPath, (*App).handleGraphQLMetrics},
+		{"runtime", "/services/team/svc/runtime?" + tr, svcPath, (*App).handleRuntime},
+		{"namespace dependencies", "/namespaces/team/dependencies?" + tr, map[string]string{"namespace": "team"}, (*App).handleNamespaceDependencies},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			promSrv := mockPromServer(t, nil)
+			defer promSrv.Close()
+			app := newTestApp(t, promSrv.URL, defaultCaps())
+
+			do := func() *httptest.ResponseRecorder {
+				req := httptest.NewRequest(http.MethodGet, tc.url, nil)
+				for k, v := range tc.pathVals {
+					req.SetPathValue(k, v)
+				}
+				w := httptest.NewRecorder()
+				tc.call(app, w, req)
+				return w
+			}
+
+			w1 := do()
+			if w1.Code != http.StatusOK {
+				t.Fatalf("first request failed: %d: %s", w1.Code, w1.Body.String())
+			}
+			if w1.Header().Get("X-Cache") == "HIT" {
+				t.Error("first request should not be a cache hit")
+			}
+
+			w2 := do()
+			if w2.Code != http.StatusOK {
+				t.Fatalf("second request failed: %d", w2.Code)
+			}
+			if w2.Header().Get("X-Cache") != "HIT" {
+				t.Error("second request should be a cache hit")
+			}
+			if !bytes.Equal(w1.Body.Bytes(), w2.Body.Bytes()) {
+				t.Errorf("cached body differs from computed body:\nfirst:  %s\nsecond: %s",
+					w1.Body.String(), w2.Body.String())
+			}
+		})
+	}
+}
+
+// TestCapabilitiesProbeSingleflight verifies that concurrent callers hitting
+// an expired capabilities cache run only a single detection probe.
+func TestCapabilitiesProbeSingleflight(t *testing.T) {
+	var mu sync.Mutex
+	probeCount := 0
+	promSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query().Get("query")
+		// The first span metrics candidate is probed exactly once per detection run.
+		if strings.Contains(query, "traces_span_metrics_calls_total") {
+			mu.Lock()
+			probeCount++
+			mu.Unlock()
+		}
+		// Slow the probe down so concurrent callers overlap in flight.
+		time.Sleep(20 * time.Millisecond)
+		resp := queries.PromResponse{
+			Status: "success",
+			Data:   queries.PromData{ResultType: "vector", Result: []queries.PromResult{}},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer promSrv.Close()
+
+	app := newTestApp(t, promSrv.URL, defaultCaps())
+	app.capCache = nil // force a re-probe
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			app.cachedOrDetectCapabilities(context.Background())
+		}()
+	}
+	wg.Wait()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if probeCount != 1 {
+		t.Errorf("expected exactly 1 detection probe, got %d", probeCount)
+	}
+}
+
+// TestNamespaceScopedServiceGraphQueries verifies that namespace-level views
+// scope service-graph PromQL to the namespace's services instead of running
+// the unscoped all-edges query.
+func TestNamespaceScopedServiceGraphQueries(t *testing.T) {
+	cfg := otelconfig.Default()
+	now := time.Now()
+	from := fmt.Sprintf("%d", now.Add(-1*time.Hour).Unix())
+	to := fmt.Sprintf("%d", now.Unix())
+
+	nsMapResults := []queries.PromResult{
+		{
+			Metric: map[string]string{cfg.Labels.ServiceName: "svc-a", cfg.Labels.ServiceNamespace: "team-a"},
+			Value:  queries.NewPromValue(float64(now.Unix()), "1"),
+		},
+		{
+			Metric: map[string]string{cfg.Labels.ServiceName: "svc-b", cfg.Labels.ServiceNamespace: "team-a"},
+			Value:  queries.NewPromValue(float64(now.Unix()), "1"),
+		},
+		{
+			Metric: map[string]string{cfg.Labels.ServiceName: "other", cfg.Labels.ServiceNamespace: "team-b"},
+			Value:  queries.NewPromValue(float64(now.Unix()), "1"),
+		},
+	}
+	scopedPattern := `=~"^(?:svc-a|svc-b)$"`
+
+	t.Run("namespace dependencies scope edge queries by client regex", func(t *testing.T) {
+		results := map[string][]queries.PromResult{
+			"group by": nsMapResults,
+			`client=~"^(?:svc-a|svc-b)$"`: {
+				{
+					Metric: map[string]string{
+						cfg.Labels.Client:         "svc-a",
+						cfg.Labels.Server:         "mydb-host",
+						cfg.Labels.ConnectionType: "database",
+						cfg.Labels.DBSystem:       "postgresql",
+					},
+					Value: queries.NewPromValue(float64(now.Unix()), "5"),
+				},
+			},
+		}
+		promSrv, captured := queryCapturingPromServer(t, results)
+		defer promSrv.Close()
+
+		app := newTestApp(t, promSrv.URL, defaultCaps())
+		req := httptest.NewRequest(http.MethodGet,
+			"/namespaces/team-a/dependencies?from="+from+"&to="+to, nil)
+		req.SetPathValue("namespace", "team-a")
+		w := httptest.NewRecorder()
+		app.handleNamespaceDependencies(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+
+		var resp NamespaceDependenciesResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("invalid JSON: %s", err)
+		}
+		if len(resp.Dependencies) != 1 || resp.Dependencies[0].Name != "mydb-host" {
+			t.Errorf("expected 1 dependency 'mydb-host', got %+v", resp.Dependencies)
+		}
+
+		sgQueries := 0
+		for _, q := range *captured {
+			if !strings.Contains(q, "traces_service_graph") {
+				continue
+			}
+			sgQueries++
+			if !strings.Contains(q, scopedPattern) {
+				t.Errorf("service graph query not scoped to namespace services: %s", q)
+			}
+		}
+		if sgQueries == 0 {
+			t.Fatal("expected scoped service graph queries, got none")
+		}
+	})
+
+	t.Run("service map namespace view scopes by client and server regex", func(t *testing.T) {
+		results := map[string][]queries.PromResult{
+			"group by": nsMapResults,
+			`request_total{client=~"^(?:svc-a|svc-b)$"`: {
+				{
+					Metric: map[string]string{cfg.Labels.Client: "svc-a", cfg.Labels.Server: "ext-api"},
+					Value:  queries.NewPromValue(float64(now.Unix()), "3"),
+				},
+			},
+			`request_total{server=~"^(?:svc-a|svc-b)$"`: {
+				{
+					Metric: map[string]string{cfg.Labels.Client: "caller", cfg.Labels.Server: "svc-b"},
+					Value:  queries.NewPromValue(float64(now.Unix()), "2"),
+				},
+			},
+		}
+		promSrv, captured := queryCapturingPromServer(t, results)
+		defer promSrv.Close()
+
+		app := newTestApp(t, promSrv.URL, defaultCaps())
+		req := httptest.NewRequest(http.MethodGet,
+			"/service-map?namespace=team-a&from="+from+"&to="+to, nil)
+		w := httptest.NewRecorder()
+		app.handleServiceMap(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+
+		var resp ServiceMapResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("invalid JSON: %s", err)
+		}
+		if len(resp.Nodes) < 4 {
+			t.Errorf("expected at least 4 nodes (svc-a, ext-api, caller, svc-b), got %d", len(resp.Nodes))
+			for _, n := range resp.Nodes {
+				t.Logf("  node: %s", n.ID)
+			}
+		}
+
+		hasClientScoped := false
+		hasServerScoped := false
+		for _, q := range *captured {
+			if !strings.Contains(q, "traces_service_graph") {
+				continue
+			}
+			if !strings.Contains(q, scopedPattern) {
+				t.Errorf("service graph query not scoped to namespace services: %s", q)
+			}
+			if strings.Contains(q, `client`+scopedPattern) {
+				hasClientScoped = true
+			}
+			if strings.Contains(q, `server`+scopedPattern) {
+				hasServerScoped = true
+			}
+		}
+		if !hasClientScoped || !hasServerScoped {
+			t.Errorf("expected both client- and server-scoped queries (client=%v, server=%v)",
+				hasClientScoped, hasServerScoped)
+		}
+	})
+
+	t.Run("falls back to unscoped query above maxScopedServices", func(t *testing.T) {
+		manyServices := make([]queries.PromResult, 0, maxScopedServices+1)
+		for i := 0; i <= maxScopedServices; i++ {
+			manyServices = append(manyServices, queries.PromResult{
+				Metric: map[string]string{
+					cfg.Labels.ServiceName:      fmt.Sprintf("svc-%d", i),
+					cfg.Labels.ServiceNamespace: "team-big",
+				},
+				Value: queries.NewPromValue(float64(now.Unix()), "1"),
+			})
+		}
+		promSrv, captured := queryCapturingPromServer(t, map[string][]queries.PromResult{
+			"group by": manyServices,
+		})
+		defer promSrv.Close()
+
+		app := newTestApp(t, promSrv.URL, defaultCaps())
+		req := httptest.NewRequest(http.MethodGet,
+			"/namespaces/team-big/dependencies?from="+from+"&to="+to, nil)
+		req.SetPathValue("namespace", "team-big")
+		w := httptest.NewRecorder()
+		app.handleNamespaceDependencies(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", w.Code)
+		}
+
+		for _, q := range *captured {
+			if strings.Contains(q, "traces_service_graph") && strings.Contains(q, `=~"^(?:`) {
+				t.Errorf("expected unscoped fallback above cap, got scoped query: %s", q)
+			}
 		}
 	})
 }

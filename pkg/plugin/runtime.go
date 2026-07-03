@@ -24,10 +24,13 @@ func (a *App) handleRuntime(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	_, to := parseTimeRange(req)
+	from, to := parseTimeRange(req)
 
-	result := a.queryRuntimeMetrics(ctx, namespace, service, environment, to)
-	writeJSON(w, result)
+	orgID := req.Header.Get("X-Grafana-Org-Id")
+	ck := cacheKey("runtime", orgID, roundedUnix(from), roundedUnix(to), namespace, service, environment)
+	a.writeCached(w, ck, "querying runtime metrics failed", func() (any, error) {
+		return a.queryRuntimeMetrics(ctx, namespace, service, environment, to), nil
+	})
 }
 
 // queryRuntimeMetrics runs a single discovery query to find available runtime

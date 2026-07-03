@@ -536,31 +536,31 @@ func valuesToDataPoints(values []queries.PromValue) []queries.DataPoint {
 
 // cachedOrDetectCapabilities returns cached capabilities or detects fresh ones.
 // Uses the same negative-cache TTL (30s) as handleCapabilities to ensure
-// consistent recovery across all endpoints.
+// consistent recovery across all endpoints. Detection is singleflighted so
+// concurrent requests arriving after cache expiry run only one probe.
 func (a *App) cachedOrDetectCapabilities(ctx context.Context) queries.Capabilities {
-	a.capMu.RLock()
-	cached := a.capCache
-	a.capMu.RUnlock()
-
-	if cached != nil {
-		ttl := capabilitiesCacheTTL
-		if !cached.caps.SpanMetrics.Detected {
-			ttl = capabilitiesNegativeTTL
-		}
-		if time.Since(cached.fetchedAt) < ttl {
-			return cached.caps
-		}
+	if caps, ok := a.freshCapabilities(); ok {
+		return caps
 	}
 
-	// Resolve the service token from the prom client in context (already resolved per-request)
-	token := ""
-	if c := a.prom(ctx); c != nil {
-		token = c.ServiceToken()
-	}
+	v, _, _ := a.capSF.Do("detect", func() (any, error) {
+		// Re-check: another caller may have refreshed the cache while we
+		// waited for the flight slot.
+		if caps, ok := a.freshCapabilities(); ok {
+			return caps, nil
+		}
 
-	caps := a.detectCapabilities(ctx, httpHeaders(ctx), token)
-	a.capMu.Lock()
-	a.capCache = &cachedCapabilities{caps: caps, fetchedAt: time.Now()}
-	a.capMu.Unlock()
-	return caps
+		// Resolve the service token from the prom client in context (already resolved per-request)
+		token := ""
+		if c := a.prom(ctx); c != nil {
+			token = c.ServiceToken()
+		}
+
+		caps := a.detectCapabilities(ctx, httpHeaders(ctx), token)
+		a.capMu.Lock()
+		a.capCache = &cachedCapabilities{caps: caps, fetchedAt: time.Now()}
+		a.capMu.Unlock()
+		return caps, nil
+	})
+	return v.(queries.Capabilities)
 }

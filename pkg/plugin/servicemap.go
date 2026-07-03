@@ -220,6 +220,61 @@ func (a *App) queryServiceGraphEdges(ctx context.Context, from, to time.Time, fi
 	return edges
 }
 
+// queryServiceGraphEdgesForServices queries service graph edges scoped to a
+// set of services via a client (and optionally server) regex matcher. This
+// replaces the unscoped all-edges query for namespace-level views, which can
+// time out at fleet scale. Callers must cap the list at maxScopedServices.
+func (a *App) queryServiceGraphEdgesForServices(ctx context.Context, from, to time.Time, filterEnv string, services []string, includeInbound bool) map[sgEdgeKey]*sgEdgeData {
+	logger := log.DefaultLogger.With("handler", "servicegraph-services", "count", len(services))
+	rangeStr := computeRangeStr(from, to)
+	sgp := a.serviceGraphPrefix()
+	cfg := a.otelCfg
+
+	escaped := make([]string, len(services))
+	for i, s := range services {
+		escaped[i] = promQLEscape(s)
+	}
+	pattern := `^(?:` + strings.Join(escaped, "|") + `)$`
+
+	envFilter := ""
+	if m := envMatcher(cfg.Labels.DeploymentEnv, filterEnv); m != "" {
+		envFilter = ", " + m
+	}
+	clientFilter := fmt.Sprintf(`%s=~"%s"%s`, cfg.Labels.Client, pattern, envFilter)
+	serverFilter := fmt.Sprintf(`%s=~"%s"%s`, cfg.Labels.Server, pattern, envFilter)
+
+	// Same query shape as queryServiceGraphEdges; result keys match
+	// parseSGEdgeResults ("out" = services as client, "in" = services as server).
+	buildJobs := func(prefix, labelFilter string) []QueryJob {
+		return []QueryJob{
+			{prefix + "Rate", fmt.Sprintf(
+				`sum by (%s, %s, %s, %s, %s) (rate(%s%s{%s}%s))`,
+				cfg.Labels.Client, cfg.Labels.Server, cfg.Labels.ConnectionType,
+				cfg.Labels.DBSystem, cfg.Labels.MessagingSystem,
+				sgp, cfg.ServiceGraph.RequestTotal, labelFilter, rangeStr,
+			)},
+			{prefix + "Err", fmt.Sprintf(
+				`sum by (%s, %s, %s) (rate(%s%s{%s}%s))`,
+				cfg.Labels.Client, cfg.Labels.Server, cfg.Labels.ConnectionType,
+				sgp, cfg.ServiceGraph.RequestFailedTotal, labelFilter, rangeStr,
+			)},
+			{prefix + "P95", fmt.Sprintf(
+				`histogram_quantile(0.95, sum by (%s, %s, %s) (rate(%s%s{%s}%s)))`,
+				cfg.Labels.Client, cfg.Labels.Server, cfg.Labels.Le,
+				sgp, cfg.ServiceGraph.RequestServerBucket, labelFilter, rangeStr,
+			)},
+		}
+	}
+
+	jobs := buildJobs("out", clientFilter)
+	if includeInbound {
+		jobs = append(jobs, buildJobs("in", serverFilter)...)
+	}
+
+	resultMap := a.runInstantQueries(ctx, to, jobs, logger)
+	return parseSGEdgeResults(resultMap, cfg)
+}
+
 // queryServiceGraphEdgesScoped runs scoped queries for a single service
 // (client=X OR server=X) and merges results. This avoids the expensive
 // unscoped query that can time out in large environments.
@@ -305,6 +360,12 @@ func (a *App) queryServiceGraphEdgesScoped(ctx context.Context, from, to time.Ti
 }
 
 const maxFrontierSize = 15
+
+// maxScopedServices caps how many service names are packed into a single
+// client/server regex matcher when scoping namespace-level service-graph
+// queries. Beyond this the regex gets unwieldy for Mimir and the unscoped
+// all-edges query (filtered client-side) is used instead.
+const maxScopedServices = 200
 
 // hubDegreeThreshold is the minimum directional degree (number of distinct
 // neighbors in the expansion direction) that causes a node to be classified
@@ -1240,27 +1301,49 @@ func (a *App) queryServiceMap( //nolint:gocyclo // complex due to filtering + no
 	// that service graph queries are scoped directly in PromQL (client=X OR
 	// server=X). This avoids fetching ALL edges in large environments, which
 	// can time out in Mimir when there are thousands of services.
-	// When no filterService is specified (namespace-level view), the unscoped
-	// query is used and filtering happens post-query.
-	edges := a.queryServiceGraphEdges(ctx, from, to, filterEnvironment, filterService)
-
-	// Apply namespace filter: keep edges where at least one end belongs to the namespace.
-	// Service graph metrics lack namespace labels, so we build a name→namespace mapping
-	// from spanmetrics (which DO carry service_namespace).
 	//
-	// Skip the namespace filter when a service filter is active: the scoped queries
-	// already return only that service's direct neighbors, and the namespace filter
-	// would incorrectly remove cross-namespace callers/callees (or all edges if
-	// the nsMap query fails in large environments).
+	// For the namespace-level view (no filterService), we build the namespace's
+	// service list from spanmetrics (service graph metrics lack namespace
+	// labels) and scope the PromQL to those services when the list is small
+	// enough. Only huge namespaces fall back to the unscoped all-edges query
+	// with client-side filtering.
+	//
+	// The namespace filter is skipped when a service filter is active: the
+	// scoped queries already return only that service's direct neighbors, and
+	// the namespace filter would incorrectly remove cross-namespace
+	// callers/callees (or all edges if the nsMap query fails in large
+	// environments).
+	var edges map[sgEdgeKey]*sgEdgeData
 	if filterNamespace != "" && filterService == "" {
 		nsMap := a.buildServiceNamespaceMap(ctx, to, filterEnvironment)
-		filtered := make(map[sgEdgeKey]*sgEdgeData)
-		for k, e := range edges {
-			if nsMap[k.client] == filterNamespace || nsMap[k.server] == filterNamespace {
-				filtered[k] = e
+		nsServices := make([]string, 0)
+		for svc, ns := range nsMap {
+			if ns == filterNamespace {
+				nsServices = append(nsServices, svc)
 			}
 		}
-		edges = filtered
+		sort.Strings(nsServices)
+
+		switch {
+		case len(nsServices) == 0:
+			// Unknown namespace (or nsMap query failed) — matches the previous
+			// behavior where the client-side filter removed every edge.
+			edges = map[sgEdgeKey]*sgEdgeData{}
+		case len(nsServices) <= maxScopedServices:
+			// Keep edges where at least one end belongs to the namespace.
+			edges = a.queryServiceGraphEdgesForServices(ctx, from, to, filterEnvironment, nsServices, true)
+		default:
+			edges = a.queryServiceGraphEdges(ctx, from, to, filterEnvironment, "")
+			filtered := make(map[sgEdgeKey]*sgEdgeData)
+			for k, e := range edges {
+				if nsMap[k.client] == filterNamespace || nsMap[k.server] == filterNamespace {
+					filtered[k] = e
+				}
+			}
+			edges = filtered
+		}
+	} else {
+		edges = a.queryServiceGraphEdges(ctx, from, to, filterEnvironment, filterService)
 	}
 
 	// Calculate per-node aggregate error rates for display.

@@ -25,21 +25,22 @@ func (a *App) handleConnectedServices(w http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	caps := a.cachedOrDetectCapabilities(ctx)
-	if !caps.ServiceGraph.Detected {
-		writeJSON(w, ConnectedServicesResponse{
-			Inbound:  []ConnectedService{},
-			Outbound: []ConnectedService{},
-		})
-		return
-	}
-
 	now := time.Now()
 	from := parseUnixParam(req, "from", now.Add(-1*time.Hour))
 	to := parseUnixParam(req, "to", now)
 
-	resp := a.queryConnectedServices(ctx, from, to, service, filterEnv)
-	writeJSON(w, resp)
+	orgID := req.Header.Get("X-Grafana-Org-Id")
+	ck := cacheKey("connected", orgID, roundedUnix(from), roundedUnix(to), service, filterEnv)
+	a.writeCached(w, ck, "querying connected services failed", func() (any, error) {
+		caps := a.cachedOrDetectCapabilities(ctx)
+		if !caps.ServiceGraph.Detected {
+			return ConnectedServicesResponse{
+				Inbound:  []ConnectedService{},
+				Outbound: []ConnectedService{},
+			}, nil
+		}
+		return a.queryConnectedServices(ctx, from, to, service, filterEnv), nil
+	})
 }
 
 func (a *App) queryConnectedServices(ctx context.Context, from, to time.Time, service, filterEnvironment string) ConnectedServicesResponse {

@@ -48,16 +48,17 @@ func (a *App) handleEndpoints(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	caps := a.cachedOrDetectCapabilities(ctx)
-	if !caps.SpanMetrics.Detected {
-		writeJSON(w, queries.EndpointGroups{})
-		return
-	}
-
 	from, to := parseTimeRange(req)
 
-	groups := a.queryEndpoints(ctx, caps, namespace, service, environment, from, to)
-	writeJSON(w, groups)
+	orgID := req.Header.Get("X-Grafana-Org-Id")
+	ck := cacheKey("endpoints", orgID, roundedUnix(from), roundedUnix(to), namespace, service, environment)
+	a.writeCached(w, ck, "querying endpoints failed", func() (any, error) {
+		caps := a.cachedOrDetectCapabilities(ctx)
+		if !caps.SpanMetrics.Detected {
+			return queries.EndpointGroups{}, nil
+		}
+		return a.queryEndpoints(ctx, caps, namespace, service, environment, from, to), nil
+	})
 }
 
 func (a *App) queryEndpoints(
