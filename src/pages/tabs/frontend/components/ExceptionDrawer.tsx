@@ -28,11 +28,20 @@ import {
   Breadcrumb,
   GroupedBreadcrumb,
 } from '../exception-utils';
+import { probeReplay, ReplayProbeResult } from '../replay/fetchReplay';
+import { ReplaySection } from '../replay/ReplaySection';
 
 /** Millisecond timestamp → Loki nanosecond string (string concat avoids float precision loss). */
 function msToNs(ms: number): string {
   return `${Math.floor(ms)}000000`;
 }
+
+/**
+ * Pad session-scoped queries (breadcrumbs, replay chunks) by an hour on both
+ * sides so a session that started before (or ended after) the selected page
+ * range isn't clipped.
+ */
+const SESSION_PAD_MS = 3600_000;
 
 interface ExceptionDrawerProps {
   /**
@@ -99,6 +108,7 @@ export function ExceptionDrawer({
   const [occurrences, setOccurrences] = useState<ParsedException[]>([]);
   const [breadcrumbs, setBreadcrumbs] = useState<GroupedBreadcrumb[]>([]);
   const [loadingBreadcrumbs, setLoadingBreadcrumbs] = useState(false);
+  const [replayProbe, setReplayProbe] = useState<ReplayProbeResult | null>(null);
   const [creatingAlert, setCreatingAlert] = useState(false);
   const labelOverrides = usePluginLabelOverrides();
   // The drawer is opened purely from URL state (docs/url-contract.md) — the
@@ -270,9 +280,7 @@ export function ExceptionDrawer({
     // The |= line filter lets Loki skip logfmt-parsing every Faro line for the app.
     const breadcrumbsQuery = `{${fl.serviceName}="${sanitizeLabelValue(service)}"${clusterStream}} |= \`${fl.sessionId}=${sanitizeLabelValue(selectedSessionId)}\` | logfmt | ${fl.sessionId}="${sanitizeLabelValue(selectedSessionId)}"`;
 
-    // Pad the page range by an hour on both sides so a session that started
-    // before (or ended after) the selected range isn't clipped.
-    const padMs = 3600_000;
+    const padMs = SESSION_PAD_MS;
 
     lastValueFrom(
       getBackendSrv().fetch<any>({
@@ -349,6 +357,37 @@ export function ExceptionDrawer({
     };
   }, [selectedSessionId, service, environment, logsUid, clusterStream, fromMs, toMs, fl.serviceName, fl.sessionId]);
 
+  // Probe for session-replay chunks (#58/#67) whenever the session changes —
+  // a cheap count-only metric query; the chunks themselves are only fetched
+  // when the user clicks the replay button.
+  useEffect(() => {
+    setReplayProbe(null);
+    if (!selectedSessionId) {
+      return;
+    }
+    let cancelled = false;
+    probeReplay({
+      logsUid,
+      service,
+      sessionId: selectedSessionId,
+      fromMs: fromMs - SESSION_PAD_MS,
+      toMs: toMs + SESSION_PAD_MS,
+      environment,
+      environmentLabel: clusterLabel,
+    })
+      .then((probe) => {
+        if (!cancelled) {
+          setReplayProbe(probe);
+        }
+      })
+      .catch(() => {
+        // No replay section on probe failure — replay is best-effort.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSessionId, service, environment, logsUid, clusterLabel, fromMs, toMs]);
+
   useEffect(() => {
     if (occurrences.length > 0 && selectedSessionId) {
       const matched = occurrences.find((o) => o.sessionId === selectedSessionId);
@@ -390,6 +429,10 @@ export function ExceptionDrawer({
 
   const envParam = environment ? `&environment=${encodeURIComponent(environment)}` : '';
   const nsSegment = encodeURIComponent(namespace || '_');
+
+  // Absolute exception time (ms) when derivable — recordings seek to it minus 10s.
+  const parsedExceptionTs = exception?.timestamp ? Date.parse(exception.timestamp) : NaN;
+  const exceptionTsMs = Number.isFinite(parsedExceptionTs) ? parsedExceptionTs : undefined;
 
   // Logs search takes one term — use the session when known, else the first
   // member hash (merged groups: searching a single member is still useful).
@@ -569,6 +612,24 @@ export function ExceptionDrawer({
                 ) : (
                   <span style={{ color: '#8c95a5', fontSize: '12px' }}>No session events found.</span>
                 )}
+              </div>
+            )}
+
+            {exception.sessionId && replayProbe?.hasChunks && (
+              <div className={styles.section}>
+                <h4 className={styles.sectionTitle}>Session Replay</h4>
+                <ReplaySection
+                  key={exception.sessionId}
+                  logsUid={logsUid}
+                  service={service}
+                  environment={environment}
+                  environmentLabel={clusterLabel}
+                  sessionId={exception.sessionId}
+                  fromMs={fromMs - SESSION_PAD_MS}
+                  toMs={toMs + SESSION_PAD_MS}
+                  mode={replayProbe.mode ?? 'recording'}
+                  exceptionTsMs={exceptionTsMs}
+                />
               </div>
             )}
 

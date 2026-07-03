@@ -132,6 +132,19 @@ const config = async (env: Env): Promise<Configuration> => {
 
     optimization: {
       minimize: Boolean(env.production),
+      // Bundle-splitting policy (see AGENTS.md → Gotchas):
+      // v0.13.2 shipped `LimitChunkCountPlugin({ maxChunks: 1 })` after a
+      // production ChunkLoadError — webpack had auto-split shared code into
+      // content-addressed lazy chunks (e.g. 732.js) that were deleted on
+      // redeploy while browsers still ran a stale module.js referencing them.
+      // We now allow chunks ONLY at explicit `import()` boundaries (the
+      // ~MB-scale rrweb replay player must not ride the initial bundle) and
+      // keep automatic vendor/common splitting disabled so the initial chunk
+      // stays a single module.js. Every explicit `import()` must go through a
+      // retry/reload guard (src/pages/tabs/frontend/replay/LazyReplayPlayer.tsx)
+      // so a redeploy-orphaned chunk degrades to a "reload the page" notice
+      // instead of a crash.
+      splitChunks: false,
       minimizer: [
         new TerserPlugin({
           terserOptions: {
@@ -151,7 +164,11 @@ const config = async (env: Env): Promise<Configuration> => {
         keep: new RegExp(`(.*?_(amd64|arm(64)?)(.exe)?|go_plugin_build_manifest)`),
       },
       filename: '[name].js',
-      chunkFilename: env.production ? '[name].js?_cache=[contenthash]' : '[name].js',
+      // Content-hashed FILENAMES (not just a cache-busting query string) for
+      // lazy chunks: a stale module.js after a redeploy asks for a chunk file
+      // that no longer exists and fails fast into the import guard, instead of
+      // silently loading a same-named chunk with incompatible content.
+      chunkFilename: env.production ? '[name].[contenthash].js' : '[name].js',
       library: {
         type: 'amd',
       },
@@ -162,9 +179,6 @@ const config = async (env: Env): Promise<Configuration> => {
     },
 
     plugins: [
-      new webpack.optimize.LimitChunkCountPlugin({
-        maxChunks: 1,
-      }),
       new BuildModeWebpackPlugin(),
       virtualPublicPath,
       // Insert create plugin version information into the bundle

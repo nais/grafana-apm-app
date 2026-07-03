@@ -94,6 +94,12 @@ export const otel = {
     kindException: 'exception',
     kindEvent: 'event',
     kindLog: 'log',
+    // Session-replay chunks (#58/#67). Today they arrive as kind="event" with
+    // event_name="faro.session_recording.chunk"; the future Alloy pipeline
+    // relabels the stream to kind="replay" (7d retention_stream) — replay
+    // queries must match both during the transition.
+    kindReplay: 'replay',
+    replayChunkEvent: 'faro.session_recording.chunk',
     // logfmt field names
     typeField: 'type',
     typeWebVitals: 'web-vitals',
