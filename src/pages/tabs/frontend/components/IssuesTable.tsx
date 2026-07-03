@@ -63,7 +63,15 @@ export function IssuesTable({ namespace, service, environment }: IssuesTableProp
               <th>Error</th>
               <th className={styles.shareCol}>Share</th>
               <th className={styles.num}>Occurrences</th>
-              <th className={styles.num}>Sessions</th>
+              <th className={styles.num}>
+                {data?.sessionsWindowSeconds ? (
+                  <Tooltip content="Distinct sessions exceed the Loki series limit over the full range, so session counts cover the most recent hour only.">
+                    <span>Sessions (last {Math.round(data.sessionsWindowSeconds / 60)}m)</span>
+                  </Tooltip>
+                ) : (
+                  'Sessions'
+                )}
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -72,6 +80,7 @@ export function IssuesTable({ namespace, service, environment }: IssuesTableProp
                 key={g.fingerprint}
                 group={g}
                 totalCount={totalCount}
+                sessionsUnavailable={data?.sessionsUnavailable}
                 onOpen={() => updateParams({ issueId: g.fingerprint })}
               />
             ))}
@@ -91,7 +100,17 @@ export function IssuesTable({ namespace, service, environment }: IssuesTableProp
 
 const PAGE_SIZE = 10;
 
-function IssueRow({ group, totalCount, onOpen }: { group: ExceptionGroup; totalCount: number; onOpen: () => void }) {
+function IssueRow({
+  group,
+  totalCount,
+  sessionsUnavailable,
+  onOpen,
+}: {
+  group: ExceptionGroup;
+  totalCount: number;
+  sessionsUnavailable?: boolean;
+  onOpen: () => void;
+}) {
   const styles = useStyles2(getStyles);
   const share = totalCount > 0 ? group.count / totalCount : 0;
   return (
@@ -119,7 +138,7 @@ function IssueRow({ group, totalCount, onOpen }: { group: ExceptionGroup; totalC
         <span className={styles.shareLabel}>{Math.round(share * 100)}%</span>
       </td>
       <td className={styles.num}>{Math.round(group.count)}</td>
-      <td className={styles.num}>{Math.round(group.sessions)}</td>
+      <td className={styles.num}>{sessionsUnavailable ? '—' : Math.round(group.sessions)}</td>
     </tr>
   );
 }

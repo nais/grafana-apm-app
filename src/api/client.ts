@@ -469,6 +469,10 @@ export interface ExceptionGroupsResponse {
   fingerprintVersion: string;
   groups: ExceptionGroup[];
   unavailable?: boolean;
+  /** Sessions were computed over this narrower window (Loki series-limit fallback). */
+  sessionsWindowSeconds?: number;
+  /** Session counts could not be computed at all — render a dash, not 0. */
+  sessionsUnavailable?: boolean;
 }
 
 export async function getExceptionGroups(
@@ -484,6 +488,47 @@ export async function getExceptionGroups(
   }
   return fetchResource<ExceptionGroupsResponse>(
     `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/exceptions/groups`,
+    params
+  );
+}
+
+// ---- Frontend versions (release health, #64) ----
+
+export interface VersionStat {
+  /** Release identity — the git commit SHA by convention (#64). */
+  version: string;
+  /** Distinct sessions observed on this version in range. */
+  sessions: number;
+  /** Share of all sessions in range on this version (0..1). */
+  adoption: number;
+  /** 1 - (sessions with >=1 exception / sessions), 0..1. 0 when sessions is 0. */
+  errorFreeRate: number;
+  /** Exception occurrences on this version in range. */
+  exceptions: number;
+  /** Deploy annotation timestamp (epoch ms), when a deploy marker exists. */
+  deployedAtMs?: number;
+}
+
+export interface FrontendVersionsResponse {
+  versions: VersionStat[];
+  /** Version tag on the newest deploy annotation in range. */
+  latestVersion?: string;
+  unavailable?: boolean;
+}
+
+export async function getFrontendVersions(
+  namespace: string,
+  service: string,
+  from: number,
+  to: number,
+  environment?: string
+): Promise<FrontendVersionsResponse> {
+  const params: Record<string, string> = { ...timeParams(from, to) };
+  if (environment) {
+    params.environment = environment;
+  }
+  return fetchResource<FrontendVersionsResponse>(
+    `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/frontend/versions`,
     params
   );
 }

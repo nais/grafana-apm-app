@@ -48,6 +48,14 @@ type ExceptionGroupsResponse struct {
 	Groups             []ExceptionGroup `json:"groups"`
 	// Unavailable indicates Loki is not configured/reachable for this env.
 	Unavailable bool `json:"unavailable,omitempty"`
+	// SessionsWindowSeconds is set when the distinct-session counts had to be
+	// computed over a narrower window than the requested range: the
+	// (hash × session_id) series set exceeds Loki's max_query_series on wide
+	// ranges for chatty apps, so we fall back to the most recent hour.
+	SessionsWindowSeconds int `json:"sessionsWindowSeconds,omitempty"`
+	// SessionsUnavailable is set when even the fallback sessions query failed
+	// — the UI shows an em dash instead of a misleading 0.
+	SessionsUnavailable bool `json:"sessionsUnavailable,omitempty"`
 }
 
 // handleExceptionGroups returns fingerprint-grouped frontend exceptions.
@@ -67,8 +75,8 @@ func (a *App) handleExceptionGroups(w http.ResponseWriter, req *http.Request) {
 	from := parseUnixParam(req, "from", now.Add(-1*time.Hour))
 	to := parseUnixParam(req, "to", now)
 
-	lokiURL := a.lokiURL(env)
-	if lokiURL == "" {
+	lokiUID := a.settings.LogsDataSource.Resolve(env).UID
+	if lokiUID == "" {
 		writeJSON(w, ExceptionGroupsResponse{FingerprintVersion: fingerprint.Version, Groups: []ExceptionGroup{}, Unavailable: true})
 		return
 	}
@@ -84,10 +92,12 @@ func (a *App) handleExceptionGroups(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	lokiClient := queries.NewLokiMetricClient(lokiURL, a.resolveServiceToken(ctx)).WithAuthHeaders(req.Header)
+	// Queries go through Grafana's datasource query API (/api/ds/query) —
+	// the sanctioned, non-deprecated path — rather than the datasource proxy.
+	dsClient := queries.NewDsQueryClient(a.grafanaURL, a.resolveServiceToken(ctx)).WithAuthHeaders(req.Header)
 
 	data, err := a.respCache.getOrCompute(ck, func() (any, error) {
-		return a.queryExceptionGroups(ctx, lokiClient, service, env, from, to), nil
+		return a.queryExceptionGroups(ctx, dsClient, lokiUID, service, env, from, to), nil
 	})
 	if err != nil {
 		http.Error(w, "querying exception groups failed", http.StatusInternalServerError)
@@ -97,7 +107,15 @@ func (a *App) handleExceptionGroups(w http.ResponseWriter, req *http.Request) {
 	_, _ = w.Write(data)
 }
 
-func (a *App) queryExceptionGroups(ctx context.Context, loki *queries.PrometheusClient, service, env string, from, to time.Time) ExceptionGroupsResponse {
+// sessionsFallbackWindows is the retry ladder when the full-range
+// distinct-sessions query exceeds Loki's max_query_series (hash × session_id
+// cardinality): recent-window counts are a cheap, honest approximation for
+// ranking. The 10m rung covers apps chatty enough to blow the limit within
+// an hour (observed: >150k occurrences/day on a single group; the same app
+// exceeded the limit within 10 minutes at peak).
+var sessionsFallbackWindows = []time.Duration{time.Hour, 15 * time.Minute, 5 * time.Minute, time.Minute}
+
+func (a *App) queryExceptionGroups(ctx context.Context, ds *queries.DsQueryClient, lokiUID, service, env string, from, to time.Time) ExceptionGroupsResponse {
 	logger := log.DefaultLogger.With("handler", "exception-groups")
 	fl := a.otelCfg.FaroLoki
 	stream := a.otelCfg.LokiStreamSelector(service, fl.KindException, env)
@@ -110,25 +128,40 @@ func (a *App) queryExceptionGroups(ctx context.Context, loki *queries.Prometheus
 		fl.Hash, fl.TypeField, stream, window,
 	)
 	// Distinct sessions per (hash): dedupe by (hash, session_id), then count.
-	sessionsExpr := fmt.Sprintf(
-		`count by (%[1]s) (count_over_time(%[2]s | logfmt | %[1]s!="" | %[3]s!="" | keep %[1]s, %[3]s %[4]s))`,
-		fl.Hash, stream, fl.SessionID, window,
-	)
+	sessionsExpr := func(w string) string {
+		return fmt.Sprintf(
+			`count by (%[1]s) (count_over_time(%[2]s | logfmt | %[1]s!="" | %[3]s!="" | keep %[1]s, %[3]s %[4]s))`,
+			fl.Hash, stream, fl.SessionID, w,
+		)
+	}
 
 	var (
 		wg                sync.WaitGroup
 		countRes, sessRes []queries.PromResult
 		countErr, sessErr error
+		sessWindowSecs    int
 	)
-	wg.Go(func() { countRes, countErr = loki.InstantQuery(ctx, countExpr, to) })
-	wg.Go(func() { sessRes, sessErr = loki.InstantQuery(ctx, sessionsExpr, to) })
+	wg.Go(func() { countRes, countErr = ds.InstantQuery(ctx, lokiUID, countExpr, to) })
+	wg.Go(func() {
+		sessRes, sessErr = ds.InstantQuery(ctx, lokiUID, sessionsExpr(window), to)
+		for _, w := range sessionsFallbackWindows {
+			if sessErr == nil || to.Sub(from) <= w {
+				break
+			}
+			// Wide ranges blow Loki's series limit — retry over a recent window.
+			sessRes, sessErr = ds.InstantQuery(ctx, lokiUID, sessionsExpr(lokiWindow(to.Add(-w), to)), to)
+			if sessErr == nil {
+				sessWindowSecs = int(w.Seconds())
+			}
+		}
+	})
 	wg.Wait()
 	if countErr != nil {
 		logger.Warn("Exception count query failed", "error", countErr)
 		return ExceptionGroupsResponse{FingerprintVersion: fingerprint.Version, Groups: []ExceptionGroup{}, Unavailable: true}
 	}
 	if sessErr != nil {
-		logger.Debug("Exception sessions query failed", "error", sessErr)
+		logger.Warn("Exception sessions query failed", "error", sessErr)
 	}
 
 	sessionsByHash := make(map[string]float64, len(sessRes))
@@ -183,7 +216,12 @@ func (a *App) queryExceptionGroups(ctx context.Context, loki *queries.Prometheus
 		out = out[:maxGroups]
 	}
 
-	return ExceptionGroupsResponse{FingerprintVersion: fingerprint.Version, Groups: out}
+	return ExceptionGroupsResponse{
+		FingerprintVersion:    fingerprint.Version,
+		Groups:                out,
+		SessionsWindowSeconds: sessWindowSecs,
+		SessionsUnavailable:   sessErr != nil,
+	}
 }
 
 // lokiWindow formats a LogQL range window covering [from, to].
