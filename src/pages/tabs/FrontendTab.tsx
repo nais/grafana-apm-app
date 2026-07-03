@@ -24,6 +24,7 @@ import { sanitizeLabelValue } from '../../utils/sanitize';
 import { otel } from '../../otelconfig';
 import { useSearchParams } from 'react-router-dom';
 import { useUrlParams } from '../../utils/useUrlState';
+import { buildDeployAnnotationsLayer } from '../buildServiceScene';
 import { ExceptionDrawer } from './frontend/components/ExceptionDrawer';
 
 import {
@@ -224,6 +225,8 @@ function FrontendPanels({
       // Synced to the shared URL time range (was hardcoded now-1h, which left
       // scene panels and the drawer/issues table querying different windows).
       $timeRange: new SceneTimeRange({ from, to }),
+      // Deploy markers (#64): annotation layer inherited by all child panels.
+      $data: buildDeployAnnotationsLayer(service, environment),
       $variables: new SceneVariableSet({ variables: [browserVar] }),
       $behaviors: [new behaviors.CursorSync({ sync: DashboardCursorSync.Crosshair })],
       controls: [new VariableValueSelectors({}), new SceneTimePicker({}), new SceneRefreshPicker({})],

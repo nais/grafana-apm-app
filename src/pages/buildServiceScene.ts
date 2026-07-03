@@ -5,11 +5,13 @@ import {
   SceneTimePicker,
   SceneTimeRange,
   SceneRefreshPicker,
+  SceneDataLayerSet,
   PanelBuilders,
   EmbeddedScene,
   behaviors,
+  dataLayers,
 } from '@grafana/scenes';
-import { DashboardCursorSync, TooltipDisplayMode } from '@grafana/schema';
+import { DashboardCursorSync, TooltipDisplayMode, DataQuery } from '@grafana/schema';
 import { HeatmapColorMode } from '@grafana/schema/dist/esm/raw/composable/heatmap/panelcfg/x/HeatmapPanelCfg_types.gen';
 import { buildTempoExploreUrl, buildLokiExploreUrl, buildMimirExploreUrl } from '../utils/explore';
 import { sanitizeLabelValue } from '../utils/sanitize';
@@ -33,6 +35,58 @@ export interface BuildServiceSceneParams {
   serviceNameLabel?: string;
   serviceNamespaceLabel?: string;
   deploymentEnvLabel?: string;
+}
+
+/**
+ * Builds a SceneDataLayerSet with a single AnnotationsDataLayer that queries the
+ * built-in `grafana` annotations datasource for deploy events (#64 Phase 1).
+ *
+ * Deploy events are written as Grafana organization annotations by CI (see
+ * infra/actions/apm-deploy-annotation) tagged `nais-apm:deploy`,
+ * `service:<app>`, `namespace:<ns>`, `env:<env>`, `version:<sha>`. Filtering
+ * here is by tags with `matchAny: false` (AND semantics), so markers show only
+ * for the selected service — and only for the selected environment when an
+ * environment filter is active. The annotation text (version + workflow link)
+ * renders in the default Grafana marker tooltip; no custom rendering.
+ *
+ * Attach as `$data` on an EmbeddedScene so every child time-series panel
+ * inherits the markers alongside its own SceneQueryRunner results.
+ */
+/**
+ * Query model of the built-in `grafana` annotations datasource. Mirrors
+ * AnnotationTarget from @grafana/schema, declared locally because that type
+ * is not assignable to the DataQuery the AnnotationQuery type expects.
+ */
+export interface DeployAnnotationTarget {
+  type: 'tags';
+  matchAny: boolean;
+  tags: string[];
+  limit: number;
+}
+
+export function buildDeployAnnotationsLayer(service: string, environment?: string): SceneDataLayerSet {
+  const tags = ['nais-apm:deploy', `service:${service}`];
+  if (environment) {
+    tags.push(`env:${environment}`);
+  }
+
+  // type `tags` fetches organization annotations matching ALL tags.
+  const target: DeployAnnotationTarget = { type: 'tags', matchAny: false, tags, limit: 100 };
+
+  return new SceneDataLayerSet({
+    layers: [
+      new dataLayers.AnnotationsDataLayer({
+        name: 'Deploys',
+        query: {
+          name: 'Deploys',
+          enable: true,
+          iconColor: 'green',
+          datasource: { type: 'grafana', uid: '-- Grafana --' },
+          target: target as unknown as DataQuery,
+        },
+      }),
+    ],
+  });
 }
 
 /**
@@ -170,6 +224,8 @@ export function buildServiceScene(params: BuildServiceSceneParams): EmbeddedScen
 
   return new EmbeddedScene({
     $timeRange: timeRange,
+    // Deploy markers (#64): annotation layer inherited by all child panels.
+    $data: buildDeployAnnotationsLayer(service, envFilter || undefined),
     $behaviors: [new behaviors.CursorSync({ sync: DashboardCursorSync.Crosshair })],
     controls: [new SceneTimePicker({}), new SceneRefreshPicker({})],
     body: new SceneFlexLayout({

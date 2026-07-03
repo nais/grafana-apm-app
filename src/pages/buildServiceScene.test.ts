@@ -1,4 +1,10 @@
-import { buildServiceScene, BuildServiceSceneParams } from './buildServiceScene';
+import { SceneDataLayerSet, dataLayers } from '@grafana/scenes';
+import {
+  buildDeployAnnotationsLayer,
+  buildServiceScene,
+  BuildServiceSceneParams,
+  DeployAnnotationTarget,
+} from './buildServiceScene';
 
 const defaultParams: BuildServiceSceneParams = {
   service: 'frontend',
@@ -98,5 +104,53 @@ describe('buildServiceScene', () => {
     const scene = buildServiceScene({ ...defaultParams, hasServerSpans: false });
     const serialized = JSON.stringify(scene!.state.body);
     expect(serialized).not.toContain('SPAN_KIND_SERVER');
+  });
+
+  it('attaches a deploy annotations data layer filtered by service and env tags', () => {
+    const scene = buildServiceScene(defaultParams);
+    const layerSet = scene!.state.$data as SceneDataLayerSet;
+    expect(layerSet).toBeInstanceOf(SceneDataLayerSet);
+
+    const layer = layerSet.state.layers[0] as InstanceType<typeof dataLayers.AnnotationsDataLayer>;
+    expect(layer).toBeInstanceOf(dataLayers.AnnotationsDataLayer);
+    expect(layer.state.query.datasource).toEqual({ type: 'grafana', uid: '-- Grafana --' });
+    expect(layer.state.query.target).toEqual({
+      type: 'tags',
+      matchAny: false,
+      tags: ['nais-apm:deploy', 'service:frontend', 'env:production'],
+      limit: 100,
+    });
+  });
+
+  it('omits the env tag from the deploy annotation layer when envFilter is empty', () => {
+    const scene = buildServiceScene({ ...defaultParams, envFilter: '' });
+    const layerSet = scene!.state.$data as SceneDataLayerSet;
+    const layer = layerSet.state.layers[0] as InstanceType<typeof dataLayers.AnnotationsDataLayer>;
+    const target = layer.state.query.target as unknown as DeployAnnotationTarget;
+    expect(target.tags).toEqual(['nais-apm:deploy', 'service:frontend']);
+  });
+});
+
+describe('buildDeployAnnotationsLayer', () => {
+  it('queries the built-in grafana annotations datasource by tags', () => {
+    const layerSet = buildDeployAnnotationsLayer('myapp', 'prod-gcp');
+    const layer = layerSet.state.layers[0] as InstanceType<typeof dataLayers.AnnotationsDataLayer>;
+    expect(layer.state.query).toMatchObject({
+      enable: true,
+      datasource: { type: 'grafana', uid: '-- Grafana --' },
+      target: {
+        type: 'tags',
+        matchAny: false,
+        tags: ['nais-apm:deploy', 'service:myapp', 'env:prod-gcp'],
+        limit: 100,
+      },
+    });
+  });
+
+  it('omits the env tag when no environment is given', () => {
+    const layerSet = buildDeployAnnotationsLayer('myapp');
+    const layer = layerSet.state.layers[0] as InstanceType<typeof dataLayers.AnnotationsDataLayer>;
+    const target = layer.state.query.target as unknown as DeployAnnotationTarget;
+    expect(target.tags).toEqual(['nais-apm:deploy', 'service:myapp']);
   });
 });
