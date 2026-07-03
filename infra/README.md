@@ -14,11 +14,11 @@ Source material: `gh issue view 60/64/59/58` in `nais/grafana-apm-app`
 
 | Artifact | Source issue | Milestone | Target location |
 |---|---|---|---|
-| `alloy/faro-receiver-sourcemaps.alloy` | #60 Phase 0 | M0 (v0.14) | Platform's Alloy config repo — every `faro.receiver` instance, every environment |
+| ~~`alloy/faro-receiver-sourcemaps.alloy`~~ | #60 Phase 0 | M0 (v0.14) | **APPLIED** to `helm-charts/features/alloy-faro/templates/config.yaml` (download_timeout 4s + location escape hatch; cdn.nav.no allowlist was already live) |
 | `docs/source-maps-on-nais.md` | #60 Phase 0 | M0 (v0.14) | nais docs (docs.nais.io), linked from the plugin's Frontend tab once Phase 2 ships |
 | `docs/meta-tag-contract.md` | #59 (proposal), referenced by #60 Phase 1 | M1 (v0.15) | New nais platform issue (HTML-serving/ingress component); nais docs once implemented |
 | `actions/apm-deploy-annotation/action.yml` + `actions/README.md` | #64 Phase 0 | M2 (v0.16) | New GitHub Action repo, `nais/apm-deploy-annotation`, published as `@v1` |
-| `alloy/faro-replay-stream.alloy` | #58 Phase 1 (pipeline) | M5 (v0.19) — **FUTURE, do not apply yet** | Platform's Alloy config repo + Loki config repo, once #58's Phase 0 spike gives a go/no-go |
+| ~~`alloy/faro-replay-stream.alloy`~~ | #58 Phase 1 (pipeline) | M5 (v0.19) — **FUTURE, do not apply yet** | Moved to `helm-charts/features/alloy-faro/docs/faro-replay-stream.alloy.future`, next to the live config it will one day join |
 
 ## What ties these together
 
