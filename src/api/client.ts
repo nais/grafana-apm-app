@@ -492,6 +492,59 @@ export async function getExceptionGroups(
   );
 }
 
+// ---- Unified issues (browser + server errors, #63) ----
+
+export type IssueSource = 'browser' | 'server';
+
+export interface IssueImpact {
+  /** Distinct pods with occurrences (server issues; may be 0). */
+  pods: number;
+  /** App versions with occurrences (may be empty). */
+  versions: string[];
+}
+
+export interface UnifiedIssue {
+  /** Versioned fingerprint, e.g. "v1:9f2ab31c04d7e655" — the stable issue identity. */
+  fingerprint: string;
+  tier: number;
+  title: string;
+  types?: string[];
+  count: number;
+  /** Distinct sessions — always 0 for server issues (no session concept). */
+  sessions: number;
+  /** Upstream Alloy hashes merged into this group — empty for server issues. */
+  memberHashes: string[];
+  truncated?: boolean;
+  source: IssueSource;
+  impact?: IssueImpact;
+}
+
+export interface IssuesResponse {
+  fingerprintVersion: string;
+  /** Which sources contributed data (probe results). */
+  sources: { browser: boolean; serverLogs: boolean };
+  issues: UnifiedIssue[];
+  unavailable?: boolean;
+  /** Sessions were computed over this narrower window (Loki series-limit fallback). */
+  sessionsWindowSeconds?: number;
+  /** Session counts could not be computed at all — render a dash, not 0. */
+  sessionsUnavailable?: boolean;
+}
+
+export async function getIssues(
+  namespace: string,
+  service: string,
+  from: number,
+  to: number,
+  environment?: string
+): Promise<IssuesResponse> {
+  const params: Record<string, string> = { ...timeParams(from, to) };
+  if (environment) {
+    params.environment = environment;
+  }
+  return fetchResource<IssuesResponse>(`/services/${nsParam(namespace)}/${encodeURIComponent(service)}/issues`, params);
+}
+
 // ---- Frontend versions (release health, #64) ----
 
 export interface VersionStat {

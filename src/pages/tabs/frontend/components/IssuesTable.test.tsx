@@ -1,12 +1,12 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { IssuesTable } from './IssuesTable';
 import * as client from '../../../../api/client';
 
 jest.mock('../../../../api/client', () => ({
   ...jest.requireActual('../../../../api/client'),
-  getExceptionGroups: jest.fn(),
+  getIssues: jest.fn(),
   getTriageStates: jest.fn().mockResolvedValue({}),
   getFrontendVersions: jest.fn().mockResolvedValue({ versions: [] }),
   postTriageAction: jest.fn(),
@@ -19,33 +19,42 @@ jest.mock('../../../../utils/userStorage', () => ({
   useUserMutes: () => ({ mutes: new Set<string>(), toggleMute: toggleMuteMock, loaded: true }),
 }));
 
-function mockGroups(n: number) {
+function mockIssues(n: number, source: 'browser' | 'server' = 'browser') {
   return {
     fingerprintVersion: 'v1',
-    groups: Array.from({ length: n }, (_, i) => ({
+    sources: { browser: true, serverLogs: true },
+    issues: Array.from({ length: n }, (_, i) => ({
       fingerprint: `v1:${String(i).padStart(16, '0')}`,
       tier: 2,
       title: `Error: issue number ${i}`,
       count: 1000 - i,
-      sessions: 100 - (i % 100),
-      memberHashes: [`${i}`],
+      sessions: source === 'server' ? 0 : 100 - (i % 100),
+      memberHashes: source === 'server' ? [] : [`${i}`],
+      source,
+      impact: { pods: 0, versions: [] },
     })),
   };
+}
+
+function LocationSpy() {
+  const location = useLocation();
+  return <div data-testid="location-search">{location.search}</div>;
 }
 
 function renderTable() {
   return render(
     <MemoryRouter>
       <IssuesTable namespace="ns" service="svc" />
+      <LocationSpy />
     </MemoryRouter>
   );
 }
 
 describe('IssuesTable pagination', () => {
-  const getExceptionGroups = client.getExceptionGroups as jest.Mock;
+  const getIssues = client.getIssues as jest.Mock;
 
   it('renders one page of rows with a pager for long result sets', async () => {
-    getExceptionGroups.mockResolvedValue(mockGroups(37));
+    getIssues.mockResolvedValue(mockIssues(37));
     renderTable();
 
     await waitFor(() => expect(screen.getByText('Error: issue number 0')).toBeInTheDocument());
@@ -63,7 +72,7 @@ describe('IssuesTable pagination', () => {
   });
 
   it('hides the pager when everything fits on one page', async () => {
-    getExceptionGroups.mockResolvedValue(mockGroups(4));
+    getIssues.mockResolvedValue(mockIssues(4));
     renderTable();
 
     await waitFor(() => expect(screen.getByText('Error: issue number 0')).toBeInTheDocument());
@@ -73,13 +82,13 @@ describe('IssuesTable pagination', () => {
 });
 
 describe('IssuesTable triage', () => {
-  const getExceptionGroups = client.getExceptionGroups as jest.Mock;
+  const getIssues = client.getIssues as jest.Mock;
   const getTriageStates = client.getTriageStates as jest.Mock;
   const getFrontendVersions = client.getFrontendVersions as jest.Mock;
   const postTriageAction = client.postTriageAction as jest.Mock;
 
   it('hides resolved issues under the default filter and shows them under Resolved', async () => {
-    getExceptionGroups.mockResolvedValue(mockGroups(3));
+    getIssues.mockResolvedValue(mockIssues(3));
     getTriageStates.mockResolvedValue({
       'v1:0000000000000001': { status: 'resolved', updatedAt: 999999999999999, updatedBy: 'hans' },
     });
@@ -94,7 +103,7 @@ describe('IssuesTable triage', () => {
   });
 
   it('bubbles regressed issues to the top with a badge', async () => {
-    getExceptionGroups.mockResolvedValue(mockGroups(3));
+    getIssues.mockResolvedValue(mockIssues(3));
     // Issue 2 resolved BEFORE the latest deploy but still occurring → regressed.
     getTriageStates.mockResolvedValue({
       'v1:0000000000000002': { status: 'resolved', updatedAt: 1000, updatedBy: 'hans' },
@@ -112,7 +121,7 @@ describe('IssuesTable triage', () => {
   });
 
   it('resolve action POSTs and removes the row under the default filter', async () => {
-    getExceptionGroups.mockResolvedValue(mockGroups(2));
+    getIssues.mockResolvedValue(mockIssues(2));
     getTriageStates.mockResolvedValue({});
     postTriageAction.mockResolvedValue({ status: 'resolved', updatedAt: 999999999999999, updatedBy: 'me' });
     renderTable();
@@ -129,5 +138,85 @@ describe('IssuesTable triage', () => {
       )
     );
     await waitFor(() => expect(screen.queryByText('Error: issue number 0')).not.toBeInTheDocument());
+  });
+});
+
+describe('IssuesTable unified sources', () => {
+  const getIssues = client.getIssues as jest.Mock;
+
+  function mixedIssues() {
+    const browser = mockIssues(2, 'browser').issues;
+    const server = mockIssues(1, 'server').issues.map((i) => ({
+      ...i,
+      fingerprint: 'v1:00000000000000ff',
+      title: 'PSQLException: connection refused to db-host:5432 while executing query',
+      impact: { pods: 3, versions: ['1.42.0'] },
+    }));
+    return {
+      fingerprintVersion: 'v1',
+      sources: { browser: true, serverLogs: true },
+      issues: [...browser, ...server],
+    };
+  }
+
+  it('renders a source badge per row', async () => {
+    getIssues.mockResolvedValue(mixedIssues());
+    renderTable();
+
+    await waitFor(() => expect(screen.getByText(/PSQLException/)).toBeInTheDocument());
+    expect(screen.getAllByText('browser')).toHaveLength(2);
+    expect(screen.getAllByText('server')).toHaveLength(1);
+  });
+
+  it('renders a dash in the Sessions cell for server issues', async () => {
+    getIssues.mockResolvedValue(mixedIssues());
+    renderTable();
+
+    await waitFor(() => expect(screen.getByText(/PSQLException/)).toBeInTheDocument());
+    const serverRow = screen.getByText(/PSQLException/).closest('tr')!;
+    expect(serverRow).toHaveTextContent('—');
+  });
+
+  it('source filter hides browser rows', async () => {
+    getIssues.mockResolvedValue(mixedIssues());
+    renderTable();
+
+    await waitFor(() => expect(screen.getByText('Error: issue number 0')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('radio', { name: 'Server' }));
+
+    await waitFor(() => expect(screen.queryByText('Error: issue number 0')).not.toBeInTheDocument());
+    expect(screen.queryByText('Error: issue number 1')).not.toBeInTheDocument();
+    expect(screen.getByText(/PSQLException/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Browser' }));
+    await waitFor(() => expect(screen.getByText('Error: issue number 0')).toBeInTheDocument());
+    expect(screen.queryByText(/PSQLException/)).not.toBeInTheDocument();
+  });
+
+  it('server row click deep-links to the Logs tab instead of opening the drawer', async () => {
+    getIssues.mockResolvedValue(mixedIssues());
+    renderTable();
+
+    await waitFor(() => expect(screen.getByText(/PSQLException/)).toBeInTheDocument());
+    fireEvent.click(screen.getByText(/PSQLException/));
+
+    const search = screen.getByTestId('location-search').textContent ?? '';
+    const params = new URLSearchParams(search);
+    expect(params.get('tab')).toBe('logs');
+    // logSearch carries the first 60 chars of the title
+    expect(params.get('logSearch')).toBe('PSQLException: connection refused to db-host:5432 while exec');
+    expect(params.get('issueId')).toBeNull();
+  });
+
+  it('browser row click opens the drawer via issueId', async () => {
+    getIssues.mockResolvedValue(mixedIssues());
+    renderTable();
+
+    await waitFor(() => expect(screen.getByText('Error: issue number 0')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Error: issue number 0'));
+
+    const params = new URLSearchParams(screen.getByTestId('location-search').textContent ?? '');
+    expect(params.get('issueId')).toBe('v1:0000000000000000');
+    expect(params.get('tab')).toBeNull();
   });
 });

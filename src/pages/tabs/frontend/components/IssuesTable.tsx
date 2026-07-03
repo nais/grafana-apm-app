@@ -1,14 +1,15 @@
 import React, { useMemo, useState } from 'react';
-import { Badge, IconButton, Pagination, RadioButtonGroup, Tooltip, useStyles2 } from '@grafana/ui';
+import { Badge, Icon, IconButton, Pagination, RadioButtonGroup, Tooltip, useStyles2 } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import {
-  getExceptionGroups,
+  getIssues,
   getTriageStates,
   getFrontendVersions,
   postTriageAction,
-  ExceptionGroup,
+  IssueSource,
   TriageState,
+  UnifiedIssue,
 } from '../../../../api/client';
 import { useFetch } from '../../../../utils/useFetch';
 import { useTimeRange } from '../../../../utils/timeRange';
@@ -31,6 +32,14 @@ const FILTER_OPTIONS: Array<{ label: string; value: StatusFilter }> = [
   { label: 'Ignored', value: 'ignored' },
 ];
 
+type SourceFilter = 'all' | IssueSource;
+
+const SOURCE_OPTIONS: Array<{ label: string; value: SourceFilter }> = [
+  { label: 'All sources', value: 'all' },
+  { label: 'Browser', value: 'browser' },
+  { label: 'Server', value: 'server' },
+];
+
 /**
  * Fingerprint-grouped exception list (#62 Phase 0) with triage (#57):
  * resolve/ignore/mute state per issue, shared across users via the backend's
@@ -44,7 +53,7 @@ export function IssuesTable({ namespace, service, environment }: IssuesTableProp
   const updateParams = useUrlParams();
 
   const { data, loading, error } = useFetch(
-    () => getExceptionGroups(namespace, service, fromMs, toMs, environment),
+    () => getIssues(namespace, service, fromMs, toMs, environment),
     [namespace, service, fromMs, toMs, environment]
   );
   // Triage state and deploy info load non-blocking: the table renders even
@@ -60,6 +69,7 @@ export function IssuesTable({ namespace, service, environment }: IssuesTableProp
   const { mutes, toggleMute } = useUserMutes(namespace, service);
 
   const [filter, setFilter] = useState<StatusFilter>('unresolved');
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
   const [showMuted, setShowMuted] = useState(false);
   // Optimistic overrides after a POST — avoids refetching the whole table.
   const [overrides, setOverrides] = useState<Record<string, TriageState>>({});
@@ -72,7 +82,7 @@ export function IssuesTable({ namespace, service, environment }: IssuesTableProp
     setOverrides((prev) => ({ ...prev, [fingerprint]: newState }));
   };
 
-  const groups = data?.groups ?? [];
+  const groups = data?.issues ?? [];
   const totalCount = groups.reduce((sum, g) => sum + g.count, 0);
 
   // Latest deploy timestamp — the naive Phase 1 regression rule (#57/#64):
@@ -85,15 +95,18 @@ export function IssuesTable({ namespace, service, environment }: IssuesTableProp
   }, [versions]);
 
   const stateOf = (fp: string): TriageState | undefined => overrides[fp] ?? triageStates?.[fp];
-  const isRegressed = (g: ExceptionGroup): boolean => {
+  const isRegressed = (g: UnifiedIssue): boolean => {
     const st = stateOf(g.fingerprint);
     return !!st && st.status === 'resolved' && latestDeployMs > 0 && st.updatedAt < latestDeployMs;
   };
 
   const { rows, mutedCount } = useMemo(() => {
     let mutedCount = 0;
-    const visible: ExceptionGroup[] = [];
+    const visible: UnifiedIssue[] = [];
     for (const g of groups) {
+      if (sourceFilter !== 'all' && g.source !== sourceFilter) {
+        continue;
+      }
       const st = stateOf(g.fingerprint);
       const status = st?.status ?? 'active';
       const regressed = isRegressed(g);
@@ -117,7 +130,7 @@ export function IssuesTable({ namespace, service, environment }: IssuesTableProp
     visible.sort((a, b) => Number(isRegressed(b)) - Number(isRegressed(a)));
     return { rows: visible, mutedCount };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groups, triageStates, overrides, mutes, filter, showMuted, latestDeployMs]);
+  }, [groups, triageStates, overrides, mutes, filter, sourceFilter, showMuted, latestDeployMs]);
 
   const [rawPage, setPage] = useState(1);
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
@@ -128,17 +141,18 @@ export function IssuesTable({ namespace, service, environment }: IssuesTableProp
     <div className={styles.container}>
       <div className={styles.header}>
         <h6 className={styles.title}>Top Exceptions</h6>
-        <span className={styles.subtitle}>Grouped by stable fingerprint — one row per logical error</span>
+        <span className={styles.subtitle}>Frontend and backend errors grouped by stable fingerprint</span>
         <div className={styles.headerSpacer} />
+        <RadioButtonGroup size="sm" options={SOURCE_OPTIONS} value={sourceFilter} onChange={setSourceFilter} />
         <RadioButtonGroup size="sm" options={FILTER_OPTIONS} value={filter} onChange={setFilter} />
       </div>
       <DataState
         loading={loading}
-        error={error ? 'Failed to load exception groups' : data?.unavailable ? 'Loki is not available' : null}
+        error={error ? 'Failed to load issues' : data?.unavailable ? 'Loki is not available' : null}
         empty={groups.length === 0}
-        loadingText="Loading exceptions…"
-        emptyTitle="No exceptions"
-        emptyMessage="No frontend exceptions in the selected time range."
+        loadingText="Loading issues…"
+        emptyTitle="No issues"
+        emptyMessage="No errors in the selected time range."
       >
         <table className={styles.table}>
           <thead>
@@ -168,7 +182,13 @@ export function IssuesTable({ namespace, service, environment }: IssuesTableProp
                 muted={mutes.has(g.fingerprint)}
                 totalCount={totalCount}
                 sessionsUnavailable={data?.sessionsUnavailable}
-                onOpen={() => updateParams({ issueId: g.fingerprint })}
+                onOpen={() =>
+                  g.source === 'server'
+                    ? // Server issues have no member hashes to drive the drawer —
+                      // deep-link to the Logs tab pre-filtered on the error title.
+                      updateParams({ tab: 'logs', logSearch: g.title.slice(0, 60) })
+                    : updateParams({ issueId: g.fingerprint })
+                }
                 onAct={(action) => act(g.fingerprint, action).then(refetchTriage)}
                 onMute={() => toggleMute(g.fingerprint)}
               />
@@ -210,7 +230,7 @@ function IssueRow({
   onAct,
   onMute,
 }: {
-  group: ExceptionGroup;
+  group: UnifiedIssue;
   state?: TriageState;
   regressed: boolean;
   muted: boolean;
@@ -232,7 +252,17 @@ function IssueRow({
       onKeyDown={(e) => e.key === 'Enter' && onOpen()}
     >
       <td className={styles.errorCell}>
+        {group.source === 'server' ? (
+          <Tooltip content="Backend error from server logs — opens the Logs tab pre-filtered.">
+            <Badge className={styles.sourceBadge} text="server" color="orange" icon="database" />
+          </Tooltip>
+        ) : (
+          <Badge className={styles.sourceBadge} text="browser" color="blue" icon="monitor" />
+        )}
         <span className={styles.errorTitle}>{group.title}</span>
+        {group.source === 'server' && (
+          <Icon className={styles.externalIcon} name="external-link-alt" size="sm" aria-label="Opens Logs tab" />
+        )}
         {group.memberHashes.length > 1 && (
           <Tooltip
             content={`Merged from ${group.memberHashes.length} raw exception hashes whose messages differ only by dynamic content (ids, urls, timestamps).`}
@@ -260,7 +290,9 @@ function IssueRow({
         <span className={styles.shareLabel}>{Math.round(share * 100)}%</span>
       </td>
       <td className={styles.num}>{Math.round(group.count)}</td>
-      <td className={styles.num}>{sessionsUnavailable ? '—' : Math.round(group.sessions)}</td>
+      <td className={styles.num}>
+        {group.source === 'server' || sessionsUnavailable ? '—' : Math.round(group.sessions)}
+      </td>
       <td className={styles.actionsCol} onClick={(e) => e.stopPropagation()}>
         <span className={styles.actions}>
           {status === 'active' ? (
@@ -343,6 +375,15 @@ const getStyles = (theme: GrafanaTheme2) => ({
   `,
   badge: css`
     margin-left: ${theme.spacing(1)};
+  `,
+  sourceBadge: css`
+    margin-right: ${theme.spacing(1)};
+    vertical-align: middle;
+  `,
+  externalIcon: css`
+    margin-left: ${theme.spacing(0.5)};
+    color: ${theme.colors.text.secondary};
+    opacity: 0.7;
   `,
   num: css`
     text-align: right;
