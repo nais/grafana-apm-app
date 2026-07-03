@@ -173,8 +173,10 @@ function ServiceInventory() {
   const dir = sortDir === 'desc' ? -1 : 1;
   const isDefaultSort = sortField === 'name' && sortDir === 'asc';
   filtered = [...filtered].sort((a, b) => {
-    // While searching, order by fuzzy match relevance instead of the selected column
-    if (isSearching) {
+    // While searching, relevance is the DEFAULT order — but an explicit
+    // column sort still wins, otherwise header clicks silently do nothing
+    // whenever a query is active.
+    if (isSearching && isDefaultSort) {
       return (searchRank.get(a) ?? 0) - (searchRank.get(b) ?? 0);
     }
     // Sort boost: favorites float to top on default sort

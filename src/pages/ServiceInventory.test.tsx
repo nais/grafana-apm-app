@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import ServiceInventory from './ServiceInventory';
 import { FavoritesStore, FavoritesStorage } from '../utils/favoritesStorage';
@@ -208,5 +208,45 @@ describe('ServiceInventory — Fuzzy search', () => {
     expect(screen.queryByText('my-api')).not.toBeInTheDocument();
     expect(screen.queryByText('payment')).not.toBeInTheDocument();
     expect(screen.queryByText('frontend')).not.toBeInTheDocument();
+  });
+});
+
+describe('ServiceInventory — Column sorting', () => {
+  beforeEach(() => {
+    activeStore = createStore([]);
+  });
+
+  it('re-sorts rows when a column header is clicked', async () => {
+    renderInventory();
+    await waitFor(() => expect(screen.getByText('my-api')).toBeInTheDocument());
+
+    const names = ['my-api', 'payment', 'frontend'];
+    const rowNames = () =>
+      screen
+        .getAllByRole('row')
+        .slice(1) // skip header row
+        .map((r) => names.find((n) => within(r).queryByText(n, { exact: true }) !== null) ?? '')
+        .filter(Boolean);
+
+    // Default: name ascending
+    expect(rowNames()).toEqual(['frontend', 'my-api', 'payment']);
+
+    // Click P95 header → numeric columns default to descending
+    fireEvent.click(screen.getByText(/P95/i));
+    await waitFor(() => expect(rowNames()).toEqual(['payment', 'my-api', 'frontend']));
+  });
+
+  it('column sorting still wins while a search query is active', async () => {
+    // 'team' fuzzy-matches all three services (both namespaces); relevance is
+    // only the default order — an explicit column sort must override it.
+    renderInventory('/services?q=team&sort=p95Duration&dir=desc');
+    await waitFor(() => expect(screen.getByText('my-api')).toBeInTheDocument());
+
+    const names = ['my-api', 'payment', 'frontend'];
+    const rows = screen.getAllByRole('row').slice(1);
+    const order = rows
+      .map((r) => names.find((n) => within(r).queryByText(n, { exact: true }) !== null) ?? '')
+      .filter(Boolean);
+    expect(order).toEqual(['payment', 'my-api', 'frontend']);
   });
 });
