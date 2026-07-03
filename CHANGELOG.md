@@ -6,6 +6,7 @@
 
 - **Fingerprint-grouped exceptions** — Top Exceptions now groups by a stable, versioned fingerprint computed in the backend (exception type + normalized message) instead of the raw per-message Alloy hash: one logical error is one row even when messages carry UUIDs, URLs, or timestamps, with a "merged ×N" badge showing how many raw hashes combined. The Exception Drawer opens via a shareable `issueId` and aggregates occurrences across all member hashes; legacy `exceptionHash` links keep working. (#62)
 - **Frontend tab follows the page time range** — The Frontend tab's panels were pinned to a hardcoded last-1h window; they now honor the shared `from`/`to` URL range like every other tab.
+- **Top Exceptions promoted to a full-width row** — The issues table now sits directly under the health stats with the full page width, each row showing a share-of-total bar; Exception Types moved down beside the browser panels.
 
 - **Readable stack traces for console-captured exceptions** — The Exception Drawer now collapses runs of Faro SDK, vendored-dependency, and browser-native frames behind an expandable toggle and highlights the first in-app frame as the likely error origin. Exceptions captured via `console.error` get an explanatory badge: their stack shows the console call site, not where the error was thrown. Works retroactively on existing Loki data. (#66)
 - **Grafana-managed alerts on the namespace page** — Namespace alert surfacing now merges Grafana unified-alerting rules (with a "Grafana alert" badge) alongside Mimir ruler rules, fetched in parallel and deduplicated by name. (#65)
@@ -18,7 +19,7 @@
 
 ### Performance
 
-- **Request coalescing and wider caching** — Concurrent cache misses for the same key (wallboards polling in lockstep) now share a single backend query fan-out; the fleet-wide `/dependencies` endpoint is cached; `/services` sparkline resolution is clamped server-side to ≤50 points per series; label-values lookups are bounded to the request time range; the Exception Drawer's Loki queries use line prefilters and explicit time bounds. (#69)
+- **Request coalescing and wider caching** — Concurrent cache misses for the same key (wallboards polling in lockstep) now share a single backend query fan-out; all read endpoints (health, operations, endpoints, runtime, dependencies, connected, graphql) are cached; capability probes are coalesced so cache expiry can't stampede detection queries; `/services` sparkline resolution is clamped server-side to ≤50 points per series and the inventory fetches sparklines for the visible page only; namespace service-graph queries are scoped to the namespace's services instead of fetching all fleet edges; label-values lookups are bounded to the request time range; the Exception Drawer's Loki queries use line prefilters and explicit time bounds. (#69)
 - **Fewer redundant fetches** — Dependency detail no longer fetches fleet-wide sparkline series for its namespace lookup, and label-override settings no longer produce a fresh object per render (which cascaded into scene rebuilds and drawer refetch loops).
 
 ### Documentation
