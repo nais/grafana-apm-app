@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -457,6 +458,8 @@ func (a *App) serverLogSelector(service, env string) string {
 //	    is fingerprinted Go-side for titles; sample counts are scaled to the
 //	    counted total. Requires Loki log-level detection (detected_level);
 //	    without it the shape contributes nothing and (a)/(b) still work.
+//	    Logback bootstrap/status lines that detected_level mis-flags as errors
+//	    are filtered out of this shape (addPlainTextGroups).
 //
 // The exception_type="" guard on (b)/(c) keeps a line countable by exactly
 // one shape, so counts never double up across shapes.
@@ -636,22 +639,60 @@ func trimSpaceLimited(line string) string {
 // silently dropping the occurrences.
 const unparsedPlainTextTitle = "Unparsed error logs"
 
+// bootstrapNoiseRe matches logback's own configuration/status-printer lines,
+// which have the form `HH:mm:ss,SSS |-LEVEL in ch.qos.logback.<Class> - <msg>`
+// (e.g. "|-INFO in ch.qos.logback.classic.joran.action.RootLoggerAction -
+// Setting level of ROOT logger to ERROR"). Loki's detected_level flags these
+// as errors whenever they mention a level word, so they leak into shape (c) as
+// count-1 plain-text groups that are pure framework boot noise, never a real
+// application error. The `|-LEVEL in ch.qos.logback` status signature is unique
+// to logback bootstrap and never appears in application error messages, so the
+// filter is high-precision — it drops the banner without touching real
+// low-frequency errors.
+var bootstrapNoiseRe = regexp.MustCompile(`\|-(?:TRACE|DEBUG|INFO|WARN|ERROR) in ch\.qos\.logback`)
+
+// isBootstrapNoiseLine reports whether a sampled plain-text line is framework
+// bootstrap/config noise that Loki's detected_level mis-flagged as an error.
+func isBootstrapNoiseLine(line string) bool {
+	return bootstrapNoiseRe.MatchString(line)
+}
+
 // addPlainTextGroups folds shape (c) — plain-text loggers — into the group
 // map: the count query carries the volume, the sample carries the titles.
 // The counted total is distributed across the sampled lines proportionally —
 // exact when the sample is complete, honest otherwise. When every sampled line
 // trims empty but volume was counted, the whole total collapses into a single
 // "Unparsed error logs" group rather than vanishing.
+//
+// Framework bootstrap noise (logback status/config lines that detected_level
+// mis-flags as errors) is dropped from the titles, and the counted volume is
+// scaled down by the noise fraction of the sample so that discarded volume is
+// never reattributed to real error groups. A service whose only error-level
+// plain lines are boot noise therefore contributes no issues at all.
 func addPlainTextGroups(plainRes []queries.PromResult, plainSample []queries.LogEntry, add func(exType, msg string, count float64)) {
 	var plainTotal float64
 	for _, r := range plainRes {
 		plainTotal += safeFloat(r.Value.Float())
 	}
 	sampleCounts := make(map[string]float64)
+	var sampledLines, noiseLines float64
 	for _, entry := range plainSample {
-		if line := trimSpaceLimited(entry.Line); line != "" {
-			sampleCounts[line]++
+		line := trimSpaceLimited(entry.Line)
+		if line == "" {
+			continue
 		}
+		sampledLines++
+		if isBootstrapNoiseLine(line) {
+			noiseLines++
+			continue
+		}
+		sampleCounts[line]++
+	}
+	// Scale the counted volume down by the boot-noise share of the sample
+	// (assumes the sample is representative, exactly like the proportional
+	// distribution below). All-noise samples scale the volume to zero.
+	if sampledLines > 0 {
+		plainTotal *= (sampledLines - noiseLines) / sampledLines
 	}
 	var sampleTotal float64
 	for _, c := range sampleCounts {

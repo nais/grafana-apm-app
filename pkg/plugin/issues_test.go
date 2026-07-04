@@ -240,6 +240,11 @@ func TestQueryServerExceptionGroupsMsgFieldShape(t *testing.T) {
 const (
 	plainLineSearch = `Error: Failed to fetch search results from "https://navno-search-api.nav.no/content/search?ord=&page=0" - Error: Internal Server Error`
 	plainLineProxy  = `2026/07/04 07:30:33 proxy server error: accept tcp 127.0.0.1:5432: use of closed network connection`
+	// Real logback status-printer lines (2026-07, scrubbed): the config prints
+	// these on startup and detected_level flags them as errors because they
+	// mention "ERROR". They are boot noise, not application errors.
+	bootstrapLineRoot   = `13:37:22,458 |-INFO in ch.qos.logback.classic.joran.action.RootLoggerAction - Setting level of ROOT logger to ERROR`
+	bootstrapLineLogger = `13:37:22,459 |-WARN in ch.qos.logback.classic.model.processor.LoggerModelHandler - Setting level of logger [no.nav.scrubbed] to ERROR`
 )
 
 func TestQueryServerExceptionGroupsPlainTextShape(t *testing.T) {
@@ -286,6 +291,56 @@ func TestQueryServerExceptionGroupsPlainTextShape(t *testing.T) {
 		if g.Impact == nil || g.Impact.Pods != 0 {
 			t.Errorf("sampled plain-text impact = %+v, want pods 0", g.Impact)
 		}
+	}
+}
+
+func TestQueryServerExceptionGroupsFiltersBootstrapNoise(t *testing.T) {
+	// Shape (c): Loki's detected_level mis-flags a logback bootstrap status
+	// line as an error, so it rides alongside a real error line in the sample.
+	// The boot line must be dropped from the titles and its volume must NOT be
+	// reattributed to the real group: total 12, sample is 3 real + 1 noise, so
+	// the counted volume scales to 12·3/4 = 9 and lands entirely on the real
+	// group. The boot line never becomes its own count-1 issue.
+	plainCount := []queries.PromResult{
+		{Metric: map[string]string{}, Value: queries.NewPromValue(0, "12")},
+	}
+	sample := []string{plainLineSearch, plainLineSearch, plainLineSearch, bootstrapLineRoot}
+	app, ds := exceptionsTestApp(t,
+		map[string][]queries.PromResult{"sum(count_over_time(": plainCount},
+		nil,
+		map[string][]string{"drop __error__": sample})
+
+	issues, ok := app.queryServerExceptionGroups(context.Background(), ds, "loki-uid", "navno-search-frontend", "", time.Unix(0, 0), time.Unix(3600, 0))
+
+	if !ok {
+		t.Fatal("expected server side to be available")
+	}
+	if len(issues) != 1 {
+		t.Fatalf("expected 1 group (boot noise dropped), got %d: %+v", len(issues), issues)
+	}
+	g := issues[0]
+	if g.Title != `Error: Failed to fetch search results from "<url>" - Error: Internal Server Error` {
+		t.Errorf("title = %q, want the real error (not the logback banner)", g.Title)
+	}
+	if g.Count != 9 {
+		t.Errorf("count = %v, want 9 (boot-noise volume discarded, not reattributed)", g.Count)
+	}
+}
+
+func TestAddPlainTextGroupsAllBootstrapNoiseDropped(t *testing.T) {
+	// Every sampled line is logback boot noise mis-flagged by detected_level.
+	// The whole shape must contribute nothing — not even an "Unparsed error
+	// logs" fallback — so a service that only logs its config never appears in
+	// the issues list.
+	plainRes := []queries.PromResult{
+		{Metric: map[string]string{}, Value: queries.NewPromValue(0, "8")},
+	}
+	sample := []queries.LogEntry{{Line: bootstrapLineRoot}, {Line: bootstrapLineLogger}}
+
+	emitted := 0
+	addPlainTextGroups(plainRes, sample, func(_, _ string, _ float64) { emitted++ })
+	if emitted != 0 {
+		t.Errorf("emitted %d groups, want 0 (all sampled lines are boot noise)", emitted)
 	}
 }
 
