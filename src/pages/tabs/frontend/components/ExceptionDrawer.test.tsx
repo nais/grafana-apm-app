@@ -75,6 +75,33 @@ beforeEach(() => {
   probeReplay.mockReset().mockResolvedValue({ hasChunks: false, mode: null, chunkCount: 0 });
 });
 
+describe('opening effect (fetch-once regression)', () => {
+  // Regression test: the main occurrence-fetch effect used to list the raw
+  // `labelOverrides` object as a dependency even though the effect body only
+  // ever reads the already-derived `clusterStream` string. `usePluginLabelOverrides`
+  // is mocked here (as in the rest of this file) to return a fresh object on
+  // every call — exactly what happens if the memoization it normally relies on
+  // ever lapses. With the object in the deps array, every state update from the
+  // fetch's own `.then()` produced a new render, which produced a new
+  // `labelOverrides` reference, which re-triggered the effect — a
+  // self-sustaining refetch loop (observed as 4+ calls before the fix, exactly
+  // 1 after). Asserting call count here (not just eventual UI state) is the
+  // only way to catch a loop like this, since every extra fetch resolves to
+  // the same data and the UI looks correct regardless.
+  it('fetches the exception occurrence query exactly once for a given issueId', async () => {
+    renderDrawer();
+    await screen.findByText(/boom/);
+
+    // Give any spurious extra effect run a chance to fire and resolve before asserting.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const occurrenceCalls = mockFetch.mock.calls.filter(([opts]: [any]) =>
+      (opts?.params?.query ?? '').includes('hash=')
+    );
+    expect(occurrenceCalls).toHaveLength(1);
+  });
+});
+
 describe('section order (P8 drawer internal reorder)', () => {
   it('renders the stack trace above the collapsed context and breadcrumb sections', async () => {
     renderDrawer();

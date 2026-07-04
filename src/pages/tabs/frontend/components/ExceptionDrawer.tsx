@@ -309,12 +309,20 @@ export function ExceptionDrawer({
     return () => {
       cancelled = true;
     };
+    // `labelOverrides` (the raw object from usePluginLabelOverrides) is
+    // deliberately NOT a dep here — the effect only ever reads it indirectly
+    // via `clusterStream`, which is already listed. Depending on the object
+    // itself made this effect refire whenever that reference changed for any
+    // reason unrelated to the query it built, and since a successful fetch
+    // sets several new-identity state values (stats/occurrences/exception),
+    // any re-render that also produced a fresh `labelOverrides` reference fed
+    // straight back into another fetch — a self-sustaining refetch loop, not
+    // just a one-off double-fire.
   }, [
     hashesKey,
     service,
     environment,
     logsUid,
-    labelOverrides,
     clusterStream,
     fromMs,
     toMs,
