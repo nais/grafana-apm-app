@@ -1,6 +1,18 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Button, Drawer, Icon, Input, Spinner, Alert, useStyles2, Combobox, Badge, Tooltip } from '@grafana/ui';
+import {
+  Button,
+  Drawer,
+  Icon,
+  Input,
+  Spinner,
+  Alert,
+  useStyles2,
+  Combobox,
+  Badge,
+  Tooltip,
+  ControlledCollapse,
+} from '@grafana/ui';
 import { AppEvents, GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getAppEvents, getBackendSrv, locationService } from '@grafana/runtime';
@@ -10,7 +22,9 @@ import {
   buildAlertRuleUrl,
   getTriageStates,
   postTriageAction,
+  getFeedback,
   TriageState,
+  FeedbackEntry,
 } from '../../../../api/client';
 import { otel } from '../../../../otelconfig';
 import { PLUGIN_BASE_URL } from '../../../../constants';
@@ -42,6 +56,31 @@ function msToNs(ms: number): string {
  * range isn't clipped.
  */
 const SESSION_PAD_MS = 3600_000;
+
+/** Compact "Xm/Xh/Xd ago" label for the impact strip and feedback list. */
+function formatRelativeTime(ms: number): string {
+  const diffMs = Date.now() - ms;
+  if (diffMs < 60_000) {
+    return 'just now';
+  }
+  const minutes = Math.floor(diffMs / 60_000);
+  if (minutes < 60) {
+    return `${minutes}m ago`;
+  }
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return `${hours}h ago`;
+  }
+  const days = Math.floor(hours / 24);
+  if (days < 30) {
+    return `${days}d ago`;
+  }
+  const months = Math.floor(days / 30);
+  if (months < 12) {
+    return `${months}mo ago`;
+  }
+  return `${Math.floor(months / 12)}y ago`;
+}
 
 interface ExceptionDrawerProps {
   /**
@@ -87,6 +126,9 @@ interface AggregatedStats {
   appVersions: string[];
   browsers: string[];
   total: number;
+  /** Earliest/latest occurrence timestamp (ms) across all returned lines, for the impact strip. */
+  firstSeenMs?: number;
+  lastSeenMs?: number;
 }
 
 export function ExceptionDrawer({
@@ -110,6 +152,7 @@ export function ExceptionDrawer({
   const [loadingBreadcrumbs, setLoadingBreadcrumbs] = useState(false);
   const [replayProbe, setReplayProbe] = useState<ReplayProbeResult | null>(null);
   const [creatingAlert, setCreatingAlert] = useState(false);
+  const [feedback, setFeedback] = useState<FeedbackEntry[]>([]);
   const labelOverrides = usePluginLabelOverrides();
   // The drawer is opened purely from URL state (docs/url-contract.md) — the
   // fingerprint identity lives in the `issueId` search param, not in props.
@@ -173,6 +216,8 @@ export function ExceptionDrawer({
         const sessions = new Set<string>();
         const versions = new Set<string>();
         const browsers = new Set<string>();
+        let firstSeenMs: number | undefined;
+        let lastSeenMs: number | undefined;
 
         // Aggregate across all returned streams (Loki might return multiple streams if labels differ)
         streams.forEach((stream: any) => {
@@ -203,6 +248,12 @@ export function ExceptionDrawer({
               uniqueSessionsMap.set(ex.sessionId, ex);
             }
 
+            const parsedTs = ex.timestamp ? Date.parse(ex.timestamp) : NaN;
+            if (Number.isFinite(parsedTs)) {
+              firstSeenMs = firstSeenMs === undefined ? parsedTs : Math.min(firstSeenMs, parsedTs);
+              lastSeenMs = lastSeenMs === undefined ? parsedTs : Math.max(lastSeenMs, parsedTs);
+            }
+
             const user = parsed.user_email || parsed.user_username || parsed.user_id;
             if (user) {
               users.add(user);
@@ -226,6 +277,8 @@ export function ExceptionDrawer({
           appVersions: Array.from(versions),
           browsers: Array.from(browsers),
           total,
+          firstSeenMs,
+          lastSeenMs,
         });
 
         const sessionList = Array.from(uniqueSessionsMap.values());
@@ -388,6 +441,33 @@ export function ExceptionDrawer({
     };
   }, [selectedSessionId, service, environment, logsUid, clusterLabel, fromMs, toMs]);
 
+  // User feedback (M6): scoped to this issue's fingerprint, not the selected
+  // session — feedback is rare, so we show everything tied to the issue
+  // rather than narrowing to whichever occurrence happens to be selected.
+  // No fingerprint (legacy exceptionHash-only links) means no reliable join
+  // key, so skip the fetch entirely rather than showing unrelated feedback.
+  useEffect(() => {
+    if (!issueId) {
+      setFeedback([]);
+      return;
+    }
+    let cancelled = false;
+    getFeedback(namespace, service, fromMs, toMs, environment, undefined, issueId)
+      .then((res) => {
+        if (!cancelled) {
+          setFeedback(res.unavailable ? [] : (res.feedback ?? []));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFeedback([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [issueId, namespace, service, environment, fromMs, toMs]);
+
   useEffect(() => {
     if (occurrences.length > 0 && selectedSessionId) {
       const matched = occurrences.find((o) => o.sessionId === selectedSessionId);
@@ -465,9 +545,60 @@ export function ExceptionDrawer({
 
         {exception && (
           <>
+            {/* P8 (docs/ia-review.md): stack trace leads — "where in my code?"
+                is the developer's first question — with a one-line impact
+                summary above it. Full context/breadcrumbs are collapsed by
+                default so they don't push the stack trace below the fold. */}
             {stats && (
+              <div className={styles.impactStrip}>
+                <Icon name="fire" size="sm" />
+                <span>
+                  {stats.total} occurrence{stats.total === 1 ? '' : 's'}
+                </span>
+                <span className={styles.impactDivider}>·</span>
+                <span>
+                  {stats.uniqueSessions} session{stats.uniqueSessions === 1 ? '' : 's'}
+                </span>
+                {stats.firstSeenMs !== undefined && (
+                  <>
+                    <span className={styles.impactDivider}>·</span>
+                    <span>first seen {formatRelativeTime(stats.firstSeenMs)}</span>
+                  </>
+                )}
+                {stats.lastSeenMs !== undefined && (
+                  <>
+                    <span className={styles.impactDivider}>·</span>
+                    <span>last seen {formatRelativeTime(stats.lastSeenMs)}</span>
+                  </>
+                )}
+              </div>
+            )}
+
+            {exception.stacktrace && (
               <div className={styles.section}>
-                <h4 className={styles.sectionTitle}>Context & Impact (Last {stats.total} occurrences)</h4>
+                <h4 className={styles.sectionTitle}>
+                  Stack Trace
+                  {isConsoleCaptureValue(exception.value) && (
+                    <Tooltip content="This exception was captured via console.error — the stack shows the call site of console.error (often a shared logger), not where the error was thrown. The first in-app frame below is the best origin guess.">
+                      <Badge
+                        className={styles.captureBadge}
+                        text="Captured via console.error"
+                        color="orange"
+                        icon="exclamation-triangle"
+                      />
+                    </Tooltip>
+                  )}
+                </h4>
+                <StackTraceView
+                  stack={exception.stacktrace}
+                  isConsoleCapture={isConsoleCaptureValue(exception.value)}
+                  className={styles.stacktrace}
+                />
+              </div>
+            )}
+
+            {stats && (
+              <ControlledCollapse label={`Occurrence context (last ${stats.total} occurrences)`} isOpen={false}>
                 <div className={styles.contextImpactContainer}>
                   <div className={styles.contextColumn}>
                     <h5 className={styles.subSectionTitle}>Most Recent Occurrence</h5>
@@ -554,35 +685,14 @@ export function ExceptionDrawer({
                     </div>
                   </div>
                 </div>
-              </div>
-            )}
-
-            {exception.stacktrace && (
-              <div className={styles.section}>
-                <h4 className={styles.sectionTitle}>
-                  Stack Trace
-                  {isConsoleCaptureValue(exception.value) && (
-                    <Tooltip content="This exception was captured via console.error — the stack shows the call site of console.error (often a shared logger), not where the error was thrown. The first in-app frame below is the best origin guess.">
-                      <Badge
-                        className={styles.captureBadge}
-                        text="Captured via console.error"
-                        color="orange"
-                        icon="exclamation-triangle"
-                      />
-                    </Tooltip>
-                  )}
-                </h4>
-                <StackTraceView
-                  stack={exception.stacktrace}
-                  isConsoleCapture={isConsoleCaptureValue(exception.value)}
-                  className={styles.stacktrace}
-                />
-              </div>
+              </ControlledCollapse>
             )}
 
             {exception.sessionId && (
-              <div className={styles.section}>
-                <h4 className={styles.sectionTitle}>Session Timeline (Breadcrumbs)</h4>
+              <ControlledCollapse
+                label={`Session timeline — ${breadcrumbs.length} event${breadcrumbs.length === 1 ? '' : 's'}`}
+                isOpen={false}
+              >
                 {loadingBreadcrumbs ? (
                   <div className={styles.bcLoading}>
                     <Spinner inline /> Loading breadcrumbs...
@@ -612,7 +722,7 @@ export function ExceptionDrawer({
                 ) : (
                   <span style={{ color: '#8c95a5', fontSize: '12px' }}>No session events found.</span>
                 )}
-              </div>
+              </ControlledCollapse>
             )}
 
             {exception.sessionId && replayProbe?.hasChunks && (
@@ -632,6 +742,8 @@ export function ExceptionDrawer({
                 />
               </div>
             )}
+
+            {feedback.length > 0 && <FeedbackSection entries={feedback} />}
 
             <div className={styles.footerLinks}>
               {exception.sessionId && (
@@ -687,6 +799,54 @@ function MetaItem({ label, value, link, icon }: { label: string; value?: string;
           value
         )}
       </span>
+    </div>
+  );
+}
+
+const FEEDBACK_DISPLAY_LIMIT = 20;
+
+/** Category → Badge color, per M6 spec. Unknown categories fall back to gray. */
+function feedbackBadgeColor(category: string): 'red' | 'blue' | 'darkgrey' {
+  if (category === 'bug') {
+    return 'red';
+  }
+  if (category === 'idea') {
+    return 'blue';
+  }
+  return 'darkgrey';
+}
+
+/**
+ * User feedback (M6): entries captured via @nais/apm's captureFeedback(),
+ * joined to this issue by fingerprint. Rendered only when non-empty — the
+ * caller (ExceptionDrawer) hides this section entirely otherwise, since
+ * feedback is rare and an empty shell wastes drawer space.
+ */
+function FeedbackSection({ entries }: { entries: FeedbackEntry[] }) {
+  const styles = useStyles2(getStyles);
+  // API already returns newest-first; sort defensively so display order
+  // doesn't depend on that contract holding forever.
+  const sorted = [...entries].sort((a, b) => b.timeMs - a.timeMs);
+  const shown = sorted.slice(0, FEEDBACK_DISPLAY_LIMIT);
+  const extra = sorted.length - shown.length;
+
+  return (
+    <div className={styles.section}>
+      <h4 className={styles.sectionTitle}>User Feedback ({sorted.length})</h4>
+      <div className={styles.feedbackList}>
+        {shown.map((entry, idx) => (
+          <div key={idx} className={styles.feedbackItem}>
+            <div className={styles.feedbackHeader}>
+              <Badge text={entry.category} color={feedbackBadgeColor(entry.category)} />
+              <span className={styles.feedbackTime}>{formatRelativeTime(entry.timeMs)}</span>
+              {entry.email && <span className={styles.feedbackEmail}>{entry.email}</span>}
+            </div>
+            <div className={styles.feedbackMessage}>{entry.message}</div>
+            {entry.pageUrl && <div className={styles.feedbackSecondary}>{cleanUrl(entry.pageUrl)}</div>}
+          </div>
+        ))}
+        {extra > 0 && <div className={styles.feedbackMore}>+{extra} more</div>}
+      </div>
     </div>
   );
 }
@@ -812,6 +972,61 @@ const getStyles = (theme: GrafanaTheme2) => ({
     display: flex;
     flex-direction: column;
     gap: ${theme.spacing(1.5)};
+  `,
+  impactStrip: css`
+    display: flex;
+    align-items: center;
+    gap: ${theme.spacing(1)};
+    color: ${theme.colors.text.secondary};
+    font-size: ${theme.typography.bodySmall.fontSize};
+  `,
+  impactDivider: css`
+    color: ${theme.colors.border.medium};
+  `,
+  feedbackList: css`
+    display: flex;
+    flex-direction: column;
+    gap: ${theme.spacing(1)};
+  `,
+  feedbackItem: css`
+    display: flex;
+    flex-direction: column;
+    gap: ${theme.spacing(0.5)};
+    padding: ${theme.spacing(1)};
+    border: 1px solid ${theme.colors.border.weak};
+    border-radius: ${theme.shape.radius.default};
+    background: ${theme.colors.background.secondary};
+  `,
+  feedbackHeader: css`
+    display: flex;
+    align-items: center;
+    gap: ${theme.spacing(1)};
+  `,
+  feedbackTime: css`
+    color: ${theme.colors.text.secondary};
+    font-size: ${theme.typography.bodySmall.fontSize};
+  `,
+  feedbackEmail: css`
+    color: ${theme.colors.text.secondary};
+    font-size: ${theme.typography.bodySmall.fontSize};
+    margin-left: auto;
+  `,
+  feedbackMessage: css`
+    color: ${theme.colors.text.primary};
+    font-size: ${theme.typography.bodySmall.fontSize};
+    white-space: pre-wrap;
+    word-break: break-word;
+  `,
+  feedbackSecondary: css`
+    color: ${theme.colors.text.secondary};
+    font-size: 11px;
+    word-break: break-all;
+  `,
+  feedbackMore: css`
+    color: ${theme.colors.text.secondary};
+    font-size: ${theme.typography.bodySmall.fontSize};
+    text-align: center;
+    padding-top: ${theme.spacing(0.5)};
   `,
   sectionTitle: css`
     font-size: ${theme.typography.h5.fontSize};
