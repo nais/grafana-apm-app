@@ -25,6 +25,26 @@ func (e EnvAwareDataSource) Resolve(env string) DataSourceRef {
 	return DataSourceRef{UID: e.UID, Type: e.Type}
 }
 
+// Allows reports whether uid is one of this datasource's configured UIDs
+// (the default or any per-environment override). Endpoints that accept a
+// client-supplied datasource UID use this to reject arbitrary UIDs before
+// proxying with the service-account token (defence against a confused-deputy
+// proxy to an unrelated datasource).
+func (e EnvAwareDataSource) Allows(uid string) bool {
+	if uid == "" {
+		return false
+	}
+	if uid == e.UID {
+		return true
+	}
+	for _, ds := range e.ByEnvironment {
+		if uid == ds.UID {
+			return true
+		}
+	}
+	return false
+}
+
 // HasEnvironment returns true if an override exists for the given environment.
 func (e EnvAwareDataSource) HasEnvironment(env string) bool {
 	if env == "" {

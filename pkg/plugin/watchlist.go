@@ -21,14 +21,18 @@ type OpsWatchlistEntry struct {
 var watchlistMu sync.Mutex
 
 // handleOpsWatchlist handles GET and POST requests for the shared ops watchlist.
-// GET returns the current watchlist. POST replaces it.
-// Any authenticated Grafana user can call this — the backend uses its service
-// account token to update plugin settings on the user's behalf.
+// GET (any authenticated user) returns the current watchlist. POST replaces it
+// and, because it writes plugin settings with the service-account token
+// (Admin-scoped), requires Editor/Admin — otherwise a Viewer could drive an
+// Admin action through the SA token.
 func (a *App) handleOpsWatchlist(w http.ResponseWriter, req *http.Request) {
 	switch req.Method {
 	case http.MethodGet:
 		a.getOpsWatchlist(w, req)
 	case http.MethodPost:
+		if !a.requireEditor(w, req) {
+			return
+		}
 		a.setOpsWatchlist(w, req)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

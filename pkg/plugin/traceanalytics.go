@@ -84,7 +84,9 @@ func (a *App) handleTraceBreakdown(w http.ResponseWriter, req *http.Request) {
 	}
 	from, to := parseTimeRange(req)
 	tracesUID := sanitizeDatasourceUID(req.URL.Query().Get("tracesUid"))
-	if tracesUID == "" {
+	// Client-supplied UID proxied with the SA token — allow only the
+	// configured traces datasource(s) (confused-deputy hardening).
+	if tracesUID == "" || !a.settings.TracesDataSource.Allows(tracesUID) {
 		writeJSON(w, TraceBreakdownResponse{Mode: "unavailable", Rows: []TraceBreakdownRow{}, Note: "traces datasource not configured"})
 		return
 	}

@@ -102,7 +102,10 @@ func (a *App) handleLogPatterns(w http.ResponseWriter, req *http.Request) {
 	}
 	from, to := parseTimeRange(req)
 	lokiUID := sanitizeDatasourceUID(req.URL.Query().Get("lokiUid"))
-	if lokiUID == "" {
+	// The UID arrives from the client and is proxied with the service-account
+	// token — only allow the configured logs datasource(s), never an arbitrary
+	// UID the SA happens to reach (confused-deputy hardening).
+	if lokiUID == "" || !a.settings.LogsDataSource.Allows(lokiUID) {
 		writeJSON(w, LogPatternsResponse{Mode: "unavailable", Patterns: []LogPattern{}, Note: "logs datasource not configured"})
 		return
 	}
