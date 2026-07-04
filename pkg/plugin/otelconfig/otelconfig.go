@@ -236,12 +236,20 @@ type DBPoolMetrics struct {
 	HikariTimeout string // hikaricp_connections_timeout_total — counter
 	HikariUsage   string // hikaricp_connections_usage_seconds — histogram
 
-	// OTel DB client connections (newer instrumentation)
-	OtelDBActive string // db_client_connections_usage — gauge
-	OtelDBIdle   string // db_client_connections_idle_min — gauge
-	OtelDBMax    string // db_client_connections_max — gauge
+	// OTel DB client connections (newer instrumentation). These label pools
+	// with pool_name (not pool) and split active/idle via a state label on
+	// db_client_connections_usage. Emitted by e.g. Oracle UCP and newer
+	// OTel-agent HikariCP, which the hikaricp_* gauges above never surface.
+	OtelDBActive  string // db_client_connections_usage — gauge (state=used|idle)
+	OtelDBIdle    string // db_client_connections_idle_min — gauge (legacy, unused)
+	OtelDBMax     string // db_client_connections_max — gauge
+	OtelDBPending string // db_client_connections_pending_requests — gauge
 
-	PoolLabel string // "pool" — pool name
+	PoolLabel     string // "pool" — pool name on hikaricp_* gauges
+	PoolNameLabel string // "pool_name" — pool name on db_client_connections_* gauges
+	StateLabel    string // "state" — used|idle on db_client_connections_usage
+	StateUsed     string // "used"
+	StateIdle     string // "idle"
 }
 
 // KafkaMetrics defines metric names for Kafka client observability.
@@ -497,7 +505,12 @@ func Default() Config {
 				OtelDBActive:  "db_client_connections_usage",
 				OtelDBIdle:    "db_client_connections_idle_min",
 				OtelDBMax:     "db_client_connections_max",
+				OtelDBPending: "db_client_connections_pending_requests",
 				PoolLabel:     "pool",
+				PoolNameLabel: "pool_name",
+				StateLabel:    "state",
+				StateUsed:     "used",
+				StateIdle:     "idle",
 			},
 			Kafka: KafkaMetrics{
 				ConsumerLagMax:     "kafka_consumer_records_lag_max",

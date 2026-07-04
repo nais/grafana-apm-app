@@ -32,7 +32,6 @@ import {
   buildPerPageSection,
   buildErrorsSection,
   buildBrowserBreakdownSection,
-  buildSupportSection,
   buildTrafficSection,
   type FrontendSceneContext,
 } from './frontend';
@@ -189,7 +188,6 @@ function FrontendPanels({
     const errorsRow = buildErrorsSection(ctx);
     const browserBreakdownRow = buildBrowserBreakdownSection(ctx);
     const attributionRow = buildAttributionSection(ctx);
-    const supportRow = buildSupportSection(ctx);
     const trafficRow = buildTrafficSection(ctx);
 
     // Browser filter variable
@@ -237,7 +235,6 @@ function FrontendPanels({
           ...(perPageTable ? [perPageTable] : []),
           ...(browserBreakdownRow ? [browserBreakdownRow] : []),
           trafficRow,
-          ...(supportRow ? [supportRow] : []),
         ],
       }),
     });

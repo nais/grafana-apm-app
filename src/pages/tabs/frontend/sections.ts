@@ -24,7 +24,6 @@ import {
   lokiVitalByGroupExpr,
   lokiVitalByPageExpr,
   lokiSessionStartExpr,
-  lokiConsoleErrorsExpr,
   type LokiClusterOpts,
 } from './queries/loki-builders';
 import { FrontendSceneContext } from './scene-context';
@@ -407,9 +406,13 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
 }
 
 /**
- * Browser breakdown (#69 P6): Exception Types + per-browser vitals + traffic
- * share. Requires Loki; when unavailable, buildErrorsSection's own fallback
- * already renders Exception Types, so this returns null to avoid a duplicate.
+ * Browser breakdown (#69 P6): per-browser vitals + traffic share. Requires Loki.
+ *
+ * The Exception Types panel was dropped here per ia-review P5 — it double-answers
+ * the unified Issues table (which the Frontend tab already surfaces compactly via
+ * buildErrorsSection). It survives only in the no-Loki fallback of
+ * buildErrorsSection, where there is no issues list and it is the sole errors
+ * surface. When Loki is unavailable this section returns null entirely.
  */
 export function buildBrowserBreakdownSection(ctx: FrontendSceneContext): SceneFlexLayout | null {
   if (!ctx.hasLoki) {
@@ -418,7 +421,7 @@ export function buildBrowserBreakdownSection(ctx: FrontendSceneContext): SceneFl
 
   const { logsDs, service } = ctx;
   const fl = otel.faroLoki;
-  const browserChildren: SceneFlexItem[] = [buildExceptionTypesItem(ctx)];
+  const browserChildren: SceneFlexItem[] = [];
 
   // Browser breakdown (Loki vitals per browser)
   const co2 = clusterOpts(ctx);
@@ -510,49 +513,11 @@ export function buildBrowserBreakdownSection(ctx: FrontendSceneContext): SceneFl
 }
 
 // ---------------------------------------------------------------------------
-// Section 5: Console Errors (Loki enrichment)
+// Section 5: Traffic (Page Loads + Errors + Sessions timeseries)
 // ---------------------------------------------------------------------------
-
-/** Console errors table — requires Loki. */
-export function buildSupportSection(ctx: FrontendSceneContext): SceneFlexLayout | null {
-  if (!ctx.hasLoki) {
-    return null;
-  }
-
-  const { logsDs, service } = ctx;
-
-  const consoleErrorsQ = makeLokiQuery(
-    logsDs,
-    lokiConsoleErrorsExpr(service, '[$__range]', undefined, clusterOpts(ctx)),
-    '{{value}}',
-    {
-      instant: true,
-    }
-  );
-
-  return new SceneFlexLayout({
-    direction: 'row',
-    children: [
-      new SceneFlexItem({
-        minHeight: 250,
-        body: PanelBuilders.table()
-          .setTitle('Console Errors')
-          .setDescription('Repeated console.error messages from the browser — check if your app logs errors silently')
-          .setData(consoleErrorsQ)
-          .setOverrides((b) => {
-            b.matchFieldsWithName('value').overrideDisplayName('Error Message');
-            b.matchFieldsWithName('Value').overrideDisplayName('Count');
-            b.matchFieldsWithName('Time').overrideCustomFieldConfig('hidden' as any, true);
-          })
-          .build(),
-      }),
-    ],
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Section 6: Traffic (Page Loads + Errors + Sessions timeseries)
-// ---------------------------------------------------------------------------
+// (The former Console Errors table was removed per ia-review P4: browser
+// console captures already flow into the unified Issues table and are badged
+// in the exception drawer, so a separate console-error panel only duplicated.)
 
 /** Traffic timeseries — Mimir rate counters + optional Loki sessions. */
 export function buildTrafficSection(ctx: FrontendSceneContext): SceneFlexLayout {

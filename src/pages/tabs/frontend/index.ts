@@ -11,7 +11,6 @@ export {
   buildPerPageSection,
   buildErrorsSection,
   buildBrowserBreakdownSection,
-  buildSupportSection,
   buildTrafficSection,
 } from './sections';
 export { WebVitalsBullets } from './components/WebVitalsBullets';
