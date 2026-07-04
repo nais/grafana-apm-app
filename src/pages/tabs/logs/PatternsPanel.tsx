@@ -1,11 +1,14 @@
-import React from 'react';
-import { Badge, Icon, TextLink, Tooltip, useStyles2 } from '@grafana/ui';
+import React, { useState } from 'react';
+import { Badge, Button, ControlledCollapse, Icon, TextLink, Tooltip, useStyles2 } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getLogPatterns, LogPatternsMode } from '../../../api/analytics';
 import { apmDocs } from '../../../utils/docsLinks';
 import { useFetch } from '../../../utils/useFetch';
 import { DataState } from '../../../components/DataState';
+
+/** Patterns shown before the "show all" affordance reveals the rest (rule 5: keep the panel compact even expanded). */
+const TOP_N = 6;
 
 interface PatternsPanelProps {
   namespace: string;
@@ -30,9 +33,16 @@ const MODE_LABEL: Record<LogPatternsMode, string> = {
  * a count bar and a NEW badge for patterns that only started in this window.
  * Clicking a row seeds the log search with the pattern's most distinctive
  * token so the log panel below filters to matching lines.
+ *
+ * Collapsed by default (ia-review-2 rule 5: the log list, not this summary,
+ * is the primary object on this tab) — the collapse header always shows the
+ * pattern count so the signal survives collapse. Expanded rows are capped to
+ * TOP_N with a "show all" affordance so a noisy pattern table still doesn't
+ * dominate the tab.
  */
 export function PatternsPanel({ namespace, service, logsUid, fromMs, toMs, onSelectFilter }: PatternsPanelProps) {
   const styles = useStyles2(getStyles);
+  const [showAll, setShowAll] = useState(false);
 
   const { data, loading, error } = useFetch(
     () => getLogPatterns(namespace, service, fromMs, toMs, logsUid),
@@ -40,13 +50,25 @@ export function PatternsPanel({ namespace, service, logsUid, fromMs, toMs, onSel
     { skip: !logsUid }
   );
 
+  // A new time window is a new dataset — start from the top-N view again.
+  // Adjusting state during render (rather than in an effect) avoids the extra
+  // render-then-effect-then-render cascade; see https://react.dev/learn/you-might-not-need-an-effect.
+  const datasetKey = `${fromMs}|${toMs}`;
+  const [prevDatasetKey, setPrevDatasetKey] = useState(datasetKey);
+  if (datasetKey !== prevDatasetKey) {
+    setPrevDatasetKey(datasetKey);
+    setShowAll(false);
+  }
+
   const patterns = data?.patterns ?? [];
+  const visiblePatterns = showAll ? patterns : patterns.slice(0, TOP_N);
   const maxCount = patterns.reduce((m, p) => Math.max(m, p.count), 0) || 1;
 
+  const collapsedLabel = `Top error patterns${patterns.length ? ` (${patterns.length})` : ''}`;
+
   return (
-    <div className={styles.container}>
+    <ControlledCollapse label={collapsedLabel} isOpen={false} className={styles.collapse}>
       <div className={styles.header}>
-        <h6 className={styles.title}>Error patterns</h6>
         {data && data.mode !== 'unavailable' && (
           <Tooltip content="How these patterns were produced.">
             <span className={styles.modeBadge}>{MODE_LABEL[data.mode]}</span>
@@ -68,7 +90,7 @@ export function PatternsPanel({ namespace, service, logsUid, fromMs, toMs, onSel
         emptyMessage={data?.note || 'No error log patterns in the selected time range.'}
       >
         <ul className={styles.list}>
-          {patterns.map((p, i) => {
+          {visiblePatterns.map((p, i) => {
             const clickable = !!p.filterLiteral;
             const apply = () => clickable && onSelectFilter(p.filterLiteral);
             return (
@@ -97,17 +119,24 @@ export function PatternsPanel({ namespace, service, logsUid, fromMs, toMs, onSel
             );
           })}
         </ul>
+        {patterns.length > TOP_N && (
+          <Button
+            size="sm"
+            variant="secondary"
+            fill="text"
+            className={styles.showAllButton}
+            onClick={() => setShowAll((v) => !v)}
+          >
+            {showAll ? `Show top ${TOP_N}` : `Show all ${patterns.length}`}
+          </Button>
+        )}
       </DataState>
-    </div>
+    </ControlledCollapse>
   );
 }
 
 const getStyles = (theme: GrafanaTheme2) => ({
-  container: css`
-    background: ${theme.colors.background.primary};
-    border: 1px solid ${theme.colors.border.weak};
-    border-radius: ${theme.shape.radius.default};
-    padding: ${theme.spacing(1)};
+  collapse: css`
     margin-bottom: ${theme.spacing(2)};
   `,
   header: css`
@@ -116,9 +145,8 @@ const getStyles = (theme: GrafanaTheme2) => ({
     gap: ${theme.spacing(1)};
     padding: ${theme.spacing(0.5, 1)};
   `,
-  title: css`
-    margin: 0;
-    font-size: ${theme.typography.body.fontSize};
+  showAllButton: css`
+    margin-top: ${theme.spacing(0.5)};
   `,
   modeBadge: css`
     color: ${theme.colors.text.secondary};

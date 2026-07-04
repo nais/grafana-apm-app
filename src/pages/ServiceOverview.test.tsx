@@ -5,12 +5,13 @@ import ServiceOverview from './ServiceOverview';
 import * as capabilitiesUtils from '../utils/capabilities';
 
 /**
- * Tab registry tests (#69 P1/P7): the Issues tab is capability-gated on Loki
- * exactly like Logs, and the tab historically labeled "Operations" now reads
- * "Endpoints" — a label-only rename, the URL value (`tab=server`) is
- * untouched (docs/url-contract.md). All heavy Scene-composed tab bodies are
- * stubbed here; this file only exercises the TabsBar registry, not tab
- * content (each tab has its own test file for that).
+ * Tab registry tests: the Issues tab is capability-gated on Loki exactly like
+ * Logs; the former Endpoints + Runtime tabs are merged into one "Backend" tab
+ * and a new "Alerts" tab sits after Issues (docs/ia-review-2.md). The legacy
+ * URL values `tab=server` and `tab=runtime` resolve to `tab=backend` forever
+ * (docs/url-contract.md). All heavy Scene-composed tab bodies are stubbed
+ * here; this file only exercises the TabsBar registry, not tab content (each
+ * tab has its own test file for that).
  */
 
 jest.mock('@grafana/runtime', () => ({
@@ -66,9 +67,9 @@ jest.mock('./buildServiceScene', () => ({
 // Every tab body is stubbed — this file tests the registry, not tab content.
 jest.mock('./tabs/OverviewTab', () => ({ OverviewTab: () => <div data-testid="overview-tab" /> }));
 jest.mock('./tabs/IssuesTab', () => ({ IssuesTab: () => <div data-testid="issues-tab" /> }));
-jest.mock('./tabs/ServerTab', () => ({ ServerTab: () => <div data-testid="server-tab" /> }));
+jest.mock('./tabs/AlertsTab', () => ({ AlertsTab: () => <div data-testid="alerts-tab" /> }));
+jest.mock('./tabs/BackendTab', () => ({ BackendTab: () => <div data-testid="backend-tab" /> }));
 jest.mock('./tabs/FrontendTab', () => ({ FrontendTab: () => <div data-testid="frontend-tab" /> }));
-jest.mock('./tabs/RuntimeTab', () => ({ RuntimeTab: () => <div data-testid="runtime-tab" /> }));
 jest.mock('./tabs/DependenciesTab', () => ({ DependenciesTab: () => <div data-testid="dependencies-tab" /> }));
 jest.mock('./tabs/TracesTab', () => ({ TracesTab: () => <div data-testid="traces-tab" /> }));
 jest.mock('./tabs/LogsTab', () => ({ LogsTab: () => <div data-testid="logs-tab" /> }));
@@ -106,17 +107,21 @@ const baseCaps = {
   services: [],
 };
 
-describe('ServiceOverview tab registry (#69 P1/P7)', () => {
-  it('shows the Issues tab and labels the endpoints tab "Endpoints" when Loki is available', () => {
+describe('ServiceOverview tab registry', () => {
+  it('shows the Issues, Alerts and merged Backend tabs when Loki is available', () => {
     (capabilitiesUtils.useCapabilities as jest.Mock).mockReturnValue({ caps: baseCaps, loading: false });
     renderPage();
 
     expect(screen.getByText('Issues')).toBeInTheDocument();
-    expect(screen.getByText('Endpoints')).toBeInTheDocument();
+    expect(screen.getByText('Alerts')).toBeInTheDocument();
+    expect(screen.getByText('Backend')).toBeInTheDocument();
+    // The former standalone tabs are gone (merged into Backend / renamed).
+    expect(screen.queryByText('Endpoints')).not.toBeInTheDocument();
+    expect(screen.queryByText('Runtime')).not.toBeInTheDocument();
     expect(screen.queryByText('Operations')).not.toBeInTheDocument();
   });
 
-  it('hides the Issues tab when Loki is unavailable, but Endpoints stays', () => {
+  it('hides the Issues tab when Loki is unavailable, but Alerts and Backend stay', () => {
     (capabilitiesUtils.useCapabilities as jest.Mock).mockReturnValue({
       caps: { ...baseCaps, loki: { available: false } },
       loading: false,
@@ -124,18 +129,40 @@ describe('ServiceOverview tab registry (#69 P1/P7)', () => {
     renderPage();
 
     expect(screen.queryByText('Issues')).not.toBeInTheDocument();
-    expect(screen.getByText('Endpoints')).toBeInTheDocument();
+    // Alerts is not capability-gated; Backend is always present.
+    expect(screen.getByText('Alerts')).toBeInTheDocument();
+    expect(screen.getByText('Backend')).toBeInTheDocument();
   });
 
-  it('the Endpoints tab click keeps the stable tab=server URL value', () => {
+  it('the Backend tab click sets tab=backend and mounts the Backend tab', () => {
     (capabilitiesUtils.useCapabilities as jest.Mock).mockReturnValue({ caps: baseCaps, loading: false });
     renderPage();
 
-    fireEvent.click(screen.getByText('Endpoints'));
+    fireEvent.click(screen.getByText('Backend'));
 
     const params = new URLSearchParams(screen.getByTestId('location-search').textContent ?? '');
-    expect(params.get('tab')).toBe('server');
-    expect(screen.getByTestId('server-tab')).toBeInTheDocument();
+    expect(params.get('tab')).toBe('backend');
+    expect(screen.getByTestId('backend-tab')).toBeInTheDocument();
+  });
+
+  it('the Alerts tab click sets tab=alerts and mounts the Alerts tab', () => {
+    (capabilitiesUtils.useCapabilities as jest.Mock).mockReturnValue({ caps: baseCaps, loading: false });
+    renderPage();
+
+    fireEvent.click(screen.getByText('Alerts'));
+
+    const params = new URLSearchParams(screen.getByTestId('location-search').textContent ?? '');
+    expect(params.get('tab')).toBe('alerts');
+    expect(screen.getByTestId('alerts-tab')).toBeInTheDocument();
+  });
+
+  it('resolves the legacy tab=server and tab=runtime aliases to the Backend tab', () => {
+    (capabilitiesUtils.useCapabilities as jest.Mock).mockReturnValue({ caps: baseCaps, loading: false });
+    renderPage(['/services/team-a/my-svc?tab=server']);
+    expect(screen.getByTestId('backend-tab')).toBeInTheDocument();
+
+    renderPage(['/services/team-a/my-svc?tab=runtime']);
+    expect(screen.getAllByTestId('backend-tab').length).toBeGreaterThan(0);
   });
 
   it('the Issues tab click sets tab=issues and mounts the Issues tab', () => {

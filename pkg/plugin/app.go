@@ -399,6 +399,7 @@ func (a *App) routes() []appRoute {
 		{"/services/{namespace}/{service}/runtime", a.handleRuntime},
 		{"/services/{namespace}/{service}/custom-metrics", a.handleCustomMetrics},
 		{"/services/{namespace}/{service}/scorecard", a.handleScorecard},
+		{"/services/{namespace}/{service}/alerts", a.handleServiceAlerts},
 		{"/jobs", a.handleJobs},
 		{"/service-map", a.handleServiceMap},
 		{"/service-map/clustered", a.handleClusteredServiceMap},

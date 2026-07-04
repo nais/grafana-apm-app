@@ -3,7 +3,7 @@ import { useParams, useSearchParams } from 'react-router-dom';
 import { PluginPage, getAppEvents, locationService } from '@grafana/runtime';
 import { useStyles2, Tab, TabsBar, Combobox, Alert, Dropdown, Menu, IconButton } from '@grafana/ui';
 import { AppEvents, GrafanaTheme2, PageLayoutType } from '@grafana/data';
-import { useUrlString, useUrlNumber } from '../utils/useUrlState';
+import { useUrlString } from '../utils/useUrlState';
 import { css } from '@emotion/css';
 import { HeaderTimeControls } from '../components/HeaderTimeControls';
 import { useSceneTimeSync } from '../utils/useSceneTimeSync';
@@ -24,20 +24,22 @@ import { IssuesTab } from './tabs/IssuesTab';
 import { TracesTab } from './tabs/TracesTab';
 import { LogsTab } from './tabs/LogsTab';
 import { DependenciesTab } from './tabs/DependenciesTab';
-import { ServerTab } from './tabs/ServerTab';
+import { AlertsTab } from './tabs/AlertsTab';
+import { BackendTab } from './tabs/BackendTab';
 import { FrontendTab } from './tabs/FrontendTab';
-import { RuntimeTab } from './tabs/RuntimeTab';
 import { DatabaseTab } from './tabs/DatabaseTab';
 import { ProfilingTab } from './tabs/ProfilingTab';
 
-// 'server' is the stable URL value for the tab labeled "Endpoints" in the UI
-// (#69 P7: label-only rename, url-contract.md keeps tab=server).
+// 'backend' merges the former Endpoints (RED) + Runtime (USE) tabs into one
+// tab (docs/ia-review-2.md). The legacy url values `tab=server` and
+// `tab=runtime` remain bookmarked/linked and resolve to `backend` forever
+// (see the alias mapping below and url-contract.md).
 type TabId =
   | 'overview'
   | 'issues'
-  | 'server'
+  | 'alerts'
+  | 'backend'
   | 'frontend'
-  | 'runtime'
   | 'database'
   | 'dependencies'
   | 'traces'
@@ -46,9 +48,9 @@ type TabId =
 const VALID_TABS: TabId[] = [
   'overview',
   'issues',
-  'server',
+  'alerts',
+  'backend',
   'frontend',
-  'runtime',
   'database',
   'dependencies',
   'traces',
@@ -101,7 +103,11 @@ function ServiceOverviewInner({ namespace, service }: { namespace: string; servi
   const callsMetric = caps ? metrics.callsMetric : '';
   const durationBucket = caps ? metrics.durationBucket : '';
   const durationUnit = metrics.durationUnit;
-  const tabParam = searchParams.get('tab') ?? '';
+  const rawTabParam = searchParams.get('tab') ?? '';
+  // Legacy url aliases: `tab=server` (Endpoints) and `tab=runtime` were merged
+  // into the Backend tab (docs/ia-review-2.md). Bookmarks/links using the old
+  // values resolve to `backend` forever (url-contract.md).
+  const tabParam = rawTabParam === 'server' || rawTabParam === 'runtime' ? 'backend' : rawTabParam;
   // A capability-gated tab whose datasource is known-unavailable would render
   // content while its TabsBar button is hidden — fall back to Overview then.
   const tabUnavailable =
@@ -157,7 +163,6 @@ function ServiceOverviewInner({ namespace, service }: { namespace: string; servi
     [setSearchParams]
   );
   const [percentile, setPercentile] = useUrlString('percentile', '0.95');
-  const [depth, setDepth] = useUrlNumber('depth', 1);
 
   // Track which tabs have been visited so we keep them mounted. Derived
   // during render (state-adjustment pattern) — an effect would mount the
@@ -175,8 +180,6 @@ function ServiceOverviewInner({ namespace, service }: { namespace: string; servi
     operations,
     opsLoading,
     opsError,
-    graphNodes,
-    graphEdges,
     connected,
     connectedLoading,
     depsResp,
@@ -184,7 +187,7 @@ function ServiceOverviewInner({ namespace, service }: { namespace: string; servi
     depsError,
     health,
     healthLoading,
-  } = useServiceData({ service, namespace, envFilter, fromMs, toMs, depth });
+  } = useServiceData({ service, namespace, envFilter, fromMs, toMs });
 
   const percentileLabel = PERCENTILE_OPTIONS.find((o) => o.value === percentile)?.label ?? 'P95';
 
@@ -363,9 +366,9 @@ function ServiceOverviewInner({ namespace, service }: { namespace: string; servi
           {caps?.loki?.available !== false && (
             <Tab label="Issues" active={activeTab === 'issues'} onChangeTab={() => setActiveTab('issues')} />
           )}
-          <Tab label="Endpoints" active={activeTab === 'server'} onChangeTab={() => setActiveTab('server')} />
+          <Tab label="Alerts" active={activeTab === 'alerts'} onChangeTab={() => setActiveTab('alerts')} />
+          <Tab label="Backend" active={activeTab === 'backend'} onChangeTab={() => setActiveTab('backend')} />
           <Tab label="Frontend" active={activeTab === 'frontend'} onChangeTab={() => setActiveTab('frontend')} />
-          <Tab label="Runtime" active={activeTab === 'runtime'} onChangeTab={() => setActiveTab('runtime')} />
           <Tab label="Database" active={activeTab === 'database'} onChangeTab={() => setActiveTab('database')} />
           {caps?.serviceGraph?.detected !== false && (
             <Tab
@@ -405,19 +408,14 @@ function ServiceOverviewInner({ namespace, service }: { namespace: string; servi
                 operations={operations}
                 opsLoading={opsLoading}
                 opsError={opsError ?? null}
-                graphNodes={graphNodes}
-                graphEdges={graphEdges}
                 connected={connected ?? undefined}
                 dependencies={depsResp?.dependencies}
                 health={health}
                 healthLoading={healthLoading}
                 service={service}
-                depth={depth}
-                onDepthChange={setDepth}
-                onViewAllOperations={() => setActiveTab('server')}
+                onViewAllOperations={() => setActiveTab('backend')}
                 onViewAllDependencies={() => setActiveTab('dependencies')}
                 onViewTraces={caps?.tempo?.available !== false ? onViewTraces : undefined}
-                onNavigateService={onNavigateService}
                 onNavigateDependency={(depName: string, depType: string) => {
                   if (depType === 'service') {
                     appNavigate(`services/_/${encodeURIComponent(depName)}`);
@@ -433,6 +431,14 @@ function ServiceOverviewInner({ namespace, service }: { namespace: string; servi
             <div style={{ display: activeTab === 'issues' ? undefined : 'none' }}>
               <ErrorBoundary label="Issues tab" resetKeys={[namespace, service, activeTab]}>
                 <IssuesTab service={service} namespace={namespace} environment={envFilter} />
+              </ErrorBoundary>
+            </div>
+          )}
+
+          {visitedTabs.has('alerts') && (
+            <div style={{ display: activeTab === 'alerts' ? undefined : 'none' }}>
+              <ErrorBoundary label="Alerts tab" resetKeys={[namespace, service, activeTab]}>
+                <AlertsTab service={service} namespace={namespace} environment={envFilter} />
               </ErrorBoundary>
             </div>
           )}
@@ -462,10 +468,10 @@ function ServiceOverviewInner({ namespace, service }: { namespace: string; servi
             </div>
           )}
 
-          {visitedTabs.has('server') && (
-            <div style={{ display: activeTab === 'server' ? undefined : 'none' }}>
-              <ErrorBoundary label="Endpoints tab" resetKeys={[namespace, service, activeTab]}>
-                <ServerTab
+          {visitedTabs.has('backend') && (
+            <div style={{ display: activeTab === 'backend' ? undefined : 'none' }}>
+              <ErrorBoundary label="Backend tab" resetKeys={[namespace, service, activeTab]}>
+                <BackendTab
                   service={service}
                   namespace={namespace}
                   fromMs={fromMs}
@@ -481,20 +487,6 @@ function ServiceOverviewInner({ namespace, service }: { namespace: string; servi
             <div style={{ display: activeTab === 'frontend' ? undefined : 'none' }}>
               <ErrorBoundary label="Frontend tab" resetKeys={[namespace, service, activeTab]}>
                 <FrontendTab service={service} namespace={namespace} environment={envFilter} />
-              </ErrorBoundary>
-            </div>
-          )}
-
-          {visitedTabs.has('runtime') && (
-            <div style={{ display: activeTab === 'runtime' ? undefined : 'none' }}>
-              <ErrorBoundary label="Runtime tab" resetKeys={[namespace, service, activeTab]}>
-                <RuntimeTab
-                  service={service}
-                  namespace={namespace}
-                  environment={envFilter}
-                  fromMs={fromMs}
-                  toMs={toMs}
-                />
               </ErrorBoundary>
             </div>
           )}

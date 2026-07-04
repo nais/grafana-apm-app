@@ -472,6 +472,25 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ScorecardResponse" }
 
+  /services/{namespace}/{service}/alerts:
+    get:
+      tags: [experimental]
+      summary: Merged Mimir + Grafana alert rules mentioning a service.
+      parameters:
+        - { $ref: "#/components/parameters/namespacePath" }
+        - { $ref: "#/components/parameters/servicePath" }
+      responses:
+        "200":
+          description: Alert rules mentioning the service.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rules: { type: array, items: { type: object } }
+                  unavailable: { type: boolean }
+                  errorMessage: { type: string }
+
   /jobs:
     get:
       tags: [experimental]

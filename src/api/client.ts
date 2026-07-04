@@ -407,7 +407,7 @@ export async function getNamespaceAlerts(namespace: string): Promise<NamespaceAl
 
 // ---- Alert rule templates (#65 Phase 1) ----
 
-export type AlertTemplateKind = 'error-rate' | 'exception-spike' | 'web-vitals';
+export type AlertTemplateKind = 'error-rate' | 'exception-spike' | 'web-vitals' | 'new-exceptions' | 'slo-burn-rate';
 
 export interface AlertTemplateResponse {
   /**
@@ -422,7 +422,17 @@ export interface AlertTemplateResponse {
 
 export async function getAlertTemplate(
   kind: AlertTemplateKind,
-  opts: { namespace?: string; service: string; environment?: string; fingerprint?: string; hashes?: string[] }
+  opts: {
+    namespace?: string;
+    service: string;
+    environment?: string;
+    fingerprint?: string;
+    hashes?: string[];
+    /** slo-burn-rate: which burn tier ('fast' pages, 'slow' tickets). */
+    window?: 'fast' | 'slow';
+    /** slo-burn-rate: SLO target as a fraction (e.g. 0.999). */
+    slo?: number;
+  }
 ): Promise<AlertTemplateResponse> {
   const params: Record<string, string> = { service: opts.service };
   if (opts.namespace) {
@@ -437,7 +447,44 @@ export async function getAlertTemplate(
   if (opts.hashes?.length) {
     params.hash = opts.hashes.join(',');
   }
+  if (opts.window) {
+    params.window = opts.window;
+  }
+  if (opts.slo !== undefined) {
+    params.slo = String(opts.slo);
+  }
   return fetchResource<AlertTemplateResponse>(`/alert-templates/${kind}`, params);
+}
+
+// ---- Service alerts (rules mentioning a service, #32/#33 home) ----
+
+/**
+ * Active-instance firing detail for a rule: what is firing, since when, at what
+ * value vs threshold. Populated by the #32/#33 follow-up (fetched from the
+ * Alertmanager APIs and joined by rule UID); undefined in the v1 rule list,
+ * where the Alerts tab renders it as "—".
+ */
+export interface AlertFiringState {
+  state: 'firing' | 'pending' | 'inactive';
+  activeSince?: string;
+  value?: string;
+}
+
+/** A rule mentioning a service, from the merged Mimir + Grafana rule fetch. */
+export interface ServiceAlertRule extends AlertRuleSummary {
+  /** #32/#33 seam — absent in v1; the Alerts tab shows "—" until it lands. */
+  firingState?: AlertFiringState;
+}
+
+export interface ServiceAlertsResponse {
+  rules: ServiceAlertRule[];
+  /** Both rule sources were configured but unreachable. */
+  unavailable?: boolean;
+  errorMessage?: string;
+}
+
+export async function getServiceAlerts(namespace: string, service: string): Promise<ServiceAlertsResponse> {
+  return fetchResource<ServiceAlertsResponse>(`/services/${nsParam(namespace)}/${encodeURIComponent(service)}/alerts`);
 }
 
 /**

@@ -1,5 +1,16 @@
 # IA review 2 — a rubric for tab/layout decisions (2026-07-04)
 
+> **Status: implemented 2026-07-04 (PR #71).** The restructure this doc proposes
+> has shipped: the **Backend** tab merges the former Endpoints (RED) + Runtime
+> (USE) tabs (Runtime collapsed by default); a new **Alerts** tab (service-scoped
+> rule list + create-alert templates, backed by `GET
+/services/{ns}/{svc}/alerts`) sits after Issues and is _not_ capability-gated;
+> **Overview** is de-duplicated (full graph/tables replaced by a one-line
+> dependency signal linking to Dependencies); and **Traces/Logs** breakdown
+> panels are collapsed by default. Tab order is now `Overview · Issues · Alerts ·
+Backend · Frontend · Database · Dependencies · Traces · Logs · (Profiling)`.
+> Legacy `tab=server`/`tab=runtime` URLs resolve to `tab=backend` (url-contract.md).
+
 The first review (`docs/ia-review.md`) settled the Issues-tab split and the
 M6 moves. This round answers a batch of layout questions — Traces/Logs
 breakdown size, Overview duplication, an Endpoints+Runtime merge, an Alerts
@@ -14,10 +25,10 @@ Every tab and panel is judged against six rules:
    question a real user asks, stateable in a sentence. If you can't, the tab is
    doing too much.
 2. **Persona-anchored.** Each question belongs to someone: on-call ("is it
-   broken *now*?"), the owning developer ("*why*, and *where in my code*?"),
-   the team/platform lead ("is it healthy *over time*?").
+   broken _now_?"), the owning developer ("_why_, and _where in my code_?"),
+   the team/platform lead ("is it healthy _over time_?").
 3. **No content lives in two places.** A panel earns its spot only if this tab
-   is its *best* home. The Overview is the exception that proves the rule: it
+   is its _best_ home. The Overview is the exception that proves the rule: it
    shows **signals and links, never the full detail** — a signal is a summary
    plus a click, not a copy of another tab.
 4. **Symptom → cause → investigate ordering.** Left-to-right, tabs go from "do
@@ -33,14 +44,16 @@ Every tab and panel is judged against six rules:
 ## Answers (each falls out of the rubric)
 
 ### Traces/Logs breakdown panels are too tall — rule 5
+
 The TraceQL breakdown (`traces/TraceBreakdowns`) and log Patterns
-(`logs/PatternsPanel`) sit *above* the primary list, so the user scrolls past a
+(`logs/PatternsPanel`) sit _above_ the primary list, so the user scrolls past a
 summary to reach the traces/logs they came for. **Fix:** collapse them by
 default (ControlledCollapse) and cap to top-N with "show more"; the
 traces/logs list is the first thing above the fold, the summary is one click
 away. Low-risk, philosophy-aligned — **implement now.**
 
 ### Overview duplicates other tabs — rule 3
+
 `OverviewTab` currently embeds the full topology **graph** and the
 callers/**Dependencies** tables — a verbatim slice of the Dependencies tab —
 alongside its genuine signals (health header, SLO, attention, custom metrics).
@@ -50,6 +63,7 @@ that links to Dependencies. Overview answers "is this service healthy and what
 needs attention?" — nothing that is merely a copy. **Implement now.**
 
 ### Merge Endpoints + Runtime → "Backend"? — rules 1, 2, 4 → **yes, as sections**
+
 Endpoints answers **RED** (workload: rate/errors/duration per operation);
 Runtime answers **USE** (resources: utilization/saturation). Different lenses,
 but the same persona (backend developer) asks both when diagnosing "my service
@@ -59,18 +73,19 @@ Runtime (USE) below — (a) cuts the tab count (9–10 is a lot), (b) matches th
 mental model "the server side of my service", (c) orders symptom→cause (slow
 endpoints → saturated resources). Mitigate the scroll with rule 6: collapse the
 Runtime/USE section when resources are nominal. Database stays a separate tab
-(specialized + capability-gated) but the Backend tab links to it. *This is a
-visible restructure — decision required.*
+(specialized + capability-gated) but the Backend tab links to it. _This is a
+visible restructure — decision required._
 
 ### An Alerts tab? — rules 1, 2, 3 → **yes, service-scoped, content-gated**
-Today alert *rules* live on the namespace page, "create alert" is scattered
+
+Today alert _rules_ live on the namespace page, "create alert" is scattered
 (drawer + SLO panel), and firing detail (#32/#33) is unbuilt. A service Alerts
 tab answers one question — "what's watching this service, and is anything
 firing?" — and becomes the natural home for #32/#33 (firing state, silences,
 contact points, rule list + the create-alert templates). Overview shows a
-firing-alert *signal* (count + link, per rule 3); the Alerts tab owns the
+firing-alert _signal_ (count + link, per rule 3); the Alerts tab owns the
 detail. Content-gate: no rules → a compact "no alerts configured — create one"
-state. Position it early (a "do I need to act?" surface). *Decision required.*
+state. Position it early (a "do I need to act?" surface). _Decision required._
 
 ## Proposed tab structure
 
@@ -80,8 +95,8 @@ Proposed: `Overview · Issues · Alerts · Backend · Frontend · Database · De
 
 - **Overview** — signals + attention only (de-duplicated)
 - **Issues** — errors + triage (unchanged)
-- **Alerts** — *new*: rules + firing state + silences + create (home for #32/#33)
-- **Backend** — *merge*: Endpoints (RED) + Runtime (USE) sections
+- **Alerts** — _new_: rules + firing state + silences + create (home for #32/#33)
+- **Backend** — _merge_: Endpoints (RED) + Runtime (USE) sections
 - **Frontend** — unchanged (distinct persona: browser/UX)
 - **Database / Dependencies / Traces / Logs / Profiling** — unchanged in scope;
   Traces/Logs get the breakdown-collapse fix; Dependencies is where Overview's

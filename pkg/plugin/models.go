@@ -162,3 +162,13 @@ type NamespaceAlertsResponse struct {
 	Unavailable  bool               `json:"unavailable,omitempty"`
 	ErrorMessage string             `json:"errorMessage,omitempty"`
 }
+
+// ServiceAlertsResponse wraps the alert rules that mention a single service —
+// the service-scoped sibling of NamespaceAlertsResponse and the payload of the
+// Alerts tab's rule list. Per-rule active-instance firing detail (#32/#33)
+// layers over this list as a follow-up; v1 returns rule definitions only.
+type ServiceAlertsResponse struct {
+	Rules        []AlertRuleSummary `json:"rules"`
+	Unavailable  bool               `json:"unavailable,omitempty"`
+	ErrorMessage string             `json:"errorMessage,omitempty"`
+}

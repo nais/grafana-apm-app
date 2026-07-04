@@ -1,26 +1,18 @@
-import React, { useMemo, useState, useEffect, useCallback } from 'react';
-import { useStyles2, LoadingPlaceholder, Alert, Badge, RadioButtonGroup, IconButton } from '@grafana/ui';
+import React, { useMemo } from 'react';
+import { useStyles2, LoadingPlaceholder, Alert } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { EmbeddedScene } from '@grafana/scenes';
 import { OperationSummary, ConnectedServicesResponse, DependencySummary, HealthSummary } from '../../api/client';
-import { formatDuration, formatRate, formatErrorRate } from '../../utils/format';
-import { DepTypeIcon } from '../../components/DepTypeIcon';
+import { formatDuration } from '../../utils/format';
 import { CustomMetricsPanel } from '../../components/CustomMetricsPanel';
 import { getSectionStyles } from '../../utils/styles';
-import { ServiceGraph, ServiceGraphNode, ServiceGraphEdge } from '../../components/ServiceGraph';
-import { CopyMermaidButton } from '../../components/CopyMermaidButton';
-import { groupDependencies } from '../../utils/depGroups';
 import { HealthSummarySection } from '../../components/HealthSummary/HealthSummarySection';
 import { HealthHeaderRow } from './overview/HealthHeaderRow';
 import { SloPanel } from './overview/SloPanel';
+import { DependencySignal } from './overview/DependencySignal';
 
 const MAX_OVERVIEW_OPS = 5;
-const DEPTH_OPTIONS = [
-  { label: '1', value: 1, description: 'Direct neighbors' },
-  { label: '2', value: 2, description: '2 hops out' },
-  { label: '3', value: 3, description: '3 hops out' },
-];
 
 interface OverviewTabProps {
   scene: EmbeddedScene | null;
@@ -30,19 +22,14 @@ interface OverviewTabProps {
   operations: OperationSummary[];
   opsLoading: boolean;
   opsError: string | null;
-  graphNodes: ServiceGraphNode[];
-  graphEdges: ServiceGraphEdge[];
   connected?: ConnectedServicesResponse;
   dependencies?: DependencySummary[];
   health?: HealthSummary | null;
   healthLoading?: boolean;
   service: string;
-  depth?: number;
-  onDepthChange?: (depth: number) => void;
   onViewAllOperations: () => void;
   onViewAllDependencies?: () => void;
   onViewTraces?: (spanName: string, status?: string, spanKindRaw?: string) => void;
-  onNavigateService: (name: string) => void;
   onNavigateDependency?: (name: string, type: string) => void;
 }
 
@@ -54,38 +41,17 @@ export function OverviewTab({
   operations,
   opsLoading,
   opsError,
-  graphNodes,
-  graphEdges,
   connected,
   dependencies,
   health,
   healthLoading,
   service,
-  depth = 1,
-  onDepthChange,
   onViewAllOperations,
   onViewAllDependencies,
   onViewTraces,
-  onNavigateService,
   onNavigateDependency,
 }: OverviewTabProps) {
   const styles = useStyles2(getStyles);
-
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const toggleFullscreen = useCallback(() => setIsFullscreen((v) => !v), []);
-
-  useEffect(() => {
-    if (!isFullscreen) {
-      return;
-    }
-    const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setIsFullscreen(false);
-      }
-    };
-    document.addEventListener('keydown', handleEsc);
-    return () => document.removeEventListener('keydown', handleEsc);
-  }, [isFullscreen]);
 
   const overviewOps = useMemo(() => {
     const byRate = [...operations].sort((a, b) => b.rate - a.rate);
@@ -126,6 +92,15 @@ export function OverviewTab({
         loading={healthLoading ?? false}
         onViewTraces={onViewTraces}
         onNavigateDependency={onNavigateDependency}
+      />
+
+      {/* Dependency signal (IA review 2, rule 3) — a count + link to the
+          Dependencies tab, not a copy of its graph/tables. */}
+      <DependencySignal
+        connected={connected}
+        dependencies={dependencies}
+        health={health}
+        onViewDependencies={onViewAllDependencies}
       />
 
       {/* Operations table */}
@@ -197,86 +172,6 @@ export function OverviewTab({
         )}
       </div>
 
-      {/* Service topology graph */}
-      {graphNodes.length > 0 && (
-        <div className={isFullscreen ? styles.graphFullscreen : styles.section}>
-          <div className={styles.topologyHeader}>
-            <h3 className={styles.sectionTitle}>Service Topology</h3>
-            <div className={styles.depthControl}>
-              {onDepthChange && (
-                <>
-                  <span className={styles.depthLabel}>Hops:</span>
-                  <RadioButtonGroup
-                    size="sm"
-                    options={DEPTH_OPTIONS}
-                    value={depth}
-                    onChange={(v) => onDepthChange(v)}
-                  />
-                </>
-              )}
-              <CopyMermaidButton nodes={graphNodes} edges={graphEdges} direction="RIGHT" />
-              <IconButton
-                name={isFullscreen ? 'compress-arrows' : 'expand-arrows'}
-                tooltip={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
-                size="md"
-                onClick={toggleFullscreen}
-              />
-            </div>
-          </div>
-          <div className={styles.graphPanel} style={isFullscreen ? { flex: 1 } : undefined}>
-            <div style={{ height: isFullscreen ? '100%' : 400 }}>
-              <ServiceGraph
-                nodes={graphNodes}
-                edges={graphEdges}
-                focusNode={service}
-                direction="RIGHT"
-                isMultiHop={depth > 1}
-                onNodeClick={(nodeId, nodeType) => {
-                  if (nodeId === service) {
-                    return;
-                  }
-                  if (nodeType && nodeType !== 'service' && onNavigateDependency) {
-                    onNavigateDependency(nodeId, nodeType);
-                  } else {
-                    onNavigateService(nodeId);
-                  }
-                }}
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Callers & Dependencies — side by side */}
-      {((connected && (connected.inbound.length > 0 || connected.outbound.length > 0)) ||
-        (dependencies && dependencies.length > 0)) && (
-        <div className={styles.section}>
-          <div className={styles.connectedGrid}>
-            {/* Callers column */}
-            {connected && connected.inbound.length > 0 && (
-              <div>
-                <h3 className={styles.sectionTitle}>Callers ({connected.inbound.length})</h3>
-                <p className={styles.sectionSubtitle}>Services that call this service.</p>
-                <ConnectedTable services={connected.inbound} onNavigate={onNavigateService} />
-              </div>
-            )}
-
-            {/* Dependencies column */}
-            {dependencies && dependencies.length > 0 && (
-              <div>
-                <h3 className={styles.sectionTitle}>Dependencies ({dependencies.length})</h3>
-                <p className={styles.sectionSubtitle}>Databases, APIs, and services this service calls.</p>
-                <DependenciesCompact
-                  dependencies={dependencies}
-                  onNavigate={onNavigateDependency}
-                  onViewAll={onViewAllDependencies}
-                />
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* Custom application metrics (#68 Phase 0) — auto-discovered, hidden when
           none. Collapsible and default-collapsed with the discovered-metric
           count in its own header (IA review P9) — the panel manages that
@@ -286,207 +181,15 @@ export function OverviewTab({
   );
 }
 
-// --- Internal helpers ---
-
-const CONNECTION_TYPE_LABELS: Record<
-  string,
-  { text: string; color: 'blue' | 'green' | 'orange' | 'red' | 'purple'; icon?: string }
-> = {
-  database: { text: 'Database', color: 'purple', icon: 'database' },
-  messaging_system: { text: 'Messaging', color: 'orange', icon: 'envelope' },
-  virtual_node: { text: 'External', color: 'blue', icon: 'cloud' },
-};
-
-function ConnectionTypeBadge({ type }: { type?: string }) {
-  if (!type) {
-    return null;
-  }
-  const info = CONNECTION_TYPE_LABELS[type];
-  if (!info) {
-    return null;
-  }
-  return <Badge text={info.text} color={info.color} icon={info.icon as any} />;
-}
-
-interface ConnectedTableProps {
-  services: ConnectedServicesResponse['inbound'];
-  onNavigate: (name: string) => void;
-}
-
-function ConnectedTable({ services, onNavigate }: ConnectedTableProps) {
-  const styles = useStyles2(getStyles);
-  return (
-    <table className={styles.opsTable}>
-      <thead>
-        <tr>
-          <th>Service</th>
-          <th>Type</th>
-          <th>Rate</th>
-          <th>Error %</th>
-          <th>P95</th>
-        </tr>
-      </thead>
-      <tbody>
-        {services.map((s) => (
-          <tr
-            key={s.name + (s.connectionType ?? '')}
-            className={s.connectionType ? undefined : styles.clickableRow}
-            style={s.isSidecar ? { opacity: 0.6 } : undefined}
-            onClick={
-              s.connectionType
-                ? undefined
-                : () => {
-                    onNavigate(s.name);
-                  }
-            }
-          >
-            <td className={s.connectionType ? undefined : styles.linkCell}>
-              {s.name}
-              {s.isSidecar && <Badge text="sidecar" color="orange" icon="cog" className={styles.sidecarBadge} />}
-            </td>
-            <td>
-              <ConnectionTypeBadge type={s.connectionType} />
-            </td>
-            <td className={styles.opNumCell}>{s.rate.toFixed(2)} req/s</td>
-            <td className={s.errorRate > 0 ? styles.opErrorCell : styles.opNumCell}>{s.errorRate.toFixed(1)}%</td>
-            <td className={styles.opNumCell}>{formatDuration(s.p95Duration, s.durationUnit)}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-// --- Dependencies compact list for overview (grouped) ---
-
-const MAX_GROUP_VISIBLE = 5;
-
-interface DependenciesCompactProps {
-  dependencies: DependencySummary[];
-  onNavigate?: (name: string, type: string) => void;
-  onViewAll?: () => void;
-}
-
-function DependenciesCompact({ dependencies, onNavigate, onViewAll }: DependenciesCompactProps) {
-  const styles = useStyles2(getStyles);
-  const groups = useMemo(() => groupDependencies(dependencies), [dependencies]);
-
-  return (
-    <div className={styles.depGroups}>
-      {groups.map((group) => (
-        <DepGroupSection key={group.key} group={group} onNavigate={onNavigate} onViewAll={onViewAll} styles={styles} />
-      ))}
-    </div>
-  );
-}
-
-interface DepGroupSectionProps {
-  group: { label: string; items: DependencySummary[]; key: string };
-  onNavigate?: (name: string, type: string) => void;
-  onViewAll?: () => void;
-  styles: ReturnType<typeof getStyles>;
-}
-
-function DepGroupSection({ group, onNavigate, onViewAll, styles }: DepGroupSectionProps) {
-  const visible = group.items.length > MAX_GROUP_VISIBLE ? group.items.slice(0, MAX_GROUP_VISIBLE) : group.items;
-  const hiddenCount = group.items.length - visible.length;
-
-  return (
-    <div className={styles.depGroup}>
-      <div className={styles.depGroupHeader}>
-        <span className={styles.depGroupLabel}>{group.label}</span>
-        <span className={styles.depGroupCount}>{group.items.length}</span>
-      </div>
-      <table className={styles.depsTable}>
-        <tbody>
-          {visible.map((dep) => (
-            <tr
-              key={dep.name}
-              className={onNavigate ? styles.clickableRow : undefined}
-              onClick={onNavigate ? () => onNavigate(dep.name, dep.type) : undefined}
-            >
-              <td className={styles.linkCell} title={dep.name}>
-                <DepTypeIcon type={dep.type} />
-                <span style={{ marginLeft: 6 }}>{dep.displayName || dep.name}</span>
-              </td>
-              <td className={styles.opNumCell}>{formatRate(dep.rate)}</td>
-              <td className={dep.errorRate > 0 ? styles.opErrorCell : styles.opNumCell}>
-                {formatErrorRate(dep.errorRate)}
-              </td>
-              <td className={styles.opNumCell}>{formatDuration(dep.p95Duration, dep.durationUnit)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {hiddenCount > 0 && onViewAll && (
-        <button className={styles.viewAllLink} onClick={onViewAll}>
-          View all {group.items.length} in Dependencies tab →
-        </button>
-      )}
-    </div>
-  );
-}
-
 // --- Styles ---
 
 const getStyles = (theme: GrafanaTheme2) => ({
   ...getSectionStyles(theme),
-  topologyHeader: css`
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: ${theme.spacing(1)};
-  `,
-  depthControl: css`
-    display: flex;
-    align-items: center;
-    gap: ${theme.spacing(1)};
-  `,
-  depthLabel: css`
-    font-size: ${theme.typography.bodySmall.fontSize};
-    color: ${theme.colors.text.secondary};
-  `,
-  graphPanel: css`
-    background: ${theme.colors.background.secondary};
-    border: 1px solid ${theme.colors.border.weak};
-    border-radius: ${theme.shape.radius.default};
-    padding: ${theme.spacing(1)};
-    overflow: hidden;
-  `,
-  graphFullscreen: css`
-    position: fixed;
-    inset: 0;
-    z-index: 1100;
-    background: ${theme.colors.background.canvas};
-    display: flex;
-    flex-direction: column;
-    padding: ${theme.spacing(2)};
-  `,
-  connectedGrid: css`
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: ${theme.spacing(3)};
-    @media (max-width: 768px) {
-      grid-template-columns: 1fr;
-    }
-  `,
   clickableRow: css`
     cursor: pointer;
     &:hover {
       background: ${theme.colors.background.secondary};
     }
-  `,
-  linkCell: css`
-    font-weight: ${theme.typography.fontWeightMedium};
-    max-width: 300px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: ${theme.colors.text.link};
-  `,
-  sidecarBadge: css`
-    margin-left: ${theme.spacing(0.75)};
-    vertical-align: middle;
   `,
   viewAllLink: css`
     display: block;
@@ -556,53 +259,5 @@ const getStyles = (theme: GrafanaTheme2) => ({
     font-variant-numeric: tabular-nums;
     color: ${theme.colors.error.text};
     font-weight: ${theme.typography.fontWeightMedium};
-  `,
-  depGroups: css`
-    display: flex;
-    flex-direction: column;
-    gap: ${theme.spacing(2)};
-  `,
-  depGroup: css`
-    &:not(:last-child) {
-      border-bottom: 1px solid ${theme.colors.border.weak};
-      padding-bottom: ${theme.spacing(1.5)};
-    }
-  `,
-  depGroupHeader: css`
-    display: flex;
-    align-items: center;
-    gap: ${theme.spacing(1)};
-    margin-bottom: ${theme.spacing(0.5)};
-  `,
-  depGroupLabel: css`
-    font-size: ${theme.typography.bodySmall.fontSize};
-    font-weight: ${theme.typography.fontWeightMedium};
-    color: ${theme.colors.text.secondary};
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  `,
-  depGroupCount: css`
-    font-size: ${theme.typography.bodySmall.fontSize};
-    color: ${theme.colors.text.disabled};
-  `,
-  depsTable: css`
-    width: 100%;
-    border-collapse: separate;
-    border-spacing: 0;
-    table-layout: fixed;
-    td:nth-child(1) {
-      width: 50%;
-    }
-    td:nth-child(n + 2) {
-      width: 16%;
-      text-align: right;
-    }
-    td {
-      padding: ${theme.spacing(0.5)} ${theme.spacing(1)};
-      vertical-align: middle;
-    }
-    tr:hover {
-      background: ${theme.colors.background.secondary};
-    }
   `,
 });

@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
-import { Combobox, Tooltip, useStyles2 } from '@grafana/ui';
+import { Button, Combobox, ControlledCollapse, Tooltip, useStyles2 } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getTraceBreakdown } from '../../../api/analytics';
 import { useFetch } from '../../../utils/useFetch';
 import { DataState } from '../../../components/DataState';
 import { formatDuration, formatRate, formatErrorRate } from '../../../utils/format';
+
+/** Rows shown before the "show all" affordance reveals the rest (rule 5: keep the panel compact even expanded). */
+const TOP_N = 6;
 
 interface TraceBreakdownsProps {
   namespace: string;
@@ -39,10 +42,17 @@ const MODE_LABEL: Record<string, string> = {
  * group by an attribute (span name, db.system, …) and report rate, error rate,
  * and latency percentiles. The dimension picker only offers attributes that
  * actually carry data. Row click seeds the span search below.
+ *
+ * Collapsed by default (ia-review-2 rule 5: the trace list, not this summary,
+ * is the primary object on this tab) — the collapse header always shows the
+ * current group-by dimension and row count so the signal survives collapse.
+ * Expanded rows are capped to TOP_N with a "show all" affordance so a wide
+ * breakdown still doesn't dominate the tab.
  */
 export function TraceBreakdowns({ namespace, service, tracesUid, fromMs, toMs, onSelectSpan }: TraceBreakdownsProps) {
   const styles = useStyles2(getStyles);
   const [dimension, setDimension] = useState('name');
+  const [showAll, setShowAll] = useState(false);
 
   const { data, loading, error } = useFetch(
     () => getTraceBreakdown(namespace, service, fromMs, toMs, tracesUid, dimension),
@@ -50,17 +60,29 @@ export function TraceBreakdowns({ namespace, service, tracesUid, fromMs, toMs, o
     { skip: !tracesUid }
   );
 
+  // A new dimension or time window is a new dataset — start from the top-N view again.
+  // Adjusting state during render (rather than in an effect) avoids the extra
+  // render-then-effect-then-render cascade; see https://react.dev/learn/you-might-not-need-an-effect.
+  const datasetKey = `${dimension}|${fromMs}|${toMs}`;
+  const [prevDatasetKey, setPrevDatasetKey] = useState(datasetKey);
+  if (datasetKey !== prevDatasetKey) {
+    setPrevDatasetKey(datasetKey);
+    setShowAll(false);
+  }
+
   const rows = data?.rows ?? [];
+  const visibleRows = showAll ? rows : rows.slice(0, TOP_N);
   const maxRate = rows.reduce((m, r) => Math.max(m, r.rate), 0) || 1;
   const maxP99 = rows.reduce((m, r) => Math.max(m, r.p99Ms), 0) || 1;
 
   const availableDims = data?.dimensions?.length ? data.dimensions : ['name'];
   const dimensionOptions = availableDims.map((d) => ({ label: DIMENSION_LABELS[d] ?? d, value: d }));
 
+  const collapsedLabel = `Breakdowns by ${dimension}${rows.length ? ` (${rows.length})` : ''}`;
+
   return (
-    <div className={styles.container}>
+    <ControlledCollapse label={collapsedLabel} isOpen={false} className={styles.collapse}>
       <div className={styles.header}>
-        <h6 className={styles.title}>Breakdown</h6>
         <label id="trace-breakdown-groupby" className={styles.label}>
           Group by:
         </label>
@@ -110,7 +132,7 @@ export function TraceBreakdowns({ namespace, service, tracesUid, fromMs, toMs, o
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
+            {visibleRows.map((r) => (
               <tr
                 key={r.value}
                 className={styles.row}
@@ -148,17 +170,24 @@ export function TraceBreakdowns({ namespace, service, tracesUid, fromMs, toMs, o
             ))}
           </tbody>
         </table>
+        {rows.length > TOP_N && (
+          <Button
+            size="sm"
+            variant="secondary"
+            fill="text"
+            className={styles.showAllButton}
+            onClick={() => setShowAll((v) => !v)}
+          >
+            {showAll ? `Show top ${TOP_N}` : `Show all ${rows.length}`}
+          </Button>
+        )}
       </DataState>
-    </div>
+    </ControlledCollapse>
   );
 }
 
 const getStyles = (theme: GrafanaTheme2) => ({
-  container: css`
-    background: ${theme.colors.background.primary};
-    border: 1px solid ${theme.colors.border.weak};
-    border-radius: ${theme.shape.radius.default};
-    padding: ${theme.spacing(1)};
+  collapse: css`
     margin-bottom: ${theme.spacing(2)};
   `,
   header: css`
@@ -167,9 +196,8 @@ const getStyles = (theme: GrafanaTheme2) => ({
     gap: ${theme.spacing(1)};
     padding: ${theme.spacing(0.5, 1)};
   `,
-  title: css`
-    margin: 0;
-    font-size: ${theme.typography.body.fontSize};
+  showAllButton: css`
+    margin-top: ${theme.spacing(0.5)};
   `,
   label: css`
     color: ${theme.colors.text.secondary};

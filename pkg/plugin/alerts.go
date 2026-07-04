@@ -40,14 +40,18 @@ func (a *App) handleNamespaceAlerts(w http.ResponseWriter, req *http.Request) {
 		grafanaErr  error
 	)
 	if prom != nil {
-		wg.Go(func() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			mimirRules, mimirErr = prom.GetAlertRules(req.Context())
-		})
+		}()
 	}
 	if grafanaRules != nil {
-		wg.Go(func() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			grafanaResp, grafanaErr = grafanaRules.GetAlertRules(req.Context())
-		})
+		}()
 	}
 	wg.Wait()
 
@@ -93,6 +97,91 @@ func (a *App) grafanaRulesClient(req *http.Request) *queries.PrometheusClient {
 	return client.WithAuthHeaders(req.Header)
 }
 
+// handleServiceAlerts returns the alert rules that mention a single service,
+// merged from the Mimir ruler and Grafana-managed alerting and filtered with
+// the same conservative name matcher the scorecard uses (ruleMentionsService,
+// scorecard.go) — no fleet-wide substring hits. This is the service-scoped
+// sibling of handleNamespaceAlerts and the payload behind the Alerts tab's
+// rule list; per-rule firing-state detail (#32/#33) enriches this list later.
+// GET /services/{namespace}/{service}/alerts
+func (a *App) handleServiceAlerts(w http.ResponseWriter, req *http.Request) {
+	if !requireGET(w, req) {
+		return
+	}
+	namespace, service := parseServiceRef(req)
+	if !requireServiceParam(w, service) {
+		return
+	}
+
+	// Rules aren't time- or environment-scoped in this fetch, so the cache key
+	// is just org + service (namespace disambiguates same-named services).
+	orgID := req.Header.Get("X-Grafana-Org-Id")
+	ck := cacheKey("service-alerts", orgID, namespace, service)
+	a.writeCached(w, ck, "querying service alerts failed", func() (any, error) {
+		return a.computeServiceAlerts(req, service), nil
+	})
+}
+
+// computeServiceAlerts fans out to both rule sources (like handleNamespaceAlerts)
+// and filters to rules mentioning the service, degrading per-source.
+func (a *App) computeServiceAlerts(req *http.Request, service string) ServiceAlertsResponse {
+	logger := log.DefaultLogger.With("handler", "service-alerts")
+
+	prom := a.promClientForRequest(req)
+	grafanaRules := a.grafanaRulesClient(req)
+
+	var (
+		wg          sync.WaitGroup
+		mimirRules  *queries.RulesResponse
+		mimirErr    error
+		grafanaResp *queries.RulesResponse
+		grafanaErr  error
+	)
+	if prom != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			mimirRules, mimirErr = prom.GetAlertRules(req.Context())
+		}()
+	}
+	if grafanaRules != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			grafanaResp, grafanaErr = grafanaRules.GetAlertRules(req.Context())
+		}()
+	}
+	wg.Wait()
+
+	if mimirErr != nil {
+		logger.Warn("Failed to fetch Mimir alert rules", "error", mimirErr)
+	}
+	if grafanaErr != nil {
+		// Expected on Grafana instances without unified-alerting rules access;
+		// degrade to Mimir-only rather than failing the tab.
+		logger.Debug("Failed to fetch Grafana-managed alert rules", "error", grafanaErr)
+	}
+
+	// Neither source configured → empty (not an error; the local/dev case).
+	if prom == nil && grafanaRules == nil {
+		return ServiceAlertsResponse{Rules: []AlertRuleSummary{}}
+	}
+	// Both sources configured but both failed → surface the unavailable state.
+	if mimirRules == nil && grafanaResp == nil {
+		return ServiceAlertsResponse{
+			Rules:        []AlertRuleSummary{},
+			Unavailable:  true,
+			ErrorMessage: "Unable to fetch alert rules",
+		}
+	}
+
+	var filtered []AlertRuleSummary
+	filtered = append(filtered, summarizeServiceAlertRules(mimirRules, service, alertSourceMimir)...)
+	filtered = append(filtered, summarizeServiceAlertRules(grafanaResp, service, alertSourceGrafana)...)
+
+	return ServiceAlertsResponse{Rules: dedupeAndSortAlertRules(filtered)}
+}
+
 // summarizeAlertRules filters alerting rules to the given namespace and maps
 // them to summaries tagged with their source.
 func summarizeAlertRules(rules *queries.RulesResponse, namespace, source string) []AlertRuleSummary {
@@ -126,32 +215,61 @@ func summarizeAlertRules(rules *queries.RulesResponse, namespace, source string)
 				continue
 			}
 
-			// Find earliest activeAt among firing/pending instances
-			var activeAt string
-			var activeCount int
-			for _, alert := range rule.Alerts {
-				if alert.State == "firing" || alert.State == "pending" {
-					activeCount++
-					if activeAt == "" || alert.ActiveAt < activeAt {
-						activeAt = alert.ActiveAt
-					}
-				}
-			}
-
-			filtered = append(filtered, AlertRuleSummary{
-				Name:        rule.Name,
-				State:       rule.State,
-				Severity:    rule.Labels["severity"],
-				Summary:     rule.Annotations["summary"],
-				Description: rule.Annotations["description"],
-				ActiveSince: activeAt,
-				ActiveCount: activeCount,
-				GroupName:   group.Name,
-				Source:      source,
-			})
+			filtered = append(filtered, alertRuleSummary(rule, group, source))
 		}
 	}
 	return filtered
+}
+
+// summarizeServiceAlertRules filters alerting rules to those that mention the
+// service (reusing the scorecard's conservative ruleMentionsService matcher)
+// and maps them to summaries tagged with their source — the service-scoped
+// analogue of summarizeAlertRules.
+func summarizeServiceAlertRules(rules *queries.RulesResponse, service, source string) []AlertRuleSummary {
+	if rules == nil {
+		return nil
+	}
+	var filtered []AlertRuleSummary
+	for _, group := range rules.Groups {
+		for _, rule := range group.Rules {
+			if rule.Type != "alerting" {
+				continue
+			}
+			if !ruleMentionsService(rule, service) {
+				continue
+			}
+			filtered = append(filtered, alertRuleSummary(rule, group, source))
+		}
+	}
+	return filtered
+}
+
+// alertRuleSummary maps one ruler alerting rule to the summary surfaced on the
+// namespace/service pages, deriving the earliest activeAt / active-instance
+// count and tagging it with its source.
+func alertRuleSummary(rule queries.Rule, group queries.RuleGroup, source string) AlertRuleSummary {
+	var activeAt string
+	var activeCount int
+	for _, alert := range rule.Alerts {
+		if alert.State == "firing" || alert.State == "pending" {
+			activeCount++
+			if activeAt == "" || alert.ActiveAt < activeAt {
+				activeAt = alert.ActiveAt
+			}
+		}
+	}
+
+	return AlertRuleSummary{
+		Name:        rule.Name,
+		State:       rule.State,
+		Severity:    rule.Labels["severity"],
+		Summary:     rule.Annotations["summary"],
+		Description: rule.Annotations["description"],
+		ActiveSince: activeAt,
+		ActiveCount: activeCount,
+		GroupName:   group.Name,
+		Source:      source,
+	}
 }
 
 // dedupeAndSortAlertRules merges rules with the same name (same rule in
