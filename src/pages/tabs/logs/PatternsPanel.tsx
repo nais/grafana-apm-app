@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Badge, Button, ControlledCollapse, Icon, TextLink, Tooltip, useStyles2 } from '@grafana/ui';
+import { CollapsibleSection } from '../../../components/CollapsibleSection';
+import { Badge, Button, Icon, TextLink, Tooltip, useStyles2 } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getLogPatterns, LogPatternsMode } from '../../../api/analytics';
@@ -67,7 +68,7 @@ export function PatternsPanel({ namespace, service, logsUid, fromMs, toMs, onSel
   const collapsedLabel = `Top error patterns${patterns.length ? ` (${patterns.length})` : ''}`;
 
   return (
-    <ControlledCollapse label={collapsedLabel} isOpen={false} className={styles.collapse}>
+    <CollapsibleSection label={collapsedLabel} className={styles.collapse}>
       <div className={styles.header}>
         {data && data.mode !== 'unavailable' && (
           <Tooltip content="How these patterns were produced.">
@@ -131,7 +132,7 @@ export function PatternsPanel({ namespace, service, logsUid, fromMs, toMs, onSel
           </Button>
         )}
       </DataState>
-    </ControlledCollapse>
+    </CollapsibleSection>
   );
 }
 

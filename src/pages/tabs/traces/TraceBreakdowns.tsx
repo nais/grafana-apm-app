@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Button, Combobox, ControlledCollapse, Tooltip, useStyles2 } from '@grafana/ui';
+import { CollapsibleSection } from '../../../components/CollapsibleSection';
+import { Button, Combobox, Tooltip, useStyles2 } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getTraceBreakdown } from '../../../api/analytics';
@@ -81,7 +82,7 @@ export function TraceBreakdowns({ namespace, service, tracesUid, fromMs, toMs, o
   const collapsedLabel = `Breakdowns by ${dimension}${rows.length ? ` (${rows.length})` : ''}`;
 
   return (
-    <ControlledCollapse label={collapsedLabel} isOpen={false} className={styles.collapse}>
+    <CollapsibleSection label={collapsedLabel} className={styles.collapse}>
       <div className={styles.header}>
         <label id="trace-breakdown-groupby" className={styles.label}>
           Group by:
@@ -182,7 +183,7 @@ export function TraceBreakdowns({ namespace, service, tracesUid, fromMs, toMs, o
           </Button>
         )}
       </DataState>
-    </ControlledCollapse>
+    </CollapsibleSection>
   );
 }
 

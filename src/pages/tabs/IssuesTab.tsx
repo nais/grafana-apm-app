@@ -9,7 +9,6 @@ import { IssuesTable } from './frontend/components/IssuesTable';
 import { VersionsPanel } from './frontend/components/VersionsPanel';
 import { SessionsPanel } from './frontend/components/SessionsPanel';
 import { ExceptionDrawer } from './frontend/components/ExceptionDrawer';
-import { ExceptionDrawerLoading } from './frontend/components/ExceptionDrawerLoading';
 import { useExceptionDrawerState } from './frontend/useExceptionDrawer';
 
 interface IssuesTabProps {
@@ -68,10 +67,11 @@ export function IssuesTab({ service, namespace, environment }: IssuesTabProps) {
           </div>
         </>
       )}
-      {drawerHashes && drawerHashes.length > 0 && (
+      {(drawerLoading || (drawerHashes && drawerHashes.length > 0)) && (
         <ExceptionDrawer
           key={selectedIssueId || selectedHash}
-          hashes={drawerHashes}
+          hashes={drawerHashes ?? []}
+          resolving={drawerLoading}
           title={selectedGroupTitle}
           service={service}
           namespace={namespace}
@@ -82,7 +82,6 @@ export function IssuesTab({ service, namespace, environment }: IssuesTabProps) {
           onClose={closeDrawer}
         />
       )}
-      {drawerLoading && <ExceptionDrawerLoading onClose={closeDrawer} />}
     </div>
   );
 }

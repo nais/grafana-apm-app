@@ -91,6 +91,12 @@ interface ExceptionDrawerProps {
    * multiple raw hashes.
    */
   hashes: string[];
+  /**
+   * True while a fresh `issueId` deep link is still resolving to its member
+   * hashes. The drawer mounts immediately (so the open animation plays once)
+   * and shows its spinner; the occurrence fetch is skipped until hashes land.
+   */
+  resolving?: boolean;
   /** Group title from the fingerprint pipeline (falls back to parsed value). */
   title?: string;
   service: string;
@@ -135,6 +141,7 @@ interface AggregatedStats {
 
 export function ExceptionDrawer({
   hashes,
+  resolving = false,
   title,
   service,
   namespace,
@@ -179,6 +186,12 @@ export function ExceptionDrawer({
 
   useEffect(() => {
     let cancelled = false;
+    // While the deep link is still resolving to hashes, keep the spinner and
+    // don't query — the same drawer instance will re-run this once hashes land.
+    if (resolving || hashes.length === 0) {
+      setLoading(true);
+      return;
+    }
     setLoading(true);
 
     // Line prefilters let Loki skip logfmt-parsing lines for other hashes.
@@ -533,7 +546,7 @@ export function ExceptionDrawer({
   return (
     <Drawer
       title={exception?.type || 'Exception Details'}
-      subtitle={title || exception?.value || hashes[0]}
+      subtitle={title || exception?.value || hashes[0] || ''}
       onClose={onClose}
       closeOnMaskClick={true}
       size="lg"

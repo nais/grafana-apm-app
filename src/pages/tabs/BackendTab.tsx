@@ -1,5 +1,6 @@
 import React from 'react';
-import { useStyles2, ControlledCollapse } from '@grafana/ui';
+import { CollapsibleSection } from '../../components/CollapsibleSection';
+import { useStyles2 } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { ServerTab } from './ServerTab';
@@ -53,9 +54,9 @@ export function BackendTab({ service, namespace, fromMs, toMs, environment, onVi
       </section>
 
       <section className={styles.section}>
-        <ControlledCollapse label="Runtime — process resources" isOpen={false}>
+        <CollapsibleSection label="Runtime — process resources">
           <RuntimeTab service={service} namespace={namespace} environment={environment} fromMs={fromMs} toMs={toMs} />
-        </ControlledCollapse>
+        </CollapsibleSection>
       </section>
     </div>
   );
