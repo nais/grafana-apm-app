@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -285,6 +286,67 @@ func TestQueryServerExceptionGroupsPlainTextShape(t *testing.T) {
 		if g.Impact == nil || g.Impact.Pods != 0 {
 			t.Errorf("sampled plain-text impact = %+v, want pods 0", g.Impact)
 		}
+	}
+}
+
+func TestAddPlainTextGroupsCoercesNonFiniteVolume(t *testing.T) {
+	// Defense-in-depth (#70 QA): a count row that parses to NaN/±Inf must not
+	// poison the summed volume — an unguarded sum flows a non-finite Count into
+	// the group and json.Marshal then 500s the endpoint. safeFloat coerces the
+	// bad row to 0 so the distributed counts stay finite.
+	plainRes := []queries.PromResult{
+		{Metric: map[string]string{}, Value: queries.NewPromValue(0, "NaN")},
+		{Metric: map[string]string{}, Value: queries.NewPromValue(0, "12")},
+	}
+	sample := []queries.LogEntry{{Line: "boom"}, {Line: "boom"}, {Line: "boom"}, {Line: "kapow"}}
+
+	var total float64
+	addPlainTextGroups(plainRes, sample, func(_, msg string, count float64) {
+		if math.IsNaN(count) || math.IsInf(count, 0) {
+			t.Errorf("group %q count = %v, want finite", msg, count)
+		}
+		total += count
+	})
+	// plainTotal = safeFloat(NaN) + 12 = 12, distributed 3:1 over the 4 lines.
+	if total != 12 {
+		t.Errorf("distributed total = %v, want 12 (NaN row coerced to 0)", total)
+	}
+}
+
+func TestQueryServerExceptionGroupsPlainTextAllEmptyFallback(t *testing.T) {
+	// Shape (c) edge: the count query proves error-level volume (12), but every
+	// sampled line is whitespace-only and trims empty — nothing to fingerprint.
+	// The volume must surface as one "Unparsed error logs" group instead of
+	// silently vanishing.
+	plainCount := []queries.PromResult{
+		{Metric: map[string]string{}, Value: queries.NewPromValue(0, "12")},
+	}
+	sample := []string{"   ", "\t\n", "", "  \t "}
+	app, ds := exceptionsTestApp(t,
+		map[string][]queries.PromResult{"sum(count_over_time(": plainCount},
+		nil,
+		map[string][]string{"drop __error__": sample})
+
+	issues, ok := app.queryServerExceptionGroups(context.Background(), ds, "loki-uid", "navno-search-frontend", "", time.Unix(0, 0), time.Unix(3600, 0))
+
+	if !ok {
+		t.Fatal("expected server side to be available")
+	}
+	if len(issues) != 1 {
+		t.Fatalf("expected 1 fallback group, got %d: %+v", len(issues), issues)
+	}
+	g := issues[0]
+	if g.Title != unparsedPlainTextTitle {
+		t.Errorf("fallback title = %q, want %q", g.Title, unparsedPlainTextTitle)
+	}
+	if g.Count != 12 {
+		t.Errorf("fallback count = %v, want 12 (full counted volume)", g.Count)
+	}
+	if g.Source != issueSourceServer {
+		t.Errorf("source = %q, want server", g.Source)
+	}
+	if g.Impact == nil || g.Impact.Pods != 0 {
+		t.Errorf("fallback impact = %+v, want pods 0", g.Impact)
 	}
 }
 

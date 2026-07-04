@@ -9,6 +9,7 @@ import { IssuesTable } from './frontend/components/IssuesTable';
 import { VersionsPanel } from './frontend/components/VersionsPanel';
 import { SessionsPanel } from './frontend/components/SessionsPanel';
 import { ExceptionDrawer } from './frontend/components/ExceptionDrawer';
+import { ExceptionDrawerLoading } from './frontend/components/ExceptionDrawerLoading';
 import { useExceptionDrawerState } from './frontend/useExceptionDrawer';
 
 interface IssuesTabProps {
@@ -33,6 +34,7 @@ export function IssuesTab({ service, namespace, environment }: IssuesTabProps) {
   // drawer identically on both tabs.
   const {
     drawerHashes,
+    drawerLoading,
     selectedGroupTitle,
     selectedIssueId,
     selectedHash,
@@ -80,6 +82,7 @@ export function IssuesTab({ service, namespace, environment }: IssuesTabProps) {
           onClose={closeDrawer}
         />
       )}
+      {drawerLoading && <ExceptionDrawerLoading onClose={closeDrawer} />}
     </div>
   );
 }

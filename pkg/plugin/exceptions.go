@@ -82,29 +82,15 @@ func (a *App) handleExceptionGroups(w http.ResponseWriter, req *http.Request) {
 	}
 
 	orgID := req.Header.Get("X-Grafana-Org-Id")
-	roundedFrom := fmt.Sprintf("%d", from.Unix()/30*30)
-	roundedTo := fmt.Sprintf("%d", to.Unix()/30*30)
-	ck := cacheKey("exceptiongroups", orgID, namespace, service, env, roundedFrom, roundedTo)
-	if cached, ok := a.respCache.get(ck); ok {
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("X-Cache", "HIT")
-		_, _ = w.Write(cached)
-		return
-	}
+	ck := cacheKey("exceptiongroups", orgID, namespace, service, env, roundedUnix(from), roundedUnix(to))
 
 	// Queries go through Grafana's datasource query API (/api/ds/query) —
 	// the sanctioned, non-deprecated path — rather than the datasource proxy.
 	dsClient := queries.NewDsQueryClient(a.grafanaURL, a.resolveServiceToken(ctx)).WithAuthHeaders(req.Header)
 
-	data, err := a.respCache.getOrCompute(ck, func() (any, error) {
+	a.writeCached(w, ck, "querying exception groups failed", func() (any, error) {
 		return a.queryExceptionGroups(ctx, dsClient, lokiUID, service, env, from, to), nil
 	})
-	if err != nil {
-		http.Error(w, "querying exception groups failed", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write(data)
 }
 
 // sessionsFallbackWindows is the retry ladder when the full-range
@@ -171,7 +157,7 @@ func (a *App) queryExceptionGroups(ctx context.Context, ds *queries.DsQueryClien
 
 	sessionsByHash := make(map[string]float64, len(sessRes))
 	for _, r := range sessRes {
-		sessionsByHash[r.Metric[fl.Hash]] += r.Value.Float()
+		sessionsByHash[r.Metric[fl.Hash]] += safeFloat(r.Value.Float())
 	}
 
 	groups := make(map[string]*ExceptionGroup)
@@ -190,7 +176,7 @@ func (a *App) queryExceptionGroups(ctx context.Context, ds *queries.DsQueryClien
 			seenHash[fp.Value] = make(map[string]bool)
 			seenType[fp.Value] = make(map[string]bool)
 		}
-		g.Count += r.Value.Float()
+		g.Count += safeFloat(r.Value.Float())
 		if hash != "" && !seenHash[fp.Value][hash] {
 			seenHash[fp.Value][hash] = true
 			if len(g.MemberHashes) < maxMemberHashes {

@@ -23,6 +23,23 @@
 - **Sessions explorer** — search sessions by user or id, see per-session error counts and metadata, and jump straight into the session's logs. (roadmap M5)
 - **"New exceptions" alert template** — a fourth one-click alert rule fires per exception hash first seen in the last 30 minutes (7-day lookback, honest about its approximations in the alert text). (#65)
 
+- **Dedicated Issues tab** — the unified triage surface (browser and server exceptions, releases, sessions) is now its own top-level tab; the Frontend tab is reordered vitals-first so each surface has a single clear job. (#69)
+- **Database tab** — per-service query analytics and connection-pool health derived from database span metrics, verified across MongoDB, Oracle, and PostgreSQL apps; the empty states double as interim instrumentation docs. (#14)
+- **Service health header** — the Overview page leads with an at-a-glance health signal and baseline deltas versus the previous period (a pragmatic stand-in for anomaly detection), in deploy-marker context. (#35)
+- **Log patterns** — the Logs tab gains a Patterns view that clusters high-volume log lines via Loki's pattern ingester, plus a "new error patterns" card, to show the shape of an incident faster than scrolling raw logs.
+- **Trace analytics** — TraceQL-metrics breakdowns group latency and error rate by span attribute ("which tag explains the p99") on Tempo instances that expose the metrics API.
+- **Faceted issue search** — narrow the Issues list by app version, browser, or page; facet values are discovered from the data and offered as dropdowns, with a triage-status filter alongside. (M6)
+- **Global time picker** — a single page-header time picker drives every tab and fleet page through the shared `from`/`to` URL params, replacing the per-tab pickers.
+- **User feedback** — apps using `@nais/apm`'s feedback API stream user feedback to Loki; matching entries are joined to issues by fingerprint and shown inline in the Exception Drawer.
+- **Custom application metrics** — zero-config auto-discovery surfaces app-defined metrics and Faro custom measurements without denylist maintenance. (#68)
+- **Auto-refresh on inventory pages** — the non-Scene pages (service inventory, jobs, service map) now refresh on an interval like the Scene-based tabs. (#30)
+- **SLO error budgets** — multi-window burn-rate alert-rule templates plus an error-budget panel on the Overview tab, computed from RED metrics — a self-hosted answer to cloud-only SLO tooling.
+- **Profiling tab** — a capability-gated Pyroscope tab with span-to-profile links, shown only when a Pyroscope datasource is detected. (M7)
+- **Service scorecards** — an observability-readiness score per service, enriched with ownership, runbook, and repository links from the nais Console API. (#73)
+- **Jobs monitoring** — a cron / Naisjob inventory built from kube-state-metrics: schedules, last and next run, failure streaks, and one-click logs. (#74)
+- **Global service map** — the fleet-wide service map returns with namespace clustering, replacing the all-services graph removed in 0.5.0. (#22)
+- **In-plugin documentation links** — contextual links to the user docs and the `@nais/apm` SDK throughout the UI.
+
 ### Fixes
 
 - **Session counts zeroed out on wide time ranges** — the distinct-sessions query exceeds Loki's series limit for chatty apps; it now retries over a narrowing recent window (labelled in the column header, e.g. "Sessions (last 5m)") and shows a dash instead of a misleading 0 when even that fails. Exception queries now use Grafana's `/api/ds/query` API instead of the deprecated datasource proxy.
@@ -32,6 +49,10 @@
 - **Infrequent dependencies missing from the service map** — The service-graph rate window now spans the full selected time range (floor 5m, cap 24h) instead of capping at 1h, so hourly batch jobs and cron-driven dependencies stay visible on wide dashboard ranges. (#36)
 - **Status boards re-queried a frozen time window** — Auto-refresh on the Ops Status Board and namespace Status Board now re-resolves relative time ranges (`now-1h`) each tick instead of re-querying the window resolved at first page render forever.
 
+- **Server issues matched real backend log shapes** — the unified Issues server side now recognizes the OTLP/semconv, JSON-body (logback/logstash, pino, slog), and unstructured plain-text log shapes seen in production, so backend exceptions actually appear instead of being silently missed; error-level lines with no titleable content surface as a single "Unparsed error logs" group rather than vanishing. (#63)
+- **Connection-pool runtime metrics** — pool utilization now keys on the OTel `pool_name` label, fixing missing or merged pool rows on the Runtime tab.
+- **Duplicated error panels removed** — the Overview and Frontend tabs no longer render the same error panel twice (IA review P4/P5).
+
 ### Performance
 
 - **Request coalescing and wider caching** — Concurrent cache misses for the same key (wallboards polling in lockstep) now share a single backend query fan-out; all read endpoints (health, operations, endpoints, runtime, dependencies, connected, graphql) are cached; capability probes are coalesced so cache expiry can't stampede detection queries; `/services` sparkline resolution is clamped server-side to ≤50 points per series and the inventory fetches sparklines for the visible page only; namespace service-graph queries are scoped to the namespace's services instead of fetching all fleet edges; label-values lookups are bounded to the request time range; the Exception Drawer's Loki queries use line prefilters and explicit time bounds. (#69)
@@ -40,7 +61,8 @@
 ### Documentation
 
 - **Development roadmap** — `docs/roadmap.md` sequences milestones M0–M7 across the plugin, `@nais/apm` SDK, and platform tracks.
-- **Stable URL contract** — `docs/url-contract.md` freezes the Exception Drawer deep-link parameters as a stable API for alert annotations and shared links.
+- **Stable URL contract** — `docs/url-contract.md` freezes the Exception Drawer deep-link parameters as a stable API for alert annotations and shared links, and now also documents the Issues/Database/Profiling tabs, the Jobs and Service Map fleet routes, the issue facet params, and the global header time range.
+- **Resource API reference** — a documented, versioned resource API with a drift-proof OpenAPI spec. (#75)
 
 ## 0.13.4 (2026-07-01)
 

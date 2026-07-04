@@ -23,6 +23,7 @@ import { apmDocs, APM_SDK_REPO_URL } from '../../utils/docsLinks';
 import { otel } from '../../otelconfig';
 import { buildDeployAnnotationsLayer } from '../buildServiceScene';
 import { ExceptionDrawer } from './frontend/components/ExceptionDrawer';
+import { ExceptionDrawerLoading } from './frontend/components/ExceptionDrawerLoading';
 import { useExceptionDrawerState } from './frontend/useExceptionDrawer';
 
 import {
@@ -55,6 +56,7 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
   // drawer identically on both tabs.
   const {
     drawerHashes,
+    drawerLoading,
     selectedGroupTitle,
     selectedIssueId,
     selectedHash,
@@ -132,6 +134,7 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
           onClose={closeDrawer}
         />
       )}
+      {drawerLoading && <ExceptionDrawerLoading onClose={closeDrawer} />}
     </div>
   );
 }

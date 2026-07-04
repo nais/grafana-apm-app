@@ -1,21 +1,11 @@
 import React, { useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { PluginPage } from '@grafana/runtime';
-import {
-  Alert,
-  Badge,
-  Combobox,
-  FilterPill,
-  Icon,
-  Input,
-  LoadingPlaceholder,
-  MultiCombobox,
-  Tooltip,
-  useStyles2,
-} from '@grafana/ui';
+import { Alert, Badge, Combobox, FilterPill, Icon, Input, MultiCombobox, Tooltip, useStyles2 } from '@grafana/ui';
 import { GrafanaTheme2, dateTime } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getJobs, JobEntry } from '../api/jobs';
+import { DataState } from '../components/DataState';
 import { useTimeRange } from '../utils/timeRange';
 import { QUICK_TIME_RANGES } from '../utils/timeRangeOptions';
 import { useAppNavigate, sanitizeParam } from '../utils/navigation';
@@ -220,21 +210,17 @@ function JobsInventory() {
   return (
     <PluginPage>
       <div className={styles.container}>
-        {error && (
-          <Alert severity="error" title="Error">
-            {error}
-          </Alert>
-        )}
-        {loading && <LoadingPlaceholder text="Loading jobs..." />}
-
-        {!loading && !available && (
-          <Alert severity="info" title="Job metrics not available">
-            {data?.note ??
-              'kube-state-metrics job families are not exposed on the metrics datasource. The platform must scrape kube_cronjob_* and kube_job_* series for this view to work.'}
-          </Alert>
-        )}
-
-        {!loading && available && (
+        <DataState
+          loading={loading}
+          error={error}
+          empty={!available}
+          loadingText="Loading jobs..."
+          emptyTitle="Job metrics not available"
+          emptyMessage={
+            data?.note ??
+            'kube-state-metrics job families are not exposed on the metrics datasource. The platform must scrape kube_cronjob_* and kube_job_* series for this view to work.'
+          }
+        >
           <>
             <div className={styles.toolbar}>
               <div className={styles.scopeRow}>
@@ -370,7 +356,7 @@ function JobsInventory() {
               </Alert>
             )}
           </>
-        )}
+        </DataState>
       </div>
     </PluginPage>
   );

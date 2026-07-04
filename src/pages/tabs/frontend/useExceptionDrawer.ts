@@ -7,6 +7,13 @@ import { useUrlParams } from '../../../utils/useUrlState';
 export interface ExceptionDrawerState {
   /** Alloy hashes to pass to <ExceptionDrawer>; null when no drawer should be open. */
   drawerHashes: string[] | null;
+  /**
+   * True while a fresh `issueId` deep link is still resolving to its member
+   * hashes (the groups fetch is in flight and no group has matched yet). Call
+   * sites show a loading drawer so the deep link doesn't render nothing until
+   * the groups response lands.
+   */
+  drawerLoading: boolean;
   /** Group title (fingerprint groups only) — falls back to the drawer's own parsed value. */
   selectedGroupTitle?: string;
   selectedIssueId: string;
@@ -47,16 +54,21 @@ export function useExceptionDrawerState(
 
   // Resolve the fingerprint to its member hashes (the drawer queries Loki by
   // hash). The groups response is backend-cached, so this is cheap.
-  const { data: groupsData } = useFetch(
+  const { data: groupsData, loading: groupsLoading } = useFetch(
     () => getExceptionGroups(namespace, service, fromMs, toMs, environment || undefined),
     [namespace, service, fromMs, toMs, environment],
     { skip: !selectedIssueId }
   );
   const selectedGroup = selectedIssueId ? groupsData?.groups.find((g) => g.fingerprint === selectedIssueId) : undefined;
   const drawerHashes = selectedIssueId ? (selectedGroup?.memberHashes ?? null) : selectedHash ? [selectedHash] : null;
+  // An issueId is set but the groups fetch hasn't resolved it yet: show a
+  // loading drawer rather than nothing. A bare exceptionHash resolves
+  // synchronously, so it never enters this state.
+  const drawerLoading = !!selectedIssueId && !selectedGroup && groupsLoading;
 
   return {
     drawerHashes,
+    drawerLoading,
     selectedGroupTitle: selectedGroup?.title,
     selectedIssueId,
     selectedHash,

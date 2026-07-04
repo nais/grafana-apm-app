@@ -305,7 +305,7 @@ func (a *App) queryBrowserExceptionGroupsFaceted(ctx context.Context, ds *querie
 
 	sessionsByHash := make(map[string]float64, len(sessRes))
 	for _, r := range sessRes {
-		sessionsByHash[r.Metric[fl.Hash]] += r.Value.Float()
+		sessionsByHash[r.Metric[fl.Hash]] += safeFloat(r.Value.Float())
 	}
 
 	groups := make(map[string]*ExceptionGroup)
@@ -324,7 +324,7 @@ func (a *App) queryBrowserExceptionGroupsFaceted(ctx context.Context, ds *querie
 			seenHash[fp.Value] = make(map[string]bool)
 			seenType[fp.Value] = make(map[string]bool)
 		}
-		g.Count += r.Value.Float()
+		g.Count += safeFloat(r.Value.Float())
 		if hash != "" && !seenHash[fp.Value][hash] {
 			seenHash[fp.Value][hash] = true
 			if len(g.MemberHashes) < maxMemberHashes {
@@ -409,7 +409,7 @@ func facetValues(res []queries.PromResult, label string) []IssueFacetValue {
 		if v == "" {
 			continue
 		}
-		out = append(out, IssueFacetValue{Value: v, Count: r.Value.Float()})
+		out = append(out, IssueFacetValue{Value: v, Count: safeFloat(r.Value.Float())})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Count != out[j].Count {
@@ -573,12 +573,12 @@ func (a *App) queryServerExceptionGroups(ctx context.Context, ds *queries.DsQuer
 	}
 	if semErr == nil {
 		for _, r := range semRes {
-			add(r.Metric[semconvTypeLabel], r.Metric[semconvMessageLabel], r.Value.Float())
+			add(r.Metric[semconvTypeLabel], r.Metric[semconvMessageLabel], safeFloat(r.Value.Float()))
 		}
 	}
 	if jsonErr == nil {
 		for _, r := range jsonRes {
-			add("", jsonRowMessage(r.Metric), r.Value.Float())
+			add("", jsonRowMessage(r.Metric), safeFloat(r.Value.Float()))
 		}
 	}
 	if plainErr == nil && plainSampleErr == nil && len(plainSample) > 0 {
@@ -630,14 +630,22 @@ func trimSpaceLimited(line string) string {
 	return s
 }
 
+// unparsedPlainTextTitle is the catch-all title for shape (c) volume whose
+// sampled lines all trimmed empty: the count query proves error-level logs
+// exist, but the sample gives nothing to fingerprint. One honest bucket beats
+// silently dropping the occurrences.
+const unparsedPlainTextTitle = "Unparsed error logs"
+
 // addPlainTextGroups folds shape (c) — plain-text loggers — into the group
 // map: the count query carries the volume, the sample carries the titles.
 // The counted total is distributed across the sampled lines proportionally —
-// exact when the sample is complete, honest otherwise.
+// exact when the sample is complete, honest otherwise. When every sampled line
+// trims empty but volume was counted, the whole total collapses into a single
+// "Unparsed error logs" group rather than vanishing.
 func addPlainTextGroups(plainRes []queries.PromResult, plainSample []queries.LogEntry, add func(exType, msg string, count float64)) {
 	var plainTotal float64
 	for _, r := range plainRes {
-		plainTotal += r.Value.Float()
+		plainTotal += safeFloat(r.Value.Float())
 	}
 	sampleCounts := make(map[string]float64)
 	for _, entry := range plainSample {
@@ -652,9 +660,15 @@ func addPlainTextGroups(plainRes []queries.PromResult, plainSample []queries.Log
 	if plainTotal <= 0 {
 		plainTotal = sampleTotal
 	}
-	for line, c := range sampleCounts {
-		if sampleTotal > 0 {
-			add("", line, roundTo(plainTotal*c/sampleTotal, 0))
+	if sampleTotal == 0 {
+		// No titleable sample lines. Surface the counted volume as one group
+		// instead of dropping it (nothing to emit if there was no volume either).
+		if plainTotal > 0 {
+			add("", unparsedPlainTextTitle, roundTo(plainTotal, 0))
 		}
+		return
+	}
+	for line, c := range sampleCounts {
+		add("", line, roundTo(plainTotal*c/sampleTotal, 0))
 	}
 }

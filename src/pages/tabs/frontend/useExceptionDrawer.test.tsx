@@ -75,6 +75,37 @@ describe('useExceptionDrawerState', () => {
     expect(result.current.drawerHashes).toBeNull();
   });
 
+  it('reports drawerLoading while a fresh issueId resolves, then clears it', async () => {
+    // Hold the groups fetch open so the "resolving" window is observable.
+    let resolve!: (v: unknown) => void;
+    getExceptionGroups.mockReturnValue(
+      new Promise((r) => {
+        resolve = r;
+      })
+    );
+    const { result } = renderWithRouter(['/?issueId=v1:aaaa']);
+
+    // Deep link set, hashes not resolved yet → loading drawer, no hashes.
+    expect(result.current.drawerLoading).toBe(true);
+    expect(result.current.drawerHashes).toBeNull();
+
+    await act(async () => {
+      resolve({
+        fingerprintVersion: 'v1',
+        groups: [{ fingerprint: 'v1:aaaa', title: 'Boom', tier: 2, count: 1, sessions: 1, memberHashes: ['h1'] }],
+      });
+    });
+
+    await waitFor(() => expect(result.current.drawerHashes).toEqual(['h1']));
+    expect(result.current.drawerLoading).toBe(false);
+  });
+
+  it('never sets drawerLoading for a bare exceptionHash (resolves synchronously)', () => {
+    const { result } = renderWithRouter(['/?exceptionHash=abc123']);
+    expect(result.current.drawerLoading).toBe(false);
+    expect(result.current.drawerHashes).toEqual(['abc123']);
+  });
+
   it('closeDrawer clears issueId, exceptionHash, and exceptionSessionId in one transaction', async () => {
     const { result, getSearch } = renderWithRouter([
       '/?issueId=v1:aaaa&exceptionHash=abc123&exceptionSessionId=sess-1&environment=prod-gcp',
