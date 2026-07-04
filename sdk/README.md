@@ -1,5 +1,7 @@
 # @nais/apm
 
+> **MOVED.** `@nais/apm` now lives at [github.com/nais/apm](https://github.com/nais/apm) and is published from there. This copy is **frozen** (no further changes) and will be removed from this repository once the package has its first published release — see that repository for the current source, README, and issue tracker.
+
 Opinionated wrapper around [`@grafana/faro-web-sdk`](https://github.com/grafana/faro-web-sdk) with a Sentry-like developer experience for frontend applications on [nais](https://nais.io). Works against self-hosted Grafana LGTM (Alloy `faro.receiver` → Loki/Tempo/Mimir).
 
 > **Status: Phase 0, pre-release.** This package currently lives inside the `grafana-apm-app` repository and will move to its own repository before publishing. The `@nais` npm scope must be claimed before the first publish (see nais/grafana-apm-app#59).
