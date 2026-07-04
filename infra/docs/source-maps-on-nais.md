@@ -6,8 +6,9 @@
 > the Phase 2 "source map doctor" hint (nais/grafana-apm-app#60).
 >
 > Source: nais/grafana-apm-app#60, Phase 0. Milestone M0 (target v0.14),
-> Platform track. Pairs with `infra/alloy/faro-receiver-sourcemaps.alloy` in
-> this directory (the Alloy-side half of this guideline) and with
+> Platform track. Pairs with the live Alloy `faro.receiver` config — now
+> applied to `helm-charts/features/alloy-faro/templates/config.yaml` in
+> nais/helm-charts (the Alloy-side half of this guideline) — and with
 > `infra/docs/meta-tag-contract.md` (how `app.release` gets resolved).
 
 ## Why this exists
@@ -56,7 +57,8 @@ https://cdn.nav.no/<team>/<app>/<release>/
 - Most NAV frontend source is public per NAV's open-source policy, so a
   public CDN path is the default, acceptable choice. If your app must not
   publish source publicly, use the non-public `location` block opt-out
-  documented in `infra/alloy/faro-receiver-sourcemaps.alloy` — that is the
+  documented (as a commented block) in the live Alloy config at
+  `helm-charts/features/alloy-faro/templates/config.yaml` — that is the
   exception, not the default.
 
 ### 3. CI ordering: upload maps BEFORE you deploy
@@ -69,7 +71,8 @@ build → upload dist/ (incl. .map) to cdn.nav.no/<team>/<app>/<release>/ → de
 permanently-broken symbolication for that release.** Here's the trap:
 
 > Alloy caches a **failed** map download for `error_cleanup_interval`
-> (default 1h, tuned to 10m by the platform Alloy config in this repo) before
+> (default 1h, tuned to 5m by the platform Alloy config in
+> `helm-charts/features/alloy-faro`) before
 > retrying. If your app deploys and starts serving traffic — and therefore
 > can start throwing exceptions — before its maps exist at the CDN path,
 > the very first exception poisons Alloy's cache for that bundle URL. Every

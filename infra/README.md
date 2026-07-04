@@ -51,6 +51,49 @@ platform-track artifacts here are the non-plugin-code half of that chain:
    exists and the Phase 0 spike (a throwaway pilot, not this config) has
    validated real payload sizes.
 
+## Platform dependencies (facts + asks that emerged during implementation)
+
+Milestones M6–M7 shipped features that key on platform-side capabilities.
+These are the platform facts to keep true and the one open ask, discovered
+while building the plugin — not part of the original #57–#64 artifact set
+above, but the platform team owns them.
+
+- **Loki pattern ingester — keep enabled (dependency, not an ask).** The log
+  patterns feature (LogsTab *Patterns* view + "new error patterns" card) calls
+  Loki's `/loki/api/v1/patterns` pattern-ingester endpoint
+  (`pkg/plugin/patterns.go`). It is **already enabled in production** — this is
+  a documented keep-enabled dependency, not a new request. If it is ever
+  disabled the feature silently degrades to a client-side log-sampling fallback
+  (coarser, slower); nothing else breaks.
+- **kube-state-metrics families exposed to tenant Grafana (Jobs/CronJob
+  view).** The #74 Jobs view (`pkg/plugin/jobs.go`) reads these KSM families
+  from the metrics datasource: `kube_cronjob_info`,
+  `kube_cronjob_status_last_schedule_time`, `kube_cronjob_next_schedule_time`,
+  `kube_job_owner`, `kube_job_status_succeeded`, `kube_job_status_failed`,
+  `kube_job_status_start_time`, `kube_job_status_completion_time`. These must be
+  scraped and readable by tenant Grafana or the view renders an empty state
+  (the plugin surfaces an explanatory note when the `kube_*` job families are
+  absent).
+- **Pyroscope — the remaining open platform decision.** The Profiling tab ships
+  **gated**: it is hidden until a Pyroscope datasource is detected
+  (`src/pages/tabs/ProfilingTab.tsx`, `pkg/plugin/capabilities.go`). Nothing
+  ships broken, but the tab stays dark until the platform decides to run
+  Pyroscope. This is the one genuine platform *ask* in this list.
+- **Grafana annotation retention — must stay keep-forever for triage.** Issue
+  triage state, deploy markers, and regression detection all live as Grafana
+  **org annotations** (see [ADR-0001](../docs/adr/0001-state-in-grafana-shared-db.md)).
+  The `[annotations.api]` retention (`max_age`) must stay at keep-all/unlimited
+  or triage history and deploy/regression markers silently truncate. The plugin
+  runs a startup health check that warns when retention is finite, but it cannot
+  change the setting — that is a platform config guarantee.
+- **`@nais/apm` GHPR read-token for consumers.** `@nais/apm` is published to the
+  **GitHub Package Registry**, not npmjs.org. GHPR requires an authenticated
+  request to resolve *any* package under a scope — so even though the package is
+  public, consuming apps' CI (and developer machines) need a GitHub token with
+  the **`read:packages`** scope for the `nais` org configured in `.npmrc`. See
+  `apm-client/README.md` for the setup; a future move to npmjs.org would remove
+  this friction.
+
 ## Judgment calls made while writing these files (flag for platform review)
 
 - **#58's `loki.process` stage syntax is a design sketch, not a verbatim
