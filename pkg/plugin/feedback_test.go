@@ -178,7 +178,7 @@ func TestFeedbackSanitizeFingerprintFilter(t *testing.T) {
 }
 
 func TestFeedbackHandleUnavailableWithoutLoki(t *testing.T) {
-	app := &App{otelCfg: otelconfig.Default(), respCache: newResponseCache(30*time.Second, 200)}
+	app := &App{otelCfg: otelconfig.Default(), respCache: newResponseCache()}
 	mux := http.NewServeMux()
 	app.registerRoutes(mux)
 
@@ -199,7 +199,7 @@ func TestFeedbackHandleUnavailableWithoutLoki(t *testing.T) {
 }
 
 func TestFeedbackHandleMethodNotAllowed(t *testing.T) {
-	app := &App{otelCfg: otelconfig.Default(), respCache: newResponseCache(30*time.Second, 200)}
+	app := &App{otelCfg: otelconfig.Default(), respCache: newResponseCache()}
 	mux := http.NewServeMux()
 	app.registerRoutes(mux)
 
@@ -213,7 +213,7 @@ func TestFeedbackHandleMethodNotAllowed(t *testing.T) {
 }
 
 func TestFeedbackHandleMissingService(t *testing.T) {
-	app := &App{otelCfg: otelconfig.Default(), respCache: newResponseCache(30*time.Second, 200)}
+	app := &App{otelCfg: otelconfig.Default(), respCache: newResponseCache()}
 	mux := http.NewServeMux()
 	app.registerRoutes(mux)
 

@@ -55,7 +55,9 @@ export function PatternsPanel({ namespace, service, logsUid, fromMs, toMs, onSel
       </div>
       <DataState
         loading={loading}
-        error={error ? 'Failed to load patterns' : data?.mode === 'unavailable' ? data.note || 'Patterns unavailable' : null}
+        error={
+          error ? 'Failed to load patterns' : data?.mode === 'unavailable' ? data.note || 'Patterns unavailable' : null
+        }
         empty={patterns.length === 0}
         loadingText="Loading patterns…"
         emptyTitle="No error patterns"

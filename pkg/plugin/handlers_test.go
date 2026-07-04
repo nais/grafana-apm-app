@@ -94,7 +94,7 @@ func newTestApp(t *testing.T, promURL string, caps queries.Capabilities) *App {
 	t.Helper()
 	app := &App{
 		otelCfg:    otelconfig.Default(),
-		respCache:  newResponseCache(30*time.Second, 200),
+		respCache:  newResponseCache(),
 		promClient: queries.NewPrometheusClient(promURL, ""),
 	}
 
@@ -160,7 +160,7 @@ func TestHandleServices(t *testing.T) {
 	t.Run("returns 503 when promClient is nil", func(t *testing.T) {
 		app := &App{
 			otelCfg:   otelconfig.Default(),
-			respCache: newResponseCache(30*time.Second, 200),
+			respCache: newResponseCache(),
 		}
 		req := httptest.NewRequest(http.MethodGet, "/services", nil)
 		w := httptest.NewRecorder()

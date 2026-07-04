@@ -10,6 +10,7 @@ import { DataState } from '../../components/DataState';
 import { DepTypeIcon, formatDepType } from '../../components/DepTypeIcon';
 import { otel } from '../../otelconfig';
 import { buildDatabaseScene, buildDbTracesExploreUrl } from './database/scene';
+import { useSceneTimeSync } from '../../utils/useSceneTimeSync';
 import { QueryOperationsTable } from './database/QueryOperationsTable';
 import { ConnectionPoolSection } from './database/ConnectionPoolSection';
 
@@ -142,6 +143,8 @@ export function DatabaseTab({
       hasDbPool,
     ]
   );
+  // Follow header refreshes of relative ranges without rebuilding the scene.
+  useSceneTimeSync(scene, fromMs, toMs);
   const sceneKey = `${ds.metricsUid}|${callsMetric}|${durationBucket}|${environment ?? ''}|${hasDbSpans}|${hasDbPool}`;
   // RED row + host table ≈ 490px, acquisition row ≈ 210px.
   const sceneMinHeight = (hasDbSpans ? 490 : 0) + (hasDbPool ? 210 : 0);

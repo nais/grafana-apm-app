@@ -56,7 +56,7 @@ func NewApp(_ context.Context, settings backend.AppInstanceSettings) (instancemg
 
 	var app App
 	app.otelCfg = otelconfig.Default()
-	app.respCache = newResponseCache(30*time.Second, 200)
+	app.respCache = newResponseCache()
 	app.healthClient = &http.Client{Timeout: 10 * time.Second}
 
 	// Parse plugin settings from jsonData

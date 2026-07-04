@@ -2,9 +2,7 @@ import {
   SceneFlexLayout,
   SceneFlexItem,
   SceneQueryRunner,
-  SceneTimePicker,
   SceneTimeRange,
-  SceneRefreshPicker,
   SceneDataLayerSet,
   PanelBuilders,
   EmbeddedScene,
@@ -227,7 +225,9 @@ export function buildServiceScene(params: BuildServiceSceneParams): EmbeddedScen
     // Deploy markers (#64): annotation layer inherited by all child panels.
     $data: buildDeployAnnotationsLayer(service, envFilter || undefined),
     $behaviors: [new behaviors.CursorSync({ sync: DashboardCursorSync.Crosshair })],
-    controls: [new SceneTimePicker({}), new SceneRefreshPicker({})],
+    // Time controls live in the page header (HeaderTimeControls) — one
+    // global picker for every tab; the scene follows via useSceneTimeSync.
+    controls: [],
     body: new SceneFlexLayout({
       direction: 'column',
       children: [

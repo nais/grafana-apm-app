@@ -27,7 +27,9 @@ type cacheEntry struct {
 	createdAt time.Time
 }
 
-func newResponseCache(ttl time.Duration, maxSize int) *responseCache {
+func newResponseCache() *responseCache {
+	const ttl = 30 * time.Second
+	const maxSize = 200
 	return &responseCache{
 		entries: make(map[string]*cacheEntry, maxSize),
 		ttl:     ttl,

@@ -1,10 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { PluginPage, getAppEvents, locationService } from '@grafana/runtime';
-import { useStyles2, Tab, TabsBar, Button, LinkButton, Combobox, Alert } from '@grafana/ui';
+import { useStyles2, Tab, TabsBar, Combobox, Alert, Dropdown, Menu, IconButton } from '@grafana/ui';
 import { AppEvents, GrafanaTheme2, PageLayoutType } from '@grafana/data';
 import { useUrlString, useUrlNumber } from '../utils/useUrlState';
 import { css } from '@emotion/css';
+import { HeaderTimeControls } from '../components/HeaderTimeControls';
+import { useSceneTimeSync } from '../utils/useSceneTimeSync';
 import { buildTempoExploreUrl, buildLokiExploreUrl } from '../utils/explore';
 import { FrameworkBadge } from '../components/FrameworkBadge';
 import { PageHeader } from '../components/PageHeader';
@@ -224,6 +226,10 @@ function ServiceOverviewInner({ namespace, service }: { namespace: string; servi
   // the Scenes component so it properly re-activates with the new model.
   const sceneKey = `${metricsUid}|${callsMetric}|${durationBucket}|${hasServerSpans}|${envFilter}|${percentile}`;
 
+  // Follow the global header time range: the scene rebuilds on from/to string
+  // changes, this re-resolves relative ranges in place on a refresh tick.
+  useSceneTimeSync(scene, fromMs, toMs);
+
   const onNavigateService = useCallback(
     (name: string) => {
       appNavigate(`services/_/${encodeURIComponent(name)}`);
@@ -297,40 +303,41 @@ function ServiceOverviewInner({ namespace, service }: { namespace: string; servi
                   placeholder="Environment"
                 />
               )}
-              {caps?.tempo?.available !== false && (
-                <LinkButton
-                  variant="secondary"
-                  size="sm"
-                  icon="compass"
-                  href={buildTempoExploreUrl(ds.tracesUid, service, { namespace })}
-                >
-                  Traces
-                </LinkButton>
-              )}
-              {caps?.loki?.available !== false && (
-                <LinkButton
-                  variant="secondary"
-                  size="sm"
-                  icon="document-info"
-                  href={buildLokiExploreUrl(ds.logsUid, service, {
-                    namespace,
-                    serviceNameLabel: labelOverrides.serviceNameLabel,
-                    serviceNamespaceLabel: labelOverrides.serviceNamespaceLabel,
-                  })}
-                >
-                  Logs
-                </LinkButton>
-              )}
-              <Button
-                variant="secondary"
-                size="sm"
-                icon="bell"
-                onClick={onErrorRateAlert}
-                disabled={creatingAlert}
-                tooltip="Create a pre-filled Grafana alert rule for this service's error rate"
+              <HeaderTimeControls />
+              {/* Secondary actions live in a kebab so the header holds one
+                  line at 1280px now that the time picker owns the width. */}
+              <Dropdown
+                overlay={
+                  <Menu>
+                    {caps?.tempo?.available !== false && (
+                      <Menu.Item
+                        label="Open traces in Explore"
+                        icon="compass"
+                        url={buildTempoExploreUrl(ds.tracesUid, service, { namespace })}
+                      />
+                    )}
+                    {caps?.loki?.available !== false && (
+                      <Menu.Item
+                        label="Open logs in Explore"
+                        icon="document-info"
+                        url={buildLokiExploreUrl(ds.logsUid, service, {
+                          namespace,
+                          serviceNameLabel: labelOverrides.serviceNameLabel,
+                          serviceNamespaceLabel: labelOverrides.serviceNamespaceLabel,
+                        })}
+                      />
+                    )}
+                    <Menu.Item
+                      label={creatingAlert ? 'Creating alert…' : 'Alert on error rate'}
+                      icon="bell"
+                      disabled={creatingAlert}
+                      onClick={onErrorRateAlert}
+                    />
+                  </Menu>
+                }
               >
-                Alert on error rate
-              </Button>
+                <IconButton name="ellipsis-v" aria-label="More actions" tooltip="More actions" />
+              </Dropdown>
             </>
           }
         />

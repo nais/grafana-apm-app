@@ -6,8 +6,6 @@ import {
   SceneFlexLayout,
   SceneFlexItem,
   SceneTimeRange,
-  SceneTimePicker,
-  SceneRefreshPicker,
   SceneVariableSet,
   CustomVariable,
   VariableValueSelectors,
@@ -19,6 +17,7 @@ import { DashboardCursorSync } from '@grafana/schema';
 import { getFrontendMetrics } from '../../api/client';
 import { usePluginDatasources, usePluginLabelOverrides } from '../../utils/datasources';
 import { useTimeRange } from '../../utils/timeRange';
+import { useSceneTimeSync } from '../../utils/useSceneTimeSync';
 import { sanitizeLabelValue } from '../../utils/sanitize';
 import { otel } from '../../otelconfig';
 import { buildDeployAnnotationsLayer } from '../buildServiceScene';
@@ -219,7 +218,8 @@ function FrontendPanels({
       $data: buildDeployAnnotationsLayer(service, environment),
       $variables: new SceneVariableSet({ variables: [browserVar] }),
       $behaviors: [new behaviors.CursorSync({ sync: DashboardCursorSync.Crosshair })],
-      controls: [new VariableValueSelectors({}), new SceneTimePicker({}), new SceneRefreshPicker({})],
+      // Global header owns time controls; the browser variable stays.
+      controls: [new VariableValueSelectors({})],
       body: new SceneFlexLayout({
         direction: 'column',
         children: [
@@ -242,6 +242,10 @@ function FrontendPanels({
       }),
     });
   }, [ds, service, namespace, environment, svcFilter, ah, hasLoki, vitals, labelOverrides, from, to]);
+  // Header refresh of a relative range re-resolves fromMs/toMs while the raw
+  // strings stay put — re-query the live scene instead of rebuilding it.
+  const { fromMs, toMs } = useTimeRange();
+  useSceneTimeSync(scene, fromMs, toMs);
 
   return <scene.Component model={scene} />;
 }

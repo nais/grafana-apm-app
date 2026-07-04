@@ -2,9 +2,7 @@ import {
   SceneFlexLayout,
   SceneFlexItem,
   SceneQueryRunner,
-  SceneTimePicker,
   SceneTimeRange,
-  SceneRefreshPicker,
   PanelBuilders,
   EmbeddedScene,
   behaviors,
@@ -245,7 +243,8 @@ export function buildDatabaseScene(params: BuildDatabaseSceneParams): EmbeddedSc
   return new EmbeddedScene({
     $timeRange: new SceneTimeRange({ from, to }),
     $behaviors: [new behaviors.CursorSync({ sync: DashboardCursorSync.Crosshair })],
-    controls: [new SceneTimePicker({}), new SceneRefreshPicker({})],
+    // Time controls live in the global page header.
+    controls: [],
     body: new SceneFlexLayout({
       direction: 'column',
       children: [

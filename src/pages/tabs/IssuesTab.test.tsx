@@ -44,15 +44,15 @@ beforeEach(() => {
 });
 
 describe('IssuesTab (#69 P1/P2/P3)', () => {
-  it('renders the issues table with time-range and refresh controls', async () => {
+  it('renders the issues table without tab-local time controls', async () => {
     renderTab();
 
     await waitFor(() => expect(screen.getByText('No issues')).toBeInTheDocument());
     expect(screen.getByText('Top Exceptions')).toBeInTheDocument();
-    // Non-Scene tab carries its own time controls wired to from/to URL params
-    // (time-range Combobox + refresh-interval Combobox)
-    expect(screen.getAllByRole('combobox')).toHaveLength(2);
-    expect(screen.getByTestId('refresh-control')).toBeInTheDocument();
+    // Time controls live in the global page header (HeaderTimeControls) —
+    // the tab must not render its own picker or refresh control.
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('refresh-control')).not.toBeInTheDocument();
   });
 
   it('names the actual window in the empty state', async () => {

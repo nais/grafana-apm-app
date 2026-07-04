@@ -330,32 +330,8 @@ func (a *App) queryServerExceptionGroups(ctx context.Context, ds *queries.DsQuer
 			add("", jsonRowMessage(r.Metric), r.Value.Float())
 		}
 	}
-	// Shape (c): the count query carries the volume, the sample carries the
-	// titles. Distribute the counted total across the sampled fingerprints
-	// proportionally — exact when the sample is complete, honest otherwise.
 	if plainErr == nil && plainSampleErr == nil && len(plainSample) > 0 {
-		var plainTotal float64
-		for _, r := range plainRes {
-			plainTotal += r.Value.Float()
-		}
-		sampleCounts := make(map[string]float64)
-		for _, entry := range plainSample {
-			if line := trimSpaceLimited(entry.Line); line != "" {
-				sampleCounts[line]++
-			}
-		}
-		var sampleTotal float64
-		for _, c := range sampleCounts {
-			sampleTotal += c
-		}
-		if plainTotal <= 0 {
-			plainTotal = sampleTotal
-		}
-		for line, c := range sampleCounts {
-			if sampleTotal > 0 {
-				add("", line, roundTo(plainTotal*c/sampleTotal, 0))
-			}
-		}
+		addPlainTextGroups(plainRes, plainSample, add)
 	}
 
 	// Distinct pods per fingerprint: fingerprint the impact rows the same way
@@ -401,4 +377,33 @@ func trimSpaceLimited(line string) string {
 		s = s[:maxFingerprintInput]
 	}
 	return s
+}
+
+// addPlainTextGroups folds shape (c) — plain-text loggers — into the group
+// map: the count query carries the volume, the sample carries the titles.
+// The counted total is distributed across the sampled lines proportionally —
+// exact when the sample is complete, honest otherwise.
+func addPlainTextGroups(plainRes []queries.PromResult, plainSample []queries.LogEntry, add func(exType, msg string, count float64)) {
+	var plainTotal float64
+	for _, r := range plainRes {
+		plainTotal += r.Value.Float()
+	}
+	sampleCounts := make(map[string]float64)
+	for _, entry := range plainSample {
+		if line := trimSpaceLimited(entry.Line); line != "" {
+			sampleCounts[line]++
+		}
+	}
+	var sampleTotal float64
+	for _, c := range sampleCounts {
+		sampleTotal += c
+	}
+	if plainTotal <= 0 {
+		plainTotal = sampleTotal
+	}
+	for line, c := range sampleCounts {
+		if sampleTotal > 0 {
+			add("", line, roundTo(plainTotal*c/sampleTotal, 0))
+		}
+	}
 }

@@ -41,7 +41,10 @@ describe('PatternsPanel', () => {
   it('renders patterns with a count, NEW badge, and mode label', async () => {
     getLogPatterns.mockResolvedValue({
       mode: 'serverPatterns',
-      patterns: [PATTERN, { ...PATTERN, pattern: 'Failed to load <_>', count: 8, isNew: false, filterLiteral: 'Failed' }],
+      patterns: [
+        PATTERN,
+        { ...PATTERN, pattern: 'Failed to load <_>', count: 8, isNew: false, filterLiteral: 'Failed' },
+      ],
     });
     renderPanel();
 
