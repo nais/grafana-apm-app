@@ -73,6 +73,7 @@ jest.mock('./tabs/DependenciesTab', () => ({ DependenciesTab: () => <div data-te
 jest.mock('./tabs/TracesTab', () => ({ TracesTab: () => <div data-testid="traces-tab" /> }));
 jest.mock('./tabs/LogsTab', () => ({ LogsTab: () => <div data-testid="logs-tab" /> }));
 jest.mock('./tabs/DatabaseTab', () => ({ DatabaseTab: () => <div data-testid="database-tab" /> }));
+jest.mock('./tabs/ProfilingTab', () => ({ ProfilingTab: () => <div data-testid="profiling-tab" /> }));
 
 function LocationSpy() {
   const location = useLocation();
@@ -146,5 +147,40 @@ describe('ServiceOverview tab registry (#69 P1/P7)', () => {
     const params = new URLSearchParams(screen.getByTestId('location-search').textContent ?? '');
     expect(params.get('tab')).toBe('issues');
     expect(screen.getByTestId('issues-tab')).toBeInTheDocument();
+  });
+});
+
+describe('ServiceOverview Profiling tab (M7 Pyroscope gating)', () => {
+  const capsWithPyroscope = {
+    ...baseCaps,
+    pyroscope: { available: true, uid: 'pyro-uid' },
+  };
+
+  it('hides the Profiling tab when no Pyroscope capability is present (the production default)', () => {
+    (capabilitiesUtils.useCapabilities as jest.Mock).mockReturnValue({ caps: baseCaps, loading: false });
+    renderPage();
+
+    expect(screen.queryByText('Profiling')).not.toBeInTheDocument();
+  });
+
+  it('shows the Profiling tab and mounts it when a Pyroscope datasource is available', () => {
+    (capabilitiesUtils.useCapabilities as jest.Mock).mockReturnValue({ caps: capsWithPyroscope, loading: false });
+    renderPage();
+
+    expect(screen.getByText('Profiling')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Profiling'));
+
+    const params = new URLSearchParams(screen.getByTestId('location-search').textContent ?? '');
+    expect(params.get('tab')).toBe('profiling');
+    expect(screen.getByTestId('profiling-tab')).toBeInTheDocument();
+  });
+
+  it('falls back to Overview when deep-linked to tab=profiling without the datasource', () => {
+    (capabilitiesUtils.useCapabilities as jest.Mock).mockReturnValue({ caps: baseCaps, loading: false });
+    renderPage(['/services/team-a/my-svc?tab=profiling']);
+
+    expect(screen.queryByTestId('profiling-tab')).not.toBeInTheDocument();
+    expect(screen.getByTestId('overview-tab')).toBeInTheDocument();
   });
 });

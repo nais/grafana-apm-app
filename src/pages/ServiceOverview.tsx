@@ -12,7 +12,7 @@ import { FrameworkBadge } from '../components/FrameworkBadge';
 import { PageHeader } from '../components/PageHeader';
 import { usePluginDatasources, useHasEnvironmentOverrides, usePluginLabelOverrides } from '../utils/datasources';
 import { useTimeRange } from '../utils/timeRange';
-import { useCapabilities, getMetricNames } from '../utils/capabilities';
+import { useCapabilities, getMetricNames, getPyroscope } from '../utils/capabilities';
 import { useAppNavigate, sanitizeParam } from '../utils/navigation';
 import { useServiceData } from '../utils/useServiceData';
 import { getAlertTemplate, buildAlertRuleUrl } from '../api/client';
@@ -26,6 +26,7 @@ import { ServerTab } from './tabs/ServerTab';
 import { FrontendTab } from './tabs/FrontendTab';
 import { RuntimeTab } from './tabs/RuntimeTab';
 import { DatabaseTab } from './tabs/DatabaseTab';
+import { ProfilingTab } from './tabs/ProfilingTab';
 
 // 'server' is the stable URL value for the tab labeled "Endpoints" in the UI
 // (#69 P7: label-only rename, url-contract.md keeps tab=server).
@@ -38,7 +39,8 @@ type TabId =
   | 'database'
   | 'dependencies'
   | 'traces'
-  | 'logs';
+  | 'logs'
+  | 'profiling';
 const VALID_TABS: TabId[] = [
   'overview',
   'issues',
@@ -49,6 +51,7 @@ const VALID_TABS: TabId[] = [
   'dependencies',
   'traces',
   'logs',
+  'profiling',
 ];
 
 const PERCENTILE_OPTIONS: Array<{ label: string; value: string }> = [
@@ -80,6 +83,10 @@ function ServiceOverviewInner({ namespace, service }: { namespace: string; servi
   const { from, to, fromMs, toMs } = useTimeRange();
   const { caps } = useCapabilities();
   const metrics = getMetricNames(caps);
+  // Profiling is opt-in: show the tab only when a Pyroscope datasource is
+  // actually detected (production has none today, so it stays hidden).
+  const pyroscope = getPyroscope(caps);
+  const pyroscopeAvailable = pyroscope?.available === true;
   // Stable primitive refs for Scenes useMemo — avoids re-creating the entire
   // EmbeddedScene (and flashing panels) when object references change but
   // the underlying string values haven't.
@@ -99,7 +106,8 @@ function ServiceOverviewInner({ namespace, service }: { namespace: string; servi
     caps != null &&
     ((['issues', 'logs'].includes(tabParam) && caps.loki?.available === false) ||
       (tabParam === 'traces' && caps.tempo?.available === false) ||
-      (tabParam === 'dependencies' && caps.serviceGraph?.detected === false));
+      (tabParam === 'dependencies' && caps.serviceGraph?.detected === false) ||
+      (tabParam === 'profiling' && !pyroscopeAvailable));
   const activeTab: TabId = VALID_TABS.includes(tabParam as TabId) && !tabUnavailable ? (tabParam as TabId) : 'overview';
   const setActiveTab = useCallback(
     (tab: TabId) => {
@@ -365,6 +373,9 @@ function ServiceOverviewInner({ namespace, service }: { namespace: string; servi
           {caps?.loki?.available !== false && (
             <Tab label="Logs" active={activeTab === 'logs'} onChangeTab={() => setActiveTab('logs')} />
           )}
+          {pyroscopeAvailable && (
+            <Tab label="Profiling" active={activeTab === 'profiling'} onChangeTab={() => setActiveTab('profiling')} />
+          )}
         </TabsBar>
 
         {/* Info banner when viewing without environment filter and env overrides are configured */}
@@ -513,6 +524,19 @@ function ServiceOverviewInner({ namespace, service }: { namespace: string; servi
                 serviceNameLabel={labelOverrides.serviceNameLabel}
                 clusterFilter={!ds.isLogsEnvSpecific ? envFilter || undefined : undefined}
               />
+            </div>
+          )}
+
+          {visitedTabs.has('profiling') && pyroscopeAvailable && (
+            <div
+              style={{
+                display: activeTab === 'profiling' ? 'flex' : 'none',
+                flexDirection: 'column',
+                flex: 1,
+                minHeight: 0,
+              }}
+            >
+              <ProfilingTab service={service} namespace={namespace} pyroscopeUid={pyroscope?.uid ?? ''} />
             </div>
           )}
         </div>

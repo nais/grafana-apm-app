@@ -85,9 +85,22 @@ type Capabilities struct {
 	Services     []string               `json:"services"`
 	Environments []string               `json:"environments,omitempty"`
 
+	// Pyroscope profiling datasource availability (M7). Gated on a platform
+	// decision to run Pyroscope; production has none today, so the common
+	// value is {Available: false} and the Profiling tab never appears.
+	Pyroscope PyroscopeCapability `json:"pyroscope"`
+
 	// Per-environment datasource availability
 	TempoByEnv map[string]DataSourceStatus `json:"tempoByEnv,omitempty"`
 	LokiByEnv  map[string]DataSourceStatus `json:"lokiByEnv,omitempty"`
+}
+
+// PyroscopeCapability describes a detected Pyroscope (or legacy Phlare)
+// profiling datasource. UID is the datasource UID used by the frontend
+// Profiling tab's flame-graph queries.
+type PyroscopeCapability struct {
+	Available bool   `json:"available"`
+	UID       string `json:"uid,omitempty"`
 }
 
 // SpanMetricsCapability describes detected span metrics configuration.

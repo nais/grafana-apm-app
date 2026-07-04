@@ -238,6 +238,17 @@ func (a *App) detectCapabilities(ctx context.Context, headers http.Header, servi
 		mu.Unlock()
 	}()
 
+	// Pyroscope profiling datasource detection (M7). Lists Grafana datasources
+	// and matches on the Pyroscope/Phlare type — no configured UID needed.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		result := a.detectPyroscope(ctx, headers, serviceToken)
+		mu.Lock()
+		caps.Pyroscope = result
+		mu.Unlock()
+	}()
+
 	// Per-environment Tempo/Loki health checks
 	for env := range a.settings.TracesDataSource.ByEnvironment {
 		env := env
@@ -322,23 +333,7 @@ func (a *App) checkHTTPHealth(ctx context.Context, baseURL, path string, headers
 		return queries.DataSourceStatus{Available: false, Error: err.Error()}
 	}
 
-	// Apply auth: service account token when available, else forward user headers
-	if serviceToken != "" {
-		req.Header.Set("Authorization", "Bearer "+serviceToken)
-		if vals := headers.Values("X-Grafana-Org-Id"); len(vals) > 0 {
-			for _, v := range vals {
-				req.Header.Add("X-Grafana-Org-Id", v)
-			}
-		}
-	} else {
-		for _, key := range []string{"Cookie", "Authorization", "X-Grafana-Org-Id"} {
-			if vals := headers.Values(key); len(vals) > 0 {
-				for _, v := range vals {
-					req.Header.Add(key, v)
-				}
-			}
-		}
-	}
+	applyServiceAuth(req, headers, serviceToken)
 
 	resp, err := a.healthClient.Do(req)
 	if err != nil {
@@ -353,6 +348,91 @@ func (a *App) checkHTTPHealth(ctx context.Context, baseURL, path string, headers
 		return queries.DataSourceStatus{Available: true}
 	}
 	return queries.DataSourceStatus{Available: false, Error: fmt.Sprintf("HTTP %d", resp.StatusCode)}
+}
+
+// applyServiceAuth applies the standard datasource auth to req: prefer the
+// service account token (forwarding only the org id), otherwise forward the
+// user's auth headers. Shared by the health checks and the Pyroscope probe.
+func applyServiceAuth(req *http.Request, headers http.Header, serviceToken string) {
+	if serviceToken != "" {
+		req.Header.Set("Authorization", "Bearer "+serviceToken)
+		if vals := headers.Values("X-Grafana-Org-Id"); len(vals) > 0 {
+			for _, v := range vals {
+				req.Header.Add("X-Grafana-Org-Id", v)
+			}
+		}
+		return
+	}
+	for _, key := range []string{"Cookie", "Authorization", "X-Grafana-Org-Id"} {
+		if vals := headers.Values(key); len(vals) > 0 {
+			for _, v := range vals {
+				req.Header.Add(key, v)
+			}
+		}
+	}
+}
+
+// pyroscopeDataSourceTypes are the Grafana datasource type ids that provide
+// profiling data. "grafana-pyroscope-datasource" is the current type;
+// "phlare" is the legacy id from before the Phlare→Pyroscope rename.
+var pyroscopeDataSourceTypes = map[string]bool{
+	"grafana-pyroscope-datasource": true,
+	"phlare":                       true,
+}
+
+// detectPyroscope lists Grafana's datasources and returns the first Pyroscope
+// (or legacy Phlare) datasource found. Profiling is gated on a platform
+// decision to run Pyroscope; production has none today, so the common result
+// is {Available: false} and the Profiling tab simply never appears. Any error
+// (no Grafana URL, transport failure, non-2xx, unparseable body) degrades to
+// "unavailable" rather than surfacing — the feature is optional.
+func (a *App) detectPyroscope(ctx context.Context, headers http.Header, serviceToken string) queries.PyroscopeCapability {
+	logger := log.DefaultLogger.With("handler", "capabilities", "probe", "pyroscope")
+	if a.grafanaURL == "" {
+		return queries.PyroscopeCapability{}
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.grafanaURL+"/api/datasources", nil)
+	if err != nil {
+		logger.Warn("Pyroscope probe request build failed", "error", err)
+		return queries.PyroscopeCapability{}
+	}
+	applyServiceAuth(req, headers, serviceToken)
+
+	resp, err := a.healthClient.Do(req)
+	if err != nil {
+		logger.Warn("Pyroscope probe failed", "error", err)
+		return queries.PyroscopeCapability{}
+	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close() //nolint:errcheck
+	}()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		logger.Warn("Pyroscope probe non-2xx", "status", resp.StatusCode)
+		return queries.PyroscopeCapability{}
+	}
+
+	var dss []struct {
+		UID  string `json:"uid"`
+		Type string `json:"type"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&dss); err != nil {
+		logger.Warn("Pyroscope probe decode failed", "error", err)
+		return queries.PyroscopeCapability{}
+	}
+
+	for _, ds := range dss {
+		if pyroscopeDataSourceTypes[ds.Type] {
+			logger.Info("Detected Pyroscope datasource", "uid", ds.UID, "type", ds.Type)
+			return queries.PyroscopeCapability{Available: true, UID: ds.UID}
+		}
+	}
+	return queries.PyroscopeCapability{}
 }
 
 // capMu and capCache are initialized in App struct
