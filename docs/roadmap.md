@@ -60,6 +60,13 @@
 - **Known noise**: Loki `detected_level` false-positives on logback bootstrap
   lines can produce count-1 plain-text issue groups (sort to bottom; revisit
   with a bootstrap-line filter if teams report it).
+- **QA-review leftovers (low severity, 2026-07-04 sweep)**: wrap
+  `Value.Float()` sums in issues/exceptions with `safeFloat` (NaN/Inf
+  defense-in-depth); migrate `handleExceptionGroups` to the shared
+  `writeCached` helper; surface shape-(c) volume as an "unknown" group when
+  every sampled line trims empty; dedicated unit tests for
+  `queries/dsquery.go` frame-parsing edges; loading indicator while a fresh
+  issueId deep link resolves groups before the drawer can open.
 - **M7**: SLO/burn-rate panels, Pyroscope tab (needs platform to run Pyroscope),
   nais Console scorecards, #22 clustering, cron/Naisjob view, documented
   resource API, mobile/React Native story.
