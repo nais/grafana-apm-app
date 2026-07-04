@@ -64,6 +64,18 @@ export const otel = {
   runtime: {
     appLabel: 'app',
     namespaceLabel: 'namespace',
+    /** OTel db.client.connection.* histograms (verified present in production
+     * alongside the legacy hikaricp_connections_* gauges the backend's
+     * DBPoolMetrics.PoolLabel="pool" already reads — these newer histograms
+     * use a distinct "pool_name" label, confirmed via direct Mimir query
+     * during Database tab (#14) development). Not yet surfaced by the
+     * backend's /runtime endpoint, so the Database tab queries them
+     * directly as a Scenes panel rather than through DBPoolRuntime. */
+    dbPool: {
+      poolLabel: 'pool_name',
+      waitTimeBucket: 'db_client_connections_wait_time_milliseconds_bucket',
+      createTimeBucket: 'db_client_connections_create_time_milliseconds_bucket',
+    },
   },
 
   /** Faro histogram metrics from improved Alloy pipeline.

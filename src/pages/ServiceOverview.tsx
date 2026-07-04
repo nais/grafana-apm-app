@@ -23,11 +23,31 @@ import { DependenciesTab } from './tabs/DependenciesTab';
 import { ServerTab } from './tabs/ServerTab';
 import { FrontendTab } from './tabs/FrontendTab';
 import { RuntimeTab } from './tabs/RuntimeTab';
+import { DatabaseTab } from './tabs/DatabaseTab';
 
 // 'server' is the stable URL value for the tab labeled "Endpoints" in the UI
 // (#69 P7: label-only rename, url-contract.md keeps tab=server).
-type TabId = 'overview' | 'issues' | 'server' | 'frontend' | 'runtime' | 'dependencies' | 'traces' | 'logs';
-const VALID_TABS: TabId[] = ['overview', 'issues', 'server', 'frontend', 'runtime', 'dependencies', 'traces', 'logs'];
+type TabId =
+  | 'overview'
+  | 'issues'
+  | 'server'
+  | 'frontend'
+  | 'runtime'
+  | 'database'
+  | 'dependencies'
+  | 'traces'
+  | 'logs';
+const VALID_TABS: TabId[] = [
+  'overview',
+  'issues',
+  'server',
+  'frontend',
+  'runtime',
+  'database',
+  'dependencies',
+  'traces',
+  'logs',
+];
 
 const PERCENTILE_OPTIONS: Array<{ label: string; value: string }> = [
   { label: 'P50', value: '0.50' },
@@ -314,6 +334,7 @@ function ServiceOverview() {
           <Tab label="Endpoints" active={activeTab === 'server'} onChangeTab={() => setActiveTab('server')} />
           <Tab label="Frontend" active={activeTab === 'frontend'} onChangeTab={() => setActiveTab('frontend')} />
           <Tab label="Runtime" active={activeTab === 'runtime'} onChangeTab={() => setActiveTab('runtime')} />
+          <Tab label="Database" active={activeTab === 'database'} onChangeTab={() => setActiveTab('database')} />
           {caps?.serviceGraph?.detected !== false && (
             <Tab
               label="Dependencies"
@@ -422,6 +443,21 @@ function ServiceOverview() {
           {visitedTabs.has('runtime') && (
             <div style={{ display: activeTab === 'runtime' ? undefined : 'none' }}>
               <RuntimeTab service={service} namespace={namespace} environment={envFilter} fromMs={fromMs} toMs={toMs} />
+            </div>
+          )}
+
+          {visitedTabs.has('database') && (
+            <div style={{ display: activeTab === 'database' ? undefined : 'none' }}>
+              <DatabaseTab
+                service={service}
+                namespace={namespace}
+                environment={envFilter || undefined}
+                fromMs={fromMs}
+                toMs={toMs}
+                from={from}
+                to={to}
+                onViewTraces={caps?.tempo?.available !== false ? onViewTraces : undefined}
+              />
             </div>
           )}
 
