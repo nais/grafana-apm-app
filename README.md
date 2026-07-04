@@ -143,6 +143,19 @@ service graph data aggregation.
 
 ## Documentation
 
+**User docs** live on the Nais documentation site under
+[doc.nais.io/observability/apm](https://doc.nais.io/observability/apm/) — how to
+instrument, triage issues, create alerts, enable session replay, and collect
+user feedback. Start with the
+[Get started tutorial](https://doc.nais.io/observability/apm/tutorials/get-started/)
+or [Track frontend errors](https://doc.nais.io/observability/apm/tutorials/track-frontend-errors/).
+
+**Frontend SDK:** the [`@nais/apm`](https://github.com/nais/apm) client
+instruments browser apps for the Frontend tab (errors, session replay, user
+feedback) — see the [client API reference](https://doc.nais.io/observability/apm/reference/apm-client-api/).
+
+**Operator/developer docs** for this repo:
+
 | Document | Contents |
 |----------|----------|
 | [docs/configuration.md](https://github.com/nais/grafana-apm-app/blob/main/docs/configuration.md) | Datasource setup, per-environment overrides, authentication, auto-detection |

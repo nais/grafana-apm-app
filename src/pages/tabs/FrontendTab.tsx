@@ -19,6 +19,7 @@ import { usePluginDatasources, usePluginLabelOverrides } from '../../utils/datas
 import { useTimeRange } from '../../utils/timeRange';
 import { useSceneTimeSync } from '../../utils/useSceneTimeSync';
 import { sanitizeLabelValue } from '../../utils/sanitize';
+import { apmDocs, APM_SDK_REPO_URL } from '../../utils/docsLinks';
 import { otel } from '../../otelconfig';
 import { buildDeployAnnotationsLayer } from '../buildServiceScene';
 import { ExceptionDrawer } from './frontend/components/ExceptionDrawer';
@@ -305,15 +306,29 @@ function SetupPlaceholder({ namespace, service }: { namespace: string; service: 
         </div>
       </div>
 
-      <LinkButton
-        href="https://grafana.com/docs/faro-web-sdk/latest/tutorials/quick-start-browser/"
-        target="_blank"
-        variant="secondary"
-        icon="external-link-alt"
-        size="sm"
-      >
-        Faro Quick Start Guide
-      </LinkButton>
+      <div className={styles.setupLinks}>
+        <LinkButton
+          href={apmDocs.trackFrontendErrors()}
+          target="_blank"
+          variant="primary"
+          icon="book"
+          size="sm"
+        >
+          Track frontend errors with Nais APM
+        </LinkButton>
+        <LinkButton href={APM_SDK_REPO_URL} target="_blank" variant="secondary" icon="github" size="sm">
+          @nais/apm SDK
+        </LinkButton>
+        <LinkButton
+          href="https://grafana.com/docs/faro-web-sdk/latest/tutorials/quick-start-browser/"
+          target="_blank"
+          variant="secondary"
+          icon="external-link-alt"
+          size="sm"
+        >
+          Faro Quick Start Guide
+        </LinkButton>
+      </div>
     </div>
   );
 }
@@ -336,6 +351,11 @@ const getStyles = (theme: GrafanaTheme2) => ({
     display: flex;
     flex-direction: column;
     gap: ${theme.spacing(3)};
+  `,
+  setupLinks: css`
+    display: flex;
+    flex-wrap: wrap;
+    gap: ${theme.spacing(1)};
   `,
   features: css`
     display: flex;

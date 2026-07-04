@@ -229,3 +229,32 @@ describe('user feedback section (M6)', () => {
     );
   });
 });
+
+describe('contextual docs links', () => {
+  it('links the triage controls to the triage-an-issue how-to', async () => {
+    renderDrawer();
+    await screen.findByText(/boom/);
+
+    const link = screen.getByRole('link', { name: /How triage works/ });
+    expect(link).toHaveAttribute('href', 'https://doc.nais.io/observability/apm/how-to/triage-an-issue/');
+  });
+
+  it('links the alert action to the create-alerts how-to', async () => {
+    renderDrawer();
+    await screen.findByText(/boom/);
+
+    const link = screen.getByRole('link', { name: /About alert templates/ });
+    expect(link).toHaveAttribute('href', 'https://doc.nais.io/observability/apm/how-to/create-alerts/');
+  });
+
+  it('links the feedback section to the collect-user-feedback how-to', async () => {
+    getFeedback.mockResolvedValue({
+      feedback: [{ timeMs: Date.now(), category: 'bug', message: 'Broken button' }],
+    });
+    renderDrawer();
+    await screen.findByText(/boom/);
+
+    const link = await screen.findByRole('link', { name: /Collect user feedback/ });
+    expect(link).toHaveAttribute('href', 'https://doc.nais.io/observability/apm/how-to/collect-user-feedback/');
+  });
+});

@@ -424,3 +424,15 @@ describe('IssuesTable compact mode (#69 P6)', () => {
     expect(params.get('environment')).toBe('prod-gcp');
   });
 });
+
+describe('IssuesTable docs link', () => {
+  const getIssues = client.getIssues as jest.Mock;
+
+  it('links the header subtitle to the issues-model reference', async () => {
+    getIssues.mockResolvedValue(mockIssues(1));
+    renderTable();
+
+    const link = await screen.findByRole('link', { name: /Learn more/ });
+    expect(link).toHaveAttribute('href', 'https://doc.nais.io/observability/apm/reference/issues-model/');
+  });
+});

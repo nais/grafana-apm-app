@@ -1,8 +1,9 @@
 import React from 'react';
-import { Badge, Icon, Tooltip, useStyles2 } from '@grafana/ui';
+import { Badge, Icon, TextLink, Tooltip, useStyles2 } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getLogPatterns, LogPatternsMode } from '../../../api/analytics';
+import { apmDocs } from '../../../utils/docsLinks';
 import { useFetch } from '../../../utils/useFetch';
 import { DataState } from '../../../components/DataState';
 
@@ -52,6 +53,9 @@ export function PatternsPanel({ namespace, service, logsUid, fromMs, toMs, onSel
           </Tooltip>
         )}
         <span className={styles.subtitle}>Click a pattern to filter the logs below</span>
+        <TextLink href={apmDocs.logPatterns()} external variant="bodySmall" className={styles.docsLink}>
+          About log patterns
+        </TextLink>
       </div>
       <DataState
         loading={loading}
@@ -128,6 +132,9 @@ const getStyles = (theme: GrafanaTheme2) => ({
     color: ${theme.colors.text.secondary};
     font-size: ${theme.typography.bodySmall.fontSize};
     margin-left: auto;
+  `,
+  docsLink: css`
+    white-space: nowrap;
   `,
   list: css`
     list-style: none;

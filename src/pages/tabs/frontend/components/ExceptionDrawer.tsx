@@ -12,6 +12,7 @@ import {
   Badge,
   Tooltip,
   ControlledCollapse,
+  TextLink,
 } from '@grafana/ui';
 import { AppEvents, GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
@@ -29,6 +30,7 @@ import {
 import { otel } from '../../../../otelconfig';
 import { PLUGIN_BASE_URL } from '../../../../constants';
 import { sanitizeLabelValue } from '../../../../utils/sanitize';
+import { apmDocs } from '../../../../utils/docsLinks';
 import { usePluginLabelOverrides } from '../../../../utils/datasources';
 import { useTimeRange } from '../../../../utils/timeRange';
 import { StackTraceView, isConsoleCaptureValue } from './StackTraceView';
@@ -740,6 +742,11 @@ export function ExceptionDrawer({
                   mode={replayProbe.mode ?? 'recording'}
                   exceptionTsMs={exceptionTsMs}
                 />
+                <div className={styles.sectionDocsLink}>
+                  <TextLink href={apmDocs.enableSessionReplay()} external variant="bodySmall">
+                    Enable session replay
+                  </TextLink>
+                </div>
               </div>
             )}
 
@@ -772,6 +779,9 @@ export function ExceptionDrawer({
               >
                 {creatingAlert ? 'Preparing alert…' : 'Create alert'}
               </Button>
+              <TextLink href={apmDocs.createAlerts()} external variant="bodySmall" className={styles.footerDocsLink}>
+                About alert templates
+              </TextLink>
             </div>
           </>
         )}
@@ -846,6 +856,11 @@ function FeedbackSection({ entries }: { entries: FeedbackEntry[] }) {
           </div>
         ))}
         {extra > 0 && <div className={styles.feedbackMore}>+{extra} more</div>}
+      </div>
+      <div className={styles.sectionDocsLink}>
+        <TextLink href={apmDocs.collectUserFeedback()} external variant="bodySmall">
+          Collect user feedback
+        </TextLink>
       </div>
     </div>
   );
@@ -928,6 +943,14 @@ function TriageControls({
         prefix={<Icon name="user" />}
       />
       {state?.updatedBy && <span className={styles.triageMeta}>last change by {state.updatedBy}</span>}
+      <TextLink
+        href={apmDocs.triageAnIssue()}
+        external
+        variant="bodySmall"
+        className={state?.updatedBy ? undefined : styles.triageHelp}
+      >
+        How triage works
+      </TextLink>
     </div>
   );
 }
@@ -1229,5 +1252,14 @@ const getStyles = (theme: GrafanaTheme2) => ({
   footerDivider: css`
     color: ${theme.colors.border.weak};
     font-size: ${theme.typography.bodySmall.fontSize};
+  `,
+  footerDocsLink: css`
+    margin-left: auto;
+  `,
+  triageHelp: css`
+    margin-left: auto;
+  `,
+  sectionDocsLink: css`
+    margin-top: ${theme.spacing(0.5)};
   `,
 });

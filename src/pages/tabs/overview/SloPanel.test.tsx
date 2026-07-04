@@ -67,6 +67,9 @@ describe('SloPanel', () => {
     expect(screen.getByText('80%')).toBeInTheDocument();
     // burn = 0.0001 / 0.001 = 0.10× budget
     expect(screen.getByText('0.10')).toBeInTheDocument();
+    // The burn-rate alert actions link to the create-alerts how-to.
+    const docsLink = screen.getByRole('link', { name: /About alert templates/ });
+    expect(docsLink).toHaveAttribute('href', 'https://doc.nais.io/observability/apm/how-to/create-alerts/');
   });
 
   it('degrades honestly to "not enough data" when 30d traffic is too low', async () => {

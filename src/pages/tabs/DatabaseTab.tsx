@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { useStyles2, LinkButton, Badge, Alert } from '@grafana/ui';
+import { useStyles2, LinkButton, Badge, Alert, TextLink } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getEndpoints, getRuntimeMetrics, EndpointGroups, RuntimeResponse } from '../../api/client';
@@ -10,6 +10,7 @@ import { DataState } from '../../components/DataState';
 import { DepTypeIcon, formatDepType } from '../../components/DepTypeIcon';
 import { otel } from '../../otelconfig';
 import { buildDatabaseScene, buildDbTracesExploreUrl } from './database/scene';
+import { apmDocs } from '../../utils/docsLinks';
 import { useSceneTimeSync } from '../../utils/useSceneTimeSync';
 import { QueryOperationsTable } from './database/QueryOperationsTable';
 import { ConnectionPoolSection } from './database/ConnectionPoolSection';
@@ -276,6 +277,11 @@ function EmptyStateBody() {
           today.
         </li>
       </ol>
+      <p className={styles.docsLink}>
+        <TextLink href={apmDocs.databaseQueries()} external variant="bodySmall">
+          Instrument database queries with Nais APM
+        </TextLink>
+      </p>
     </div>
   );
 }
@@ -295,6 +301,11 @@ function MissingPoolMetricsNote() {
           <code>db_client_connections_*</code> in Prometheus). The OTel Java agent emits these out of the box for
           JDBC/HikariCP pools. Driver-managed pools (e.g. the MongoDB Java driver) and Oracle UCP are not surfaced here
           today.
+        </p>
+        <p className={styles.docsLink}>
+          <TextLink href={apmDocs.databaseQueries()} external variant="bodySmall">
+            Instrument database queries with Nais APM
+          </TextLink>
         </p>
       </div>
     </Alert>
@@ -316,6 +327,11 @@ function MissingSpansNote() {
           pipeline (<code>traces_spanmetrics_*</code> with a <code>db_system</code> dimension). Auto-instrumentation
           (OTel Java agent, Node.js <code>pg</code>/<code>mongodb</code> instrumentations) produces these spans without
           code changes; the span-metrics aggregation is platform-side and usually already in place on nais.
+        </p>
+        <p className={styles.docsLink}>
+          <TextLink href={apmDocs.databaseQueries()} external variant="bodySmall">
+            Instrument database queries with Nais APM
+          </TextLink>
         </p>
       </div>
     </Alert>
@@ -376,5 +392,8 @@ const getStyles = (theme: GrafanaTheme2) => ({
     display: flex;
     flex-direction: column;
     gap: ${theme.spacing(1)};
+  `,
+  docsLink: css`
+    margin: 0;
   `,
 });
