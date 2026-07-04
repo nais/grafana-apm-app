@@ -59,6 +59,14 @@ Post-milestone audit wave, all green in `mise run all` (745 jest, 624 go):
 
 ### Open follow-ups (accumulated during implementation)
 
+- **New PRDs filed 2026-07-04** (net-new gaps from the hardening pass):
+  [#76](https://github.com/nais/grafana-apm-app/issues/76) run the contract +
+  conformance harnesses in CI · [#77](https://github.com/nais/grafana-apm-app/issues/77)
+  harden the alert-template `defaults=` hand-off vs Grafana internal-contract
+  drift · [#78](https://github.com/nais/grafana-apm-app/issues/78) scope the
+  triage annotation store to the caller's org (multi-org isolation; ADR-0001
+  revisit trigger).
+
 - **Smoke tests in a real env**: alert-rule `defaults=` contract against deployed
   Grafana; nais deploy sync against a real Console token; triage actor attribution
   in a browser session (curl showed "unknown").
