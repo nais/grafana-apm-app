@@ -16,6 +16,7 @@ import { useServiceData } from '../utils/useServiceData';
 import { getAlertTemplate, buildAlertRuleUrl } from '../api/client';
 import { buildServiceScene } from './buildServiceScene';
 import { OverviewTab } from './tabs/OverviewTab';
+import { IssuesTab } from './tabs/IssuesTab';
 import { TracesTab } from './tabs/TracesTab';
 import { LogsTab } from './tabs/LogsTab';
 import { DependenciesTab } from './tabs/DependenciesTab';
@@ -23,8 +24,10 @@ import { ServerTab } from './tabs/ServerTab';
 import { FrontendTab } from './tabs/FrontendTab';
 import { RuntimeTab } from './tabs/RuntimeTab';
 
-type TabId = 'overview' | 'server' | 'frontend' | 'runtime' | 'dependencies' | 'traces' | 'logs';
-const VALID_TABS: TabId[] = ['overview', 'server', 'frontend', 'runtime', 'dependencies', 'traces', 'logs'];
+// 'server' is the stable URL value for the tab labeled "Endpoints" in the UI
+// (#69 P7: label-only rename, url-contract.md keeps tab=server).
+type TabId = 'overview' | 'issues' | 'server' | 'frontend' | 'runtime' | 'dependencies' | 'traces' | 'logs';
+const VALID_TABS: TabId[] = ['overview', 'issues', 'server', 'frontend', 'runtime', 'dependencies', 'traces', 'logs'];
 
 const PERCENTILE_OPTIONS: Array<{ label: string; value: string }> = [
   { label: 'P50', value: '0.50' },
@@ -305,7 +308,10 @@ function ServiceOverview() {
         {/* Tabs — hide when required datasource is unavailable */}
         <TabsBar>
           <Tab label="Overview" active={activeTab === 'overview'} onChangeTab={() => setActiveTab('overview')} />
-          <Tab label="Operations" active={activeTab === 'server'} onChangeTab={() => setActiveTab('server')} />
+          {caps?.loki?.available !== false && (
+            <Tab label="Issues" active={activeTab === 'issues'} onChangeTab={() => setActiveTab('issues')} />
+          )}
+          <Tab label="Endpoints" active={activeTab === 'server'} onChangeTab={() => setActiveTab('server')} />
           <Tab label="Frontend" active={activeTab === 'frontend'} onChangeTab={() => setActiveTab('frontend')} />
           <Tab label="Runtime" active={activeTab === 'runtime'} onChangeTab={() => setActiveTab('runtime')} />
           {caps?.serviceGraph?.detected !== false && (
@@ -364,6 +370,12 @@ function ServiceOverview() {
               }}
             />
           </div>
+
+          {visitedTabs.has('issues') && (
+            <div style={{ display: activeTab === 'issues' ? undefined : 'none' }}>
+              <IssuesTab service={service} namespace={namespace} environment={envFilter} />
+            </div>
+          )}
 
           {visitedTabs.has('traces') && (
             <div

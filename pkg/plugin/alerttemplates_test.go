@@ -109,7 +109,7 @@ func TestHandleAlertTemplate(t *testing.T) {
 			wantExpr:       "sum(count_over_time({service_name=\"my-svc\", kind=\"exception\", k8s_cluster_name=\"prod-gcp\"} |= `hash=abc123` | logfmt | hash=\"abc123\" [5m]))",
 			wantName:       "Exception spike – my-svc (v1:9f2ab31c04d7e655)",
 			wantThreshold:  10,
-			wantAnnotation: "/a/nais-apm-app/services/team-a/my-svc?environment=prod-gcp&issueId=v1%3A9f2ab31c04d7e655&tab=frontend",
+			wantAnnotation: "/a/nais-apm-app/services/team-a/my-svc?environment=prod-gcp&issueId=v1%3A9f2ab31c04d7e655&tab=issues",
 		},
 		{
 			name:           "exception-spike multiple member hashes uses regex form",
@@ -118,7 +118,7 @@ func TestHandleAlertTemplate(t *testing.T) {
 			wantExpr:       "sum(count_over_time({service_name=\"my-svc\", kind=\"exception\"} |~ `hash=(abc123|def456)` | logfmt | hash=~\"(abc123|def456)\" [5m]))",
 			wantName:       "Exception spike – my-svc (v1:9f2ab31c04d7e655)",
 			wantThreshold:  10,
-			wantAnnotation: "/a/nais-apm-app/services/team-a/my-svc?issueId=v1%3A9f2ab31c04d7e655&tab=frontend",
+			wantAnnotation: "/a/nais-apm-app/services/team-a/my-svc?issueId=v1%3A9f2ab31c04d7e655&tab=issues",
 		},
 		{
 			name:           "exception-spike without fingerprint falls back to exceptionHash deep link",
@@ -127,7 +127,7 @@ func TestHandleAlertTemplate(t *testing.T) {
 			wantExpr:       "sum(count_over_time({service_name=\"my-svc\", kind=\"exception\"} |= `hash=abc123` | logfmt | hash=\"abc123\" [5m]))",
 			wantName:       "Exception spike – my-svc (abc123)",
 			wantThreshold:  10,
-			wantAnnotation: "/a/nais-apm-app/services/team-a/my-svc?exceptionHash=abc123&tab=frontend",
+			wantAnnotation: "/a/nais-apm-app/services/team-a/my-svc?exceptionHash=abc123&tab=issues",
 		},
 		{
 			name:           "web-vitals uses alloy LCP bucket metric",

@@ -41,10 +41,10 @@ function LocationSpy() {
   return <div data-testid="location-search">{location.search}</div>;
 }
 
-function renderTable() {
+function renderTable(props?: { compact?: boolean }) {
   return render(
     <MemoryRouter>
-      <IssuesTable namespace="ns" service="svc" />
+      <IssuesTable namespace="ns" service="svc" compact={props?.compact} />
       <LocationSpy />
     </MemoryRouter>
   );
@@ -218,5 +218,64 @@ describe('IssuesTable unified sources', () => {
     const params = new URLSearchParams(screen.getByTestId('location-search').textContent ?? '');
     expect(params.get('issueId')).toBe('v1:0000000000000000');
     expect(params.get('tab')).toBeNull();
+  });
+});
+
+describe('IssuesTable compact mode (#69 P6)', () => {
+  const getIssues = client.getIssues as jest.Mock;
+
+  it('caps rows at 5 with no pager and hides the source filter', async () => {
+    getIssues.mockResolvedValue(mockIssues(12));
+    renderTable({ compact: true });
+
+    await waitFor(() => expect(screen.getByText('Error: issue number 0')).toBeInTheDocument());
+    expect(screen.getByText('Error: issue number 4')).toBeInTheDocument();
+    expect(screen.queryByText('Error: issue number 5')).not.toBeInTheDocument();
+
+    // The status filter (Unresolved/All/…) stays, only the source filter is locked/hidden.
+    expect(screen.queryByRole('radio', { name: 'All sources' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: 'Browser' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: 'Server' })).not.toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Unresolved' })).toBeInTheDocument();
+
+    expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'All issues →' })).toBeInTheDocument();
+  });
+
+  it('locks the source filter to browser, hiding server issues', async () => {
+    const browser = mockIssues(2, 'browser').issues;
+    const server = mockIssues(1, 'server').issues.map((i) => ({
+      ...i,
+      fingerprint: 'v1:00000000000000ff',
+      title: 'PSQLException: connection refused',
+    }));
+    getIssues.mockResolvedValue({
+      fingerprintVersion: 'v1',
+      sources: { browser: true, serverLogs: true },
+      issues: [...browser, ...server],
+    });
+    renderTable({ compact: true });
+
+    await waitFor(() => expect(screen.getByText('Error: issue number 0')).toBeInTheDocument());
+    // Server-sourced row must not render — compact mode locks source=browser.
+    expect(screen.queryByText(/PSQLException/)).not.toBeInTheDocument();
+  });
+
+  it('"All issues →" switches the tab to issues while preserving other params', async () => {
+    getIssues.mockResolvedValue(mockIssues(1));
+    render(
+      <MemoryRouter initialEntries={['/?issueId=v1:aaaa&environment=prod-gcp']}>
+        <IssuesTable namespace="ns" service="svc" compact />
+        <LocationSpy />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(screen.getByText('Error: issue number 0')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'All issues →' }));
+
+    const params = new URLSearchParams(screen.getByTestId('location-search').textContent ?? '');
+    expect(params.get('tab')).toBe('issues');
+    expect(params.get('issueId')).toBe('v1:aaaa');
+    expect(params.get('environment')).toBe('prod-gcp');
   });
 });

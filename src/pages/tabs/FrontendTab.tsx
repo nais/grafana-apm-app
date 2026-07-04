@@ -16,16 +16,14 @@ import {
   behaviors,
 } from '@grafana/scenes';
 import { DashboardCursorSync } from '@grafana/schema';
-import { getFrontendMetrics, getExceptionGroups } from '../../api/client';
+import { getFrontendMetrics } from '../../api/client';
 import { usePluginDatasources, usePluginLabelOverrides } from '../../utils/datasources';
-import { useFetch } from '../../utils/useFetch';
 import { useTimeRange } from '../../utils/timeRange';
 import { sanitizeLabelValue } from '../../utils/sanitize';
 import { otel } from '../../otelconfig';
-import { useSearchParams } from 'react-router-dom';
-import { useUrlParams } from '../../utils/useUrlState';
 import { buildDeployAnnotationsLayer } from '../buildServiceScene';
 import { ExceptionDrawer } from './frontend/components/ExceptionDrawer';
+import { useExceptionDrawerState } from './frontend/useExceptionDrawer';
 
 import {
   WebVitalsBullets,
@@ -34,6 +32,7 @@ import {
   buildTrendsSection,
   buildPerPageSection,
   buildErrorsSection,
+  buildBrowserBreakdownSection,
   buildSupportSection,
   buildTrafficSection,
   type FrontendSceneContext,
@@ -51,28 +50,19 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
   const [available, setAvailable] = useState<boolean | null>(null);
   const [hasLoki, setHasLoki] = useState<boolean>(false);
   const [vitals, setVitals] = useState<Record<string, number> | undefined>();
-  const [searchParams] = useSearchParams();
-  const updateParams = useUrlParams();
-  // issueId (fingerprint, #62) is the primary drawer key; exceptionHash is the
-  // legacy deep-link param and keeps resolving (docs/url-contract.md).
-  const selectedIssueId = searchParams.get('issueId') ?? '';
-  const selectedHash = searchParams.get('exceptionHash') ?? '';
-  const selectedSessionId = searchParams.get('exceptionSessionId') ?? '';
-  const setSelectedSessionId = (id: string) => {
-    updateParams({ exceptionSessionId: id || null });
-  };
   const ds = usePluginDatasources(environment || undefined);
-  const { fromMs, toMs, from, to } = useTimeRange();
-
-  // Resolve the fingerprint to its member hashes (the drawer queries Loki by
-  // hash). The groups response is backend-cached, so this is cheap.
-  const { data: groupsData } = useFetch(
-    () => getExceptionGroups(namespace, service, fromMs, toMs, environment || undefined),
-    [namespace, service, fromMs, toMs, environment],
-    { skip: !selectedIssueId }
-  );
-  const selectedGroup = selectedIssueId ? groupsData?.groups.find((g) => g.fingerprint === selectedIssueId) : undefined;
-  const drawerHashes = selectedIssueId ? (selectedGroup?.memberHashes ?? null) : selectedHash ? [selectedHash] : null;
+  const { from, to } = useTimeRange();
+  // Shared with the Issues tab (#69 P1/P10) — an issueId deep link opens the
+  // drawer identically on both tabs.
+  const {
+    drawerHashes,
+    selectedGroupTitle,
+    selectedIssueId,
+    selectedHash,
+    selectedSessionId,
+    setSelectedSessionId,
+    closeDrawer,
+  } = useExceptionDrawerState(namespace, service, environment);
 
   useEffect(() => {
     let cancelled = false;
@@ -133,17 +123,14 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
         <ExceptionDrawer
           key={selectedIssueId || selectedHash}
           hashes={drawerHashes}
-          title={selectedGroup?.title}
+          title={selectedGroupTitle}
           service={service}
           namespace={namespace}
           environment={environment}
           logsUid={ds.logsUid}
           selectedSessionId={selectedSessionId}
           onSessionChange={setSelectedSessionId}
-          onClose={() => {
-            // All drawer params in one transaction — see useUrlParams docs.
-            updateParams({ issueId: null, exceptionHash: null, exceptionSessionId: null });
-          }}
+          onClose={closeDrawer}
         />
       )}
     </div>
@@ -201,6 +188,7 @@ function FrontendPanels({
     const trendsRow = buildTrendsSection(ctx);
     const perPageTable = buildPerPageSection(ctx);
     const errorsRow = buildErrorsSection(ctx);
+    const browserBreakdownRow = buildBrowserBreakdownSection(ctx);
     const attributionRow = buildAttributionSection(ctx);
     const supportRow = buildSupportSection(ctx);
     const trafficRow = buildTrafficSection(ctx);
@@ -237,14 +225,17 @@ function FrontendPanels({
         children: [
           ...(bulletsItem ? [bulletsItem] : []),
           insightsRow,
-          // Errors directly under the health stats: error tracking is the
-          // primary workflow of this tab, ahead of the vitals trend charts.
+          // Vitals-first (#69 P6): the tab's primary question is "is the UX
+          // healthy?" — issues stays as one compact browser-scoped row (full
+          // triage moved to the Issues tab) so the trends below aren't pushed
+          // down by a tall table.
           errorsRow,
           trendsRow,
           // Web-vitals attribution: which LCP element / interaction / layout
           // shift is responsible — right after the vitals trends they explain.
           ...(attributionRow ? [attributionRow] : []),
           ...(perPageTable ? [perPageTable] : []),
+          ...(browserBreakdownRow ? [browserBreakdownRow] : []),
           trafficRow,
           ...(supportRow ? [supportRow] : []),
         ],

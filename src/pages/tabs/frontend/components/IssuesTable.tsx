@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Badge, Icon, IconButton, Pagination, RadioButtonGroup, Tooltip, useStyles2 } from '@grafana/ui';
+import { Badge, Button, Icon, IconButton, Pagination, RadioButtonGroup, Tooltip, useStyles2 } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import {
@@ -23,6 +23,12 @@ interface IssuesTableProps {
   namespace: string;
   service: string;
   environment?: string;
+  /**
+   * Compact mode (Frontend tab, #69 P6): browser issues only (source filter
+   * hidden and locked), capped to a handful of rows with no pager, and an
+   * "All issues →" link out to the full Issues tab. Full triage lives there.
+   */
+  compact?: boolean;
 }
 
 type StatusFilter = 'unresolved' | 'all' | 'resolved' | 'ignored';
@@ -49,7 +55,7 @@ const SOURCE_OPTIONS: Array<{ label: string; value: SourceFilter }> = [
  * resolved, ignored, and muted issues; resolved issues that reappear after a
  * newer deploy bubble to the top as Regressed.
  */
-export function IssuesTable({ namespace, service, environment }: IssuesTableProps) {
+export function IssuesTable({ namespace, service, environment, compact = false }: IssuesTableProps) {
   const styles = useStyles2(getStyles);
   const { fromMs, toMs, from, to } = useTimeRange();
   const updateParams = useUrlParams();
@@ -72,7 +78,7 @@ export function IssuesTable({ namespace, service, environment }: IssuesTableProp
   const { mutes, toggleMute } = useUserMutes(namespace, service);
 
   const [filter, setFilter] = useState<StatusFilter>('unresolved');
-  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>(compact ? 'browser' : 'all');
   const [showMuted, setShowMuted] = useState(false);
   // Optimistic overrides after a POST — avoids refetching the whole table.
   const [overrides, setOverrides] = useState<Record<string, TriageState>>({});
@@ -136,9 +142,9 @@ export function IssuesTable({ namespace, service, environment }: IssuesTableProp
   }, [groups, triageStates, overrides, mutes, filter, sourceFilter, showMuted, latestDeployMs]);
 
   const [rawPage, setPage] = useState(1);
-  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
-  const page = Math.min(rawPage, totalPages);
-  const pageGroups = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const totalPages = compact ? 1 : Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const page = compact ? 1 : Math.min(rawPage, totalPages);
+  const pageGroups = compact ? rows.slice(0, COMPACT_ROW_LIMIT) : rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
     <div className={styles.container}>
@@ -146,7 +152,9 @@ export function IssuesTable({ namespace, service, environment }: IssuesTableProp
         <h6 className={styles.title}>Top Exceptions</h6>
         <span className={styles.subtitle}>Frontend and backend errors grouped by stable fingerprint</span>
         <div className={styles.headerSpacer} />
-        <RadioButtonGroup size="sm" options={SOURCE_OPTIONS} value={sourceFilter} onChange={setSourceFilter} />
+        {!compact && (
+          <RadioButtonGroup size="sm" options={SOURCE_OPTIONS} value={sourceFilter} onChange={setSourceFilter} />
+        )}
         <RadioButtonGroup size="sm" options={FILTER_OPTIONS} value={filter} onChange={setFilter} />
       </div>
       <DataState
@@ -220,9 +228,17 @@ export function IssuesTable({ namespace, service, environment }: IssuesTableProp
         <div className={styles.footer}>
           <span className={styles.footerCount}>
             {rows.length === 1 ? '1 issue' : `${rows.length} issues`}
-            {totalPages > 1 && ` · showing ${(page - 1) * PAGE_SIZE + 1}–${Math.min(page * PAGE_SIZE, rows.length)}`}
+            {!compact &&
+              totalPages > 1 &&
+              ` · showing ${(page - 1) * PAGE_SIZE + 1}–${Math.min(page * PAGE_SIZE, rows.length)}`}
           </span>
-          <Pagination currentPage={page} numberOfPages={totalPages} onNavigate={setPage} hideWhenSinglePage />
+          {compact ? (
+            <Button size="sm" variant="secondary" fill="text" onClick={() => updateParams({ tab: 'issues' })}>
+              All issues →
+            </Button>
+          ) : (
+            <Pagination currentPage={page} numberOfPages={totalPages} onNavigate={setPage} hideWhenSinglePage />
+          )}
         </div>
       </DataState>
     </div>
@@ -230,6 +246,8 @@ export function IssuesTable({ namespace, service, environment }: IssuesTableProp
 }
 
 const PAGE_SIZE = 10;
+/** Compact mode row cap (Frontend tab, #69 P6) — no pager, just "All issues →". */
+const COMPACT_ROW_LIMIT = 5;
 
 function IssueRow({
   group,

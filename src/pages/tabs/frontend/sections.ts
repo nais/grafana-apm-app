@@ -29,8 +29,6 @@ import {
 } from './queries/loki-builders';
 import { FrontendSceneContext } from './scene-context';
 import { IssuesTable } from './components/IssuesTable';
-import { VersionsPanel } from './components/VersionsPanel';
-import { SessionsPanel } from './components/SessionsPanel';
 
 /** Derive LokiClusterOpts from scene context (undefined when no filter needed). */
 function clusterOpts(ctx: FrontendSceneContext): LokiClusterOpts | undefined {
@@ -345,19 +343,12 @@ export function buildPerPageSection(ctx: FrontendSceneContext): SceneFlexItem | 
 }
 
 // ---------------------------------------------------------------------------
-// Section 4: Errors Row (Exception Types + Top Exceptions + Browser)
+// Section 4: Errors Row (compact issues) + Browser Breakdown
 // ---------------------------------------------------------------------------
 
-/**
- * Errors section. Top Exceptions is the core error-tracking surface and gets
- * a full-width row of its own; the Exception Types breakdown shares the
- * following row with the browser panels so no row is left half-empty.
- */
-export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
-  const { logsDs, metricsDs, service, namespace, environment, svcFilter, ah, hasLoki } = ctx;
-  const fl = otel.faroLoki;
-
-  // Exception Types from Mimir counter (fast PromQL)
+/** Exception Types from the Mimir counter (fast PromQL) — always available, no Loki required. */
+function buildExceptionTypesItem(ctx: FrontendSceneContext): SceneFlexItem {
+  const { metricsDs, svcFilter, ah } = ctx;
   const exceptionTypeQ = new SceneQueryRunner({
     datasource: { uid: metricsDs.uid, type: 'prometheus' },
     queries: [
@@ -370,7 +361,7 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
       },
     ],
   });
-  const exceptionTypesItem = new SceneFlexItem({
+  return new SceneFlexItem({
     minHeight: 250,
     width: '25%',
     body: PanelBuilders.table()
@@ -384,30 +375,50 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
       })
       .build(),
   });
+}
 
-  // Without Loki there is no issues list — the types panel is all we have.
+/**
+ * Errors section (#69 P6): the Frontend tab keeps only a compact,
+ * browser-scoped glance at issues — full triage (all sources, versions,
+ * sessions) lives on the Issues tab now. Without Loki there is no issues
+ * list at all, so the Exception Types panel remains the sole errors surface
+ * (unchanged fallback — the only errors surface in that mode).
+ */
+export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
+  const { service, namespace, environment, hasLoki } = ctx;
+
   if (!hasLoki) {
-    return new SceneFlexLayout({ direction: 'row', children: [exceptionTypesItem] });
+    return new SceneFlexLayout({ direction: 'row', children: [buildExceptionTypesItem(ctx)] });
   }
 
-  // Top Exceptions grouped by stable fingerprint via the backend (#62):
-  // upstream Alloy hash groups merge when messages differ only by dynamic
-  // content. Rendered as a React table (fed by /exceptions/groups) instead of
-  // a raw Loki panel; rows open the ExceptionDrawer via the issueId param.
-  // Full-width: this is the primary error-tracking surface of the tab.
-  const issuesRow = new SceneFlexLayout({
+  // Top Exceptions grouped by stable fingerprint via the backend (#62),
+  // compact mode: browser-only, capped rows, "All issues →" to the Issues tab.
+  return new SceneFlexLayout({
     direction: 'row',
     children: [
       new SceneFlexItem({
-        minHeight: 320,
+        minHeight: 280,
         body: new SceneReactObject({
-          reactNode: React.createElement(IssuesTable, { namespace, service, environment }),
+          reactNode: React.createElement(IssuesTable, { namespace, service, environment, compact: true }),
         }),
       }),
     ],
   });
+}
 
-  const browserChildren: SceneFlexItem[] = [exceptionTypesItem];
+/**
+ * Browser breakdown (#69 P6): Exception Types + per-browser vitals + traffic
+ * share. Requires Loki; when unavailable, buildErrorsSection's own fallback
+ * already renders Exception Types, so this returns null to avoid a duplicate.
+ */
+export function buildBrowserBreakdownSection(ctx: FrontendSceneContext): SceneFlexLayout | null {
+  if (!ctx.hasLoki) {
+    return null;
+  }
+
+  const { logsDs, service } = ctx;
+  const fl = otel.faroLoki;
+  const browserChildren: SceneFlexItem[] = [buildExceptionTypesItem(ctx)];
 
   // Browser breakdown (Loki vitals per browser)
   const co2 = clusterOpts(ctx);
@@ -495,40 +506,7 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
     })
   );
 
-  const browserRow = new SceneFlexLayout({ direction: 'row', children: browserChildren });
-
-  // Versions panel (#64): per-release sessions, adoption, and error-free rate
-  // — answers "did this start with today's release?" right under the issues.
-  const versionsRow = new SceneFlexLayout({
-    direction: 'row',
-    children: [
-      new SceneFlexItem({
-        minHeight: 220,
-        body: new SceneReactObject({
-          reactNode: React.createElement(VersionsPanel, { namespace, service, environment }),
-        }),
-      }),
-    ],
-  });
-
-  // Sessions explorer (roadmap M5): the user-centric entry point — search by
-  // session/user, see error counts, jump to the session's logs.
-  const sessionsRow = new SceneFlexLayout({
-    direction: 'row',
-    children: [
-      new SceneFlexItem({
-        minHeight: 260,
-        body: new SceneReactObject({
-          reactNode: React.createElement(SessionsPanel, { namespace, service, environment }),
-        }),
-      }),
-    ],
-  });
-
-  return new SceneFlexLayout({
-    direction: 'column',
-    children: [issuesRow, versionsRow, sessionsRow, browserRow],
-  });
+  return new SceneFlexLayout({ direction: 'row', children: browserChildren });
 }
 
 // ---------------------------------------------------------------------------

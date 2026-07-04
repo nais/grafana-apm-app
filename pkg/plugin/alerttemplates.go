@@ -250,9 +250,10 @@ func (a *App) exceptionSpikeDefaults(namespace, service, env, fingerprint string
 		Queries:     append([]alertQuery{dataQuery(dsUID, expr)}, expressionQueries(exceptionSpikeThreshold)...),
 		Annotations: []alertKeyValue{
 			{Key: "summary", Value: fmt.Sprintf("Frontend exception %s in %s occurred more than %d times in 5m", shortRef(issueRef), service, int(exceptionSpikeThreshold))},
-			// Deep link opens the ExceptionDrawer (docs/url-contract.md):
-			// issueId for fingerprint groups (#62), exceptionHash as legacy fallback.
-			{Key: "nais_apm_url", Value: serviceDeepLink(namespace, service, env, "frontend", fingerprint, hashes[0])},
+			// Deep link opens the ExceptionDrawer on the Issues tab (#69 P10,
+			// docs/url-contract.md): issueId for fingerprint groups (#62),
+			// exceptionHash as legacy fallback — both resolve there too.
+			{Key: "nais_apm_url", Value: serviceDeepLink(namespace, service, env, "issues", fingerprint, hashes[0])},
 		},
 		Labels: templateLabels(namespace, service),
 	}
@@ -279,6 +280,7 @@ func (a *App) webVitalsDefaults(namespace, service, env, dsUID string) ruleFormD
 		Queries:     append([]alertQuery{dataQuery(dsUID, expr)}, expressionQueries(lcpP75ThresholdMs)...),
 		Annotations: []alertKeyValue{
 			{Key: "summary", Value: fmt.Sprintf("Largest Contentful Paint p75 for %s is above %dms (Core Web Vitals \"poor\")", service, lcpP75ThresholdMs)},
+			// A UX-health alert, not an issue — stays on the Frontend tab (#69 P10).
 			{Key: "nais_apm_url", Value: serviceDeepLink(namespace, service, env, "frontend", "", "")},
 		},
 		Labels: templateLabels(namespace, service),
@@ -327,8 +329,8 @@ sum by (%[1]s) (count_over_time(%[2]s | logfmt | %[1]s!="" | keep %[1]s [7d] off
 				"Exception {{ $labels.value }} in %s was not seen in the previous 7 days (approximate stateless detection: "+
 					"issues older than the 7d lookback re-fire as new, and resolved-issue regressions do not fire)", service)},
 			// Templated per-instance deep link: each firing hash opens its
-			// own drawer (docs/url-contract.md).
-			{Key: "nais_apm_url", Value: serviceDeepLink(namespace, service, env, "frontend", "", "{{ $labels."+fl.Hash+" }}")},
+			// own drawer on the Issues tab (#69 P10, docs/url-contract.md).
+			{Key: "nais_apm_url", Value: serviceDeepLink(namespace, service, env, "issues", "", "{{ $labels."+fl.Hash+" }}")},
 		},
 		Labels: templateLabels(namespace, service),
 	}

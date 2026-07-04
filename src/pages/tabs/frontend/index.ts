@@ -10,6 +10,7 @@ export {
   buildTrendsSection,
   buildPerPageSection,
   buildErrorsSection,
+  buildBrowserBreakdownSection,
   buildSupportSection,
   buildTrafficSection,
 } from './sections';
