@@ -13,6 +13,7 @@ import {
 } from '../../../../api/client';
 import { useFetch } from '../../../../utils/useFetch';
 import { useTimeRange } from '../../../../utils/timeRange';
+import { describeTimeRange } from '../../../../utils/timeRangeOptions';
 import { useUrlParams } from '../../../../utils/useUrlState';
 import { useUserMutes } from '../../../../utils/userStorage';
 import { usePluginDatasources } from '../../../../utils/datasources';
@@ -163,7 +164,7 @@ export function IssuesTable({ namespace, service, environment, compact = false }
         empty={groups.length === 0}
         loadingText="Loading issues…"
         emptyTitle="No issues"
-        emptyMessage="No errors in the selected time range."
+        emptyMessage={`No errors in ${describeTimeRange(from, to)}.`}
       >
         <table className={styles.table}>
           <thead>

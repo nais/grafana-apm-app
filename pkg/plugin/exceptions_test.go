@@ -17,14 +17,21 @@ import (
 // mockDsQueryServer serves Grafana's /api/ds/query contract: it matches the
 // posted expr against resultsMap substrings and answers with instant-vector
 // data frames (one frame per series, labels on the value field). Exprs
-// matching an errorsMap key answer with a per-refId error instead.
-func mockDsQueryServer(t *testing.T, resultsMap map[string][]queries.PromResult, errorsMap map[string]string) *httptest.Server {
+// matching an errorsMap key answer with a per-refId error instead. Range
+// (log) queries are answered from the optional logsMap with Time/Line log
+// frames — one line per entry, timestamps synthetic.
+func mockDsQueryServer(t *testing.T, resultsMap map[string][]queries.PromResult, errorsMap map[string]string, logsMaps ...map[string][]string) *httptest.Server {
 	t.Helper()
+	var logsMap map[string][]string
+	if len(logsMaps) > 0 {
+		logsMap = logsMaps[0]
+	}
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Queries []struct {
-				RefID string `json:"refId"`
-				Expr  string `json:"expr"`
+				RefID     string `json:"refId"`
+				Expr      string `json:"expr"`
+				QueryType string `json:"queryType"`
 			} `json:"queries"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Queries) == 0 {
@@ -54,6 +61,24 @@ func mockDsQueryServer(t *testing.T, resultsMap map[string][]queries.PromResult,
 				return
 			}
 		}
+		if req.Queries[0].QueryType == "range" {
+			for key, lines := range logsMap {
+				if !strings.Contains(expr, key) {
+					continue
+				}
+				times := make([]int64, len(lines))
+				for i := range times {
+					times[i] = int64(1000 + i)
+				}
+				var f frame
+				f.Schema.Fields = []map[string]any{{"name": "Time"}, {"name": "Line"}}
+				f.Data.Values = []any{times, lines}
+				res.Frames = append(res.Frames, f)
+				break
+			}
+			writeMock(w, map[string]any{"results": map[string]any{req.Queries[0].RefID: res}})
+			return
+		}
 		for key, series := range resultsMap {
 			if !strings.Contains(expr, key) {
 				continue
@@ -78,9 +103,9 @@ func writeMock(w http.ResponseWriter, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-func exceptionsTestApp(t *testing.T, resultsMap map[string][]queries.PromResult, errorsMap map[string]string) (*App, *queries.DsQueryClient) {
+func exceptionsTestApp(t *testing.T, resultsMap map[string][]queries.PromResult, errorsMap map[string]string, logsMaps ...map[string][]string) (*App, *queries.DsQueryClient) {
 	t.Helper()
-	srv := mockDsQueryServer(t, resultsMap, errorsMap)
+	srv := mockDsQueryServer(t, resultsMap, errorsMap, logsMaps...)
 	t.Cleanup(srv.Close)
 	app := &App{otelCfg: otelconfig.Default()}
 	ds := queries.NewDsQueryClient(srv.URL, "")

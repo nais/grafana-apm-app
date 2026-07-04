@@ -1,9 +1,32 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, useSyncExternalStore } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { dateMath } from '@grafana/data';
 
 const DEFAULT_FROM = 'now-1h';
 const DEFAULT_TO = 'now';
+
+// Module-shared resolve tick: one refresh() re-resolves EVERY mounted
+// useTimeRange instance, not just the caller's. Components fetch
+// independently with their own useTimeRange (IssuesTable, VersionsPanel, …),
+// so a page-level RefreshControl must reach them through shared state — a
+// per-hook tick would only refresh the page's own fetches.
+let resolveTick = 0;
+const tickListeners = new Set<() => void>();
+
+function subscribeTick(listener: () => void): () => void {
+  tickListeners.add(listener);
+  return () => tickListeners.delete(listener);
+}
+
+function readTick(): number {
+  return resolveTick;
+}
+
+/** Re-resolve all relative time ranges app-wide (see useTimeRange.refresh). */
+export function refreshTimeRange(): void {
+  resolveTick++;
+  tickListeners.forEach((l) => l());
+}
 
 interface TimeRangeState {
   /** Grafana relative or absolute time range */
@@ -35,8 +58,9 @@ export function useTimeRange(): TimeRangeState {
 
   // Stable fallback for when parsing fails (lazy init runs once, avoids impure Date.now in render)
   const [fallbackNow] = useState(() => Date.now());
-  // Bumped by refresh() to re-resolve relative ranges to fresh absolute timestamps.
-  const [resolveTick, setResolveTick] = useState(0);
+  // Bumped by refresh() (any instance's) to re-resolve relative ranges to
+  // fresh absolute timestamps.
+  const tick = useSyncExternalStore(subscribeTick, readTick);
 
   const { fromMs, toMs } = useMemo(() => {
     const parsedFrom = dateMath.toDateTime(from, {});
@@ -48,11 +72,11 @@ export function useTimeRange(): TimeRangeState {
       };
     }
     return { fromMs: fallbackNow - 3600000, toMs: fallbackNow };
-    // resolveTick intentionally busts the memo so `now`-relative ranges re-resolve.
+    // tick intentionally busts the memo so `now`-relative ranges re-resolve.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to, fallbackNow, resolveTick]);
+  }, [from, to, fallbackNow, tick]);
 
-  const refresh = useCallback(() => setResolveTick((t) => t + 1), []);
+  const refresh = useCallback(() => refreshTimeRange(), []);
 
   const setTimeRange = useCallback(
     (newFrom: string, newTo: string) => {

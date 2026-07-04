@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -37,9 +38,24 @@ const (
 	semconvMessageLabel = "exception_message"
 )
 
-// Shape (b) — JSON-body logstash-style logs: level + message + stack_trace
-// fields parsed out of the body with | json.
-const jsonMessageLabel = "message"
+// Shape (b) — JSON-body logs. Field names surveyed from real NAV apps
+// (2026-07): logback/logstash uses message+level ("ERROR"), pino/Node SSR
+// uses message+level ("error", no stack_trace), Go slog and pino defaults use
+// msg. Errors are matched on the parsed level field OR Loki's detected_level
+// structured metadata (which also understands severity-style fields), so the
+// shape does not require a stack_trace — most Node error logs carry none.
+const (
+	jsonMessageLabel = "message"
+	jsonMsgLabel     = "msg"
+)
+
+// errorLevelRe matches error-class levels in both the parsed JSON `level`
+// field and Loki's `detected_level` structured metadata.
+const errorLevelRe = `(?i)(error|fatal|critical)`
+
+// plainSampleLimit caps the shape (c) raw-line sample used to title
+// unstructured (non-JSON) error groups.
+const plainSampleLimit = 200
 
 // IssueImpact summarizes the blast radius of a server issue.
 // Versions is reserved for a later phase (app-version attribution needs a
@@ -171,27 +187,38 @@ func (a *App) serverLogSelector(service, env string) string {
 // queryServerExceptionGroups aggregates backend exceptions from the service's
 // own Loki log streams into fingerprint-keyed issue groups (#63 Phase 1).
 //
-// Two log shapes are probed, one metric query each, run concurrently
-// (the PRD's probe design — whichever shape returns data contributes rows):
+// Three log shapes are probed concurrently, cataloged from real NAV
+// production logs (2026-07 survey) — whichever shape returns data
+// contributes rows:
 //
 //	(a) OTLP/semconv structured metadata:
 //	    sum by (exception_type, exception_message) (count_over_time({sel} | exception_type != "" [range]))
-//	(b) JSON-body logstash style:
-//	    sum by (message) (count_over_time({sel} | json | level=~"(?i)error" | stack_trace != "" [range]))
+//	(b) JSON body (logback/logstash, pino, slog):
+//	    sum by (message, msg) (count_over_time({sel} | exception_type=""
+//	      | json | level=~errRe or detected_level=~errRe | message != "" or msg != "" [range]))
+//	    The message/msg filter also drops non-JSON lines (a failed | json
+//	    leaves both empty), which keeps __error__-labeled lines out of the
+//	    aggregation — Loki hard-fails metric queries that aggregate them.
+//	(c) Unstructured plain text (sidecars, Next.js console output):
+//	    error-level lines by detected_level that shape (b) cannot parse a
+//	    message from. One count query for volume plus a raw-line sample that
+//	    is fingerprinted Go-side for titles; sample counts are scaled to the
+//	    counted total. Requires Loki log-level detection (detected_level);
+//	    without it the shape contributes nothing and (a)/(b) still work.
 //
-// A service emitting both shapes may report the same error under two
-// fingerprints (shape a carries the type, shape b does not) — acceptable for
-// Phase 1; in practice services emit one shape.
+// The exception_type="" guard on (b)/(c) keeps a line countable by exactly
+// one shape, so counts never double up across shapes.
 //
 // Rows merge into groups by the shared fingerprint exactly like the browser
 // side. MemberHashes stays empty for server issues: they have no Alloy hash;
 // the drawer re-queries by fingerprint-normalized message (out of scope here).
 //
-// Impact is one extra query per shape adding the pod stream label to the
-// group-by; distinct pods are counted per fingerprint. Impact query failures
-// degrade to pods=0. Versions stays empty in Phase 1.
+// Impact is one extra query per metric shape adding the pod structured-
+// metadata label to the group-by; distinct pods are counted per fingerprint.
+// Impact query failures degrade to pods=0, and sampled plain-text groups
+// always report pods=0 (the sample carries no pod attribution).
 //
-// The returned bool is false only when both shape count queries failed —
+// The returned bool is false only when all shape count queries failed —
 // callers then flag sources.serverLogs=false instead of failing the endpoint.
 func (a *App) queryServerExceptionGroups(ctx context.Context, ds *queries.DsQueryClient, lokiUID, service, env string, from, to time.Time) ([]Issue, bool) {
 	logger := log.DefaultLogger.With("handler", "issues")
@@ -199,26 +226,40 @@ func (a *App) queryServerExceptionGroups(ctx context.Context, ds *queries.DsQuer
 	window := lokiWindow(from, to)
 
 	semconvFilter := fmt.Sprintf(`%s != ""`, semconvTypeLabel)
-	jsonFilter := `json | level=~"(?i)error" | stack_trace != ""`
+	jsonFilter := fmt.Sprintf(`%s="" | json | level=~"%s" or detected_level=~"%s" | %s != "" or %s != ""`,
+		semconvTypeLabel, errorLevelRe, errorLevelRe, jsonMessageLabel, jsonMsgLabel)
+	// drop __error__ keeps parse-failed (non-JSON) lines flowing into the
+	// aggregation instead of hard-failing the query; the empty message/msg
+	// filters then select exactly the lines shape (b) could not title.
+	plainPipeline := fmt.Sprintf(`%s | detected_level=~"%s" | %s="" | json | drop __error__, __error_details__ | %s="" | %s=""`,
+		sel, errorLevelRe, semconvTypeLabel, jsonMessageLabel, jsonMsgLabel)
 
 	countSemconv := fmt.Sprintf(`sum by (%s, %s) (count_over_time(%s | %s %s))`,
 		semconvTypeLabel, semconvMessageLabel, sel, semconvFilter, window)
 	podsSemconv := fmt.Sprintf(`sum by (%s, %s, %s) (count_over_time(%s | %s %s))`,
 		semconvTypeLabel, semconvMessageLabel, podLabel, sel, semconvFilter, window)
-	countJSON := fmt.Sprintf(`sum by (%s) (count_over_time(%s | %s %s))`,
-		jsonMessageLabel, sel, jsonFilter, window)
-	podsJSON := fmt.Sprintf(`sum by (%s, %s) (count_over_time(%s | %s %s))`,
-		jsonMessageLabel, podLabel, sel, jsonFilter, window)
+	countJSON := fmt.Sprintf(`sum by (%s, %s) (count_over_time(%s | %s %s))`,
+		jsonMessageLabel, jsonMsgLabel, sel, jsonFilter, window)
+	podsJSON := fmt.Sprintf(`sum by (%s, %s, %s) (count_over_time(%s | %s %s))`,
+		jsonMessageLabel, jsonMsgLabel, podLabel, sel, jsonFilter, window)
+	countPlain := fmt.Sprintf(`sum(count_over_time(%s %s))`, plainPipeline, window)
 
 	var (
 		wg                                       sync.WaitGroup
 		semRes, semPodsRes, jsonRes, jsonPodsRes []queries.PromResult
+		plainRes                                 []queries.PromResult
+		plainSample                              []queries.LogEntry
 		semErr, semPodsErr, jsonErr, jsonPodsErr error
+		plainErr, plainSampleErr                 error
 	)
 	wg.Go(func() { semRes, semErr = ds.InstantQuery(ctx, lokiUID, countSemconv, to) })
 	wg.Go(func() { semPodsRes, semPodsErr = ds.InstantQuery(ctx, lokiUID, podsSemconv, to) })
 	wg.Go(func() { jsonRes, jsonErr = ds.InstantQuery(ctx, lokiUID, countJSON, to) })
 	wg.Go(func() { jsonPodsRes, jsonPodsErr = ds.InstantQuery(ctx, lokiUID, podsJSON, to) })
+	wg.Go(func() { plainRes, plainErr = ds.InstantQuery(ctx, lokiUID, countPlain, to) })
+	wg.Go(func() {
+		plainSample, plainSampleErr = ds.LogQuery(ctx, lokiUID, plainPipeline, from, to, plainSampleLimit)
+	})
 	wg.Wait()
 
 	if semErr != nil {
@@ -227,7 +268,10 @@ func (a *App) queryServerExceptionGroups(ctx context.Context, ds *queries.DsQuer
 	if jsonErr != nil {
 		logger.Warn("Server exceptions json query failed", "error", jsonErr)
 	}
-	if semErr != nil && jsonErr != nil {
+	if plainErr != nil {
+		logger.Warn("Server exceptions plain-text query failed", "error", plainErr)
+	}
+	if semErr != nil && jsonErr != nil && plainErr != nil {
 		return nil, false
 	}
 	if semPodsErr != nil {
@@ -235,6 +279,9 @@ func (a *App) queryServerExceptionGroups(ctx context.Context, ds *queries.DsQuer
 	}
 	if jsonPodsErr != nil {
 		logger.Warn("Server exceptions json pods query failed", "error", jsonPodsErr)
+	}
+	if plainSampleErr != nil {
+		logger.Warn("Server exceptions plain-text sample query failed", "error", plainSampleErr)
 	}
 
 	groups := make(map[string]*Issue)
@@ -264,6 +311,14 @@ func (a *App) queryServerExceptionGroups(ctx context.Context, ds *queries.DsQuer
 			g.Types = append(g.Types, exType)
 		}
 	}
+	// jsonRowMessage picks the populated body field: logback/pino emit
+	// `message`, slog and default pino emit `msg`.
+	jsonRowMessage := func(m map[string]string) string {
+		if v := m[jsonMessageLabel]; v != "" {
+			return v
+		}
+		return m[jsonMsgLabel]
+	}
 	if semErr == nil {
 		for _, r := range semRes {
 			add(r.Metric[semconvTypeLabel], r.Metric[semconvMessageLabel], r.Value.Float())
@@ -271,7 +326,34 @@ func (a *App) queryServerExceptionGroups(ctx context.Context, ds *queries.DsQuer
 	}
 	if jsonErr == nil {
 		for _, r := range jsonRes {
-			add("", r.Metric[jsonMessageLabel], r.Value.Float())
+			add("", jsonRowMessage(r.Metric), r.Value.Float())
+		}
+	}
+	// Shape (c): the count query carries the volume, the sample carries the
+	// titles. Distribute the counted total across the sampled fingerprints
+	// proportionally — exact when the sample is complete, honest otherwise.
+	if plainErr == nil && plainSampleErr == nil && len(plainSample) > 0 {
+		var plainTotal float64
+		for _, r := range plainRes {
+			plainTotal += r.Value.Float()
+		}
+		sampleCounts := make(map[string]float64)
+		for _, entry := range plainSample {
+			if line := trimSpaceLimited(entry.Line); line != "" {
+				sampleCounts[line]++
+			}
+		}
+		var sampleTotal float64
+		for _, c := range sampleCounts {
+			sampleTotal += c
+		}
+		if plainTotal <= 0 {
+			plainTotal = sampleTotal
+		}
+		for line, c := range sampleCounts {
+			if sampleTotal > 0 {
+				add("", line, roundTo(plainTotal*c/sampleTotal, 0))
+			}
 		}
 	}
 
@@ -295,7 +377,7 @@ func (a *App) queryServerExceptionGroups(ctx context.Context, ds *queries.DsQuer
 	}
 	if jsonPodsErr == nil {
 		for _, r := range jsonPodsRes {
-			addPod("", r.Metric[jsonMessageLabel], r.Metric[podLabel])
+			addPod("", jsonRowMessage(r.Metric), r.Metric[podLabel])
 		}
 	}
 
@@ -306,4 +388,16 @@ func (a *App) queryServerExceptionGroups(ctx context.Context, ds *queries.DsQuer
 		out = append(out, *g)
 	}
 	return out, true
+}
+
+// trimSpaceLimited trims whitespace and caps a raw sampled log line before
+// fingerprinting: multi-KB lines (giant stack dumps) fingerprint identically
+// on their lead text, and fingerprint.Normalize truncates titles anyway.
+func trimSpaceLimited(line string) string {
+	const maxFingerprintInput = 1024
+	s := strings.TrimSpace(line)
+	if len(s) > maxFingerprintInput {
+		s = s[:maxFingerprintInput]
+	}
+	return s
 }

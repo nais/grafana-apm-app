@@ -9,10 +9,10 @@ jest.mock('../../../../api/client', () => ({
   getFrontendVersions: jest.fn(),
 }));
 
-function renderPanel() {
+function renderPanel(props?: { hideWhenEmpty?: boolean }) {
   return render(
     <MemoryRouter>
-      <VersionsPanel namespace="ns" service="svc" />
+      <VersionsPanel namespace="ns" service="svc" hideWhenEmpty={props?.hideWhenEmpty} />
     </MemoryRouter>
   );
 }
@@ -52,7 +52,9 @@ describe('VersionsPanel', () => {
     expect(screen.getByText('67%')).toBeInTheDocument();
     expect(screen.getByText('95.0%')).toBeInTheDocument();
     expect(screen.getByText('100.0%')).toBeInTheDocument();
-    expect(screen.getByText(/did this start with today/)).toBeInTheDocument();
+    // Retitled "Releases" with a purpose subtitle (#69 review, P4)
+    expect(screen.getByText('Releases')).toBeInTheDocument();
+    expect(screen.getByText(/is the latest release healthy/)).toBeInTheDocument();
   });
 
   it('shows a dash for error-free rate when a version has no sessions', async () => {
@@ -71,7 +73,26 @@ describe('VersionsPanel', () => {
     getFrontendVersions.mockResolvedValue({ versions: [] });
     renderPanel();
 
-    await waitFor(() => expect(screen.getByText('No versions')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('No releases')).toBeInTheDocument());
+  });
+
+  it('hideWhenEmpty renders nothing instead of an empty shell', async () => {
+    getFrontendVersions.mockResolvedValue({ versions: [] });
+    const { container } = renderPanel({ hideWhenEmpty: true });
+
+    await waitFor(() => expect(client.getFrontendVersions).toHaveBeenCalled());
+    await waitFor(() => expect(container).toBeEmptyDOMElement());
+    expect(screen.queryByText('Releases')).not.toBeInTheDocument();
+  });
+
+  it('hideWhenEmpty still renders the table when there is data', async () => {
+    getFrontendVersions.mockResolvedValue({
+      versions: [{ version: 'deadbeef01', sessions: 5, adoption: 1, errorFreeRate: 1, exceptions: 0 }],
+    });
+    renderPanel({ hideWhenEmpty: true });
+
+    await waitFor(() => expect(screen.getByText('deadbeef01')).toBeInTheDocument());
+    expect(screen.getByText('Releases')).toBeInTheDocument();
   });
 
   it('surfaces Loki unavailability', async () => {

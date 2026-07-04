@@ -72,6 +72,7 @@ jest.mock('./tabs/RuntimeTab', () => ({ RuntimeTab: () => <div data-testid="runt
 jest.mock('./tabs/DependenciesTab', () => ({ DependenciesTab: () => <div data-testid="dependencies-tab" /> }));
 jest.mock('./tabs/TracesTab', () => ({ TracesTab: () => <div data-testid="traces-tab" /> }));
 jest.mock('./tabs/LogsTab', () => ({ LogsTab: () => <div data-testid="logs-tab" /> }));
+jest.mock('./tabs/DatabaseTab', () => ({ DatabaseTab: () => <div data-testid="database-tab" /> }));
 
 function LocationSpy() {
   const location = useLocation();

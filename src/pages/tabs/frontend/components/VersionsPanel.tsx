@@ -11,15 +11,24 @@ interface VersionsPanelProps {
   namespace: string;
   service: string;
   environment?: string;
+  /**
+   * Render nothing instead of an empty shell when the service has no
+   * app_version data (Issues tab, #69 review): the panel only earns its
+   * space when it can actually answer the release question.
+   */
+  hideWhenEmpty?: boolean;
 }
 
 /**
- * Per-version release health (#64 Phase 1): distinct sessions, adoption
- * share, error-free-session rate, and exception occurrences per app_version,
- * computed query-time from Faro streams in Loki. Deploy times come from
- * nais-apm:deploy Grafana annotations when the Phase 0 contract is in place.
+ * Per-release health (#64 Phase 1), answering "did the latest deploy
+ * introduce (or fix) errors?": distinct sessions, adoption share (how much
+ * traffic runs the new version), error-free-session rate, and exception
+ * occurrences per app_version, computed query-time from Faro streams in
+ * Loki. Deploy times come from nais-apm:deploy Grafana annotations when the
+ * Phase 0 contract is in place. The same data powers the Regressed badge in
+ * the issues table.
  */
-export function VersionsPanel({ namespace, service, environment }: VersionsPanelProps) {
+export function VersionsPanel({ namespace, service, environment, hideWhenEmpty = false }: VersionsPanelProps) {
   const styles = useStyles2(getStyles);
   const { fromMs, toMs } = useTimeRange();
 
@@ -30,18 +39,24 @@ export function VersionsPanel({ namespace, service, environment }: VersionsPanel
 
   const versions = data?.versions ?? [];
 
+  if (hideWhenEmpty && !loading && (versions.length === 0 || !!error || data?.unavailable)) {
+    return null;
+  }
+
   return (
     <div className={styles.container}>
       <div className={styles.header}>
-        <h6 className={styles.title}>Versions</h6>
-        <span className={styles.subtitle}>Answering: did this start with today&apos;s release?</span>
+        <h6 className={styles.title}>Releases</h6>
+        <span className={styles.subtitle}>
+          Adoption and error-free rate per app version — is the latest release healthy?
+        </span>
       </div>
       <DataState
         loading={loading}
-        error={error ? 'Failed to load versions' : data?.unavailable ? 'Loki is not available' : null}
+        error={error ? 'Failed to load releases' : data?.unavailable ? 'Loki is not available' : null}
         empty={versions.length === 0}
-        loadingText="Loading versions…"
-        emptyTitle="No versions"
+        loadingText="Loading releases…"
+        emptyTitle="No releases"
         emptyMessage="No app_version data in the selected time range."
       >
         <table className={styles.table}>
