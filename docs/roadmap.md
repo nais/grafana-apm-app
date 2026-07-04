@@ -16,33 +16,25 @@
 | M3 Triage | ✅ done | annotations event-log store, mutes, Regressed; nais deploy sync; new-exceptions template |
 | M4 Unified issues | ✅ done | browser+server issues, source badges, trace links. Deferred: #62 P2 frame splitting (gated on #60 prod source-map adoption), server-issue drawer parity |
 | M5 Replay | ✅ done (code) | capture+playback+sessions shipped; ENABLING gated on team opt-in + personvernombud conversation (Hans driving) |
-| M6 Breadth | 🟡 ~80% | done 2026-07-04 wave: Issues tab + IA moves (P1–P3/P6/P7/P10), #14 database tab (verified on mongodb/oracle/postgres), #35 overview health header + baseline deltas, user feedback pipeline end-to-end, drawer reorder (P8), custom-metrics collapse (P9), server-issue queries fixed for real backend log shapes, #30 auto-refresh, #68 P0. Remaining below |
-| M7 Platform | ⬜ open | needs platform decisions (see below) |
+| M6 Breadth | ✅ done | 2026-07-04 waves: Issues tab + all IA moves (P1–P10), #14 database tab (verified on mongodb/oracle/postgres), #35 overview health header + baseline deltas, feedback pipeline end-to-end, log patterns (pattern ingester live in prod), trace analytics (TraceQL metrics, Tempo 2.10.1), faceted issue search, global header time picker, server-issue shapes fixed, OTel pool discovery (pool_name), #30, #68 P0. Deferred to backlog: #68 P1 curation, #37 field selector, #36 topology remainder, #33/#32 alerting detail |
+| M7 Platform | 🟡 in progress | ✅ SLO burn-rate templates + error-budget panel; ✅ Pyroscope tab (capability-gated, hidden until platform runs Pyroscope). In flight: Console scorecards, cron/Naisjob view, #22 map clustering, in-plugin docs links. Open: resource API docs, mobile story (deferred), app-sdk/unified-storage re-eval (upstream watch) |
 
 ### Next up (ordered — resume here)
 
-1. **Universal header time picker** (Hans's direction): one TimeRangePicker +
-   refresh in the ServiceOverview header replacing all per-tab/scene pickers;
-   kebab-menu the header actions to prevent overflow at 1280px; scenes follow
-   URL `from`/`to`. API research done (SceneTimeRange.onTimeRangeChange +
-   onRefresh in scenes 6.57.2); remove pickers at buildServiceScene.ts,
-   FrontendTab, LogsTab, TracesTab, database/scene.ts; then drop the interim
-   Issues-tab-local controls.
-2. **Log patterns + trace analytics**: implement from
-   `docs/plans/log-patterns-trace-analytics.md`. Probes are DONE and committed
-   there — the Loki pattern ingester is **already enabled** in production (no
-   platform flag needed; direct datasource-proxy GET required, `/api/ds/query`
-   queryType=patterns is broken in Grafana 12.4), and Tempo 2.10.1 supports
-   TraceQL-metrics group-by (`http.*` attrs are nil fleet-wide; routes live in
-   span names — probe dimensions, don't hardcode semconv).
-3. **Faceted issue search** (version/browser/page/user + triage-status facets)
-   on the Issues tab.
-4. **ia-review P4/P5**: remove the Console Errors table; drop the Exception
-   Types panel outside the no-Loki fallback.
-5. **`/runtime` pool fix**: newer `db_client_connections_*` metrics label pools
-   `pool_name`, the endpoint queries `pool` — Oracle UCP and MongoDB pools are
-   invisible today (found during #14 verification).
-6. **#68 P1** curation + Faro measurement discovery; **#22** map clustering.
+1. **Land the in-flight M7 wave**: Console scorecards (+ observability
+   readiness score), cron/Naisjob monitoring view (KSM-gated), #22 namespace
+   clustering on the global map, in-plugin links to the user docs
+   (docs/observability/apm in nais/doc, branch nais-apm-docs) and to the
+   nais/apm SDK.
+2. **Resource API docs** (M7): documented, versioned plugin resource API
+   (issue PRD below) — enables CI gates and bots against /issues, /triage,
+   /scorecard.
+3. **#68 P1**: curated custom-metrics (per-user pins → shared jsonData with
+   version/409) + Faro measurement discovery on the Frontend tab.
+4. **Backlog by demand**: #37 log field selector, #36 topology remainder,
+   #38 command palette, #33/#32 alerting detail pages.
+5. **Housekeeping on merge**: PR #71 closes #57 #58 #61 #62 #63 #64 #65 #66
+   #67 (verify each against shipped scope); update issue states.
 
 ### Open follow-ups (accumulated during implementation)
 
