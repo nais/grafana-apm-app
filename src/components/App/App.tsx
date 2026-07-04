@@ -4,6 +4,7 @@ import { AppRootProps } from '@grafana/data';
 import { initPluginTranslations } from '@grafana/i18n';
 import { PLUGIN_BASE_URL, ROUTES } from '../../constants';
 import { useFavoritesSync } from '../../utils/useFavoritesSync';
+import { ErrorBoundary } from '../ErrorBoundary';
 
 const ServiceInventory = React.lazy(() => import('../../pages/ServiceInventory'));
 const JobsInventory = React.lazy(() => import('../../pages/JobsInventory'));
@@ -28,6 +29,7 @@ function FavoritesRedirect() {
 
 function App(props: AppRootProps) {
   const [initialized, setInitialized] = useState(false);
+  const { pathname } = useLocation();
 
   useEffect(() => {
     let active = true;
@@ -87,21 +89,96 @@ function App(props: AppRootProps) {
         </div>
       }
     >
-      <Routes>
-        <Route path={ROUTES.ServiceOverview} element={<ServiceOverview />} />
-        <Route path={`${ROUTES.ServiceOverview}/*`} element={<ServiceOverview />} />
-        <Route path={ROUTES.StatusBoard} element={<StatusBoard />} />
-        <Route path={ROUTES.OpsStatus} element={<OpsStatusBoard />} />
-        <Route path={ROUTES.NamespaceOverview} element={<NamespaceOverview />} />
-        <Route path={ROUTES.DependencyDetail} element={<DependencyDetail />} />
-        <Route path={ROUTES.Dependencies} element={<Dependencies />} />
-        <Route path={ROUTES.ServiceMap} element={<ServiceMap />} />
-        <Route path={ROUTES.Favorites} element={<FavoritesRedirect />} />
-        <Route path={ROUTES.Services} element={<ServiceInventory />} />
-        <Route path={ROUTES.Jobs} element={<JobsInventory />} />
-        <Route path="/" element={<Navigate to={ROUTES.Services} replace />} />
-        <Route path="*" element={<Navigate to={ROUTES.Services} replace />} />
-      </Routes>
+      {/* Last-resort boundary: an uncaught render error from any page shows a
+          full-section fallback instead of white-screening the plugin, and
+          recovers when the route changes. */}
+      <ErrorBoundary resetKeys={[pathname]}>
+        <Routes>
+          <Route
+            path={ROUTES.ServiceOverview}
+            element={
+              <ErrorBoundary label="Service overview">
+                <ServiceOverview />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path={`${ROUTES.ServiceOverview}/*`}
+            element={
+              <ErrorBoundary label="Service overview">
+                <ServiceOverview />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path={ROUTES.StatusBoard}
+            element={
+              <ErrorBoundary label="Status board">
+                <StatusBoard />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path={ROUTES.OpsStatus}
+            element={
+              <ErrorBoundary label="Ops status board">
+                <OpsStatusBoard />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path={ROUTES.NamespaceOverview}
+            element={
+              <ErrorBoundary label="Namespace overview">
+                <NamespaceOverview />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path={ROUTES.DependencyDetail}
+            element={
+              <ErrorBoundary label="Dependency detail">
+                <DependencyDetail />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path={ROUTES.Dependencies}
+            element={
+              <ErrorBoundary label="Dependencies">
+                <Dependencies />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path={ROUTES.ServiceMap}
+            element={
+              <ErrorBoundary label="Service map">
+                <ServiceMap />
+              </ErrorBoundary>
+            }
+          />
+          <Route path={ROUTES.Favorites} element={<FavoritesRedirect />} />
+          <Route
+            path={ROUTES.Services}
+            element={
+              <ErrorBoundary label="Service inventory">
+                <ServiceInventory />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path={ROUTES.Jobs}
+            element={
+              <ErrorBoundary label="Jobs inventory">
+                <JobsInventory />
+              </ErrorBoundary>
+            }
+          />
+          <Route path="/" element={<Navigate to={ROUTES.Services} replace />} />
+          <Route path="*" element={<Navigate to={ROUTES.Services} replace />} />
+        </Routes>
+      </ErrorBoundary>
     </Suspense>
   );
 }

@@ -11,6 +11,7 @@ import { buildTempoExploreUrl, buildLokiExploreUrl } from '../utils/explore';
 import { FrameworkBadge } from '../components/FrameworkBadge';
 import { ScorecardBadge } from '../components/ScorecardBadge';
 import { PageHeader } from '../components/PageHeader';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 import { usePluginDatasources, useHasEnvironmentOverrides, usePluginLabelOverrides } from '../utils/datasources';
 import { useTimeRange } from '../utils/timeRange';
 import { useCapabilities, getMetricNames, getPyroscope } from '../utils/capabilities';
@@ -395,40 +396,44 @@ function ServiceOverviewInner({ namespace, service }: { namespace: string; servi
         {/* Tab content — keep visited tabs mounted to avoid re-fetching */}
         <div className={styles.tabContent}>
           <div style={{ display: activeTab === 'overview' ? undefined : 'none' }}>
-            <OverviewTab
-              scene={scene}
-              namespace={namespace}
-              environment={envFilter || undefined}
-              sceneKey={sceneKey}
-              operations={operations}
-              opsLoading={opsLoading}
-              opsError={opsError ?? null}
-              graphNodes={graphNodes}
-              graphEdges={graphEdges}
-              connected={connected ?? undefined}
-              dependencies={depsResp?.dependencies}
-              health={health}
-              healthLoading={healthLoading}
-              service={service}
-              depth={depth}
-              onDepthChange={setDepth}
-              onViewAllOperations={() => setActiveTab('server')}
-              onViewAllDependencies={() => setActiveTab('dependencies')}
-              onViewTraces={caps?.tempo?.available !== false ? onViewTraces : undefined}
-              onNavigateService={onNavigateService}
-              onNavigateDependency={(depName: string, depType: string) => {
-                if (depType === 'service') {
-                  appNavigate(`services/_/${encodeURIComponent(depName)}`);
-                } else {
-                  appNavigate(`dependencies/${encodeURIComponent(depName)}`);
-                }
-              }}
-            />
+            <ErrorBoundary label="Overview tab" resetKeys={[namespace, service, activeTab]}>
+              <OverviewTab
+                scene={scene}
+                namespace={namespace}
+                environment={envFilter || undefined}
+                sceneKey={sceneKey}
+                operations={operations}
+                opsLoading={opsLoading}
+                opsError={opsError ?? null}
+                graphNodes={graphNodes}
+                graphEdges={graphEdges}
+                connected={connected ?? undefined}
+                dependencies={depsResp?.dependencies}
+                health={health}
+                healthLoading={healthLoading}
+                service={service}
+                depth={depth}
+                onDepthChange={setDepth}
+                onViewAllOperations={() => setActiveTab('server')}
+                onViewAllDependencies={() => setActiveTab('dependencies')}
+                onViewTraces={caps?.tempo?.available !== false ? onViewTraces : undefined}
+                onNavigateService={onNavigateService}
+                onNavigateDependency={(depName: string, depType: string) => {
+                  if (depType === 'service') {
+                    appNavigate(`services/_/${encodeURIComponent(depName)}`);
+                  } else {
+                    appNavigate(`dependencies/${encodeURIComponent(depName)}`);
+                  }
+                }}
+              />
+            </ErrorBoundary>
           </div>
 
           {visitedTabs.has('issues') && (
             <div style={{ display: activeTab === 'issues' ? undefined : 'none' }}>
-              <IssuesTab service={service} namespace={namespace} environment={envFilter} />
+              <ErrorBoundary label="Issues tab" resetKeys={[namespace, service, activeTab]}>
+                <IssuesTab service={service} namespace={namespace} environment={envFilter} />
+              </ErrorBoundary>
             </div>
           )}
 
@@ -441,74 +446,92 @@ function ServiceOverviewInner({ namespace, service }: { namespace: string; servi
                 minHeight: 0,
               }}
             >
-              <TracesTab
-                key={`${traceSpan}|${traceStatus}|${traceSpanKind}`}
-                service={service}
-                namespace={namespace}
-                tracesUid={ds.tracesUid}
-                from={from}
-                to={to}
-                initialSpan={traceSpan}
-                initialStatus={traceStatus}
-                initialSpanKind={traceSpanKind}
-              />
+              <ErrorBoundary label="Traces tab" resetKeys={[namespace, service, activeTab]}>
+                <TracesTab
+                  key={`${traceSpan}|${traceStatus}|${traceSpanKind}`}
+                  service={service}
+                  namespace={namespace}
+                  tracesUid={ds.tracesUid}
+                  from={from}
+                  to={to}
+                  initialSpan={traceSpan}
+                  initialStatus={traceStatus}
+                  initialSpanKind={traceSpanKind}
+                />
+              </ErrorBoundary>
             </div>
           )}
 
           {visitedTabs.has('server') && (
             <div style={{ display: activeTab === 'server' ? undefined : 'none' }}>
-              <ServerTab
-                service={service}
-                namespace={namespace}
-                fromMs={fromMs}
-                toMs={toMs}
-                environment={envFilter || undefined}
-                onViewTraces={onViewTraces}
-              />
+              <ErrorBoundary label="Endpoints tab" resetKeys={[namespace, service, activeTab]}>
+                <ServerTab
+                  service={service}
+                  namespace={namespace}
+                  fromMs={fromMs}
+                  toMs={toMs}
+                  environment={envFilter || undefined}
+                  onViewTraces={onViewTraces}
+                />
+              </ErrorBoundary>
             </div>
           )}
 
           {visitedTabs.has('frontend') && (
             <div style={{ display: activeTab === 'frontend' ? undefined : 'none' }}>
-              <FrontendTab service={service} namespace={namespace} environment={envFilter} />
+              <ErrorBoundary label="Frontend tab" resetKeys={[namespace, service, activeTab]}>
+                <FrontendTab service={service} namespace={namespace} environment={envFilter} />
+              </ErrorBoundary>
             </div>
           )}
 
           {visitedTabs.has('runtime') && (
             <div style={{ display: activeTab === 'runtime' ? undefined : 'none' }}>
-              <RuntimeTab service={service} namespace={namespace} environment={envFilter} fromMs={fromMs} toMs={toMs} />
+              <ErrorBoundary label="Runtime tab" resetKeys={[namespace, service, activeTab]}>
+                <RuntimeTab
+                  service={service}
+                  namespace={namespace}
+                  environment={envFilter}
+                  fromMs={fromMs}
+                  toMs={toMs}
+                />
+              </ErrorBoundary>
             </div>
           )}
 
           {visitedTabs.has('database') && (
             <div style={{ display: activeTab === 'database' ? undefined : 'none' }}>
-              <DatabaseTab
-                service={service}
-                namespace={namespace}
-                environment={envFilter || undefined}
-                fromMs={fromMs}
-                toMs={toMs}
-                from={from}
-                to={to}
-                onViewTraces={caps?.tempo?.available !== false ? onViewTraces : undefined}
-              />
+              <ErrorBoundary label="Database tab" resetKeys={[namespace, service, activeTab]}>
+                <DatabaseTab
+                  service={service}
+                  namespace={namespace}
+                  environment={envFilter || undefined}
+                  fromMs={fromMs}
+                  toMs={toMs}
+                  from={from}
+                  to={to}
+                  onViewTraces={caps?.tempo?.available !== false ? onViewTraces : undefined}
+                />
+              </ErrorBoundary>
             </div>
           )}
 
           {visitedTabs.has('dependencies') && (
             <div style={{ display: activeTab === 'dependencies' ? undefined : 'none' }}>
-              <DependenciesTab
-                service={service}
-                callers={connected?.inbound}
-                callersLoading={connectedLoading}
-                dependencies={depsResp?.dependencies}
-                depsLoading={depsLoading}
-                depsError={depsError}
-                onNavigateService={onNavigateService}
-                onNavigateDependency={(name: string) => {
-                  appNavigate(`dependencies/${encodeURIComponent(name)}`);
-                }}
-              />
+              <ErrorBoundary label="Dependencies tab" resetKeys={[namespace, service, activeTab]}>
+                <DependenciesTab
+                  service={service}
+                  callers={connected?.inbound}
+                  callersLoading={connectedLoading}
+                  dependencies={depsResp?.dependencies}
+                  depsLoading={depsLoading}
+                  depsError={depsError}
+                  onNavigateService={onNavigateService}
+                  onNavigateDependency={(name: string) => {
+                    appNavigate(`dependencies/${encodeURIComponent(name)}`);
+                  }}
+                />
+              </ErrorBoundary>
             </div>
           )}
 
@@ -521,15 +544,17 @@ function ServiceOverviewInner({ namespace, service }: { namespace: string; servi
                 minHeight: 0,
               }}
             >
-              <LogsTab
-                service={service}
-                namespace={namespace}
-                logsUid={ds.logsUid}
-                from={from}
-                to={to}
-                serviceNameLabel={labelOverrides.serviceNameLabel}
-                clusterFilter={!ds.isLogsEnvSpecific ? envFilter || undefined : undefined}
-              />
+              <ErrorBoundary label="Logs tab" resetKeys={[namespace, service, activeTab]}>
+                <LogsTab
+                  service={service}
+                  namespace={namespace}
+                  logsUid={ds.logsUid}
+                  from={from}
+                  to={to}
+                  serviceNameLabel={labelOverrides.serviceNameLabel}
+                  clusterFilter={!ds.isLogsEnvSpecific ? envFilter || undefined : undefined}
+                />
+              </ErrorBoundary>
             </div>
           )}
 
@@ -542,7 +567,9 @@ function ServiceOverviewInner({ namespace, service }: { namespace: string; servi
                 minHeight: 0,
               }}
             >
-              <ProfilingTab service={service} namespace={namespace} pyroscopeUid={pyroscope?.uid ?? ''} />
+              <ErrorBoundary label="Profiling tab" resetKeys={[namespace, service, activeTab]}>
+                <ProfilingTab service={service} namespace={namespace} pyroscopeUid={pyroscope?.uid ?? ''} />
+              </ErrorBoundary>
             </div>
           )}
         </div>
