@@ -48,7 +48,7 @@ func TestQueryIssuesMergesBrowserAndServer(t *testing.T) {
 		"sum by (exception_type, exception_message, k8s_pod_name)": serverPods,
 	}, nil)
 
-	resp := app.queryIssues(context.Background(), ds, "loki-uid", "my-app", "prod-gcp", time.Unix(1000, 0), time.Unix(4600, 0))
+	resp := app.queryIssues(context.Background(), ds, "loki-uid", "my-app", "prod-gcp", time.Unix(1000, 0), time.Unix(4600, 0), browserFacets{})
 
 	if resp.FingerprintVersion != fingerprint.Version {
 		t.Errorf("fingerprintVersion = %q", resp.FingerprintVersion)
@@ -155,7 +155,7 @@ func TestQueryIssuesServerErrorDegradesGracefully(t *testing.T) {
 			`sum(count_over_time(`:       "maximum number of series (5000) reached for a single query",
 		})
 
-	resp := app.queryIssues(context.Background(), ds, "loki-uid", "my-app", "", time.Unix(0, 0), time.Unix(3600, 0))
+	resp := app.queryIssues(context.Background(), ds, "loki-uid", "my-app", "", time.Unix(0, 0), time.Unix(3600, 0), browserFacets{})
 
 	if resp.Sources.ServerLogs {
 		t.Error("sources.serverLogs should be false when both shape queries fail")
@@ -181,7 +181,7 @@ func TestQueryIssuesBrowserErrorDegradesGracefully(t *testing.T) {
 		map[string][]queries.PromResult{"sum by (exception_type, exception_message) (": serverCounts},
 		map[string]string{"sum by (hash": "loki is down"})
 
-	resp := app.queryIssues(context.Background(), ds, "loki-uid", "my-app", "", time.Unix(0, 0), time.Unix(3600, 0))
+	resp := app.queryIssues(context.Background(), ds, "loki-uid", "my-app", "", time.Unix(0, 0), time.Unix(3600, 0), browserFacets{})
 
 	if resp.Sources.Browser {
 		t.Error("sources.browser should be false when the Faro query fails")
@@ -284,6 +284,154 @@ func TestQueryServerExceptionGroupsPlainTextShape(t *testing.T) {
 		}
 		if g.Impact == nil || g.Impact.Pods != 0 {
 			t.Errorf("sampled plain-text impact = %+v, want pods 0", g.Impact)
+		}
+	}
+}
+
+func TestQueryIssueFacets(t *testing.T) {
+	// Facet-value discovery: topk(sum by (field)) rows fold into count-sorted,
+	// empty-dropped facet lists.
+	versions := []queries.PromResult{
+		{Metric: map[string]string{"app_version": "1.2.0"}, Value: queries.NewPromValue(0, "50")},
+		{Metric: map[string]string{"app_version": "1.3.0"}, Value: queries.NewPromValue(0, "120")},
+		{Metric: map[string]string{"app_version": ""}, Value: queries.NewPromValue(0, "9")}, // empty → dropped
+	}
+	browsers := []queries.PromResult{
+		{Metric: map[string]string{"browser_name": "Chrome"}, Value: queries.NewPromValue(0, "200")},
+		{Metric: map[string]string{"browser_name": "Safari"}, Value: queries.NewPromValue(0, "40")},
+	}
+	pages := []queries.PromResult{
+		{Metric: map[string]string{"page_url": "https://tms-min-side.nav.no/"}, Value: queries.NewPromValue(0, "77")},
+	}
+	app, ds := exceptionsTestApp(t, map[string][]queries.PromResult{
+		"sum by (app_version)":  versions,
+		"sum by (browser_name)": browsers,
+		"sum by (page_url)":     pages,
+	}, nil)
+
+	facets := app.queryIssueFacets(context.Background(), ds, "loki-uid", "my-app", "", time.Unix(0, 0), time.Unix(3600, 0))
+
+	if facets == nil {
+		t.Fatal("expected facets, got nil")
+	}
+	if len(facets.Versions) != 2 || facets.Versions[0].Value != "1.3.0" || facets.Versions[0].Count != 120 {
+		t.Errorf("versions = %+v, want 1.3.0 first (empty dropped)", facets.Versions)
+	}
+	if len(facets.Browsers) != 2 || facets.Browsers[0].Value != "Chrome" || facets.Browsers[0].Count != 200 {
+		t.Errorf("browsers = %+v, want Chrome first", facets.Browsers)
+	}
+	if len(facets.TopPages) != 1 || facets.TopPages[0].Value != "https://tms-min-side.nav.no/" {
+		t.Errorf("topPages = %+v", facets.TopPages)
+	}
+}
+
+func TestQueryIssuesFacetScopesToBrowser(t *testing.T) {
+	// An active browser facet scopes the list to Faro telemetry: the browser
+	// count query runs, but the server side is skipped entirely and the
+	// response says facetedSource=browser with serverLogs=false.
+	browserCounts := []queries.PromResult{
+		{Metric: map[string]string{"hash": "111", "type": "TypeError", "value": "t.map is not a function"}, Value: queries.NewPromValue(0, "10")},
+	}
+	browserSessions := []queries.PromResult{
+		{Metric: map[string]string{"hash": "111"}, Value: queries.NewPromValue(0, "4")},
+	}
+	// Registered but must never surface while a facet is active.
+	serverCounts := []queries.PromResult{
+		{Metric: map[string]string{"exception_type": "PSQLException", "exception_message": "boom"}, Value: queries.NewPromValue(0, "99")},
+	}
+	app, ds := exceptionsTestApp(t, map[string][]queries.PromResult{
+		"sum by (hash":   browserCounts,
+		"count by (hash": browserSessions,
+		"sum by (exception_type, exception_message) (": serverCounts,
+	}, nil)
+
+	resp := app.queryIssues(context.Background(), ds, "loki-uid", "my-app", "",
+		time.Unix(0, 0), time.Unix(3600, 0), browserFacets{Version: "1.2.0"})
+
+	if resp.FacetedSource != issueSourceBrowser {
+		t.Errorf("facetedSource = %q, want browser", resp.FacetedSource)
+	}
+	if resp.Sources.ServerLogs {
+		t.Error("serverLogs should be false when a browser facet excludes the server side")
+	}
+	if !resp.Sources.Browser {
+		t.Error("browser source should remain true")
+	}
+	if len(resp.Issues) != 1 || resp.Issues[0].Source != issueSourceBrowser {
+		t.Fatalf("expected only the browser issue, got %+v", resp.Issues)
+	}
+	if resp.Issues[0].Count != 10 || resp.Issues[0].Sessions != 4 {
+		t.Errorf("faceted browser issue = %+v, want count 10 / sessions 4", resp.Issues[0].ExceptionGroup)
+	}
+}
+
+func TestFacetedIssueQueryShapes(t *testing.T) {
+	// Guard the facet LogQL shapes: discovery uses topk(sum by (field)); the
+	// faceted browser count query carries every active facet as an exact-match
+	// logfmt filter, scoped by the environment; and no server-side (backend
+	// log) query is issued while a browser facet is active.
+	var mu sync.Mutex
+	var exprs []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Queries []struct {
+				RefID string `json:"refId"`
+				Expr  string `json:"expr"`
+			} `json:"queries"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		mu.Lock()
+		exprs = append(exprs, req.Queries[0].Expr)
+		mu.Unlock()
+		writeMock(w, map[string]any{"results": map[string]any{req.Queries[0].RefID: map[string]any{}}})
+	}))
+	defer srv.Close()
+	app := &App{otelCfg: otelconfig.Default()}
+	ds := queries.NewDsQueryClient(srv.URL, "")
+
+	app.queryIssues(context.Background(), ds, "loki-uid", "my-app", "prod",
+		time.Unix(0, 0), time.Unix(3600, 0),
+		browserFacets{Version: "1.2.0", Browser: "Chrome", Page: "https://tms-min-side.nav.no/"})
+
+	mu.Lock()
+	defer mu.Unlock()
+	find := func(sub string) string {
+		for _, e := range exprs {
+			if strings.Contains(e, sub) {
+				return e
+			}
+		}
+		t.Fatalf("no query containing %q in %v", sub, exprs)
+		return ""
+	}
+
+	// Facet-value discovery shapes (capped at 15, one per facet field).
+	for _, want := range []string{
+		`topk(15, sum by (app_version)`,
+		`topk(15, sum by (browser_name)`,
+		`topk(15, sum by (page_url)`,
+	} {
+		find(want)
+	}
+
+	// The faceted browser count query carries every active facet filter and the
+	// environment scope.
+	countExpr := find(`sum by (hash, type, value)`)
+	for _, want := range []string{
+		`app_version="1.2.0"`,
+		`browser_name="Chrome"`,
+		`page_url="https://tms-min-side.nav.no/"`,
+		`k8s_cluster_name="prod"`,
+	} {
+		if !strings.Contains(countExpr, want) {
+			t.Errorf("faceted count query missing %q:\n%s", want, countExpr)
+		}
+	}
+
+	// No backend-log (server-side) query while a browser facet is active.
+	for _, e := range exprs {
+		if strings.Contains(e, "exception_type") || strings.Contains(e, "sum(count_over_time(") {
+			t.Errorf("server-side query issued despite active browser facet:\n%s", e)
 		}
 	}
 }

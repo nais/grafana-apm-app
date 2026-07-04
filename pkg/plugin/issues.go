@@ -81,6 +81,40 @@ type IssueSources struct {
 	ServerLogs bool `json:"serverLogs"`
 }
 
+// issueFacetLimit caps each facet's value list. Bounds the topk series so
+// discovery stays cheap, and keeps the UI dropdowns within the cognitive-load
+// budget (design-philosophy.md).
+const issueFacetLimit = 15
+
+// browserFacets are the optional /issues query params that scope the
+// browser-source aggregation. They map to Faro logfmt fields on exception
+// lines (app_version / browser_name / page_url). Values arrive pre-sanitized
+// via queries.MustSanitizeLabel — an unsafe value sanitizes to "" and is
+// simply ignored, never interpolated.
+type browserFacets struct {
+	Version string
+	Browser string
+	Page    string
+}
+
+func (f browserFacets) active() bool {
+	return f.Version != "" || f.Browser != "" || f.Page != ""
+}
+
+// IssueFacetValue is one discovered facet value with its occurrence count.
+type IssueFacetValue struct {
+	Value string  `json:"value"`
+	Count float64 `json:"count"`
+}
+
+// IssueFacets are the discoverable browser-facet values (top issueFacetLimit by
+// occurrence) used to populate the facet dropdowns.
+type IssueFacets struct {
+	Versions []IssueFacetValue `json:"versions"`
+	Browsers []IssueFacetValue `json:"browsers"`
+	TopPages []IssueFacetValue `json:"topPages"`
+}
+
 // IssuesResponse is the /issues payload: browser + server issue groups
 // merged into one list sorted by occurrence count.
 type IssuesResponse struct {
@@ -91,6 +125,12 @@ type IssuesResponse struct {
 	// browser-side aggregation (see ExceptionGroupsResponse).
 	SessionsWindowSeconds int  `json:"sessionsWindowSeconds,omitempty"`
 	SessionsUnavailable   bool `json:"sessionsUnavailable,omitempty"`
+	// Facets are the discoverable browser-facet values for narrowing the list
+	// (nil when the Faro side is unavailable).
+	Facets *IssueFacets `json:"facets,omitempty"`
+	// FacetedSource is "browser" when a browser facet is active — the list is
+	// then scoped to browser telemetry and server issues are excluded.
+	FacetedSource string `json:"facetedSource,omitempty"`
 	// Unavailable is set when Loki is unconfigured or both sides failed.
 	Unavailable bool `json:"unavailable,omitempty"`
 }
@@ -110,6 +150,11 @@ func (a *App) handleIssues(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	from, to := parseTimeRange(req)
+	facets := browserFacets{
+		Version: parseFacetParam(req, "version"),
+		Browser: parseFacetParam(req, "browser"),
+		Page:    parseFacetParam(req, "page"),
+	}
 
 	lokiUID := a.settings.LogsDataSource.Resolve(env).UID
 	if lokiUID == "" {
@@ -118,26 +163,50 @@ func (a *App) handleIssues(w http.ResponseWriter, req *http.Request) {
 	}
 
 	orgID := req.Header.Get("X-Grafana-Org-Id")
-	ck := cacheKey("issues", orgID, namespace, service, env, roundedUnix(from), roundedUnix(to))
+	ck := cacheKey("issues", orgID, namespace, service, env, roundedUnix(from), roundedUnix(to),
+		facets.Version, facets.Browser, facets.Page)
 	dsClient := queries.NewDsQueryClient(a.grafanaURL, a.resolveServiceToken(ctx)).WithAuthHeaders(req.Header)
 	a.writeCached(w, ck, "querying issues failed", func() (any, error) {
-		return a.queryIssues(ctx, dsClient, lokiUID, service, env, from, to), nil
+		return a.queryIssues(ctx, dsClient, lokiUID, service, env, from, to, facets), nil
 	})
+}
+
+// parseFacetParam reads an optional facet query param and guards it with the
+// shared label sanitizer: an unsafe value becomes "" (facet ignored) so no
+// unsanitized text is ever interpolated into a LogQL expression.
+func parseFacetParam(req *http.Request, name string) string {
+	return queries.MustSanitizeLabel(strings.TrimSpace(req.URL.Query().Get(name)))
 }
 
 // queryIssues fans out to the browser (Faro) and server (backend logs)
 // aggregations concurrently and merges the results. One side erroring never
 // fails the endpoint — the other side's issues are still returned and the
 // sources flags say what happened.
-func (a *App) queryIssues(ctx context.Context, ds *queries.DsQueryClient, lokiUID, service, env string, from, to time.Time) IssuesResponse {
+func (a *App) queryIssues(ctx context.Context, ds *queries.DsQueryClient, lokiUID, service, env string, from, to time.Time, facets browserFacets) IssuesResponse {
 	var (
-		wg       sync.WaitGroup
-		browser  ExceptionGroupsResponse
-		server   []Issue
-		serverOK bool
+		wg        sync.WaitGroup
+		browser   ExceptionGroupsResponse
+		server    []Issue
+		serverOK  bool
+		facetVals *IssueFacets
 	)
-	wg.Go(func() { browser = a.queryExceptionGroups(ctx, ds, lokiUID, service, env, from, to) })
-	wg.Go(func() { server, serverOK = a.queryServerExceptionGroups(ctx, ds, lokiUID, service, env, from, to) })
+	faceted := facets.active()
+	// Facet-value discovery always runs (cheap topk queries) so the UI can
+	// populate the facet dropdowns even before any facet is picked.
+	wg.Go(func() { facetVals = a.queryIssueFacets(ctx, ds, lokiUID, service, env, from, to) })
+	// A browser facet scopes the list to Faro telemetry (facet fields are Faro
+	// logfmt fields), so the server side is skipped — its counts can't be
+	// narrowed by a browser facet and would misrepresent the filtered view.
+	wg.Go(func() {
+		if faceted {
+			browser = a.queryBrowserExceptionGroupsFaceted(ctx, ds, lokiUID, service, env, from, to, facets)
+		} else {
+			browser = a.queryExceptionGroups(ctx, ds, lokiUID, service, env, from, to)
+		}
+	})
+	if !faceted {
+		wg.Go(func() { server, serverOK = a.queryServerExceptionGroups(ctx, ds, lokiUID, service, env, from, to) })
+	}
 	wg.Wait()
 
 	issues := make([]Issue, 0, len(browser.Groups)+len(server))
@@ -159,17 +228,199 @@ func (a *App) queryIssues(ctx context.Context, ds *queries.DsQueryClient, lokiUI
 		issues = issues[:maxGroups]
 	}
 
-	return IssuesResponse{
+	resp := IssuesResponse{
 		FingerprintVersion: fingerprint.Version,
 		Sources: IssueSources{
 			Browser:    !browser.Unavailable,
 			ServerLogs: serverOK,
 		},
 		Issues:                issues,
+		Facets:                facetVals,
 		SessionsWindowSeconds: browser.SessionsWindowSeconds,
 		SessionsUnavailable:   browser.SessionsUnavailable,
 		Unavailable:           browser.Unavailable && !serverOK,
 	}
+	if faceted {
+		resp.FacetedSource = issueSourceBrowser
+	}
+	return resp
+}
+
+// browserFacetFilter builds the logfmt label-filter fragment injected into the
+// faceted browser count/sessions queries — each active facet becomes a
+// ` | field="value"` filter. Values are already sanitized by the handler.
+func (a *App) browserFacetFilter(f browserFacets) string {
+	fl := a.otelCfg.FaroLoki
+	var b strings.Builder
+	if f.Version != "" {
+		fmt.Fprintf(&b, ` | %s="%s"`, fl.AppVersion, f.Version)
+	}
+	if f.Browser != "" {
+		fmt.Fprintf(&b, ` | %s="%s"`, fl.BrowserName, f.Browser)
+	}
+	if f.Page != "" {
+		fmt.Fprintf(&b, ` | %s="%s"`, fl.PageURL, f.Page)
+	}
+	return b.String()
+}
+
+// queryBrowserExceptionGroupsFaceted is the facet-scoped counterpart of
+// queryExceptionGroups (exceptions.go): the same fingerprint aggregation over
+// the Faro exception stream, with app_version / browser_name / page_url logfmt
+// filters injected. It lives here so the common unfaceted path (and its
+// sessions-fallback ladder) stays untouched; the faceted path uses a single
+// sessions window since facet filtering cuts the (hash × session) cardinality
+// that makes the ladder necessary.
+func (a *App) queryBrowserExceptionGroupsFaceted(ctx context.Context, ds *queries.DsQueryClient, lokiUID, service, env string, from, to time.Time, facets browserFacets) ExceptionGroupsResponse {
+	logger := log.DefaultLogger.With("handler", "issues-facets")
+	fl := a.otelCfg.FaroLoki
+	stream := a.otelCfg.LokiStreamSelector(service, fl.KindException, env)
+	window := lokiWindow(from, to)
+	filter := a.browserFacetFilter(facets)
+
+	countExpr := fmt.Sprintf(
+		`sum by (%[1]s, %[2]s, value) (count_over_time(%[3]s | logfmt | %[1]s!=""%[5]s | keep %[1]s, %[2]s, value %[4]s))`,
+		fl.Hash, fl.TypeField, stream, window, filter,
+	)
+	sessExpr := fmt.Sprintf(
+		`count by (%[1]s) (count_over_time(%[2]s | logfmt | %[1]s!=""%[5]s | %[3]s!="" | keep %[1]s, %[3]s %[4]s))`,
+		fl.Hash, stream, fl.SessionID, window, filter,
+	)
+
+	var (
+		wg                sync.WaitGroup
+		countRes, sessRes []queries.PromResult
+		countErr, sessErr error
+	)
+	wg.Go(func() { countRes, countErr = ds.InstantQuery(ctx, lokiUID, countExpr, to) })
+	wg.Go(func() { sessRes, sessErr = ds.InstantQuery(ctx, lokiUID, sessExpr, to) })
+	wg.Wait()
+	if countErr != nil {
+		logger.Warn("Faceted exception count query failed", "error", countErr)
+		return ExceptionGroupsResponse{FingerprintVersion: fingerprint.Version, Groups: []ExceptionGroup{}, Unavailable: true}
+	}
+	if sessErr != nil {
+		logger.Warn("Faceted exception sessions query failed", "error", sessErr)
+	}
+
+	sessionsByHash := make(map[string]float64, len(sessRes))
+	for _, r := range sessRes {
+		sessionsByHash[r.Metric[fl.Hash]] += r.Value.Float()
+	}
+
+	groups := make(map[string]*ExceptionGroup)
+	seenHash := make(map[string]map[string]bool) // fingerprint -> member hash set
+	seenType := make(map[string]map[string]bool) // fingerprint -> type set
+	for _, r := range countRes {
+		hash := r.Metric[fl.Hash]
+		exType := r.Metric[fl.TypeField]
+		value := r.Metric["value"]
+		fp := fingerprint.Compute(fingerprint.Event{Type: exType, Value: value, UpstreamHash: hash})
+
+		g, ok := groups[fp.Value]
+		if !ok {
+			g = &ExceptionGroup{Fingerprint: fp.Value, Tier: int(fp.Tier), Title: fp.Title}
+			groups[fp.Value] = g
+			seenHash[fp.Value] = make(map[string]bool)
+			seenType[fp.Value] = make(map[string]bool)
+		}
+		g.Count += r.Value.Float()
+		if hash != "" && !seenHash[fp.Value][hash] {
+			seenHash[fp.Value][hash] = true
+			if len(g.MemberHashes) < maxMemberHashes {
+				g.MemberHashes = append(g.MemberHashes, hash)
+			} else {
+				g.Truncated = true
+			}
+			g.Sessions += sessionsByHash[hash]
+		}
+		if exType != "" && !seenType[fp.Value][exType] {
+			seenType[fp.Value][exType] = true
+			g.Types = append(g.Types, exType)
+		}
+	}
+
+	out := make([]ExceptionGroup, 0, len(groups))
+	for _, g := range groups {
+		sort.Strings(g.Types)
+		out = append(out, *g)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Fingerprint < out[j].Fingerprint
+	})
+	if len(out) > maxGroups {
+		out = out[:maxGroups]
+	}
+
+	return ExceptionGroupsResponse{
+		FingerprintVersion:  fingerprint.Version,
+		Groups:              out,
+		SessionsUnavailable: sessErr != nil,
+	}
+}
+
+// queryIssueFacets discovers the top facet values on the Faro exception stream
+// via cheap topk(sum by (field)) queries — one per facet, capped at
+// issueFacetLimit. Returns nil only when every facet query fails; partial
+// failure yields the facets that succeeded (the rest empty).
+func (a *App) queryIssueFacets(ctx context.Context, ds *queries.DsQueryClient, lokiUID, service, env string, from, to time.Time) *IssueFacets {
+	logger := log.DefaultLogger.With("handler", "issue-facets")
+	fl := a.otelCfg.FaroLoki
+	stream := a.otelCfg.LokiStreamSelector(service, fl.KindException, env)
+	window := lokiWindow(from, to)
+
+	expr := func(field string) string {
+		return fmt.Sprintf(
+			`topk(%[1]d, sum by (%[2]s) (count_over_time(%[3]s | logfmt | %[2]s!="" | keep %[2]s %[4]s)))`,
+			issueFacetLimit, field, stream, window,
+		)
+	}
+
+	var (
+		wg                       sync.WaitGroup
+		verRes, browRes, pageRes []queries.PromResult
+		verErr, browErr, pageErr error
+	)
+	wg.Go(func() { verRes, verErr = ds.InstantQuery(ctx, lokiUID, expr(fl.AppVersion), to) })
+	wg.Go(func() { browRes, browErr = ds.InstantQuery(ctx, lokiUID, expr(fl.BrowserName), to) })
+	wg.Go(func() { pageRes, pageErr = ds.InstantQuery(ctx, lokiUID, expr(fl.PageURL), to) })
+	wg.Wait()
+
+	if verErr != nil && browErr != nil && pageErr != nil {
+		logger.Warn("All issue facet queries failed", "versionErr", verErr, "browserErr", browErr, "pageErr", pageErr)
+		return nil
+	}
+	return &IssueFacets{
+		Versions: facetValues(verRes, fl.AppVersion),
+		Browsers: facetValues(browRes, fl.BrowserName),
+		TopPages: facetValues(pageRes, fl.PageURL),
+	}
+}
+
+// facetValues folds instant-vector rows into a count-sorted, capped facet list,
+// dropping empty values.
+func facetValues(res []queries.PromResult, label string) []IssueFacetValue {
+	out := make([]IssueFacetValue, 0, len(res))
+	for _, r := range res {
+		v := r.Metric[label]
+		if v == "" {
+			continue
+		}
+		out = append(out, IssueFacetValue{Value: v, Count: r.Value.Float()})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Value < out[j].Value
+	})
+	if len(out) > issueFacetLimit {
+		out = out[:issueFacetLimit]
+	}
+	return out
 }
 
 // serverLogSelector builds the stream selector for a service's own backend

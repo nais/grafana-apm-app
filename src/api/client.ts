@@ -519,6 +519,26 @@ export interface UnifiedIssue {
   impact?: IssueImpact;
 }
 
+/** One discovered facet value with its occurrence count in range. */
+export interface IssueFacetValue {
+  value: string;
+  count: number;
+}
+
+/** Discoverable browser-facet values (top 15 by occurrence) for narrowing the list. */
+export interface IssueFacets {
+  versions: IssueFacetValue[];
+  browsers: IssueFacetValue[];
+  topPages: IssueFacetValue[];
+}
+
+/** Active browser facets that scope the issues list to Faro telemetry. */
+export interface IssueFacetSelection {
+  version?: string;
+  browser?: string;
+  page?: string;
+}
+
 export interface IssuesResponse {
   fingerprintVersion: string;
   /** Which sources contributed data (probe results). */
@@ -529,6 +549,10 @@ export interface IssuesResponse {
   sessionsWindowSeconds?: number;
   /** Session counts could not be computed at all — render a dash, not 0. */
   sessionsUnavailable?: boolean;
+  /** Discoverable facet values for narrowing (absent when Faro is unavailable). */
+  facets?: IssueFacets;
+  /** 'browser' when a facet is active: the list is scoped to browser telemetry. */
+  facetedSource?: IssueSource;
 }
 
 export async function getIssues(
@@ -536,11 +560,21 @@ export async function getIssues(
   service: string,
   from: number,
   to: number,
-  environment?: string
+  environment?: string,
+  facets?: IssueFacetSelection
 ): Promise<IssuesResponse> {
   const params: Record<string, string> = { ...timeParams(from, to) };
   if (environment) {
     params.environment = environment;
+  }
+  if (facets?.version) {
+    params.version = facets.version;
+  }
+  if (facets?.browser) {
+    params.browser = facets.browser;
+  }
+  if (facets?.page) {
+    params.page = facets.page;
   }
   return fetchResource<IssuesResponse>(`/services/${nsParam(namespace)}/${encodeURIComponent(service)}/issues`, params);
 }

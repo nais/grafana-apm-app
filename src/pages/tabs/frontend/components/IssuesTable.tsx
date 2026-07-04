@@ -1,6 +1,17 @@
 import React, { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { getAppEvents } from '@grafana/runtime';
-import { Badge, Button, Icon, IconButton, Pagination, RadioButtonGroup, Tooltip, useStyles2 } from '@grafana/ui';
+import {
+  Badge,
+  Button,
+  Combobox,
+  Icon,
+  IconButton,
+  Pagination,
+  RadioButtonGroup,
+  Tooltip,
+  useStyles2,
+} from '@grafana/ui';
 import { AppEvents, GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import {
@@ -8,6 +19,7 @@ import {
   getTriageStates,
   getFrontendVersions,
   postTriageAction,
+  IssueFacetValue,
   IssueSource,
   TriageState,
   UnifiedIssue,
@@ -61,11 +73,26 @@ export function IssuesTable({ namespace, service, environment, compact = false }
   const styles = useStyles2(getStyles);
   const { fromMs, toMs, from, to } = useTimeRange();
   const updateParams = useUrlParams();
+  const [searchParams] = useSearchParams();
   const ds = usePluginDatasources(environment || undefined);
 
+  // Faceted search (M6). Facets live in the URL so links are shareable; they
+  // apply in full mode only — compact mode is a fixed browser-only preview.
+  const facetVersion = compact ? '' : (searchParams.get('issueVersion') ?? '');
+  const facetBrowser = compact ? '' : (searchParams.get('issueBrowser') ?? '');
+  const facetPage = compact ? '' : (searchParams.get('issuePage') ?? '');
+  const facetsActive = !!(facetVersion || facetBrowser || facetPage);
+  const facetSelection = useMemo(
+    () =>
+      compact
+        ? undefined
+        : { version: facetVersion || undefined, browser: facetBrowser || undefined, page: facetPage || undefined },
+    [compact, facetVersion, facetBrowser, facetPage]
+  );
+
   const { data, loading, error } = useFetch(
-    () => getIssues(namespace, service, fromMs, toMs, environment),
-    [namespace, service, fromMs, toMs, environment]
+    () => getIssues(namespace, service, fromMs, toMs, environment, facetSelection),
+    [namespace, service, fromMs, toMs, environment, facetVersion, facetBrowser, facetPage]
   );
   // Triage state and deploy info load non-blocking: the table renders even
   // when either fetch fails (badges/filtering simply degrade).
@@ -81,6 +108,9 @@ export function IssuesTable({ namespace, service, environment, compact = false }
 
   const [filter, setFilter] = useState<StatusFilter>('unresolved');
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>(compact ? 'browser' : 'all');
+  // An active browser facet locks the source to browser (the backend already
+  // scopes the list to Faro telemetry when a facet is set).
+  const effectiveSource: SourceFilter = facetsActive ? 'browser' : sourceFilter;
   const [showMuted, setShowMuted] = useState(false);
   // Optimistic overrides after a POST — avoids refetching the whole table.
   const [overrides, setOverrides] = useState<Record<string, TriageState>>({});
@@ -119,7 +149,7 @@ export function IssuesTable({ namespace, service, environment, compact = false }
     let mutedCount = 0;
     const visible: UnifiedIssue[] = [];
     for (const g of groups) {
-      if (sourceFilter !== 'all' && g.source !== sourceFilter) {
+      if (effectiveSource !== 'all' && g.source !== effectiveSource) {
         continue;
       }
       const st = stateOf(g.fingerprint);
@@ -145,12 +175,31 @@ export function IssuesTable({ namespace, service, environment, compact = false }
     visible.sort((a, b) => Number(isRegressed(b)) - Number(isRegressed(a)));
     return { rows: visible, mutedCount };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groups, triageStates, overrides, mutes, filter, sourceFilter, showMuted, latestDeployMs]);
+  }, [groups, triageStates, overrides, mutes, filter, effectiveSource, showMuted, latestDeployMs]);
 
   const [rawPage, setPage] = useState(1);
   const totalPages = compact ? 1 : Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const page = compact ? 1 : Math.min(rawPage, totalPages);
   const pageGroups = compact ? rows.slice(0, COMPACT_ROW_LIMIT) : rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  const facets = data?.facets;
+  const versionOptions = useMemo(
+    () => buildFacetOptions(facets?.versions, facetVersion, 'All versions'),
+    [facets, facetVersion]
+  );
+  const browserOptions = useMemo(
+    () => buildFacetOptions(facets?.browsers, facetBrowser, 'All browsers'),
+    [facets, facetBrowser]
+  );
+  const pageOptions = useMemo(() => buildFacetOptions(facets?.topPages, facetPage, 'All pages'), [facets, facetPage]);
+  const hasFacetData = !!(facets && (facets.versions.length || facets.browsers.length || facets.topPages.length));
+  const showFacetBar = !compact && (hasFacetData || facetsActive);
+  // One facet change = one atomic URL transaction; reset to page 1 so the
+  // narrowed result set isn't stranded on a now-empty page.
+  const setFacet = (key: 'issueVersion' | 'issueBrowser' | 'issuePage', value: string | null) => {
+    updateParams({ [key]: value || null });
+    setPage(1);
+  };
 
   return (
     <div className={styles.container}>
@@ -158,11 +207,80 @@ export function IssuesTable({ namespace, service, environment, compact = false }
         <h6 className={styles.title}>Top Exceptions</h6>
         <span className={styles.subtitle}>Frontend and backend errors grouped by stable fingerprint</span>
         <div className={styles.headerSpacer} />
-        {!compact && (
-          <RadioButtonGroup size="sm" options={SOURCE_OPTIONS} value={sourceFilter} onChange={setSourceFilter} />
-        )}
+        {!compact &&
+          (facetsActive ? (
+            <Tooltip content="A facet filter scopes issues to browser telemetry. Clear all filters to see server issues.">
+              <div className={styles.lockedSource}>
+                <RadioButtonGroup
+                  size="sm"
+                  options={SOURCE_OPTIONS}
+                  value="browser"
+                  onChange={() => undefined}
+                  disabled
+                />
+              </div>
+            </Tooltip>
+          ) : (
+            <RadioButtonGroup size="sm" options={SOURCE_OPTIONS} value={sourceFilter} onChange={setSourceFilter} />
+          ))}
         <RadioButtonGroup size="sm" options={FILTER_OPTIONS} value={filter} onChange={setFilter} />
       </div>
+      {showFacetBar && (
+        <div className={styles.facetBar} aria-label="Issue facets">
+          <Icon name="filter" size="sm" className={styles.facetIcon} />
+          {(versionOptions.length > 1 || facetVersion) && (
+            <Combobox
+              aria-label="Filter by version"
+              options={versionOptions}
+              value={facetVersion}
+              onChange={(o) => setFacet('issueVersion', o?.value ?? null)}
+              isClearable
+              width={24}
+              placeholder="Version"
+            />
+          )}
+          {(browserOptions.length > 1 || facetBrowser) && (
+            <Combobox
+              aria-label="Filter by browser"
+              options={browserOptions}
+              value={facetBrowser}
+              onChange={(o) => setFacet('issueBrowser', o?.value ?? null)}
+              isClearable
+              width={22}
+              placeholder="Browser"
+            />
+          )}
+          {(pageOptions.length > 1 || facetPage) && (
+            <Combobox
+              aria-label="Filter by page"
+              options={pageOptions}
+              value={facetPage}
+              onChange={(o) => setFacet('issuePage', o?.value ?? null)}
+              isClearable
+              width={32}
+              placeholder="Page"
+            />
+          )}
+          {facetsActive && (
+            <div className={styles.chips}>
+              {facetVersion && (
+                <FacetChip label={`Version: ${facetVersion}`} onRemove={() => setFacet('issueVersion', null)} />
+              )}
+              {facetBrowser && (
+                <FacetChip label={`Browser: ${facetBrowser}`} onRemove={() => setFacet('issueBrowser', null)} />
+              )}
+              {facetPage && <FacetChip label={`Page: ${facetPage}`} onRemove={() => setFacet('issuePage', null)} />}
+              <button
+                type="button"
+                className={styles.clearAll}
+                onClick={() => updateParams({ issueVersion: null, issueBrowser: null, issuePage: null })}
+              >
+                Clear all
+              </button>
+            </div>
+          )}
+        </div>
+      )}
       <DataState
         loading={loading}
         error={error ? 'Failed to load issues' : data?.unavailable ? 'Loki is not available' : null}
@@ -359,6 +477,39 @@ function IssueRow({
   );
 }
 
+/**
+ * Facet dropdown options: an "all" clear entry plus each discovered value with
+ * its occurrence count. The active value is always included even if it fell out
+ * of the top-15, so the current selection is never orphaned.
+ */
+function buildFacetOptions(
+  values: IssueFacetValue[] | undefined,
+  active: string,
+  allLabel: string
+): Array<{ label: string; value: string }> {
+  const opts: Array<{ label: string; value: string }> = [{ label: allLabel, value: '' }];
+  const seen = new Set<string>();
+  for (const v of values ?? []) {
+    opts.push({ label: `${v.value} (${Math.round(v.count)})`, value: v.value });
+    seen.add(v.value);
+  }
+  if (active && !seen.has(active)) {
+    opts.push({ label: active, value: active });
+  }
+  return opts;
+}
+
+/** A removable chip for one active facet. */
+function FacetChip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  const styles = useStyles2(getStyles);
+  return (
+    <span className={styles.chip}>
+      {label}
+      <IconButton name="times" size="sm" tooltip="Remove filter" onClick={onRemove} />
+    </span>
+  );
+}
+
 const getStyles = (theme: GrafanaTheme2) => ({
   container: css`
     background: ${theme.colors.background.primary};
@@ -377,6 +528,47 @@ const getStyles = (theme: GrafanaTheme2) => ({
   `,
   headerSpacer: css`
     flex: 1;
+  `,
+  lockedSource: css`
+    display: inline-flex;
+  `,
+  facetBar: css`
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: ${theme.spacing(1)};
+    padding: ${theme.spacing(0.5, 1, 1)};
+  `,
+  facetIcon: css`
+    color: ${theme.colors.text.secondary};
+  `,
+  chips: css`
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: ${theme.spacing(0.5)};
+  `,
+  chip: css`
+    display: inline-flex;
+    align-items: center;
+    gap: ${theme.spacing(0.5)};
+    padding: ${theme.spacing(0.25, 0.5, 0.25, 1)};
+    background: ${theme.colors.background.secondary};
+    border: 1px solid ${theme.colors.border.weak};
+    border-radius: ${theme.shape.radius.pill};
+    font-size: ${theme.typography.bodySmall.fontSize};
+    color: ${theme.colors.text.secondary};
+  `,
+  clearAll: css`
+    background: none;
+    border: none;
+    color: ${theme.colors.text.link};
+    font-size: ${theme.typography.bodySmall.fontSize};
+    cursor: pointer;
+    padding: ${theme.spacing(0.5)};
+    &:hover {
+      text-decoration: underline;
+    }
   `,
   title: css`
     margin: 0;

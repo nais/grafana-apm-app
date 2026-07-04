@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { IssuesTable } from './IssuesTable';
 import * as client from '../../../../api/client';
@@ -11,6 +11,35 @@ jest.mock('../../../../api/client', () => ({
   getFrontendVersions: jest.fn().mockResolvedValue({ versions: [] }),
   postTriageAction: jest.fn(),
 }));
+
+// Grafana's Combobox needs canvas measurement + virtualization to open its
+// dropdown, which jsdom can't drive. Swap in a plain <select> so tests can
+// exercise the facet-selection wiring with fireEvent.change (same approach as
+// RefreshControl.test).
+jest.mock('@grafana/ui', () => {
+  const actual = jest.requireActual('@grafana/ui');
+  return {
+    ...actual,
+    Combobox: (props: {
+      'aria-label'?: string;
+      options: Array<{ label: string; value: string }>;
+      value: string;
+      onChange: (v: { value: string } | null) => void;
+    }) => (
+      <select
+        aria-label={props['aria-label']}
+        value={props.value}
+        onChange={(e) => props.onChange(e.currentTarget.value ? { value: e.currentTarget.value } : null)}
+      >
+        {props.options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    ),
+  };
+});
 
 // The user-storage wrapper needs Grafana's PluginContext — stub it with an
 // in-memory mute set for component tests.
@@ -218,6 +247,122 @@ describe('IssuesTable unified sources', () => {
     const params = new URLSearchParams(screen.getByTestId('location-search').textContent ?? '');
     expect(params.get('issueId')).toBe('v1:0000000000000000');
     expect(params.get('tab')).toBeNull();
+  });
+});
+
+describe('IssuesTable faceted search (M6)', () => {
+  const getIssues = client.getIssues as jest.Mock;
+
+  function mockIssuesWithFacets() {
+    return {
+      ...mockIssues(2),
+      facets: {
+        versions: [
+          { value: '1.3.0', count: 120 },
+          { value: '1.2.0', count: 50 },
+        ],
+        browsers: [
+          { value: 'Chrome', count: 200 },
+          { value: 'Safari', count: 40 },
+        ],
+        topPages: [{ value: 'https://tms-min-side.nav.no/', count: 77 }],
+      },
+    };
+  }
+
+  it('renders facet dropdowns populated with discovered values and counts', async () => {
+    getIssues.mockResolvedValue(mockIssuesWithFacets());
+    renderTable();
+
+    await waitFor(() => expect(screen.getByText('Error: issue number 0')).toBeInTheDocument());
+
+    const versionSelect = screen.getByLabelText('Filter by version');
+    expect(within(versionSelect).getByText('1.3.0 (120)')).toBeInTheDocument();
+    expect(within(versionSelect).getByText('1.2.0 (50)')).toBeInTheDocument();
+
+    const browserSelect = screen.getByLabelText('Filter by browser');
+    expect(within(browserSelect).getByText('Chrome (200)')).toBeInTheDocument();
+
+    const pageSelect = screen.getByLabelText('Filter by page');
+    expect(within(pageSelect).getByText('https://tms-min-side.nav.no/ (77)')).toBeInTheDocument();
+  });
+
+  it('picking a version facet writes the URL param and refetches with the facet', async () => {
+    getIssues.mockResolvedValue(mockIssuesWithFacets());
+    renderTable();
+
+    await waitFor(() => expect(screen.getByText('Error: issue number 0')).toBeInTheDocument());
+    getIssues.mockClear();
+
+    fireEvent.change(screen.getByLabelText('Filter by version'), { target: { value: '1.3.0' } });
+
+    await waitFor(() => {
+      const params = new URLSearchParams(screen.getByTestId('location-search').textContent ?? '');
+      expect(params.get('issueVersion')).toBe('1.3.0');
+    });
+    await waitFor(() =>
+      expect(getIssues).toHaveBeenCalledWith(
+        'ns',
+        'svc',
+        expect.any(Number),
+        expect.any(Number),
+        undefined,
+        expect.objectContaining({ version: '1.3.0' })
+      )
+    );
+  });
+
+  it('renders a removable chip for an active facet and clears it on remove', async () => {
+    getIssues.mockResolvedValue(mockIssuesWithFacets());
+    render(
+      <MemoryRouter initialEntries={['/?issueVersion=1.3.0']}>
+        <IssuesTable namespace="ns" service="svc" />
+        <LocationSpy />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(screen.getByText('Error: issue number 0')).toBeInTheDocument());
+    expect(screen.getByText('Version: 1.3.0')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove filter' }));
+
+    await waitFor(() => {
+      const params = new URLSearchParams(screen.getByTestId('location-search').textContent ?? '');
+      expect(params.get('issueVersion')).toBeNull();
+    });
+    expect(screen.queryByText('Version: 1.3.0')).not.toBeInTheDocument();
+  });
+
+  it('locks the source filter to browser (disabled) while a facet is active', async () => {
+    getIssues.mockResolvedValue(mockIssuesWithFacets());
+    render(
+      <MemoryRouter initialEntries={['/?issueBrowser=Chrome']}>
+        <IssuesTable namespace="ns" service="svc" />
+        <LocationSpy />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(screen.getByText('Error: issue number 0')).toBeInTheDocument());
+    expect(screen.getByRole('radio', { name: 'Server' })).toBeDisabled();
+    expect(screen.getByRole('radio', { name: 'Browser' })).toBeDisabled();
+  });
+
+  it('hides the facet bar entirely in compact mode', async () => {
+    getIssues.mockResolvedValue(mockIssuesWithFacets());
+    renderTable({ compact: true });
+
+    await waitFor(() => expect(screen.getByText('Error: issue number 0')).toBeInTheDocument());
+    expect(screen.queryByLabelText('Filter by version')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Filter by browser')).not.toBeInTheDocument();
+    // Compact mode never sends facet params to the backend.
+    expect(getIssues).toHaveBeenLastCalledWith(
+      'ns',
+      'svc',
+      expect.any(Number),
+      expect.any(Number),
+      undefined,
+      undefined
+    );
   });
 });
 
