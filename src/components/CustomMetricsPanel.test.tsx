@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { CustomMetricsPanel } from './CustomMetricsPanel';
 import * as client from '../api/client';
@@ -60,10 +60,30 @@ describe('CustomMetricsPanel', () => {
     getCustomMetrics.mockReset();
   });
 
+  it('defaults to collapsed — the table stays hidden until the header is clicked', async () => {
+    getCustomMetrics.mockResolvedValue({ metrics: [COUNTER, HISTOGRAM], truncated: false });
+    renderPanel();
+
+    // The count-bearing header renders eagerly (the fetch backs the count),
+    // but the table underneath does not.
+    await waitFor(() => expect(screen.getByText('Custom metrics (2)')).toBeInTheDocument());
+    expect(screen.queryByText('orders_processed_total')).not.toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Custom metrics (2)'));
+    await waitFor(() => expect(screen.getByText('orders_processed_total')).toBeInTheDocument());
+
+    // Clicking again collapses it back.
+    fireEvent.click(screen.getByText('Custom metrics (2)'));
+    expect(screen.queryByText('orders_processed_total')).not.toBeInTheDocument();
+  });
+
   it('renders a row per metric with type badge, series count, and Explore link', async () => {
     getCustomMetrics.mockResolvedValue({ metrics: [COUNTER, HISTOGRAM], truncated: false });
     renderPanel();
 
+    await waitFor(() => expect(screen.getByText('Custom metrics (2)')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Custom metrics (2)'));
     await waitFor(() => expect(screen.getByText('orders_processed_total')).toBeInTheDocument());
 
     expect(screen.getByText('Custom metrics (2)')).toBeInTheDocument();
@@ -97,6 +117,8 @@ describe('CustomMetricsPanel', () => {
     getCustomMetrics.mockResolvedValue({ metrics: [CHATTY_GAUGE], truncated: false });
     renderPanel();
 
+    await waitFor(() => expect(screen.getByText('Custom metrics (1)')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Custom metrics (1)'));
     await waitFor(() => expect(screen.getByText('queue_depth')).toBeInTheDocument());
     expect(screen.getByText(/high cardinality — not auto-charted/)).toBeInTheDocument();
     // Gauge chart still deep-links to Explore with a sum query.
@@ -108,13 +130,16 @@ describe('CustomMetricsPanel', () => {
     getCustomMetrics.mockResolvedValue({ metrics: [COUNTER], truncated: true });
     renderPanel();
 
+    await waitFor(() => expect(screen.getByText('Custom metrics (1)')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Custom metrics (1)'));
     await waitFor(() => expect(screen.getByText(/Showing the first 1 metric families/)).toBeInTheDocument());
   });
 
-  it('surfaces fetch errors', async () => {
+  it('surfaces fetch errors even while collapsed', async () => {
     getCustomMetrics.mockRejectedValue(new Error('boom'));
     renderPanel();
 
+    // Errors are actionable — they must not be hidden behind the default collapse.
     await waitFor(() => expect(screen.getByText('Failed to load custom metrics')).toBeInTheDocument());
   });
 });

@@ -12,6 +12,7 @@ import { ServiceGraph, ServiceGraphNode, ServiceGraphEdge } from '../../componen
 import { CopyMermaidButton } from '../../components/CopyMermaidButton';
 import { groupDependencies } from '../../utils/depGroups';
 import { HealthSummarySection } from '../../components/HealthSummary/HealthSummarySection';
+import { HealthHeaderRow } from './overview/HealthHeaderRow';
 
 const MAX_OVERVIEW_OPS = 5;
 const DEPTH_OPTIONS = [
@@ -100,7 +101,14 @@ export function OverviewTab({
 
   return (
     <>
-      {/* RED panels + Duration distribution (includes time picker) */}
+      {/* Instant health signal (#35): RED trio as big numbers + delta vs
+          previous period, so "is this OK right now?" doesn't require reading
+          the timeseries below. */}
+      <HealthHeaderRow health={health ?? null} loading={healthLoading ?? false} />
+
+      {/* RED panels + Duration distribution (includes time picker). Deploy
+          markers (#64) are already layered onto every child timeseries panel
+          via buildServiceScene's `$data: buildDeployAnnotationsLayer(...)`. */}
       <div style={{ marginBottom: 16 }}>
         {scene ? <scene.Component key={sceneKey} model={scene} /> : <LoadingPlaceholder text="Loading metrics..." />}
       </div>
@@ -262,7 +270,10 @@ export function OverviewTab({
         </div>
       )}
 
-      {/* Custom application metrics (#68 Phase 0) — auto-discovered, hidden when none */}
+      {/* Custom application metrics (#68 Phase 0) — auto-discovered, hidden when
+          none. Collapsible and default-collapsed with the discovered-metric
+          count in its own header (IA review P9) — the panel manages that
+          state itself since it also owns the fetch that produces the count. */}
       <CustomMetricsPanel namespace={namespace} service={service} environment={environment} />
     </>
   );

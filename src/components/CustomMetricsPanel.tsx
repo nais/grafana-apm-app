@@ -1,5 +1,5 @@
-import React from 'react';
-import { Badge, LinkButton, useStyles2 } from '@grafana/ui';
+import React, { useState } from 'react';
+import { Badge, Icon, LinkButton, useStyles2 } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { CustomMetric, getCustomMetrics } from '../api/client';
@@ -32,11 +32,19 @@ const TYPE_BADGE_COLOR: Record<string, BadgeColor> = {
  * cardinality guard — each row deep-linking to Explore with an auto-generated
  * PromQL query by metric type. Auto-charted Scenes panels are the Phase 0
  * follow-up; this section renders nothing when no custom metrics exist.
+ *
+ * Collapsible, default-collapsed, with the discovered-metric count in its
+ * own header (IA review P9): the Overview budget is RED-first, so this
+ * unbounded auto-discovered list shouldn't compete for attention until
+ * curated (#68 P1). The count still requires the fetch, so that keeps
+ * running unconditionally (existing `useFetch` above/below is unchanged) —
+ * only the table (and any fetch error) stay hidden until expanded.
  */
 export function CustomMetricsPanel({ namespace, service, environment }: CustomMetricsPanelProps) {
   const styles = useStyles2(getStyles);
   const { from, to, fromMs, toMs } = useTimeRange();
   const { metricsUid } = usePluginDatasources(environment);
+  const [collapsed, setCollapsed] = useState(true);
 
   const { data, loading, error } = useFetch(
     () => getCustomMetrics(namespace, service, fromMs, toMs, environment),
@@ -51,42 +59,48 @@ export function CustomMetricsPanel({ namespace, service, environment }: CustomMe
   }
 
   const filter = runtimeFilter(service, namespace);
+  // Errors are actionable feedback, not "the panel" — surface them even
+  // while collapsed instead of silently hiding a failed fetch.
+  const showBody = !collapsed || !!error;
 
   return (
     <div className={styles.container}>
-      <div className={styles.header}>
+      <div className={styles.header} onClick={() => setCollapsed((c) => !c)}>
+        <Icon name={collapsed ? 'angle-right' : 'angle-down'} />
         <h6 className={styles.title}>Custom metrics{metrics.length > 0 ? ` (${metrics.length})` : ''}</h6>
         <span className={styles.subtitle}>Auto-discovered application metrics</span>
       </div>
-      <DataState
-        loading={loading}
-        error={error ? 'Failed to load custom metrics' : null}
-        empty={false}
-        loadingText="Discovering custom metrics…"
-      >
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th>Metric</th>
-              <th>Type</th>
-              <th className={styles.num}>Series</th>
-              <th className={styles.actions}></th>
-            </tr>
-          </thead>
-          <tbody>
-            {metrics.map((m) => (
-              <MetricRow
-                key={m.name}
-                metric={m}
-                exploreUrl={buildMimirExploreUrl(metricsUid, exploreQuery(m, filter), { from, to })}
-              />
-            ))}
-          </tbody>
-        </table>
-        {data?.truncated && (
-          <div className={styles.hint}>Showing the first {metrics.length} metric families — more exist.</div>
-        )}
-      </DataState>
+      {showBody && (
+        <DataState
+          loading={loading}
+          error={error ? 'Failed to load custom metrics' : null}
+          empty={false}
+          loadingText="Discovering custom metrics…"
+        >
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Metric</th>
+                <th>Type</th>
+                <th className={styles.num}>Series</th>
+                <th className={styles.actions}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {metrics.map((m) => (
+                <MetricRow
+                  key={m.name}
+                  metric={m}
+                  exploreUrl={buildMimirExploreUrl(metricsUid, exploreQuery(m, filter), { from, to })}
+                />
+              ))}
+            </tbody>
+          </table>
+          {data?.truncated && (
+            <div className={styles.hint}>Showing the first {metrics.length} metric families — more exist.</div>
+          )}
+        </DataState>
+      )}
     </div>
   );
 }
@@ -148,9 +162,10 @@ const getStyles = (theme: GrafanaTheme2) => ({
   `,
   header: css`
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: ${theme.spacing(1)};
     padding: ${theme.spacing(0.5, 1)};
+    cursor: pointer;
   `,
   title: css`
     margin: 0;
