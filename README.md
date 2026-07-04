@@ -82,9 +82,11 @@ plugin backend, authenticated with a bearer token:
 
 This requires two things in the platform:
 
-1. **A Console API token**, configured on the plugin's Configuration page
-   (`naisApiUrl` + `naisApiToken`, stored as Grafana `secureJsonData`). Both
-   features are gated on it and no-op cleanly when it is absent.
+1. **A Console API URL + token.** Today these are backend settings supplied via
+   Grafana **provisioning** — `jsonData.naisApiUrl` and
+   `secureJsonData.naisApiToken` in the app's provisioning YAML — not the
+   plugin Configuration page (a config-UI field for them is a planned addition).
+   Both features are gated on the token and no-op cleanly when it is absent.
 2. **Network policy (netpol) egress from the Grafana workload** to the nais API
    host. On nais this means an outbound-access rule allowing Grafana to reach
    the Console API endpoint; without it the backend's HTTPS calls time out and
@@ -114,11 +116,12 @@ Then enable the plugin under **Administration > Plugins** in Grafana.
 
 1. Go to the plugin's **Configuration** page
 2. Enter data source UIDs for Mimir, Tempo, and Loki
-3. _(Optional)_ Enter the **nais API URL** and **token** to enable deploy/release
-   tracking and the scorecard ownership card — this also requires netpol egress
-   from Grafana to the nais API host (see [Platform dependencies](#platform-dependencies))
-4. Click **Auto-detect capabilities** to verify connectivity and detect metric names
-5. Save
+3. Click **Auto-detect capabilities** to verify connectivity and detect metric names
+4. Save
+5. _(Optional)_ To enable deploy/release tracking and the scorecard ownership
+   card, provision the **nais API URL + token** (`jsonData.naisApiUrl` /
+   `secureJsonData.naisApiToken`) and ensure netpol egress from Grafana to the
+   nais API host (see [Platform dependencies](#platform-dependencies))
 
 For per-environment datasource overrides, authentication setup, and
 troubleshooting, see [docs/configuration.md](https://github.com/nais/grafana-apm-app/blob/main/docs/configuration.md).
