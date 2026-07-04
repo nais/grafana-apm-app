@@ -62,7 +62,7 @@ Post-milestone audit wave, all green in `mise run all` (745 jest, 624 go):
 - **Smoke tests in a real env**: alert-rule `defaults=` contract against deployed
   Grafana; nais deploy sync against a real Console token; triage actor attribution
   in a browser session (curl showed "unknown").
-- **AppConfig UI** fields for `naisApiUrl`/`naisApiToken` (settings exist backend-only).
+- ✅ AppConfig UI fields for `naisApiUrl`/`naisApiToken` shipped 2026-07-04 (were backend-only).
 - **@nais/apm first release**: Hans pushes `apm-client` + creates the v0.1.0
   GitHub release (publish workflow handles GHPR); then delete the frozen plugin
   `sdk/` copy and point docs at the package.
