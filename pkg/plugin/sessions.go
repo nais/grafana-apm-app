@@ -186,8 +186,12 @@ func (a *App) queryFrontendSessions(ctx context.Context, ds *queries.DsQueryClie
 		eventsErr error
 		metaErr   error
 	)
-	wg.Go(func() { eventsRes, eventsErr = ds.InstantQuery(ctx, lokiUID, eventsExpr, to) })
-	wg.Go(func() { metaRes, metaErr = ds.LogQuery(ctx, lokiUID, metaExpr, effFrom, to, sessionMetaLimit) })
+	wg.Add(2)
+	go func() { defer wg.Done(); eventsRes, eventsErr = ds.InstantQuery(ctx, lokiUID, eventsExpr, to) }()
+	go func() {
+		defer wg.Done()
+		metaRes, metaErr = ds.LogQuery(ctx, lokiUID, metaExpr, effFrom, to, sessionMetaLimit)
+	}()
 	wg.Wait()
 	if eventsErr != nil {
 		logger.Warn("Session events query failed", "error", eventsErr)

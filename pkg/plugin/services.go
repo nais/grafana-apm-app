@@ -46,7 +46,10 @@ func (a *App) handleServices(w http.ResponseWriter, req *http.Request) {
 		seriesStr = "true"
 	}
 	orgID := req.Header.Get("X-Grafana-Org-Id")
-	ck := cacheKey("services", orgID, roundedFrom, roundedTo, seriesStr, filterNamespace, filterEnvironment, filterServices)
+	// Include the post-clamp step: it sets the sparkline resolution, so two
+	// requests over the same range with different steps must not share an entry.
+	stepStr := fmt.Sprintf("%ds", int(step.Seconds()))
+	ck := cacheKey("services", orgID, roundedFrom, roundedTo, stepStr, seriesStr, filterNamespace, filterEnvironment, filterServices)
 	if cached, ok := a.respCache.get(ck); ok {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-Cache", "HIT")

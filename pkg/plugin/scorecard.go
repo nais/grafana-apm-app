@@ -132,8 +132,9 @@ func (a *App) computeScorecard(ctx context.Context, headers http.Header, namespa
 		readiness ScorecardReadiness
 		console   ScorecardConsole
 	)
-	wg.Go(func() { readiness = a.computeReadiness(ctx, headers, namespace, service, env) })
-	wg.Go(func() { console = a.fetchConsoleEnrichment(ctx, namespace, service) })
+	wg.Add(2)
+	go func() { defer wg.Done(); readiness = a.computeReadiness(ctx, headers, namespace, service, env) }()
+	go func() { defer wg.Done(); console = a.fetchConsoleEnrichment(ctx, namespace, service) }()
 	wg.Wait()
 	return ScorecardResponse{Readiness: readiness, Console: console}
 }
@@ -163,12 +164,16 @@ func (a *App) computeReadiness(ctx context.Context, headers http.Header, namespa
 	}
 
 	var wg sync.WaitGroup
-	wg.Go(func() { checks[0].OK = a.checkSpanMetrics(ctx, namespace, service, env, now) })
-	wg.Go(func() { checks[1].OK = a.checkTempoTraces(ctx, headers, token, namespace, service, env, now) })
-	wg.Go(func() { checks[2].OK = a.checkLokiLogs(ctx, headers, token, service, env, now) })
-	wg.Go(func() { checks[3].OK = a.checkRuntimeMetrics(ctx, namespace, service, env, now) })
-	wg.Go(func() { checks[4].OK = a.checkBrowserTelemetry(ctx, service, env, now) })
-	wg.Go(func() { checks[5].OK = a.checkAlertRules(ctx, headers, token, service) })
+	wg.Add(6)
+	go func() { defer wg.Done(); checks[0].OK = a.checkSpanMetrics(ctx, namespace, service, env, now) }()
+	go func() {
+		defer wg.Done()
+		checks[1].OK = a.checkTempoTraces(ctx, headers, token, namespace, service, env, now)
+	}()
+	go func() { defer wg.Done(); checks[2].OK = a.checkLokiLogs(ctx, headers, token, service, env, now) }()
+	go func() { defer wg.Done(); checks[3].OK = a.checkRuntimeMetrics(ctx, namespace, service, env, now) }()
+	go func() { defer wg.Done(); checks[4].OK = a.checkBrowserTelemetry(ctx, service, env, now) }()
+	go func() { defer wg.Done(); checks[5].OK = a.checkAlertRules(ctx, headers, token, service) }()
 	wg.Wait()
 
 	score := 0
@@ -191,7 +196,7 @@ func (a *App) promSelectorNonEmpty(ctx context.Context, selector string, at time
 	defer cancel()
 	results, err := client.InstantQuery(ctx, fmt.Sprintf(`count(%s)`, selector), at)
 	if err != nil {
-		log.DefaultLogger.Debug("Scorecard prom probe failed", "selector", selector, "error", err)
+		log.DefaultLogger.Debug("Scorecard prom probe failed", "selector", sanitizeLogValue(selector), "error", err)
 		return false
 	}
 	return len(results) > 0
@@ -295,17 +300,21 @@ func (a *App) checkAlertRules(ctx context.Context, headers http.Header, token, s
 		sources [2]*queries.RulesResponse
 	)
 	if prom := a.prom(ctx); prom != nil {
-		wg.Go(func() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			rules, err := prom.GetAlertRules(ctx)
 			if err != nil {
 				log.DefaultLogger.Debug("Scorecard mimir rules probe failed", "error", err)
 				return
 			}
 			sources[0] = rules
-		})
+		}()
 	}
 	if a.grafanaURL != "" {
-		wg.Go(func() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			client := queries.NewPrometheusClient(a.grafanaURL+"/api/prometheus/grafana", token).WithAuthHeaders(headers)
 			rules, err := client.GetAlertRules(ctx)
 			if err != nil {
@@ -313,7 +322,7 @@ func (a *App) checkAlertRules(ctx context.Context, headers http.Header, token, s
 				return
 			}
 			sources[1] = rules
-		})
+		}()
 	}
 	wg.Wait()
 
@@ -431,7 +440,9 @@ func (a *App) fetchConsoleEnrichment(ctx context.Context, namespace, service str
 	)
 
 	// Team slug + slack channel.
-	wg.Go(func() {
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
 		var resp struct {
 			Team struct {
 				Slug         string `json:"slug"`
@@ -446,10 +457,12 @@ func (a *App) fetchConsoleEnrichment(ctx context.Context, namespace, service str
 		out.TeamSlug = resp.Team.Slug
 		out.SlackChannel = resp.Team.SlackChannel
 		mu.Unlock()
-	})
+	}()
 
 	// Ingress URLs for this application.
-	wg.Go(func() {
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
 		var resp struct {
 			Team struct {
 				Applications struct {
@@ -482,12 +495,14 @@ func (a *App) fetchConsoleEnrichment(ctx context.Context, namespace, service str
 		mu.Lock()
 		out.Ingresses = ingresses
 		mu.Unlock()
-	})
+	}()
 
 	// Repository URL, derived from the latest deployment's trigger URL —
 	// reuses the deployments query naissync.go already exercises against the
 	// deployed schema, so it survives Application-type schema drift.
-	wg.Go(func() {
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
 		deployments, err := a.fetchNaisDeployments(ctx, a.naisToken)
 		if err != nil {
 			logger.Debug("Console deployments query degraded", "error", err)
@@ -514,7 +529,7 @@ func (a *App) fetchConsoleEnrichment(ctx context.Context, namespace, service str
 				return
 			}
 		}
-	})
+	}()
 
 	wg.Wait()
 	return out

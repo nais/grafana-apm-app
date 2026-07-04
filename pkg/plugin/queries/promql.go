@@ -8,12 +8,18 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 )
+
+// metricNamePattern matches valid Prometheus/OpenMetrics metric family names.
+// User-derived metric names are validated against it before being interpolated
+// into a request URL, so untrusted input cannot shape the outgoing request.
+var metricNamePattern = regexp.MustCompile(`^[a-zA-Z_:][a-zA-Z0-9_:]*$`)
 
 // sharedTransport is a connection-pooled HTTP transport reused across all query clients.
 // This avoids repeated TCP/TLS handshakes when querying the same datasource.
@@ -278,6 +284,15 @@ type MetricMetadata struct {
 // metadata entries for that family — multiple targets may disagree, so
 // Prometheus returns a list. Absence of metadata is not an error.
 func (c *PrometheusClient) Metadata(ctx context.Context, metric string) ([]MetricMetadata, error) {
+	// CodeQL: `metric` is user-derived (metric family names selected from
+	// user-scoped queries). Validate it to the Prometheus metric-name charset
+	// before it reaches the request URL — this rejects any untrusted value and
+	// breaks the taint flow into the network sink at the boundary.
+	if !metricNamePattern.MatchString(metric) {
+		return nil, fmt.Errorf("invalid metric name: %q", metric)
+	}
+	// The host/scheme/path come from c.baseURL (fixed datasource config), never
+	// from user input.
 	base, err := url.Parse(c.baseURL)
 	if err != nil {
 		return nil, fmt.Errorf("parsing base URL: %w", err)

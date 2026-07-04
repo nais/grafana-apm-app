@@ -277,7 +277,7 @@ func (a *App) traceQLBreakdown(ctx context.Context, tc *tempoQueryClient, uid, s
 	go func() { defer wg.Done(); p99S, p99E = tc.metricQuery(ctx, uid, p99Q, step, from, to) }()
 	wg.Wait()
 	if rateErr != nil {
-		log.DefaultLogger.Warn("TraceQL rate query failed", "error", rateErr, "dimension", dimension)
+		log.DefaultLogger.Warn("TraceQL rate query failed", "error", rateErr, "dimension", sanitizeLogValue(dimension))
 	}
 	if p95E != nil || p99E != nil {
 		log.DefaultLogger.Warn("TraceQL quantile query failed", "p95", p95E, "p99", p99E)

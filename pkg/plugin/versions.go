@@ -120,10 +120,14 @@ func (a *App) queryFrontendVersions(ctx context.Context, loki *queries.Prometheu
 		deploys                     map[string]int64
 		latestVersion               string
 	)
-	wg.Go(func() { sessRes, sessErr = loki.InstantQuery(ctx, sessionsExpr, to) })
-	wg.Go(func() { errSessRes, errSessErr = loki.InstantQuery(ctx, errSessionsExpr, to) })
-	wg.Go(func() { excRes, excErr = loki.InstantQuery(ctx, exceptionsExpr, to) })
-	wg.Go(func() { deploys, latestVersion = a.fetchDeployAnnotations(ctx, service, env, from, to) })
+	wg.Add(4)
+	go func() { defer wg.Done(); sessRes, sessErr = loki.InstantQuery(ctx, sessionsExpr, to) }()
+	go func() { defer wg.Done(); errSessRes, errSessErr = loki.InstantQuery(ctx, errSessionsExpr, to) }()
+	go func() { defer wg.Done(); excRes, excErr = loki.InstantQuery(ctx, exceptionsExpr, to) }()
+	go func() {
+		defer wg.Done()
+		deploys, latestVersion = a.fetchDeployAnnotations(ctx, service, env, from, to)
+	}()
 	wg.Wait()
 	if sessErr != nil {
 		logger.Warn("Version sessions query failed", "error", sessErr)

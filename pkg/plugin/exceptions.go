@@ -127,8 +127,10 @@ func (a *App) queryExceptionGroups(ctx context.Context, ds *queries.DsQueryClien
 		countErr, sessErr error
 		sessWindowSecs    int
 	)
-	wg.Go(func() { countRes, countErr = ds.InstantQuery(ctx, lokiUID, countExpr, to) })
-	wg.Go(func() {
+	wg.Add(2)
+	go func() { defer wg.Done(); countRes, countErr = ds.InstantQuery(ctx, lokiUID, countExpr, to) }()
+	go func() {
+		defer wg.Done()
 		sessRes, sessErr = ds.InstantQuery(ctx, lokiUID, sessionsExpr(window), to)
 		for _, w := range sessionsFallbackWindows {
 			if sessErr == nil {
@@ -145,7 +147,7 @@ func (a *App) queryExceptionGroups(ctx context.Context, ds *queries.DsQueryClien
 				sessWindowSecs = int(w.Seconds())
 			}
 		}
-	})
+	}()
 	wg.Wait()
 	if countErr != nil {
 		logger.Warn("Exception count query failed", "error", countErr)

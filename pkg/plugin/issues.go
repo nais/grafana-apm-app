@@ -194,19 +194,26 @@ func (a *App) queryIssues(ctx context.Context, ds *queries.DsQueryClient, lokiUI
 	faceted := facets.active()
 	// Facet-value discovery always runs (cheap topk queries) so the UI can
 	// populate the facet dropdowns even before any facet is picked.
-	wg.Go(func() { facetVals = a.queryIssueFacets(ctx, ds, lokiUID, service, env, from, to) })
+	wg.Add(1)
+	go func() { defer wg.Done(); facetVals = a.queryIssueFacets(ctx, ds, lokiUID, service, env, from, to) }()
 	// A browser facet scopes the list to Faro telemetry (facet fields are Faro
 	// logfmt fields), so the server side is skipped — its counts can't be
 	// narrowed by a browser facet and would misrepresent the filtered view.
-	wg.Go(func() {
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
 		if faceted {
 			browser = a.queryBrowserExceptionGroupsFaceted(ctx, ds, lokiUID, service, env, from, to, facets)
 		} else {
 			browser = a.queryExceptionGroups(ctx, ds, lokiUID, service, env, from, to)
 		}
-	})
+	}()
 	if !faceted {
-		wg.Go(func() { server, serverOK = a.queryServerExceptionGroups(ctx, ds, lokiUID, service, env, from, to) })
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			server, serverOK = a.queryServerExceptionGroups(ctx, ds, lokiUID, service, env, from, to)
+		}()
 	}
 	wg.Wait()
 
@@ -293,8 +300,9 @@ func (a *App) queryBrowserExceptionGroupsFaceted(ctx context.Context, ds *querie
 		countRes, sessRes []queries.PromResult
 		countErr, sessErr error
 	)
-	wg.Go(func() { countRes, countErr = ds.InstantQuery(ctx, lokiUID, countExpr, to) })
-	wg.Go(func() { sessRes, sessErr = ds.InstantQuery(ctx, lokiUID, sessExpr, to) })
+	wg.Add(2)
+	go func() { defer wg.Done(); countRes, countErr = ds.InstantQuery(ctx, lokiUID, countExpr, to) }()
+	go func() { defer wg.Done(); sessRes, sessErr = ds.InstantQuery(ctx, lokiUID, sessExpr, to) }()
 	wg.Wait()
 	if countErr != nil {
 		logger.Warn("Faceted exception count query failed", "error", countErr)
@@ -385,9 +393,10 @@ func (a *App) queryIssueFacets(ctx context.Context, ds *queries.DsQueryClient, l
 		verRes, browRes, pageRes []queries.PromResult
 		verErr, browErr, pageErr error
 	)
-	wg.Go(func() { verRes, verErr = ds.InstantQuery(ctx, lokiUID, expr(fl.AppVersion), to) })
-	wg.Go(func() { browRes, browErr = ds.InstantQuery(ctx, lokiUID, expr(fl.BrowserName), to) })
-	wg.Go(func() { pageRes, pageErr = ds.InstantQuery(ctx, lokiUID, expr(fl.PageURL), to) })
+	wg.Add(3)
+	go func() { defer wg.Done(); verRes, verErr = ds.InstantQuery(ctx, lokiUID, expr(fl.AppVersion), to) }()
+	go func() { defer wg.Done(); browRes, browErr = ds.InstantQuery(ctx, lokiUID, expr(fl.BrowserName), to) }()
+	go func() { defer wg.Done(); pageRes, pageErr = ds.InstantQuery(ctx, lokiUID, expr(fl.PageURL), to) }()
 	wg.Wait()
 
 	if verErr != nil && browErr != nil && pageErr != nil {
@@ -507,14 +516,16 @@ func (a *App) queryServerExceptionGroups(ctx context.Context, ds *queries.DsQuer
 		semErr, semPodsErr, jsonErr, jsonPodsErr error
 		plainErr, plainSampleErr                 error
 	)
-	wg.Go(func() { semRes, semErr = ds.InstantQuery(ctx, lokiUID, countSemconv, to) })
-	wg.Go(func() { semPodsRes, semPodsErr = ds.InstantQuery(ctx, lokiUID, podsSemconv, to) })
-	wg.Go(func() { jsonRes, jsonErr = ds.InstantQuery(ctx, lokiUID, countJSON, to) })
-	wg.Go(func() { jsonPodsRes, jsonPodsErr = ds.InstantQuery(ctx, lokiUID, podsJSON, to) })
-	wg.Go(func() { plainRes, plainErr = ds.InstantQuery(ctx, lokiUID, countPlain, to) })
-	wg.Go(func() {
+	wg.Add(6)
+	go func() { defer wg.Done(); semRes, semErr = ds.InstantQuery(ctx, lokiUID, countSemconv, to) }()
+	go func() { defer wg.Done(); semPodsRes, semPodsErr = ds.InstantQuery(ctx, lokiUID, podsSemconv, to) }()
+	go func() { defer wg.Done(); jsonRes, jsonErr = ds.InstantQuery(ctx, lokiUID, countJSON, to) }()
+	go func() { defer wg.Done(); jsonPodsRes, jsonPodsErr = ds.InstantQuery(ctx, lokiUID, podsJSON, to) }()
+	go func() { defer wg.Done(); plainRes, plainErr = ds.InstantQuery(ctx, lokiUID, countPlain, to) }()
+	go func() {
+		defer wg.Done()
 		plainSample, plainSampleErr = ds.LogQuery(ctx, lokiUID, plainPipeline, from, to, plainSampleLimit)
-	})
+	}()
 	wg.Wait()
 
 	if semErr != nil {
