@@ -12,22 +12,37 @@ already operate.
 
 ## Features
 
-- **Service Inventory** — auto-discovers all instrumented services with health sparklines, SDK language icons, framework badges, sidecar filtering, and sort/filter/search
-- **Namespace Overview** — team-level dashboard with aggregate stats, service topology graph (no service limit), services table with search/pagination, and external dependencies
-- **RED Dashboards** — per-service Rate, Errors, and Duration panels with configurable percentile selectors (P50–P99) and exemplar overlays linking to traces
-- **Operations Breakdown** — top operations table and duration distribution heatmap
-- **Dependencies** — downstream dependency inventory with impact scoring, per-dependency RED panels, operation-level detail including database target (`db_name · db_operation`), messaging topic breakdowns, and enriched display names (e.g. `postgresql (10.0.0.1)`) from service graph metrics
-- **Callers & Dependencies** — upstream callers and downstream dependencies on the service Overview tab with direct navigation to service or dependency detail
-- **Service Map** — topology graph with ELK.js auto-layout showing database, messaging, and external dependency types with error highlighting (per-service and per-namespace scoped). Export as Mermaid flowchart for documentation.
-- **Operations Tab** — HTTP, gRPC, database, outbound HTTP client, and messaging endpoint breakdowns with protocol-specific metadata and click-through to traces
-- **Runtime Tab** — container resource utilization, JVM memory pools and GC, Go runtime metrics, Node.js event loop and heap
-- **Frontend Tab** — Core Web Vitals (LCP, FCP, CLS, INP, TTFB) with threshold bands, per-page performance table, console errors, enhanced exception drill-down with Explore links, and browser breakdown for Faro-instrumented services
-- **Cross-Signal Navigation** — click a spike on any chart to jump straight to the relevant traces or logs in Grafana Explore
-- **Trace & Log Exploration** — search and browse traces and logs scoped to a service, with severity and text filters
-- **Environment Filtering** — filter all views by deployment environment, with per-environment Tempo/Loki datasource overrides
-- **Framework Detection** — automatic badges for Ktor, Spring Boot, Node.js, and Go based on runtime metrics
-- **GraphQL Metrics** — auto-detected per-operation rate, latency, and error breakdowns for DGS, MicroProfile, and custom frameworks
-- **Zero Config** — auto-detects span metric names, duration units, and available capabilities from your data
+### Error tracking (Sentry-parity)
+
+- **Issues** — frontend _and_ backend errors grouped by a stable, owned fingerprint (versioned, computed query-time, HA-safe) so dynamic message content doesn't splinter issues; source badges, occurrence/session counts, faceted search (version/browser/page)
+- **Triage** — resolve / ignore / assign / mute with regression detection ("did this come back after the latest deploy?"), stored HA-safe as an append-only annotation event log (no plugin database — see [docs/adr/0001](docs/adr/0001-state-in-grafana-shared-db.md))
+- **Exception drawer** — real stack traces (console-capture frames de-polluted), in-app frame highlighting, breadcrumbs, deep links to traces/logs, and joined user feedback
+- **Session replay & crash snapshots** — opt-in rrweb recording with a non-overridable privacy masking floor, self-hosted player in the drawer
+- **Alerting** — pre-filled Grafana alert rules for error-rate, exception spikes, web-vitals, new/regressed exceptions, and SLO burn-rate
+- **Releases** — adoption %, error-free rate, and deploy-marker enrichment per app version
+
+### Observability breadth
+
+- **Overview** — instant health header (RED with baseline deltas vs the previous period) + service scorecard (observability-readiness score and ownership)
+- **Database** — query analytics from span metrics (rate/error/p95 per operation and host) plus connection-pool health, with an instrumentation-requirements empty state
+- **Log patterns** — top error patterns from Loki's pattern ingester with new-pattern detection (the incident-triage view)
+- **Trace analytics** — TraceQL-metrics breakdowns ("which attribute explains the p99")
+- **SLO / error budgets** — 30-day compliance, remaining-budget bar, and current burn rate with a target selector
+- **Runtime** — container resources, JVM memory pools/GC, Go runtime, Node.js event loop/heap
+- **Frontend** — Core Web Vitals with threshold bands, per-page performance, web-vitals attribution, and a compact browser-scoped issues row
+- **User feedback** — `@nais/apm` `captureFeedback` joined to issues in the drawer
+- **Jobs** — CronJob/Naisjob monitoring from kube-state-metrics (schedule, last run, failure streak)
+- **Profiling** — Pyroscope flame graphs, capability-gated (appears only when a Pyroscope datasource exists)
+
+### Topology & navigation
+
+- **Service Inventory / Namespace Overview** — auto-discovery with health sparklines, framework badges, fuzzy search
+- **Service Map** — namespace-clustered global topology (drills down to per-namespace maps) + per-service graphs with error highlighting; Mermaid export
+- **Dependencies & Operations** — upstream callers, downstream dependencies with impact scoring, and per-protocol endpoint breakdowns (HTTP/gRPC/db/messaging/GraphQL) with click-through to traces
+- **Global time picker** — one time range and refresh in the page header, shared across every tab
+- **Cross-signal navigation** — click any spike to jump to the relevant traces or logs in Explore
+- **Environment filtering** — per-environment Tempo/Loki datasource overrides
+- **Zero config** — auto-detects span metric names, duration units, and available capabilities from your data
 
 ![Service Overview](https://raw.githubusercontent.com/nais/grafana-apm-app/main/src/img/screenshot-service-overview.png)
 ![Server Endpoints](https://raw.githubusercontent.com/nais/grafana-apm-app/main/src/img/screenshot-service-server.png)
@@ -49,7 +64,35 @@ expected metrics and labels.
 - **Grafana** >= 12.0.0
 - **Mimir** (or Prometheus) with span-derived metrics
 - **Tempo** for distributed traces
-- **Loki** for logs *(optional — needed for log correlation and Faro frontend data)*
+- **Loki** for logs _(optional — needed for log correlation, Faro frontend data, issues/triage, and log patterns)_
+- **nais API (Console) token** _(optional — needed for deploy/release tracking, regression detection, and the service scorecard's ownership card)_. See [Platform dependencies](#platform-dependencies) below; without it those features degrade silently (deploy markers/scorecard ownership simply don't appear).
+- **Loki pattern ingester** _(optional — enables the Log Patterns view; the plugin falls back to client-side sampling when it's off)_
+- **kube-state-metrics** exposed to tenant Grafana _(optional — powers the Jobs page; the page hides itself when the metrics aren't present)_
+- **Pyroscope** datasource _(optional — the Profiling tab appears only when one is configured)_
+
+### Platform dependencies
+
+Several features reach the **nais API (Console) GraphQL endpoint** from the
+plugin backend, authenticated with a bearer token:
+
+- **Deploy/release tracking & regression detection** (`naissync.go`) — polls
+  Console for deployments and writes deploy annotations.
+- **Service scorecard ownership card** (`scorecard.go`) — resolves team, Slack
+  channel, repo, and ingress URLs.
+
+This requires two things in the platform:
+
+1. **A Console API token**, configured on the plugin's Configuration page
+   (`naisApiUrl` + `naisApiToken`, stored as Grafana `secureJsonData`). Both
+   features are gated on it and no-op cleanly when it is absent.
+2. **Network policy (netpol) egress from the Grafana workload** to the nais API
+   host. On nais this means an outbound-access rule allowing Grafana to reach
+   the Console API endpoint; without it the backend's HTTPS calls time out and
+   the dependent features stay empty (they never block the rest of the plugin).
+
+See [infra/README.md](infra/README.md) for the full platform-dependency list
+and [docs/adr/0001](docs/adr/0001-state-in-grafana-shared-db.md) for why triage
+state needs Grafana annotation retention kept at keep-forever.
 
 ## Installation
 
@@ -71,8 +114,11 @@ Then enable the plugin under **Administration > Plugins** in Grafana.
 
 1. Go to the plugin's **Configuration** page
 2. Enter data source UIDs for Mimir, Tempo, and Loki
-3. Click **Auto-detect capabilities** to verify connectivity and detect metric names
-4. Save
+3. _(Optional)_ Enter the **nais API URL** and **token** to enable deploy/release
+   tracking and the scorecard ownership card — this also requires netpol egress
+   from Grafana to the nais API host (see [Platform dependencies](#platform-dependencies))
+4. Click **Auto-detect capabilities** to verify connectivity and detect metric names
+5. Save
 
 For per-environment datasource overrides, authentication setup, and
 troubleshooting, see [docs/configuration.md](https://github.com/nais/grafana-apm-app/blob/main/docs/configuration.md).
@@ -99,15 +145,15 @@ docker compose -f docker-compose.demo.yaml up
 
 The project uses [mise](https://mise.jdx.dev/) as task runner:
 
-| Command | Description |
-|---------|-------------|
-| `mise run all` | Full check + test + build pipeline |
-| `mise run check` | Lint + typecheck + format (frontend & backend) |
-| `mise run test` | All tests (Jest + Go with race detector) |
-| `mise run build` | Production build (frontend + backend) |
-| `mise run dev` | Docker stack + frontend watch mode |
-| `mise run deploy` | Build all + restart Grafana |
-| `mise run clean` | Remove dist/ and coverage/ |
+| Command           | Description                                    |
+| ----------------- | ---------------------------------------------- |
+| `mise run all`    | Full check + test + build pipeline             |
+| `mise run check`  | Lint + typecheck + format (frontend & backend) |
+| `mise run test`   | All tests (Jest + Go with race detector)       |
+| `mise run build`  | Production build (frontend + backend)          |
+| `mise run dev`    | Docker stack + frontend watch mode             |
+| `mise run deploy` | Build all + restart Grafana                    |
+| `mise run clean`  | Remove dist/ and coverage/                     |
 
 ## Architecture
 
@@ -156,12 +202,12 @@ feedback) — see the [client API reference](https://doc.nais.io/observability/a
 
 **Operator/developer docs** for this repo:
 
-| Document | Contents |
-|----------|----------|
-| [docs/configuration.md](https://github.com/nais/grafana-apm-app/blob/main/docs/configuration.md) | Datasource setup, per-environment overrides, authentication, auto-detection |
-| [docs/metrics-reference.md](https://github.com/nais/grafana-apm-app/blob/main/docs/metrics-reference.md) | Complete metrics, labels, dimensions, and query patterns reference |
-| [CONTRIBUTING.md](https://github.com/nais/grafana-apm-app/blob/main/CONTRIBUTING.md) | Development setup, code structure, testing, quality gates |
-| [CHANGELOG.md](https://github.com/nais/grafana-apm-app/blob/main/CHANGELOG.md) | Release history |
+| Document                                                                                                 | Contents                                                                    |
+| -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| [docs/configuration.md](https://github.com/nais/grafana-apm-app/blob/main/docs/configuration.md)         | Datasource setup, per-environment overrides, authentication, auto-detection |
+| [docs/metrics-reference.md](https://github.com/nais/grafana-apm-app/blob/main/docs/metrics-reference.md) | Complete metrics, labels, dimensions, and query patterns reference          |
+| [CONTRIBUTING.md](https://github.com/nais/grafana-apm-app/blob/main/CONTRIBUTING.md)                     | Development setup, code structure, testing, quality gates                   |
+| [CHANGELOG.md](https://github.com/nais/grafana-apm-app/blob/main/CHANGELOG.md)                           | Release history                                                             |
 
 ## Contributing
 
