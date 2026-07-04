@@ -51,6 +51,8 @@
 - **Server issues matched real backend log shapes** — the unified Issues server side now recognizes the OTLP/semconv, JSON-body (logback/logstash, pino, slog), and unstructured plain-text log shapes seen in production, so backend exceptions actually appear instead of being silently missed; error-level lines with no titleable content surface as a single "Unparsed error logs" group rather than vanishing. (#63)
 - **Connection-pool runtime metrics** — pool utilization now keys on the OTel `pool_name` label, fixing missing or merged pool rows on the Runtime tab.
 - **Duplicated error panels removed** — the Overview and Frontend tabs no longer render the same error panel twice (IA review P4/P5).
+- **Logs tab severity filter dropped plain-text logs** — filtering now matches Loki's `detected_level` structured metadata instead of parsing the log body as JSON, so non-JSON (plain-text, logfmt) logs are no longer silently excluded from the severity filter and volume panel.
+- **Web Vitals enrichment now reports p75** (per the Core Web Vitals definition and matching the histogram panels) instead of the mean.
 
 ### Performance
 

@@ -51,20 +51,25 @@ describe('loki-builders', () => {
   });
 
   describe('lokiVitalExpr', () => {
-    it('returns weighted mean formula', () => {
+    it('returns a p75 quantile_over_time formula, not a mean', () => {
       const result = lokiVitalExpr(service, 'lcp', '[$__range]');
-      expect(result).toContain('sum_over_time');
-      expect(result).toContain('count_over_time');
+      expect(result).toContain('quantile_over_time(0.75,');
       expect(result).toContain('unwrap lcp');
       expect(result).toContain('[$__range]');
+      expect(result).not.toContain('sum_over_time');
+      expect(result).not.toContain('count_over_time');
     });
   });
 
   describe('lokiVitalByGroupExpr', () => {
-    it('groups by the specified label', () => {
+    it('computes p75 grouped by the specified label, not a mean', () => {
       const result = lokiVitalByGroupExpr(service, 'lcp', 'browser_name', '[$__range]');
-      expect(result).toContain('sum by (browser_name)');
+      expect(result).toContain('quantile_over_time(0.75,');
+      expect(result).toContain('unwrap lcp');
+      expect(result).toContain('by (browser_name)');
       expect(result).toContain('keep lcp, browser_name');
+      expect(result).not.toContain('sum_over_time');
+      expect(result).not.toContain('count_over_time');
     });
   });
 
@@ -74,7 +79,8 @@ describe('loki-builders', () => {
       expect(result).toContain('page_url');
       expect(result).toContain('page_id');
       expect(result).toContain('label_format');
-      expect(result).toContain('sum by (page_url)');
+      expect(result).toContain('quantile_over_time(0.75,');
+      expect(result).toContain('by (page_url)');
       expect(result).toContain('unwrap lcp');
     });
 
@@ -87,6 +93,12 @@ describe('loki-builders', () => {
       const result = lokiVitalByPageExpr(service, 'lcp', 'page_url', '[$__range]');
       // The template uses if/else to fall back to page_url
       expect(result).toContain('{{if .page_id}}{{.page_id}}{{else}}{{.page_url}}{{end}}');
+    });
+
+    it('computes p75, not a mean', () => {
+      const result = lokiVitalByPageExpr(service, 'lcp', 'page_url', '[$__range]');
+      expect(result).not.toContain('sum_over_time');
+      expect(result).not.toContain('count_over_time');
     });
   });
 

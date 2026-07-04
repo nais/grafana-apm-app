@@ -44,13 +44,21 @@ export function lokiVitalPipeline(
   return `${stream} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" | ${vital}!="" ${browserFilter} | keep ${keepFields}`;
 }
 
-/** Weighted mean of a vital across all log entries (sum of values / count of entries). */
+/**
+ * p75 of a vital across all log entries via `quantile_over_time`.
+ *
+ * Core Web Vitals (LCP/FCP/CLS/INP/TTFB) are *defined* at the 75th percentile
+ * ("good" thresholds are p75 cutoffs), so this matches both the published
+ * definition and the Mimir `histogram_quantile(0.75, …)` panels the frontend
+ * Scene already renders — a plain mean understates a right-skewed
+ * distribution and doesn't correspond to any published threshold.
+ */
 export function lokiVitalExpr(service: string, vital: string, window: string, clusterOpts?: LokiClusterOpts): string {
   const pipeline = lokiVitalPipeline(service, vital, undefined, BROWSER_FILTER, clusterOpts);
-  return `sum(sum_over_time(${pipeline} | unwrap ${vital} ${window})) / sum(count_over_time(${pipeline} ${window}))`;
+  return `quantile_over_time(0.75, ${pipeline} | unwrap ${vital} ${window})`;
 }
 
-/** Weighted mean of a vital grouped by a label (e.g., browser_name). */
+/** p75 of a vital grouped by a label (e.g., browser_name), matching the histogram panels. */
 export function lokiVitalByGroupExpr(
   service: string,
   vital: string,
@@ -59,10 +67,10 @@ export function lokiVitalByGroupExpr(
   clusterOpts?: LokiClusterOpts
 ): string {
   const pipeline = lokiVitalPipeline(service, vital, groupBy, BROWSER_FILTER, clusterOpts);
-  return `sum by (${groupBy}) (sum_over_time(${pipeline} | unwrap ${vital} ${window})) / sum by (${groupBy}) (count_over_time(${pipeline} ${window}))`;
+  return `quantile_over_time(0.75, ${pipeline} | unwrap ${vital} ${window}) by (${groupBy})`;
 }
 
-/** Weighted mean of a vital grouped by page URL, limited to top pages by volume. */
+/** p75 of a vital grouped by page URL, limited to top pages by volume, matching the histogram panels. */
 export function lokiVitalByPageExpr(
   service: string,
   vital: string,
@@ -77,8 +85,8 @@ export function lokiVitalByPageExpr(
   // Prefer page_id (normalized route from generatePageId) over raw page_url.
   // When page_id is absent/empty, falls back to the original page label value.
   const labelFormat = `| label_format ${pageLabel}="{{if .${fl.pageId}}}{{.${fl.pageId}}}{{else}}{{.${pageLabel}}}{{end}}"`;
-  // Use topk to limit cardinality — only compute averages for the top 20 pages by volume
-  return `topk(20, sum by (${pageLabel}) (sum_over_time(${pipeline} ${labelFormat} | unwrap ${vital} ${window})) / sum by (${pageLabel}) (count_over_time(${pipeline} ${labelFormat} ${window})))`;
+  // Use topk to limit cardinality — only compute p75s for the top 20 pages by volume
+  return `topk(20, quantile_over_time(0.75, ${pipeline} ${labelFormat} | unwrap ${vital} ${window}) by (${pageLabel}))`;
 }
 
 /**

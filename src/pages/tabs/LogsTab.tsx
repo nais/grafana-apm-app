@@ -50,17 +50,6 @@ const FARO_KIND_OPTIONS: Array<{ label: string; value: string }> = [
   { label: 'Events', value: 'event' },
 ];
 
-// detected_level values are inconsistently cased across services.
-// Map each logical severity to all observed variants.
-const SEVERITY_VARIANTS: Record<string, string[]> = {
-  error: ['error', 'ERROR', 'SEVERE'],
-  warn: ['warn', 'WARN'],
-  info: ['info', 'INFO', 'Information'],
-  debug: ['debug', 'DEBUG'],
-  trace: ['trace', 'TRACE'],
-  unknown: ['unknown'],
-};
-
 export function LogsTab({
   service,
   namespace,
@@ -132,13 +121,14 @@ export function LogsTab({
 
     const streamSelector = `{${svcLabel}${clusterStream}${kindStream}${podStream}}`;
 
-    // Severity filtering uses pipeline-level JSON parsing because `detected_level` is
-    // structured metadata in Loki, not an indexed stream label — it can't be used in
-    // stream selectors. We parse JSON and filter on the `level` field instead.
-    const severityValues = severityFilter.flatMap((s) => SEVERITY_VARIANTS[s] ?? [s]);
-    const severityLabelFilter = severityValues.length > 0 ? ` | level=~"${severityValues.join('|')}"` : '';
-    // Volume query needs its own json parser since it has no other parser stage.
-    const severityPipeline = severityValues.length > 0 ? ` | json${severityLabelFilter}` : '';
+    // Severity filtering uses `detected_level`, Loki-computed structured metadata
+    // that's attached to every log entry regardless of body format. Filtering on
+    // it is a bare label-filter expression evaluated *before* any parser stage, so
+    // it works for plain-text/logfmt lines too — unlike the previous `| json |
+    // level=~"…"` approach, which silently dropped every non-JSON log (a failed
+    // `| json` leaves `level` empty). Values are already normalized by Loki
+    // (error/warn/info/debug/trace/unknown), matching SEVERITY_OPTIONS directly.
+    const severityLabelFilter = severityFilter.length > 0 ? ` | detected_level=~"${severityFilter.join('|')}"` : '';
 
     const textFilter = debouncedSearch ? ` |~ "${escapeRegex(debouncedSearch)}"` : '';
 
@@ -147,7 +137,7 @@ export function LogsTab({
       queries: [
         {
           refId: 'volume',
-          expr: `sum by (detected_level) (count_over_time(${streamSelector}${textFilter}${severityPipeline} [$__auto]))`,
+          expr: `sum by (detected_level) (count_over_time(${streamSelector}${textFilter}${severityLabelFilter} [$__auto]))`,
           legendFormat: '{{detected_level}}',
           queryType: 'range',
         },
@@ -159,7 +149,7 @@ export function LogsTab({
       queries: [
         {
           refId: 'A',
-          expr: `${streamSelector}${textFilter} | json${severityLabelFilter} | line_format \`{{ if .message }}{{ .message }}{{ else if .msg }}{{ .msg }}{{ else }}{{ __line__ }}{{ end }}\` | drop __error__, __error_details__`,
+          expr: `${streamSelector}${textFilter}${severityLabelFilter} | json | line_format \`{{ if .message }}{{ .message }}{{ else if .msg }}{{ .msg }}{{ else }}{{ __line__ }}{{ end }}\` | drop __error__, __error_details__`,
           queryType: 'range',
           maxLines: 200,
         },

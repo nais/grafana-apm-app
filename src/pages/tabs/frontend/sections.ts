@@ -317,22 +317,22 @@ export function buildPerPageSection(ctx: FrontendSceneContext): SceneFlexItem | 
       .setOverrides((b) => {
         b.matchFieldsWithName(pageUrl).overrideDisplayName('Page');
         b.matchFieldsWithName('Value #lcp')
-          .overrideDisplayName('Avg LCP (ms)')
+          .overrideDisplayName('p75 LCP (ms)')
           .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.lcp })
           .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
           .overrideDecimals(0);
         b.matchFieldsWithName('Value #fcp')
-          .overrideDisplayName('Avg FCP (ms)')
+          .overrideDisplayName('p75 FCP (ms)')
           .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.fcp })
           .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
           .overrideDecimals(0);
         b.matchFieldsWithName('Value #cls')
-          .overrideDisplayName('Avg CLS')
+          .overrideDisplayName('p75 CLS')
           .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.cls })
           .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
           .overrideDecimals(3);
         b.matchFieldsWithName('Value #inp')
-          .overrideDisplayName('Avg INP (ms)')
+          .overrideDisplayName('p75 INP (ms)')
           .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.inp })
           .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
           .overrideDecimals(0);
@@ -465,17 +465,17 @@ export function buildBrowserBreakdownSection(ctx: FrontendSceneContext): SceneFl
         .setOverrides((b) => {
           b.matchFieldsWithName(fl.browserName).overrideDisplayName('Browser');
           b.matchFieldsWithName('Value #lcp')
-            .overrideDisplayName('Avg LCP (ms)')
+            .overrideDisplayName('p75 LCP (ms)')
             .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.lcp })
             .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
             .overrideDecimals(0);
           b.matchFieldsWithName('Value #fcp')
-            .overrideDisplayName('Avg FCP (ms)')
+            .overrideDisplayName('p75 FCP (ms)')
             .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.fcp })
             .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
             .overrideDecimals(0);
           b.matchFieldsWithName('Value #ttfb')
-            .overrideDisplayName('Avg TTFB (ms)')
+            .overrideDisplayName('p75 TTFB (ms)')
             .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.ttfb })
             .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
             .overrideDecimals(0);
