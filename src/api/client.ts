@@ -1081,3 +1081,47 @@ export async function getCustomMetrics(
     params
   );
 }
+
+// ---- User feedback (M6) ----
+
+export interface FeedbackEntry {
+  timeMs: number;
+  message: string;
+  category: string;
+  email?: string;
+  sessionId?: string;
+  fingerprint?: string;
+  pageUrl?: string;
+  appVersion?: string;
+}
+
+export interface FeedbackResponse {
+  feedback: FeedbackEntry[];
+  unavailable?: boolean;
+}
+
+/** Feedback captured via @nais/apm's captureFeedback(), newest first. */
+export async function getFeedback(
+  namespace: string,
+  service: string,
+  from: number,
+  to: number,
+  environment?: string,
+  sessionId?: string,
+  fingerprint?: string
+): Promise<FeedbackResponse> {
+  const params: Record<string, string> = { ...timeParams(from, to) };
+  if (environment) {
+    params.environment = environment;
+  }
+  if (sessionId) {
+    params.sessionId = sessionId;
+  }
+  if (fingerprint) {
+    params.fingerprint = fingerprint;
+  }
+  return fetchResource<FeedbackResponse>(
+    `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/feedback`,
+    params
+  );
+}
