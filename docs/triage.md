@@ -1,5 +1,7 @@
 # Issue triage
 
+> Storage architecture decision and revisit triggers: [ADR-0001](adr/0001-state-in-grafana-shared-db.md).
+
 Triage state (resolve / ignore / assign, #57) is stored as an **append-only
 event log in Grafana organization annotations**. Grafana persists annotations
 in its own database — shared across all Grafana replicas in an HA setup — so

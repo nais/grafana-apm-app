@@ -349,8 +349,9 @@ Loki line stays under default limits with zero config changes.
 - Cron/Naisjob monitoring view from kube-state-metrics.
 - React Native / mobile story (`@grafana/faro-react-native` is official now).
 - Documented, versioned resource API (CI gates, bots).
-- Re-evaluate `grafana-app-sdk` unified storage for triage state (replace the
-  annotations store if GA for external plugins); re-evaluate upstream Faro
+- Re-evaluate `grafana-app-sdk` unified storage for triage state per
+  [ADR-0001](adr/0001-state-in-grafana-shared-db.md) (revisit triggers and
+  escalation ladder live there); re-evaluate upstream Faro
   replay/source-map/debug-ID movement and delete custom code where upstream
   caught up.
 
