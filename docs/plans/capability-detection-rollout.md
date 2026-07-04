@@ -24,7 +24,7 @@ code is provably dead.
 
 | Fallback (plugin) | Helm PR (gap) | Capability probe | Fast path | When to delete the fallback |
 |---|---|---|---|---|
-| `sessionsFallbackWindows` ladder — `pkg/plugin/exceptions.go` | `apm/loki-session-recording-rule` (P1.2) | is the session-count recording metric present for the service? | read the pre-aggregated distinct-sessions metric from Mimir (exact, any range) | once the rule has backfilled the max retention window fleet-wide |
+| `sessionsFallbackWindows` ladder — `pkg/plugin/exceptions.go` | `apm/loki-session-recording-rule` (P1.2) | is the session-count recording metric present for the service? | read the pre-aggregated distinct-sessions metric from Mimir (**cheap but an UPPER BOUND** — see caveat) | fallback is **not fully deletable** — keep the ladder for exact counts |
 | 3-shape server-log probe — `pkg/plugin/issues.go` | `apm/collector-exception-normalization` (P1.1) | do error logs carry `exception.type`/`message` structured metadata? | single label-filter query on the normalized fields (exact counts, no sampling) | once normalization covers the fleet AND historical retention has rolled over |
 | dual-pool query — `pkg/plugin/runtime.go` | none (instrumentation heterogeneity, not a helm change) | n/a | n/a | **never via a helm change** — apps genuinely emit both metric families; only a fleet-wide instrumentation migration would let this go |
 
@@ -38,6 +38,28 @@ code is provably dead.
    probe → fast path when present, existing fallback otherwise. Ship it.
 5. Monitor: once the probe is universally "present" for a full retention
    window, a final cleanup PR deletes the now-dead fallback.
+
+## Caveat — the session metric is an approximation, not a replacement
+
+Draft branch `apm/loki-session-recording-rule` established that Loki/PromQL
+cannot express an exact distinct-session-count *across a time range* (recording
+rules are per-interval snapshots; there is no count-distinct-across-time / HLL).
+The rule emits **distinct sessions per 1-minute bucket**, which is exact within
+a bucket but an **upper bound** when summed over a wider range (a session
+spanning N minutes is counted once per minute). Consequences:
+
+- The recording metric is the right **default** on wide ranges (cheap, no
+  `max_query_series` blowup, good enough for ranking issues) — the plugin
+  should prefer it and label the number as approximate over long windows.
+- The narrowing `sessionsFallbackWindows` ladder stays as the **exact** path for
+  short ranges — so unlike the exception-normalization case, this fallback is
+  **not deleted**, it becomes the "exact, recent-window" complement to the
+  "approximate, any-range" metric. Capability-detection here is a *presentation*
+  choice (which number to show at which range), not a fallback-retirement path.
+- The exception-normalization fallback (3-shape probe) is the same story only
+  partially: the collector branch normalizes OTLP fully but JSON only partially
+  (no `exception_type`) and plain text not at all, so that fallback also shrinks
+  rather than disappears until instrumentation converges.
 
 ## Why not build the detection now (in PR #71)
 
