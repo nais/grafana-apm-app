@@ -1,0 +1,1184 @@
+openapi: 3.0.3
+info:
+  title: Nais APM plugin resource API
+  version: "1.0.0"
+  description: >
+    Hand-maintained OpenAPI description of the Nais APM Grafana app plugin
+    resource API. Stable endpoints (capabilities, issues, exceptions/groups,
+    triage) are described in full; experimental endpoints are described at least
+    by path, method, and parameters. A Go test (pkg/plugin/apidocs_test.go)
+    fails if any route registered in app.go is missing from `paths` below.
+    See ./README.md for the auth model, caching semantics, and stability
+    contract.
+servers:
+  - url: "{grafanaUrl}/api/plugins/nais-apm-app/resources"
+    variables:
+      grafanaUrl:
+        default: http://localhost:3000
+        description: Base Grafana URL.
+security:
+  - bearerAuth: []
+  - grafanaSession: []
+tags:
+  - name: stable
+    description: Endpoints under the additive-only compatibility promise.
+  - name: experimental
+    description: Shapes may change without a deprecation window.
+
+paths:
+  /capabilities:
+    get:
+      tags: [stable]
+      summary: Datasource and feature detection.
+      responses:
+        "200":
+          description: Detected capabilities.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Capabilities"
+
+  /services:
+    get:
+      tags: [experimental]
+      summary: Service inventory with RED summaries and optional time series.
+      parameters:
+        - { $ref: "#/components/parameters/namespaceQuery" }
+        - { $ref: "#/components/parameters/environment" }
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+        - name: step
+          in: query
+          schema: { type: integer, default: 60 }
+          description: Series resolution in seconds (clamped up to keep ~50 points/series).
+        - name: withSeries
+          in: query
+          schema: { type: string, enum: ["true", "false"], default: "true" }
+        - name: services
+          in: query
+          schema: { type: string }
+          description: CSV of namespace/service pairs to restrict to.
+      responses:
+        "200":
+          description: Array of service summaries.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ServiceSummary" }
+        "503": { description: Metrics datasource not configured. }
+
+  /services/{namespace}/{service}/health:
+    get:
+      tags: [experimental]
+      summary: RED summary for one service with previous-period comparison.
+      parameters:
+        - { $ref: "#/components/parameters/namespacePath" }
+        - { $ref: "#/components/parameters/servicePath" }
+        - { $ref: "#/components/parameters/environment" }
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+        - name: serverSpans
+          in: query
+          schema: { type: string, enum: ["true", "false"] }
+      responses:
+        "200":
+          description: Health summary.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HealthSummary" }
+        "400": { $ref: "#/components/responses/MissingService" }
+
+  /services/{namespace}/{service}/operations:
+    get:
+      tags: [experimental]
+      summary: Per-span-name RED metrics (instant query at `to`).
+      parameters:
+        - { $ref: "#/components/parameters/namespacePath" }
+        - { $ref: "#/components/parameters/servicePath" }
+        - { $ref: "#/components/parameters/environment" }
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+      responses:
+        "200":
+          description: Array of operation summaries.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/OperationSummary" }
+
+  /services/{namespace}/{service}/endpoints:
+    get:
+      tags: [experimental]
+      summary: RED metrics grouped by endpoint category (instant query at `to`).
+      parameters:
+        - { $ref: "#/components/parameters/namespacePath" }
+        - { $ref: "#/components/parameters/servicePath" }
+        - { $ref: "#/components/parameters/environment" }
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+      responses:
+        "200":
+          description: Endpoint groups.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EndpointGroups" }
+
+  /services/{namespace}/{service}/frontend:
+    get:
+      tags: [experimental]
+      summary: Aggregate frontend health (web vitals, error rate) over 6h.
+      parameters:
+        - { $ref: "#/components/parameters/namespacePath" }
+        - { $ref: "#/components/parameters/servicePath" }
+        - { $ref: "#/components/parameters/environment" }
+      responses:
+        "200":
+          description: Frontend metrics.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FrontendMetricsResponse" }
+
+  /services/{namespace}/{service}/frontend/versions:
+    get:
+      tags: [experimental]
+      summary: Per-version adoption and error-free rate.
+      parameters:
+        - { $ref: "#/components/parameters/namespacePath" }
+        - { $ref: "#/components/parameters/servicePath" }
+        - { $ref: "#/components/parameters/environment" }
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+      responses:
+        "200":
+          description: Version stats.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FrontendVersionsResponse" }
+
+  /services/{namespace}/{service}/frontend/sessions:
+    get:
+      tags: [experimental]
+      summary: Recent browser sessions with per-session counts.
+      parameters:
+        - { $ref: "#/components/parameters/namespacePath" }
+        - { $ref: "#/components/parameters/servicePath" }
+        - { $ref: "#/components/parameters/environment" }
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+        - name: q
+          in: query
+          schema: { type: string }
+          description: Free-text filter over sessionId / userId / userEmail.
+      responses:
+        "200":
+          description: Session summaries.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FrontendSessionsResponse" }
+
+  /services/{namespace}/{service}/logs/patterns:
+    get:
+      tags: [experimental]
+      summary: Clustered error-log patterns.
+      parameters:
+        - { $ref: "#/components/parameters/namespacePath" }
+        - { $ref: "#/components/parameters/servicePath" }
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+        - name: lokiUid
+          in: query
+          schema: { type: string, pattern: "^[a-zA-Z0-9_-]{1,64}$" }
+          description: Loki datasource UID. Absent/invalid returns mode=unavailable.
+      responses:
+        "200":
+          description: Log patterns.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LogPatternsResponse" }
+
+  /services/{namespace}/{service}/traces/breakdown:
+    get:
+      tags: [experimental]
+      summary: RED breakdown by span dimension (Tempo, span-metrics fallback).
+      parameters:
+        - { $ref: "#/components/parameters/namespacePath" }
+        - { $ref: "#/components/parameters/servicePath" }
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+        - name: tracesUid
+          in: query
+          schema: { type: string, pattern: "^[a-zA-Z0-9_-]{1,64}$" }
+        - name: dimension
+          in: query
+          schema:
+            type: string
+            enum: [name, http.route, http.status_code, db.system, db.operation, messaging.system, rpc.method]
+            default: name
+      responses:
+        "200":
+          description: Trace breakdown.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TraceBreakdownResponse" }
+
+  /services/{namespace}/{service}/feedback:
+    get:
+      tags: [experimental]
+      summary: User feedback events (faro.feedback).
+      parameters:
+        - { $ref: "#/components/parameters/namespacePath" }
+        - { $ref: "#/components/parameters/servicePath" }
+        - { $ref: "#/components/parameters/environment" }
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+        - name: sessionId
+          in: query
+          schema: { type: string, pattern: "^[A-Za-z0-9-_]+$" }
+        - name: fingerprint
+          in: query
+          schema: { type: string, pattern: "^[A-Za-z0-9-_:]+$" }
+      responses:
+        "200":
+          description: Feedback entries.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FeedbackResponse" }
+
+  /services/{namespace}/{service}/exceptions/groups:
+    get:
+      tags: [stable]
+      summary: Fingerprint-grouped frontend (Faro) exceptions.
+      parameters:
+        - { $ref: "#/components/parameters/namespacePath" }
+        - { $ref: "#/components/parameters/servicePath" }
+        - { $ref: "#/components/parameters/environment" }
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+      responses:
+        "200":
+          description: Exception groups.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExceptionGroupsResponse" }
+        "400": { $ref: "#/components/responses/MissingService" }
+
+  /services/{namespace}/{service}/issues:
+    get:
+      tags: [stable]
+      summary: Merged browser + server issue list for a service.
+      parameters:
+        - { $ref: "#/components/parameters/namespacePath" }
+        - { $ref: "#/components/parameters/servicePath" }
+        - { $ref: "#/components/parameters/environment" }
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+        - name: version
+          in: query
+          schema: { type: string }
+          description: Facet - restrict to a browser app version.
+        - name: browser
+          in: query
+          schema: { type: string }
+          description: Facet - restrict to a browser.
+        - name: page
+          in: query
+          schema: { type: string }
+          description: Facet - restrict to a page URL.
+      responses:
+        "200":
+          description: Issue list.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IssuesResponse" }
+        "400": { $ref: "#/components/responses/MissingService" }
+
+  /services/{namespace}/{service}/triage:
+    get:
+      tags: [stable]
+      summary: Folded triage state per fingerprint. Never cached.
+      parameters:
+        - { $ref: "#/components/parameters/namespacePath" }
+        - { $ref: "#/components/parameters/servicePath" }
+      responses:
+        "200":
+          description: Triage states.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TriageStatesResponse" }
+        "502": { description: Reading triage state failed. }
+
+  /services/{namespace}/{service}/triage/{fingerprint}:
+    post:
+      tags: [stable]
+      summary: Record a triage action (the only write endpoint).
+      parameters:
+        - { $ref: "#/components/parameters/namespacePath" }
+        - { $ref: "#/components/parameters/servicePath" }
+        - { $ref: "#/components/parameters/fingerprintPath" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TriageActionRequest" }
+      responses:
+        "200":
+          description: The newly folded triage state.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TriageState" }
+        "400": { description: Invalid fingerprint or invalid action. }
+        "405": { description: Method not allowed (non-POST). }
+        "502": { description: Recording triage action failed. }
+
+  /services/{namespace}/{service}/triage/{fingerprint}/history:
+    get:
+      tags: [stable]
+      summary: Full triage event log for one fingerprint, oldest-first.
+      parameters:
+        - { $ref: "#/components/parameters/namespacePath" }
+        - { $ref: "#/components/parameters/servicePath" }
+        - { $ref: "#/components/parameters/fingerprintPath" }
+      responses:
+        "200":
+          description: Event log.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  events:
+                    type: array
+                    items: { $ref: "#/components/schemas/TriageEvent" }
+        "502": { description: Reading triage history failed. }
+
+  /services/{namespace}/{service}/dependencies:
+    get:
+      tags: [experimental]
+      summary: Downstream dependencies of a service.
+      parameters:
+        - { $ref: "#/components/parameters/namespacePath" }
+        - { $ref: "#/components/parameters/servicePath" }
+        - { $ref: "#/components/parameters/environment" }
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+      responses:
+        "200":
+          description: Dependency list.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  dependencies:
+                    type: array
+                    items: { $ref: "#/components/schemas/DependencySummary" }
+
+  /services/{namespace}/{service}/connected:
+    get:
+      tags: [experimental]
+      summary: Inbound/outbound peer connections for a service.
+      parameters:
+        - { $ref: "#/components/parameters/namespacePath" }
+        - { $ref: "#/components/parameters/servicePath" }
+        - { $ref: "#/components/parameters/environment" }
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+      responses:
+        "200":
+          description: Connected services.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  inbound: { type: array, items: { type: object } }
+                  outbound: { type: array, items: { type: object } }
+
+  /services/{namespace}/{service}/graphql:
+    get:
+      tags: [experimental]
+      summary: GraphQL/DGS per-operation metrics.
+      parameters:
+        - { $ref: "#/components/parameters/namespacePath" }
+        - { $ref: "#/components/parameters/servicePath" }
+        - { $ref: "#/components/parameters/environment" }
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+      responses:
+        "200":
+          description: GraphQL metrics (detected=false when none).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detected: { type: boolean }
+                  framework: { type: string }
+                  operations: { type: array, items: { type: object } }
+                  fetchers: { type: array, items: { type: object } }
+
+  /services/{namespace}/{service}/runtime:
+    get:
+      tags: [experimental]
+      summary: Runtime metrics (container + JVM/Node.js/Go/DB pool/Kafka).
+      parameters:
+        - { $ref: "#/components/parameters/namespacePath" }
+        - { $ref: "#/components/parameters/servicePath" }
+        - { $ref: "#/components/parameters/environment" }
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+      responses:
+        "200":
+          description: Runtime response ({} when nothing detected).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RuntimeResponse" }
+
+  /services/{namespace}/{service}/custom-metrics:
+    get:
+      tags: [experimental]
+      summary: App-defined custom metric families (capped at 50).
+      parameters:
+        - { $ref: "#/components/parameters/namespacePath" }
+        - { $ref: "#/components/parameters/servicePath" }
+        - { $ref: "#/components/parameters/environment" }
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+      responses:
+        "200":
+          description: Custom metrics.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  metrics: { type: array, items: { type: object } }
+                  truncated: { type: boolean }
+
+  /services/{namespace}/{service}/scorecard:
+    get:
+      tags: [experimental]
+      summary: Observability-readiness scorecard + Console enrichment.
+      parameters:
+        - { $ref: "#/components/parameters/namespacePath" }
+        - { $ref: "#/components/parameters/servicePath" }
+        - { $ref: "#/components/parameters/environment" }
+      responses:
+        "200":
+          description: Scorecard.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScorecardResponse" }
+
+  /jobs:
+    get:
+      tags: [experimental]
+      summary: Kubernetes Job/CronJob status across the fleet.
+      parameters:
+        - { $ref: "#/components/parameters/namespaceQuery" }
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+      responses:
+        "200":
+          description: Jobs.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobsResponse" }
+        "503": { description: Metrics datasource not configured. }
+
+  /service-map:
+    get:
+      tags: [experimental]
+      summary: Node/edge topology graph (fleet or service-focused BFS).
+      parameters:
+        - name: service
+          in: query
+          schema: { type: string }
+        - { $ref: "#/components/parameters/namespaceQuery" }
+        - { $ref: "#/components/parameters/environment" }
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+        - name: depth
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 3, default: 1 }
+        - name: debug
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Service map graph.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ServiceMapResponse" }
+
+  /service-map/clustered:
+    get:
+      tags: [experimental]
+      summary: Fleet-wide topology aggregated by namespace.
+      parameters:
+        - { $ref: "#/components/parameters/environment" }
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+      responses:
+        "200":
+          description: Clustered service map.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ServiceMapResponse" }
+
+  /dependencies:
+    get:
+      tags: [experimental]
+      summary: Fleet-wide dependency rollup.
+      parameters:
+        - { $ref: "#/components/parameters/environment" }
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+      responses:
+        "200":
+          description: Dependency list.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  dependencies:
+                    type: array
+                    items: { $ref: "#/components/schemas/DependencySummary" }
+
+  /dependencies/{name}:
+    get:
+      tags: [experimental]
+      summary: One external dependency and its callers. Not cached.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: { type: string }
+        - { $ref: "#/components/parameters/environment" }
+        - { $ref: "#/components/parameters/to" }
+      responses:
+        "200":
+          description: Dependency detail.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  dependency: { $ref: "#/components/schemas/DependencySummary" }
+                  upstreams: { type: array, items: { $ref: "#/components/schemas/DependencySummary" } }
+                  operations: { type: array, items: { type: object } }
+
+  /namespaces/{namespace}/dependencies:
+    get:
+      tags: [experimental]
+      summary: Dependencies for a namespace.
+      parameters:
+        - { $ref: "#/components/parameters/namespacePath" }
+        - { $ref: "#/components/parameters/environment" }
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+      responses:
+        "200":
+          description: Namespace dependencies.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  dependencies: { type: array, items: { type: object } }
+
+  /namespaces/{namespace}/alerts:
+    get:
+      tags: [experimental]
+      summary: Merged Mimir + Grafana alert rules for a namespace. Not cached.
+      parameters:
+        - { $ref: "#/components/parameters/namespacePath" }
+      responses:
+        "200":
+          description: Alert rules.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rules: { type: array, items: { type: object } }
+                  unavailable: { type: boolean }
+                  errorMessage: { type: string }
+
+  /alert-templates/{kind}:
+    get:
+      tags: [experimental]
+      summary: Pre-filled Grafana alert-rule definition + deep link.
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [error-rate, exception-spike, web-vitals, new-exceptions, slo-burn-rate]
+        - name: service
+          in: query
+          required: true
+          schema: { type: string }
+        - { $ref: "#/components/parameters/namespaceQuery" }
+        - { $ref: "#/components/parameters/environment" }
+        - name: fingerprint
+          in: query
+          schema: { type: string }
+        - name: hash
+          in: query
+          schema: { type: string }
+          description: CSV of exception hashes (exception-spike).
+        - name: window
+          in: query
+          schema: { type: string, enum: [fast, slow], default: fast }
+        - name: slo
+          in: query
+          schema: { type: number, default: 0.999 }
+      responses:
+        "200":
+          description: Alert template.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AlertTemplateResponse" }
+        "400": { description: Missing service / invalid window / invalid hash. }
+        "404": { description: Unknown alert template kind. }
+        "503": { description: Datasource not configured. }
+
+  /ops-watchlist:
+    get:
+      tags: [experimental]
+      summary: Read the ops watchlist stored in plugin settings.
+      responses:
+        "200":
+          description: Watchlist entries.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/OpsWatchlistEntry" }
+    post:
+      tags: [experimental]
+      summary: Replace the ops watchlist (max 1 MB body).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items: { $ref: "#/components/schemas/OpsWatchlistEntry" }
+      responses:
+        "200":
+          description: Validated watchlist entries.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/OpsWatchlistEntry" }
+        "400": { description: Invalid body. }
+        "500": { description: Fetching or saving plugin settings failed. }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Grafana service account token.
+    grafanaSession:
+      type: apiKey
+      in: cookie
+      name: grafana_session
+
+  parameters:
+    namespacePath:
+      name: namespace
+      in: path
+      required: true
+      schema: { type: string }
+      description: Team namespace. Use "_" for no namespace.
+    servicePath:
+      name: service
+      in: path
+      required: true
+      schema: { type: string, pattern: "^[a-zA-Z0-9._\\-/ :@]+$", maxLength: 256 }
+      description: Service (app) name.
+    namespaceQuery:
+      name: namespace
+      in: query
+      schema: { type: string }
+    environment:
+      name: environment
+      in: query
+      schema: { type: string }
+      description: One or more comma-separated environments, e.g. "prod,prod-fss".
+    from:
+      name: from
+      in: query
+      schema: { type: integer, format: int64 }
+      description: Range start (Unix epoch seconds). Default now-1h.
+    to:
+      name: to
+      in: query
+      schema: { type: integer, format: int64 }
+      description: Range end (Unix epoch seconds). Default now.
+    fingerprintPath:
+      name: fingerprint
+      in: path
+      required: true
+      schema: { type: string, pattern: "^[a-z0-9:]{1,64}$" }
+
+  responses:
+    MissingService:
+      description: Missing or invalid service.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: { type: string, example: "missing or invalid service" }
+
+  schemas:
+    Capabilities:
+      type: object
+      properties:
+        spanMetrics:
+          type: object
+          properties:
+            detected: { type: boolean }
+            namespace: { type: string }
+            callsMetric: { type: string }
+            durationMetric: { type: string }
+            durationUnit: { type: string }
+        serviceGraph:
+          type: object
+          properties:
+            detected: { type: boolean }
+            prefix: { type: string }
+        tempo: { $ref: "#/components/schemas/DataSourceStatus" }
+        loki: { $ref: "#/components/schemas/DataSourceStatus" }
+        pyroscope:
+          type: object
+          properties:
+            available: { type: boolean }
+            uid: { type: string }
+        services: { type: array, items: { type: string } }
+        environments: { type: array, items: { type: string } }
+        tempoByEnv:
+          type: object
+          additionalProperties: { $ref: "#/components/schemas/DataSourceStatus" }
+        lokiByEnv:
+          type: object
+          additionalProperties: { $ref: "#/components/schemas/DataSourceStatus" }
+    DataSourceStatus:
+      type: object
+      properties:
+        available: { type: boolean }
+        error: { type: string }
+
+    IssuesResponse:
+      type: object
+      required: [fingerprintVersion, sources, issues]
+      properties:
+        fingerprintVersion: { type: string, example: "v1" }
+        sources:
+          type: object
+          properties:
+            browser: { type: boolean }
+            serverLogs: { type: boolean }
+        issues:
+          type: array
+          items: { $ref: "#/components/schemas/Issue" }
+        facets: { $ref: "#/components/schemas/IssueFacets" }
+        facetedSource: { type: string }
+        sessionsWindowSeconds: { type: integer }
+        sessionsUnavailable: { type: boolean }
+        unavailable: { type: boolean }
+    Issue:
+      allOf:
+        - $ref: "#/components/schemas/ExceptionGroup"
+        - type: object
+          properties:
+            source: { type: string, enum: [browser, server] }
+            impact:
+              type: object
+              properties:
+                pods: { type: integer }
+                versions: { type: array, items: { type: string } }
+    ExceptionGroup:
+      type: object
+      required: [fingerprint, tier, title, count, sessions, memberHashes]
+      properties:
+        fingerprint: { type: string, example: "v1:bb2cfdb1eb952653" }
+        tier: { type: integer }
+        title: { type: string }
+        types: { type: array, items: { type: string } }
+        count: { type: number }
+        sessions: { type: number }
+        memberHashes: { type: array, items: { type: string } }
+        truncated: { type: boolean }
+    ExceptionGroupsResponse:
+      type: object
+      required: [fingerprintVersion, groups]
+      properties:
+        fingerprintVersion: { type: string, example: "v1" }
+        groups:
+          type: array
+          items: { $ref: "#/components/schemas/ExceptionGroup" }
+        unavailable: { type: boolean }
+        sessionsWindowSeconds: { type: integer }
+        sessionsUnavailable: { type: boolean }
+    IssueFacets:
+      type: object
+      properties:
+        versions: { type: array, items: { $ref: "#/components/schemas/IssueFacetValue" } }
+        browsers: { type: array, items: { $ref: "#/components/schemas/IssueFacetValue" } }
+        topPages: { type: array, items: { $ref: "#/components/schemas/IssueFacetValue" } }
+    IssueFacetValue:
+      type: object
+      properties:
+        value: { type: string }
+        count: { type: number }
+
+    TriageStatesResponse:
+      type: object
+      properties:
+        states:
+          type: object
+          additionalProperties: { $ref: "#/components/schemas/TriageState" }
+    TriageState:
+      type: object
+      required: [status, updatedAt, updatedBy]
+      properties:
+        status: { type: string, enum: [active, resolved, ignored] }
+        assignee: { type: string }
+        resolvedInVersion: { type: string }
+        updatedAt: { type: integer, format: int64 }
+        updatedBy: { type: string }
+    TriageActionRequest:
+      type: object
+      required: [action]
+      properties:
+        action: { type: string, enum: [resolve, ignore, unresolve, assign] }
+        assignee: { type: string }
+        resolvedInVersion: { type: string }
+        note: { type: string }
+    TriageEvent:
+      type: object
+      properties:
+        schema: { type: integer }
+        action: { type: string, enum: [resolve, ignore, unresolve, assign] }
+        actor: { type: string }
+        assignee: { type: string }
+        resolvedInVersion: { type: string }
+        note: { type: string }
+        timeMs: { type: integer, format: int64 }
+
+    ServiceSummary:
+      type: object
+      properties:
+        name: { type: string }
+        namespace: { type: string }
+        environment: { type: string }
+        sdkLanguage: { type: string }
+        framework: { type: string }
+        hasFrontend: { type: boolean }
+        isSidecar: { type: boolean }
+        hasServerSpans: { type: boolean }
+        rate: { type: number }
+        errorRate: { type: number }
+        p95Duration: { type: number }
+        durationUnit: { type: string }
+        rateSeries: { type: array, items: { $ref: "#/components/schemas/DataPoint" } }
+        errorSeries: { type: array, items: { $ref: "#/components/schemas/DataPoint" } }
+        durationSeries: { type: array, items: { $ref: "#/components/schemas/DataPoint" } }
+    DataPoint:
+      type: object
+      properties:
+        t: { type: integer, format: int64 }
+        v: { type: number }
+    HealthSummary:
+      type: object
+      properties:
+        rate: { type: number }
+        errorRate: { type: number }
+        p95Duration: { type: number }
+        durationUnit: { type: string }
+        prevRate: { type: number, nullable: true }
+        prevErrorRate: { type: number, nullable: true }
+        prevP95Duration: { type: number, nullable: true }
+        degradedOps: { type: array, items: { type: object } }
+        degradedDeps: { type: array, items: { type: object } }
+        causeCategory: { type: string }
+    OperationSummary:
+      type: object
+      properties:
+        spanName: { type: string }
+        spanKind: { type: string }
+        spanKindRaw: { type: string }
+        rate: { type: number }
+        errorRate: { type: number }
+        p50Duration: { type: number }
+        p95Duration: { type: number }
+        p99Duration: { type: number }
+        durationUnit: { type: string }
+    EndpointGroups:
+      type: object
+      properties:
+        http: { type: array, items: { $ref: "#/components/schemas/EndpointSummary" } }
+        grpc: { type: array, items: { $ref: "#/components/schemas/EndpointSummary" } }
+        database: { type: array, items: { $ref: "#/components/schemas/EndpointSummary" } }
+        messaging: { type: array, items: { $ref: "#/components/schemas/EndpointSummary" } }
+        internal: { type: array, items: { $ref: "#/components/schemas/EndpointSummary" } }
+        client: { type: array, items: { $ref: "#/components/schemas/EndpointSummary" } }
+        durationUnit: { type: string }
+    EndpointSummary:
+      type: object
+      properties:
+        spanName: { type: string }
+        rate: { type: number }
+        errorRate: { type: number }
+        p50Duration: { type: number }
+        p95Duration: { type: number }
+        p99Duration: { type: number }
+        durationUnit: { type: string }
+        httpMethod: { type: string }
+        httpRoute: { type: string }
+        rpcService: { type: string }
+        rpcMethod: { type: string }
+        dbSystem: { type: string }
+        messagingKind: { type: string }
+    DependencySummary:
+      type: object
+      properties:
+        name: { type: string }
+        displayName: { type: string }
+        type: { type: string }
+        rate: { type: number }
+        errorRate: { type: number }
+        p95Duration: { type: number }
+        durationUnit: { type: string }
+        impact: { type: integer }
+
+    FrontendMetricsResponse:
+      type: object
+      properties:
+        available: { type: boolean }
+        source: { type: string }
+        vitals:
+          type: object
+          additionalProperties: { type: number }
+        errorRate: { type: number }
+        hasLoki: { type: boolean }
+    FrontendVersionsResponse:
+      type: object
+      properties:
+        versions:
+          type: array
+          items:
+            type: object
+            properties:
+              version: { type: string }
+              sessions: { type: number }
+              adoption: { type: number }
+              errorFreeRate: { type: number }
+              exceptions: { type: number }
+              deployedAtMs: { type: integer, format: int64 }
+        latestVersion: { type: string }
+        unavailable: { type: boolean }
+    FrontendSessionsResponse:
+      type: object
+      properties:
+        sessions:
+          type: array
+          items:
+            type: object
+            properties:
+              sessionId: { type: string }
+              firstSeenMs: { type: integer, format: int64 }
+              lastSeenMs: { type: integer, format: int64 }
+              events: { type: number }
+              errors: { type: number }
+              userId: { type: string }
+              userEmail: { type: string }
+              browser: { type: string }
+              os: { type: string }
+              appVersion: { type: string }
+              pages: { type: integer }
+        truncated: { type: boolean }
+        unavailable: { type: boolean }
+        windowSeconds: { type: integer }
+    FeedbackResponse:
+      type: object
+      properties:
+        feedback:
+          type: array
+          items:
+            type: object
+            properties:
+              timeMs: { type: integer, format: int64 }
+              message: { type: string }
+              category: { type: string }
+              email: { type: string }
+              sessionId: { type: string }
+              fingerprint: { type: string }
+              pageUrl: { type: string }
+              appVersion: { type: string }
+        unavailable: { type: boolean }
+
+    LogPatternsResponse:
+      type: object
+      properties:
+        mode: { type: string, enum: [serverPatterns, sampled, unavailable] }
+        patterns:
+          type: array
+          items:
+            type: object
+            properties:
+              pattern: { type: string }
+              level: { type: string }
+              count: { type: integer, format: int64 }
+              sample: { type: string }
+              firstSeenMs: { type: integer, format: int64 }
+              lastSeenMs: { type: integer, format: int64 }
+              isNew: { type: boolean }
+              filterLiteral: { type: string }
+        note: { type: string }
+    TraceBreakdownResponse:
+      type: object
+      properties:
+        mode: { type: string, enum: [traceql, spanmetrics, unavailable] }
+        dimension: { type: string }
+        dimensions: { type: array, items: { type: string } }
+        rows:
+          type: array
+          items:
+            type: object
+            properties:
+              value: { type: string }
+              rate: { type: number }
+              errorRate: { type: number }
+              p95Ms: { type: number }
+              p99Ms: { type: number }
+        note: { type: string }
+
+    ScorecardResponse:
+      type: object
+      properties:
+        readiness:
+          type: object
+          properties:
+            score: { type: integer }
+            total: { type: integer }
+            checks:
+              type: array
+              items:
+                type: object
+                properties:
+                  key: { type: string }
+                  label: { type: string }
+                  ok: { type: boolean }
+                  hint: { type: string }
+        console:
+          type: object
+          properties:
+            configured: { type: boolean }
+            teamSlug: { type: string }
+            slackChannel: { type: string }
+            repositoryUrl: { type: string }
+            ingresses: { type: array, items: { type: string } }
+    JobsResponse:
+      type: object
+      properties:
+        available: { type: boolean }
+        jobs:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              namespace: { type: string }
+              cluster: { type: string }
+              kind: { type: string }
+              schedule: { type: string }
+              timezone: { type: string }
+              lastRun:
+                type: object
+                properties:
+                  outcome: { type: string }
+                  startMs: { type: integer, format: int64 }
+                  completionMs: { type: integer, format: int64 }
+                  durationSec: { type: integer, format: int64 }
+                  reason: { type: string }
+              lastScheduleMs: { type: integer, format: int64 }
+              nextScheduleMs: { type: integer, format: int64 }
+              failureStreak: { type: integer }
+              status: { type: string }
+              runCount: { type: integer }
+        note: { type: string }
+    ServiceMapResponse:
+      type: object
+      properties:
+        nodes:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              title: { type: string }
+              subtitle: { type: string }
+              mainStat: { type: string }
+              secondaryStat: { type: string }
+              arc__errors: { type: number }
+              arc__ok: { type: number }
+              nodeType: { type: string }
+              isSidecar: { type: boolean }
+              isHub: { type: boolean }
+              hubDegree: { type: integer }
+              callerCount: { type: integer }
+              errorRate: { type: number }
+              serviceCount: { type: integer }
+        edges:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              source: { type: string }
+              target: { type: string }
+              mainStat: { type: string }
+              secondaryStat: { type: string }
+
+    RuntimeResponse:
+      type: object
+      description: Each category is present only when detected; {} when nothing found.
+      properties:
+        container: { type: object }
+        jvm: { type: object }
+        nodejs: { type: object }
+        go: { type: object }
+        dbPool: { type: object }
+        kafka: { type: object }
+
+    AlertTemplateResponse:
+      type: object
+      properties:
+        url: { type: string }
+        defaults:
+          type: object
+          properties:
+            type: { type: string }
+            name: { type: string }
+            condition: { type: string }
+            evaluateFor: { type: string }
+            queries: { type: array, items: { type: object } }
+            annotations: { type: array, items: { type: object } }
+            labels: { type: array, items: { type: object } }
+
+    OpsWatchlistEntry:
+      type: object
+      properties:
+        namespace: { type: string }
+        service: { type: string }

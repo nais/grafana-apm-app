@@ -363,37 +363,57 @@ func (a *App) CheckHealth(ctx context.Context, req *backend.CheckHealthRequest) 
 	}, nil
 }
 
+// appRoute pairs a net/http mux pattern with its handler. The pattern syntax is
+// Go 1.22+ ServeMux ({name} wildcards), which is also OpenAPI path syntax.
+type appRoute struct {
+	pattern string
+	handler http.HandlerFunc
+}
+
+// routes returns the full list of registered resource routes. It is the single
+// source of truth for both route registration (registerRoutes) and the
+// documentation-drift test (apidocs_test.go), which asserts every pattern here
+// appears in docs/api/openapi.yaml. The receiver may be a zero-value *App; only
+// the method values (not their execution) are read when enumerating patterns.
+func (a *App) routes() []appRoute {
+	return []appRoute{
+		{"/capabilities", a.handleCapabilities},
+		{"/services", a.handleServices},
+		{"/services/{namespace}/{service}/health", a.handleHealth},
+		{"/services/{namespace}/{service}/operations", a.handleOperations},
+		{"/services/{namespace}/{service}/endpoints", a.handleEndpoints},
+		{"/services/{namespace}/{service}/frontend", a.handleFrontendMetrics},
+		{"/services/{namespace}/{service}/frontend/versions", a.handleFrontendVersions},
+		{"/services/{namespace}/{service}/frontend/sessions", a.handleFrontendSessions},
+		{"/services/{namespace}/{service}/logs/patterns", a.handleLogPatterns},
+		{"/services/{namespace}/{service}/traces/breakdown", a.handleTraceBreakdown},
+		{"/services/{namespace}/{service}/feedback", a.handleFeedback},
+		{"/services/{namespace}/{service}/exceptions/groups", a.handleExceptionGroups},
+		{"/services/{namespace}/{service}/issues", a.handleIssues},
+		{"/services/{namespace}/{service}/triage", a.handleTriageStates},
+		{"/services/{namespace}/{service}/triage/{fingerprint}", a.handleTriageAction},
+		{"/services/{namespace}/{service}/triage/{fingerprint}/history", a.handleTriageHistory},
+		{"/services/{namespace}/{service}/dependencies", a.handleServiceDependencies},
+		{"/services/{namespace}/{service}/connected", a.handleConnectedServices},
+		{"/services/{namespace}/{service}/graphql", a.handleGraphQLMetrics},
+		{"/services/{namespace}/{service}/runtime", a.handleRuntime},
+		{"/services/{namespace}/{service}/custom-metrics", a.handleCustomMetrics},
+		{"/services/{namespace}/{service}/scorecard", a.handleScorecard},
+		{"/jobs", a.handleJobs},
+		{"/service-map", a.handleServiceMap},
+		{"/service-map/clustered", a.handleClusteredServiceMap},
+		{"/dependencies", a.handleGlobalDependencies},
+		{"/dependencies/{name}", a.handleDependencyDetail},
+		{"/namespaces/{namespace}/dependencies", a.handleNamespaceDependencies},
+		{"/namespaces/{namespace}/alerts", a.handleNamespaceAlerts},
+		{"/alert-templates/{kind}", a.handleAlertTemplate},
+		{"/ops-watchlist", a.handleOpsWatchlist},
+		{"/ping", a.handlePing},
+	}
+}
+
 func (a *App) registerRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("/capabilities", a.handleCapabilities)
-	mux.HandleFunc("/services", a.handleServices)
-	mux.HandleFunc("/services/{namespace}/{service}/health", a.handleHealth)
-	mux.HandleFunc("/services/{namespace}/{service}/operations", a.handleOperations)
-	mux.HandleFunc("/services/{namespace}/{service}/endpoints", a.handleEndpoints)
-	mux.HandleFunc("/services/{namespace}/{service}/frontend", a.handleFrontendMetrics)
-	mux.HandleFunc("/services/{namespace}/{service}/frontend/versions", a.handleFrontendVersions)
-	mux.HandleFunc("/services/{namespace}/{service}/frontend/sessions", a.handleFrontendSessions)
-	mux.HandleFunc("/services/{namespace}/{service}/logs/patterns", a.handleLogPatterns)
-	mux.HandleFunc("/services/{namespace}/{service}/traces/breakdown", a.handleTraceBreakdown)
-	mux.HandleFunc("/services/{namespace}/{service}/feedback", a.handleFeedback)
-	mux.HandleFunc("/services/{namespace}/{service}/exceptions/groups", a.handleExceptionGroups)
-	mux.HandleFunc("/services/{namespace}/{service}/issues", a.handleIssues)
-	mux.HandleFunc("/services/{namespace}/{service}/triage", a.handleTriageStates)
-	mux.HandleFunc("/services/{namespace}/{service}/triage/{fingerprint}", a.handleTriageAction)
-	mux.HandleFunc("/services/{namespace}/{service}/triage/{fingerprint}/history", a.handleTriageHistory)
-	mux.HandleFunc("/services/{namespace}/{service}/dependencies", a.handleServiceDependencies)
-	mux.HandleFunc("/services/{namespace}/{service}/connected", a.handleConnectedServices)
-	mux.HandleFunc("/services/{namespace}/{service}/graphql", a.handleGraphQLMetrics)
-	mux.HandleFunc("/services/{namespace}/{service}/runtime", a.handleRuntime)
-	mux.HandleFunc("/services/{namespace}/{service}/custom-metrics", a.handleCustomMetrics)
-	mux.HandleFunc("/services/{namespace}/{service}/scorecard", a.handleScorecard)
-	mux.HandleFunc("/jobs", a.handleJobs)
-	mux.HandleFunc("/service-map", a.handleServiceMap)
-	mux.HandleFunc("/service-map/clustered", a.handleClusteredServiceMap)
-	mux.HandleFunc("/dependencies", a.handleGlobalDependencies)
-	mux.HandleFunc("/dependencies/{name}", a.handleDependencyDetail)
-	mux.HandleFunc("/namespaces/{namespace}/dependencies", a.handleNamespaceDependencies)
-	mux.HandleFunc("/namespaces/{namespace}/alerts", a.handleNamespaceAlerts)
-	mux.HandleFunc("/alert-templates/{kind}", a.handleAlertTemplate)
-	mux.HandleFunc("/ops-watchlist", a.handleOpsWatchlist)
-	mux.HandleFunc("/ping", a.handlePing)
+	for _, r := range a.routes() {
+		mux.HandleFunc(r.pattern, r.handler)
+	}
 }
