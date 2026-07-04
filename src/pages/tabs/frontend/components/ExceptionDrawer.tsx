@@ -850,7 +850,14 @@ function FeedbackSection({ entries }: { entries: FeedbackEntry[] }) {
 
   return (
     <div className={styles.section}>
-      <h4 className={styles.sectionTitle}>User Feedback ({sorted.length})</h4>
+      <h4 className={styles.sectionTitle}>
+        User Feedback ({sorted.length}){' '}
+        <Badge
+          text="Preview"
+          color="orange"
+          tooltip="Internal pilot only — free-text feedback goes to a shared log store, so this is gated on the personvernombud process and apps must warn users not to enter personal information."
+        />
+      </h4>
       <div className={styles.feedbackList}>
         {shown.map((entry, idx) => (
           <div key={idx} className={styles.feedbackItem}>

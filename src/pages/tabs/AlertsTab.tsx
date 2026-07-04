@@ -125,7 +125,12 @@ export function AlertsTab({ service, namespace, environment }: AlertsTabProps) {
         <div className={styles.sectionHeader}>
           <h3 className={styles.sectionTitle}>
             <Icon name="bell" className={styles.titleIcon} />
-            Alert rules
+            Alert rules{' '}
+            <Badge
+              text="Under construction"
+              color="orange"
+              tooltip="Per-team alert folders and configuration are still being set up across the platform — where a rule lands may change. You can create alerts from templates today."
+            />
           </h3>
           <span className={styles.sectionSubtitle}>
             Rules watching this service, merged from Mimir and Grafana alerting.
