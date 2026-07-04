@@ -13,7 +13,7 @@ already operate.
 
 ## Features
 
-### Error tracking (Sentry-parity)
+### Error tracking
 
 - **Issues** — frontend _and_ backend errors grouped by a stable, owned fingerprint (versioned, computed query-time, HA-safe) so dynamic message content doesn't splinter issues; source badges, occurrence/session counts, faceted search (version/browser/page)
 - **Triage** — resolve / ignore / assign / mute with regression detection ("did this come back after the latest deploy?"), stored HA-safe as an append-only annotation event log (no plugin database — see [docs/adr/0001](docs/adr/0001-state-in-grafana-shared-db.md))
@@ -29,9 +29,9 @@ already operate.
 - **Log patterns** — top error patterns from Loki's pattern ingester with new-pattern detection (the incident-triage view)
 - **Trace analytics** — TraceQL-metrics breakdowns ("which attribute explains the p99")
 - **SLO / error budgets** — 30-day compliance, remaining-budget bar, and current burn rate with a target selector
-- **Runtime** — container resources, JVM memory pools/GC, Go runtime, Node.js event loop/heap
+- **Backend** — merges Endpoints (RED — rate/errors/duration per operation) with Runtime (container resources, JVM/Go/Node internals) in one server-side view
 - **Frontend** — Core Web Vitals with threshold bands, per-page performance, web-vitals attribution, and a compact browser-scoped issues row
-- **User feedback** — `@nais/apm` `captureFeedback` joined to issues in the drawer
+- **User feedback** _(preview — internal pilot only)_ — `@nais/apm` `captureFeedback` joined to issues in the drawer; free-text into shared Loki, so gated on the personvernombud process and a no-personal-information input warning
 - **Jobs** — CronJob/Naisjob monitoring from kube-state-metrics (schedule, last run, failure streak)
 - **Profiling** — Pyroscope flame graphs, capability-gated (appears only when a Pyroscope datasource exists)
 
