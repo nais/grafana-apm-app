@@ -83,6 +83,30 @@ describe('buildDatabaseScene', () => {
     expect(serialized).toContain('histogram_quantile(0.95');
   });
 
+  it('zero-fills the errors query so services without error samples render 0% instead of no data', () => {
+    const scene = buildDatabaseScene(defaultParams);
+    const serialized = JSON.stringify(scene!.state.body);
+    // `ratio * 100 or (rate * 0)` — verified against production services with
+    // real db traffic and zero errors (pdl-api, pensjon-representasjon,
+    // fpinntektsmelding): the plain ratio returns an empty vector for all three.
+    expect(serialized).toMatch(
+      /\* 100 or sum by \(db_system\) \(rate\(traces_spanmetrics_calls_total\{[^}]*\}\[\$__rate_interval\]\)\) \* 0/
+    );
+  });
+
+  it('omits the RED row and host table when hasDbSpans is false', () => {
+    const scene = buildDatabaseScene({ ...defaultParams, hasDbSpans: false, hasDbPool: true });
+    const serialized = JSON.stringify(scene!.state.body);
+    expect(serialized).not.toContain('traces_spanmetrics_calls_total');
+    expect(serialized).toContain('db_client_connections_wait_time_milliseconds_bucket');
+  });
+
+  it('includes the RED row when hasDbSpans is not specified (default true)', () => {
+    const scene = buildDatabaseScene(defaultParams);
+    const serialized = JSON.stringify(scene!.state.body);
+    expect(serialized).toContain('traces_spanmetrics_calls_total');
+  });
+
   it('builds a per-host breakdown table grouped by db_system and server_address', () => {
     const scene = buildDatabaseScene(defaultParams);
     const serialized = JSON.stringify(scene!.state.body);

@@ -28,6 +28,11 @@ export interface BuildDatabaseSceneParams {
   serviceNameLabel?: string;
   serviceNamespaceLabel?: string;
   deploymentEnvLabel?: string;
+  /** Whether the backend's /endpoints response has database operations for this
+   * service (EndpointGroups.database non-empty). Gates the span-metrics-backed
+   * rows (RED + per-host) so a pool-only service doesn't render three empty
+   * panels. Defaults to true. */
+  hasDbSpans?: boolean;
   /** Whether RuntimeResponse.dbPool was detected for this service (RuntimeTab's
    * DBPoolRuntime). Gates the connection-acquisition-time panels — see notes
    * below on why they're queried directly here rather than through that API. */
@@ -60,6 +65,13 @@ export function buildDbTracesExploreUrl(tracesUid: string, service: string, name
  * how ServerTab's "Database Operations" section and DependencyDetail's
  * per-dependency RED panels already query the same underlying metrics —
  * no new backend endpoint is required.
+ *
+ * Every expression here was executed against production Mimir (2026-07-04,
+ * via POST /api/ds/query) for three reference services covering the three
+ * major db systems: pdl/pdl-api (mongodb, ~112 calls/s), pensjon-person/
+ * pensjon-representasjon (oracle, ~2 calls/s), teamforeldrepenger/
+ * fpinntektsmelding (postgresql, ~8.6 calls/s). Rate, duration P95,
+ * per-host, and (zero-filled) error panels all return data for all three.
  *
  * Per-host breakdown relies on the `server_address` label, which spanmetrics
  * pipelines populate from the client span's `server.address` attribute (used
@@ -100,6 +112,7 @@ export function buildDatabaseScene(params: BuildDatabaseSceneParams): EmbeddedSc
     serviceNameLabel = otel.labels.serviceName,
     serviceNamespaceLabel = otel.labels.serviceNamespace,
     deploymentEnvLabel = otel.labels.deploymentEnv,
+    hasDbSpans = true,
     hasDbPool = false,
   } = params;
 
@@ -139,9 +152,16 @@ export function buildDatabaseScene(params: BuildDatabaseSceneParams): EmbeddedSc
     queries: [
       {
         refId: 'A',
+        // Zero-fill: services with no error samples in the window would
+        // otherwise produce an empty result set and the panel would render
+        // "No data" instead of a calm 0% line. Verified against production
+        // (pdl-api, pensjon-representasjon, fpinntektsmelding — all with real
+        // db traffic and zero errors): the plain ratio was empty for all
+        // three, the `or ... * 0` form returns 0 per db_system.
         expr:
           `sum by (${otel.labels.dbSystem}) (rate(${callsMetric}{${dbFilter}, ${otel.labels.statusCode}="${otel.statusCodes.error}"}[$__rate_interval])) ` +
-          `/ sum by (${otel.labels.dbSystem}) (rate(${callsMetric}{${dbFilter}}[$__rate_interval])) * 100`,
+          `/ sum by (${otel.labels.dbSystem}) (rate(${callsMetric}{${dbFilter}}[$__rate_interval])) * 100 ` +
+          `or sum by (${otel.labels.dbSystem}) (rate(${callsMetric}{${dbFilter}}[$__rate_interval])) * 0`,
         legendFormat: `{{${otel.labels.dbSystem}}}`,
         exemplar: true,
       },
@@ -229,52 +249,56 @@ export function buildDatabaseScene(params: BuildDatabaseSceneParams): EmbeddedSc
     body: new SceneFlexLayout({
       direction: 'column',
       children: [
-        new SceneFlexItem({
-          body: new SceneFlexLayout({
-            direction: 'row',
-            children: [
+        ...(hasDbSpans
+          ? [
               new SceneFlexItem({
-                height: 220,
-                body: PanelBuilders.timeseries()
-                  .setTitle('Rate')
-                  .setDescription('Database call rate per second, by db.system')
-                  .setData(rateQuery)
-                  .setUnit('reqps')
-                  .setOverrides(exemplarOverride)
-                  .build(),
+                body: new SceneFlexLayout({
+                  direction: 'row',
+                  children: [
+                    new SceneFlexItem({
+                      height: 220,
+                      body: PanelBuilders.timeseries()
+                        .setTitle('Rate')
+                        .setDescription('Database call rate per second, by db.system')
+                        .setData(rateQuery)
+                        .setUnit('reqps')
+                        .setOverrides(exemplarOverride)
+                        .build(),
+                    }),
+                    new SceneFlexItem({
+                      height: 220,
+                      body: PanelBuilders.timeseries()
+                        .setTitle('Errors')
+                        .setDescription('Percentage of database calls resulting in an error status, by db.system')
+                        .setData(errorQuery)
+                        .setUnit('percent')
+                        .setOverrides(exemplarOverride)
+                        .build(),
+                    }),
+                    new SceneFlexItem({
+                      height: 220,
+                      body: PanelBuilders.timeseries()
+                        .setTitle('Duration (P95)')
+                        .setDescription('P95 database call latency, by db.system')
+                        .setData(durationQuery)
+                        .setUnit(panelDurationUnit)
+                        .build(),
+                    }),
+                  ],
+                }),
               }),
               new SceneFlexItem({
-                height: 220,
-                body: PanelBuilders.timeseries()
-                  .setTitle('Errors')
-                  .setDescription('Percentage of database calls resulting in an error status, by db.system')
-                  .setData(errorQuery)
-                  .setUnit('percent')
-                  .setOverrides(exemplarOverride)
+                height: 250,
+                body: PanelBuilders.table()
+                  .setTitle('Per-host breakdown')
+                  .setDescription(
+                    'Call rate by db.system and server.address. Empty when the database client does not populate the server.address attribute.'
+                  )
+                  .setData(hostQuery)
                   .build(),
               }),
-              new SceneFlexItem({
-                height: 220,
-                body: PanelBuilders.timeseries()
-                  .setTitle('Duration (P95)')
-                  .setDescription('P95 database call latency, by db.system')
-                  .setData(durationQuery)
-                  .setUnit(panelDurationUnit)
-                  .build(),
-              }),
-            ],
-          }),
-        }),
-        new SceneFlexItem({
-          height: 250,
-          body: PanelBuilders.table()
-            .setTitle('Per-host breakdown')
-            .setDescription(
-              'Call rate by db.system and server.address. Empty when the database client does not populate the server.address attribute.'
-            )
-            .setData(hostQuery)
-            .build(),
-        }),
+            ]
+          : []),
         ...(hasDbPool
           ? [
               new SceneFlexItem({
