@@ -1,6 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { ErrorBoundary as GrafanaErrorBoundary } from '@grafana/ui';
-import { useStyles2, Button, Icon } from '@grafana/ui';
+import { ErrorBoundary as GrafanaErrorBoundary, useStyles2, Button, Icon } from '@grafana/ui';
 import { getAppEvents } from '@grafana/runtime';
 import { AppEvents, GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
