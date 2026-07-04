@@ -9,11 +9,11 @@ import {
   SceneFlexLayout,
   SceneFlexItem,
   PanelBuilders,
-  SceneTimePicker,
-  SceneRefreshPicker,
 } from '@grafana/scenes';
 import { useDebouncedValue, escapeRegex } from '../../utils/debounce';
 import { escapeQueryString } from '../../utils/sanitize';
+import { useTimeRange } from '../../utils/timeRange';
+import { TraceBreakdowns } from './traces/TraceBreakdowns';
 
 /** Map OTel span kind values to TraceQL kind literals. */
 function mapSpanKindToTraceQL(raw: string): string {
@@ -48,8 +48,6 @@ export function TracesTab({
   service,
   namespace,
   tracesUid,
-  from,
-  to,
   initialSpan,
   initialStatus,
   initialSpanKind,
@@ -60,9 +58,19 @@ export function TracesTab({
   const [spanSearch, setSpanSearch] = useState<string>(initialSpan ?? '');
   const debouncedSearch = useDebouncedValue(spanSearch, 500);
   const styles = useStyles2(getStyles);
+  // Resolved timestamps drive the breakdown fetch AND bust the scene memo on a
+  // global time-picker refresh (from/to strings stay relative but fromMs/toMs
+  // re-resolve), so the trace scene rebuilds and re-queries the fresh window.
+  const { fromMs, toMs } = useTimeRange();
 
   const scene = useMemo(() => {
-    const timeRange = new SceneTimeRange({ from, to });
+    // Resolve against the shared URL range (fromMs/toMs) rather than the raw
+    // relative strings: the global header time picker replaced this scene's own
+    // picker, and a refresh re-resolves fromMs/toMs while from/to stay relative.
+    const timeRange = new SceneTimeRange({
+      from: new Date(fromMs).toISOString(),
+      to: new Date(toMs).toISOString(),
+    });
 
     // Note: resource.service.namespace may differ between signals (e.g., span metrics
     // report "opentelemetry-demo" while traces/logs report "demo"). Only filter by
@@ -106,7 +114,7 @@ export function TracesTab({
 
     return new EmbeddedScene({
       $timeRange: timeRange,
-      controls: [new SceneTimePicker({}), new SceneRefreshPicker({})],
+      controls: [],
       body: new SceneFlexLayout({
         direction: 'column',
         children: [
@@ -117,7 +125,7 @@ export function TracesTab({
         ],
       }),
     });
-  }, [service, tracesUid, from, to, statusFilter, durationMin, durationMax, debouncedSearch, initialSpanKind]);
+  }, [service, tracesUid, fromMs, toMs, statusFilter, durationMin, durationMax, debouncedSearch, initialSpanKind]);
 
   const statusOptions: Array<{ label: string; value: string }> = [
     { label: 'All', value: '' },
@@ -159,6 +167,14 @@ export function TracesTab({
           onChange={(e) => setDurationMax(e.target.value)}
         />
       </div>
+      <TraceBreakdowns
+        namespace={namespace}
+        service={service}
+        tracesUid={tracesUid}
+        fromMs={fromMs}
+        toMs={toMs}
+        onSelectSpan={setSpanSearch}
+      />
       <div className={styles.sceneWrapper}>
         <scene.Component model={scene} />
       </div>

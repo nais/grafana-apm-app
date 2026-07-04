@@ -10,14 +10,14 @@ import {
   SceneFlexLayout,
   SceneFlexItem,
   PanelBuilders,
-  SceneTimePicker,
-  SceneRefreshPicker,
 } from '@grafana/scenes';
 import { useDebouncedValue, escapeRegex } from '../../utils/debounce';
 import { sanitizeLabelValue } from '../../utils/sanitize';
 import { useUrlString, useUrlCsv, useUrlBoolean } from '../../utils/useUrlState';
+import { useTimeRange } from '../../utils/timeRange';
 import { buildLogsDrilldownUrl } from '../../utils/explore';
 import { otel } from '../../otelconfig';
+import { PatternsPanel } from './logs/PatternsPanel';
 
 interface LogsTabProps {
   service: string;
@@ -78,6 +78,10 @@ export function LogsTab({
   const [podOptions, setPodOptions] = useState<Array<{ label: string; value: string }>>([]);
   const debouncedSearch = useDebouncedValue(logSearch, 500);
   const styles = useStyles2(getStyles);
+  // Resolved timestamps drive the patterns fetch AND bust the scene memo on a
+  // global time-picker refresh (from/to strings stay "now-1h" but fromMs/toMs
+  // re-resolve), so the scene rebuilds and re-queries the fresh window.
+  const { fromMs, toMs } = useTimeRange();
 
   // Fetch available pod names for this service
   useEffect(() => {
@@ -99,7 +103,13 @@ export function LogsTab({
   }, [service, logsUid, serviceNameLabel, clusterFilter]);
 
   const scene = useMemo(() => {
-    const timeRange = new SceneTimeRange({ from, to });
+    // Resolve against the shared URL range (fromMs/toMs) rather than the raw
+    // relative strings: the global header time picker replaced this scene's own
+    // picker, and a refresh re-resolves fromMs/toMs while from/to stay "now-1h".
+    const timeRange = new SceneTimeRange({
+      from: new Date(fromMs).toISOString(),
+      to: new Date(toMs).toISOString(),
+    });
     const svcLabel = `${serviceNameLabel}="${sanitizeLabelValue(service)}"`;
 
     // Centralized Loki: inject cluster label to scope logs to the selected environment.
@@ -158,7 +168,7 @@ export function LogsTab({
 
     return new EmbeddedScene({
       $timeRange: timeRange,
-      controls: [new SceneTimePicker({}), new SceneRefreshPicker({})],
+      controls: [],
       body: new SceneFlexLayout({
         direction: 'column',
         children: [
@@ -198,8 +208,8 @@ export function LogsTab({
     podFilter,
     includeFaro,
     kindFilter,
-    from,
-    to,
+    fromMs,
+    toMs,
     serviceNameLabel,
     clusterFilter,
   ]);
@@ -266,6 +276,14 @@ export function LogsTab({
           Open in Logs Drilldown
         </LinkButton>
       </div>
+      <PatternsPanel
+        namespace={namespace}
+        service={service}
+        logsUid={logsUid}
+        fromMs={fromMs}
+        toMs={toMs}
+        onSelectFilter={setLogSearch}
+      />
       <div className={styles.sceneWrapper}>
         <scene.Component model={scene} />
       </div>
