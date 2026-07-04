@@ -13,6 +13,7 @@ import { CopyMermaidButton } from '../../components/CopyMermaidButton';
 import { groupDependencies } from '../../utils/depGroups';
 import { HealthSummarySection } from '../../components/HealthSummary/HealthSummarySection';
 import { HealthHeaderRow } from './overview/HealthHeaderRow';
+import { SloPanel } from './overview/SloPanel';
 
 const MAX_OVERVIEW_OPS = 5;
 const DEPTH_OPTIONS = [
@@ -105,6 +106,12 @@ export function OverviewTab({
           previous period, so "is this OK right now?" doesn't require reading
           the timeseries below. */}
       <HealthHeaderRow health={health ?? null} loading={healthLoading ?? false} />
+
+      {/* Error-budget / SLO panel (M7): 30d compliance, remaining budget and
+          current burn rate off the RED error ratio, plus multi-window
+          burn-rate alert generation — the OSS-niche answer to Cloud-only
+          managed SLOs. */}
+      <SloPanel namespace={namespace} service={service} environment={environment} />
 
       {/* RED panels + Duration distribution (includes time picker). Deploy
           markers (#64) are already layered onto every child timeseries panel

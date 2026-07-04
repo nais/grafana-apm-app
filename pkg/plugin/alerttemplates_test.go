@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -238,6 +239,204 @@ func TestHandleAlertTemplate(t *testing.T) {
 
 			assertURLEncoding(t, resp)
 		})
+	}
+}
+
+// sloBurnExpr independently derives the expected multi-window burn-rate
+// expression so the test asserts the exact windows/factor/budget math the
+// handler renders, not just that it produced *some* string.
+func sloBurnExpr(calls, errSel, allSel, longWin, shortWin, budget, factor string) string {
+	ratio := func(w string) string {
+		return fmt.Sprintf(`(sum(rate(%s{%s}[%s])) or vector(0)) / sum(rate(%s{%s}[%s]))`,
+			calls, errSel, w, calls, allSel, w)
+	}
+	long := ratio(longWin) + " / " + budget
+	short := ratio(shortWin) + " / " + budget
+	return fmt.Sprintf(`%s * (%s >= bool %s)`, long, short, factor)
+}
+
+func TestSLOBurnRateTemplate(t *testing.T) {
+	const calls = "traces_span_metrics_calls_total"
+
+	tests := []struct {
+		name string
+		url  string
+
+		wantDSUID      string
+		wantExpr       string
+		wantName       string
+		wantThreshold  float64
+		wantEvaluate   string
+		wantSeverity   string
+		wantSLOLabel   string
+		wantAnnotation string
+		// substrings the expression must contain (windows/factor/budget/target math)
+		wantContains []string
+	}{
+		{
+			name:      "fast burn defaults to 99.9% target, 14.4x over 1h/5m",
+			url:       "/alert-templates/slo-burn-rate?namespace=team-a&service=my-svc",
+			wantDSUID: "mimir-default",
+			wantExpr: sloBurnExpr(calls,
+				`service_name="my-svc", service_namespace="team-a", status_code="STATUS_CODE_ERROR"`,
+				`service_name="my-svc", service_namespace="team-a"`,
+				"1h", "5m", "0.001", "14.4"),
+			wantName:       "Fast burn (14.4x) – SLO 99.9% – my-svc",
+			wantThreshold:  14.4,
+			wantEvaluate:   "2m",
+			wantSeverity:   "critical",
+			wantSLOLabel:   "99.9%",
+			wantAnnotation: "/a/nais-apm-app/services/team-a/my-svc",
+			wantContains:   []string{"[1h]", "[5m]", "/ 0.001", ">= bool 14.4", "or vector(0)"},
+		},
+		{
+			name:      "slow burn with env and custom 99% target, 6x over 6h/30m",
+			url:       "/alert-templates/slo-burn-rate?namespace=team-a&service=my-svc&environment=prod-gcp&window=slow&slo=0.99",
+			wantDSUID: "mimir-prod-gcp",
+			wantExpr: sloBurnExpr(calls,
+				`service_name="my-svc", service_namespace="team-a", k8s_cluster_name="prod-gcp", status_code="STATUS_CODE_ERROR"`,
+				`service_name="my-svc", service_namespace="team-a", k8s_cluster_name="prod-gcp"`,
+				"6h", "30m", "0.01", "6"),
+			wantName:       "Slow burn (6x) – SLO 99% – my-svc (prod-gcp)",
+			wantThreshold:  6,
+			wantEvaluate:   "15m",
+			wantSeverity:   "warning",
+			wantSLOLabel:   "99%",
+			wantAnnotation: "/a/nais-apm-app/services/team-a/my-svc?environment=prod-gcp",
+			wantContains:   []string{"[6h]", "[30m]", "/ 0.01", ">= bool 6", "or vector(0)"},
+		},
+		{
+			name:      "four-nines target renders 0.0001 budget",
+			url:       "/alert-templates/slo-burn-rate?namespace=_&service=my-svc&slo=0.9999",
+			wantDSUID: "mimir-default",
+			wantExpr: sloBurnExpr(calls,
+				`service_name="my-svc", status_code="STATUS_CODE_ERROR"`,
+				`service_name="my-svc"`,
+				"1h", "5m", "0.0001", "14.4"),
+			wantName:       "Fast burn (14.4x) – SLO 99.99% – my-svc",
+			wantThreshold:  14.4,
+			wantEvaluate:   "2m",
+			wantSeverity:   "critical",
+			wantSLOLabel:   "99.99%",
+			wantAnnotation: "/a/nais-apm-app/services/_/my-svc",
+			wantContains:   []string{"/ 0.0001", ">= bool 14.4"},
+		},
+		{
+			name:      "invalid slo falls back to 99.9% default",
+			url:       "/alert-templates/slo-burn-rate?namespace=team-a&service=my-svc&slo=not-a-number",
+			wantDSUID: "mimir-default",
+			wantExpr: sloBurnExpr(calls,
+				`service_name="my-svc", service_namespace="team-a", status_code="STATUS_CODE_ERROR"`,
+				`service_name="my-svc", service_namespace="team-a"`,
+				"1h", "5m", "0.001", "14.4"),
+			wantName:       "Fast burn (14.4x) – SLO 99.9% – my-svc",
+			wantThreshold:  14.4,
+			wantEvaluate:   "2m",
+			wantSeverity:   "critical",
+			wantSLOLabel:   "99.9%",
+			wantAnnotation: "/a/nais-apm-app/services/team-a/my-svc",
+			wantContains:   []string{"/ 0.001", ">= bool 14.4"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			app := newAlertTemplateApp(t)
+			w := serveAlertTemplate(t, app, tc.url)
+			resp := decodeAlertTemplate(t, w)
+			d := resp.Defaults
+
+			if d.Name != tc.wantName {
+				t.Errorf("name = %q, want %q", d.Name, tc.wantName)
+			}
+			if d.EvaluateFor != tc.wantEvaluate {
+				t.Errorf("evaluateFor = %q, want %q", d.EvaluateFor, tc.wantEvaluate)
+			}
+			if d.Condition != "C" {
+				t.Errorf("condition = %q, want C", d.Condition)
+			}
+			if len(d.Queries) != 3 {
+				t.Fatalf("expected 3 queries, got %d", len(d.Queries))
+			}
+			qa := d.Queries[0]
+			if qa.DatasourceUID != tc.wantDSUID {
+				t.Errorf("datasourceUid = %q, want %q", qa.DatasourceUID, tc.wantDSUID)
+			}
+			expr, _ := qa.Model["expr"].(string)
+			if expr != tc.wantExpr {
+				t.Errorf("expr =\n  %s\nwant\n  %s", expr, tc.wantExpr)
+			}
+			for _, sub := range tc.wantContains {
+				if !strings.Contains(expr, sub) {
+					t.Errorf("expr missing %q:\n  %s", sub, expr)
+				}
+			}
+			if got := thresholdParam(t, d.Queries[2]); got != tc.wantThreshold {
+				t.Errorf("threshold = %v, want %v", got, tc.wantThreshold)
+			}
+			if v := findKV(d.Labels, "severity"); v != tc.wantSeverity {
+				t.Errorf("severity label = %q, want %q", v, tc.wantSeverity)
+			}
+			if v := findKV(d.Labels, "slo"); v != tc.wantSLOLabel {
+				t.Errorf("slo label = %q, want %q", v, tc.wantSLOLabel)
+			}
+			if v := findKV(d.Labels, "source"); v != "nais-apm" {
+				t.Errorf("source label = %q, want nais-apm", v)
+			}
+			assertAnnotation(t, d.Annotations, "nais_apm_url", tc.wantAnnotation)
+			if v := findKV(d.Annotations, "summary"); v == "" {
+				t.Error("missing summary annotation")
+			}
+			assertURLEncoding(t, resp)
+		})
+	}
+}
+
+func TestSLOBurnRateValidation(t *testing.T) {
+	tests := []struct {
+		name       string
+		url        string
+		wantStatus int
+	}{
+		{"invalid window rejected", "/alert-templates/slo-burn-rate?service=my-svc&window=medium", http.StatusBadRequest},
+		{"missing service rejected", "/alert-templates/slo-burn-rate?namespace=team-a", http.StatusBadRequest},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			app := newAlertTemplateApp(t)
+			w := serveAlertTemplate(t, app, tc.url)
+			if w.Code != tc.wantStatus {
+				t.Fatalf("expected %d, got %d: %s", tc.wantStatus, w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestSLOBurnRateDatasourceNotConfigured(t *testing.T) {
+	app := newTestApp(t, "http://prom.invalid", defaultCaps())
+	w := serveAlertTemplate(t, app, "/alert-templates/slo-burn-rate?service=my-svc")
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestParseSloTarget(t *testing.T) {
+	tests := []struct {
+		raw  string
+		want float64
+	}{
+		{"", 0.999},
+		{"0.99", 0.99},
+		{"0.9999", 0.9999},
+		{"not-a-number", 0.999},
+		{"1.5", 0.999},  // out of range
+		{"0.1", 0.999},  // below min
+		{"-0.5", 0.999}, // negative
+	}
+	for _, tc := range tests {
+		if got := parseSloTarget(tc.raw); got != tc.want {
+			t.Errorf("parseSloTarget(%q) = %v, want %v", tc.raw, got, tc.want)
+		}
 	}
 }
 

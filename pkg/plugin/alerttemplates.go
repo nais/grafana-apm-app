@@ -37,9 +37,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/nais/grafana-otel-plugin/pkg/plugin/queries"
@@ -55,6 +57,26 @@ const (
 	errorRateThreshold      = 0.05 // 5% of requests erroring
 	exceptionSpikeThreshold = 10.0 // occurrences per 5m window
 	lcpP75ThresholdMs       = 2500 // Google CWV "poor" boundary for LCP
+
+	// SLO burn-rate defaults (Google SRE Workbook, "Multiwindow, Multi-Burn-Rate
+	// Alerts"). We ship two of the four canonical tiers: the two that page/ticket
+	// on a single RED error-ratio SLI without needing recording rules.
+	sloDefaultTarget = 0.999 // 99.9% — the panel's default target
+	sloMinTarget     = 0.5   // reject absurd targets; keeps budget math finite
+	sloMaxTarget     = 0.999999
+
+	// Fast burn (page): 14.4x budget burn over a 1h long / 5m short window pair —
+	// exhausts 2% of a 30d budget in 1h. Slow burn (ticket): 6x over 6h / 30m —
+	// exhausts 5% in 6h. Long window is thresholded; short window must agree
+	// (gate) so the alert resets quickly once the burn stops.
+	sloFastBurnFactor  = 14.4
+	sloFastLongWindow  = "1h"
+	sloFastShortWin    = "5m"
+	sloFastEvaluateFor = "2m"
+	sloSlowBurnFactor  = 6.0
+	sloSlowLongWindow  = "6h"
+	sloSlowShortWin    = "30m"
+	sloSlowEvaluateFor = "15m"
 )
 
 // alertHashPattern restricts exception hashes to alphanumerics so they can be
@@ -157,6 +179,22 @@ func (a *App) handleAlertTemplate(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 		defaults = a.newExceptionsDefaults(namespace, service, env, uid)
+
+	case "slo-burn-rate":
+		window := q.Get("window")
+		if window == "" {
+			window = "fast"
+		}
+		if window != "fast" && window != "slow" {
+			http.Error(w, `{"error":"window must be fast or slow"}`, http.StatusBadRequest)
+			return
+		}
+		uid := a.settings.MetricsDataSource.Resolve(env).UID
+		if uid == "" {
+			http.Error(w, `{"error":"metrics datasource not configured"}`, http.StatusServiceUnavailable)
+			return
+		}
+		defaults = a.sloBurnRateDefaults(a.requestContext(req), namespace, service, env, uid, parseSloTarget(q.Get("slo")), window)
 
 	default:
 		http.Error(w, `{"error":"unknown alert template kind"}`, http.StatusNotFound)
@@ -334,6 +372,115 @@ sum by (%[1]s) (count_over_time(%[2]s | logfmt | %[1]s!="" | keep %[1]s [7d] off
 		},
 		Labels: templateLabels(namespace, service),
 	}
+}
+
+// sloBurnRateDefaults builds one Google-SRE multi-window multi-burn-rate rule
+// on the RED error ratio from span metrics. `window` selects the tier:
+//   - "fast": 14.4x burn over a 1h(long)/5m(short) window pair → page
+//   - "slow": 6x burn over 6h(long)/30m(short) → ticket
+//
+// The query A value is the LONG-window burn rate (error ratio ÷ error budget,
+// so it reads as a multiple of the budget), multiplied by a 0/1 gate that is 1
+// only while the SHORT window also exceeds the same factor. Query C thresholds
+// that value at the burn factor. So the rule fires iff BOTH windows exceed the
+// factor — the multiwindow condition — while still returning a plain number (0
+// when healthy, never NoData for a service with traffic), keeping the primary
+// threshold in Grafana's C expression as the other templates do.
+//
+// The SLO target parameterises only the error-budget divisor (1-target); the
+// factor lives in both the gate and the C threshold. `or vector(0)` on each
+// error numerator makes a zero-error window read as 0 burn instead of an empty
+// result (verified against live span metrics — a healthy busy service returns
+// exactly 0, a burning one returns its long-window multiple).
+func (a *App) sloBurnRateDefaults(ctx context.Context, namespace, service, env, dsUID string, slo float64, window string) ruleFormDefaults {
+	labels := a.otelCfg.Labels
+	calls := a.callsMetric(ctx)
+
+	base := []string{fmt.Sprintf(`%s="%s"`, labels.ServiceName, service)}
+	if namespace != "" {
+		base = append(base, fmt.Sprintf(`%s="%s"`, labels.ServiceNamespace, namespace))
+	}
+	if m := envMatcher(labels.DeploymentEnv, env); m != "" {
+		base = append(base, m)
+	}
+	errSel := strings.Join(append(append([]string{}, base...),
+		fmt.Sprintf(`%s="%s"`, labels.StatusCode, a.otelCfg.StatusCodes.Error)), ", ")
+	allSel := strings.Join(base, ", ")
+
+	factor, longWin, shortWin, evalFor, tier := sloSlowBurnFactor, sloSlowLongWindow, sloSlowShortWin, sloSlowEvaluateFor, "Slow"
+	if window == "fast" {
+		factor, longWin, shortWin, evalFor, tier = sloFastBurnFactor, sloFastLongWindow, sloFastShortWin, sloFastEvaluateFor, "Fast"
+	}
+
+	budget := formatBudget(slo)
+	factorStr := strconv.FormatFloat(factor, 'g', -1, 64)
+
+	longBurn := fmt.Sprintf(`%s / %s`, sloRatioExpr(calls, errSel, allSel, longWin), budget)
+	shortBurn := fmt.Sprintf(`%s / %s`, sloRatioExpr(calls, errSel, allSel, shortWin), budget)
+	expr := fmt.Sprintf(`%s * (%s >= bool %s)`, longBurn, shortBurn, factorStr)
+
+	sloPct := formatSloPct(slo)
+
+	return ruleFormDefaults{
+		Type:        "grafana",
+		Name:        fmt.Sprintf("%s burn (%sx) – SLO %s – %s%s", tier, factorStr, sloPct, service, envSuffix(env)),
+		Condition:   "C",
+		EvaluateFor: evalFor,
+		Queries:     append([]alertQuery{dataQuery(dsUID, expr)}, expressionQueries(factor)...),
+		Annotations: []alertKeyValue{
+			{Key: "summary", Value: fmt.Sprintf(
+				"%s error budget burn on %s: the %s error ratio is above %sx the %s SLO budget (confirmed over %s)",
+				strings.ToLower(tier), service, longWin, factorStr, sloPct, shortWin)},
+			{Key: "nais_apm_url", Value: serviceDeepLink(namespace, service, env, "", "", "")},
+		},
+		Labels: append(templateLabels(namespace, service),
+			alertKeyValue{Key: "severity", Value: sloSeverity(window)},
+			alertKeyValue{Key: "slo", Value: sloPct},
+		),
+	}
+}
+
+// sloRatioExpr renders `(sum(rate(err[w])) or vector(0)) / sum(rate(all[w]))`.
+// The `or vector(0)` makes a zero-error window a real 0 rather than an empty
+// vector (which would otherwise collapse the whole burn expression to NoData).
+func sloRatioExpr(calls, errSel, allSel, window string) string {
+	return fmt.Sprintf(`(sum(rate(%s{%s}[%s])) or vector(0)) / sum(rate(%s{%s}[%s]))`,
+		calls, errSel, window, calls, allSel, window)
+}
+
+// parseSloTarget parses the `slo` query param (a fraction like 0.999),
+// clamping to a sane range and falling back to the 99.9% default.
+func parseSloTarget(raw string) float64 {
+	if raw == "" {
+		return sloDefaultTarget
+	}
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil || v < sloMinTarget || v > sloMaxTarget {
+		return sloDefaultTarget
+	}
+	return v
+}
+
+// formatBudget renders the error budget (1 - target) as a clean decimal string,
+// rounding away float subtraction noise (1-0.999 → "0.001", not
+// "0.0010000000000000009").
+func formatBudget(slo float64) string {
+	budget := math.Round((1-slo)*1e9) / 1e9
+	return strconv.FormatFloat(budget, 'g', -1, 64)
+}
+
+// formatSloPct renders the target as a percentage for names/labels ("99.9%").
+func formatSloPct(slo float64) string {
+	pct := math.Round(slo*1e7) / 1e5
+	return strconv.FormatFloat(pct, 'g', -1, 64) + "%"
+}
+
+// sloSeverity maps the burn tier to a routing severity label.
+func sloSeverity(window string) string {
+	if window == "fast" {
+		return "critical"
+	}
+	return "warning"
 }
 
 // dataQuery builds the refId A data query against a real datasource.

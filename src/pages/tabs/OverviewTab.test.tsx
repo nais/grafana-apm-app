@@ -12,6 +12,11 @@ jest.mock('../../components/CustomMetricsPanel', () => ({
 jest.mock('../../components/HealthSummary/HealthSummarySection', () => ({
   HealthSummarySection: () => <div data-testid="health-summary-section" />,
 }));
+// SloPanel owns its own instant-query/datasource hooks and router usage; its
+// behavior is covered by SloPanel.test.tsx.
+jest.mock('./overview/SloPanel', () => ({
+  SloPanel: () => <div data-testid="slo-panel" />,
+}));
 
 function baseProps() {
   return {
