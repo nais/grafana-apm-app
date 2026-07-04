@@ -9,6 +9,7 @@ import { HeaderTimeControls } from '../components/HeaderTimeControls';
 import { useSceneTimeSync } from '../utils/useSceneTimeSync';
 import { buildTempoExploreUrl, buildLokiExploreUrl } from '../utils/explore';
 import { FrameworkBadge } from '../components/FrameworkBadge';
+import { ScorecardBadge } from '../components/ScorecardBadge';
 import { PageHeader } from '../components/PageHeader';
 import { usePluginDatasources, useHasEnvironmentOverrides, usePluginLabelOverrides } from '../utils/datasources';
 import { useTimeRange } from '../utils/timeRange';
@@ -280,7 +281,12 @@ function ServiceOverviewInner({ namespace, service }: { namespace: string; servi
           }
           backLabel="Services"
           onBack={() => appNavigate('services')}
-          after={framework ? <FrameworkBadge framework={framework} /> : undefined}
+          after={
+            <>
+              {framework ? <FrameworkBadge framework={framework} /> : null}
+              <ScorecardBadge namespace={namespace} service={service} environment={envFilter || undefined} />
+            </>
+          }
           controls={
             <>
               {activeTab === 'overview' && (
