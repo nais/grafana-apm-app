@@ -59,6 +59,13 @@ Post-milestone audit wave, all green in `mise run all` (745 jest, 624 go):
 
 ### Open follow-ups (accumulated during implementation)
 
+- **@nais/apm known-limitation PRDs** — the three items deferred out of the
+  0.1.0 SDK release, split from the umbrella #59 into standalone issues:
+  browser tracing via @grafana/faro-web-tracing (#80), npmjs.org publish under
+  the @nais scope to drop the GHPR read:packages tax (#81), and the React
+  entry point @nais/apm/react (#79). All three are README "Not yet supported"
+  entries.
+
 - **@nais/apm/react (#79)** — drop-in React ErrorBoundary + route tracking +
   a Next.js client-init helper; audit-backed (docs/navikt-faro-sentry-audit.md:
   ~140 Faro apps, no shared wrapper, Next.js+Vite spread), design partners are
