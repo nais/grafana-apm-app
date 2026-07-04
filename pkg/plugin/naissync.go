@@ -99,7 +99,7 @@ func (a *App) fetchNaisDeployments(ctx context.Context, naisToken string) ([]nai
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("nais API returned %d: %s", resp.StatusCode, truncateStr(string(raw), 256))
+		return nil, fmt.Errorf("nais API returned %d: %s", resp.StatusCode, truncateStr(string(raw)))
 	}
 
 	var envelope struct {

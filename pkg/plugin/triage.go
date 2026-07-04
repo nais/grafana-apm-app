@@ -131,7 +131,7 @@ func (s *annotationTriageStore) fetch(ctx context.Context, tags []string) ([]gra
 		return nil, fmt.Errorf("reading triage annotations: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("annotations API returned %d: %s", resp.StatusCode, truncateStr(string(raw), 256))
+		return nil, fmt.Errorf("annotations API returned %d: %s", resp.StatusCode, truncateStr(string(raw)))
 	}
 	var anns []grafanaAnnotation
 	if err := json.Unmarshal(raw, &anns); err != nil {
@@ -396,7 +396,8 @@ func (a *App) warnOnBoundedAnnotationRetention(ctx context.Context, store *annot
 	})
 }
 
-func truncateStr(s string, n int) string {
+func truncateStr(s string) string {
+	const n = 256
 	if len(s) <= n {
 		return s
 	}

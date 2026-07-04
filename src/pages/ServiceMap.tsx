@@ -57,10 +57,15 @@ function ServiceMap() {
   // deployments. An explicit ?view= param always wins. Before data loads we
   // assume the scaled (namespaces) default so we never flash the hairball.
   const urlView = searchParams.get('view');
-  const view: MapView = urlView === 'services' || urlView === 'namespaces' ? urlView : totalServices > 50 ? 'namespaces' : 'services';
+  const view: MapView =
+    urlView === 'services' || urlView === 'namespaces' ? urlView : totalServices > 50 ? 'namespaces' : 'services';
 
   // Full unclustered map is fetched lazily, only when the Services view is active.
-  const { data: fullData, loading: fullLoading, refetch: refetchFull } = useFetch<ServiceMapResponse>(
+  const {
+    data: fullData,
+    loading: fullLoading,
+    refetch: refetchFull,
+  } = useFetch<ServiceMapResponse>(
     () => getServiceMap(fromMs, toMs, undefined, undefined, envFilter || undefined),
     [fromMs, toMs, envFilter],
     { skip: view !== 'services' }

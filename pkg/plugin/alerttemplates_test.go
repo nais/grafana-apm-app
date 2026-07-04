@@ -245,7 +245,8 @@ func TestHandleAlertTemplate(t *testing.T) {
 // sloBurnExpr independently derives the expected multi-window burn-rate
 // expression so the test asserts the exact windows/factor/budget math the
 // handler renders, not just that it produced *some* string.
-func sloBurnExpr(calls, errSel, allSel, longWin, shortWin, budget, factor string) string {
+func sloBurnExpr(errSel, allSel, longWin, shortWin, budget, factor string) string {
+	const calls = "traces_span_metrics_calls_total"
 	ratio := func(w string) string {
 		return fmt.Sprintf(`(sum(rate(%s{%s}[%s])) or vector(0)) / sum(rate(%s{%s}[%s]))`,
 			calls, errSel, w, calls, allSel, w)
@@ -256,7 +257,6 @@ func sloBurnExpr(calls, errSel, allSel, longWin, shortWin, budget, factor string
 }
 
 func TestSLOBurnRateTemplate(t *testing.T) {
-	const calls = "traces_span_metrics_calls_total"
 
 	tests := []struct {
 		name string
@@ -277,8 +277,7 @@ func TestSLOBurnRateTemplate(t *testing.T) {
 			name:      "fast burn defaults to 99.9% target, 14.4x over 1h/5m",
 			url:       "/alert-templates/slo-burn-rate?namespace=team-a&service=my-svc",
 			wantDSUID: "mimir-default",
-			wantExpr: sloBurnExpr(calls,
-				`service_name="my-svc", service_namespace="team-a", status_code="STATUS_CODE_ERROR"`,
+			wantExpr: sloBurnExpr(`service_name="my-svc", service_namespace="team-a", status_code="STATUS_CODE_ERROR"`,
 				`service_name="my-svc", service_namespace="team-a"`,
 				"1h", "5m", "0.001", "14.4"),
 			wantName:       "Fast burn (14.4x) – SLO 99.9% – my-svc",
@@ -293,8 +292,7 @@ func TestSLOBurnRateTemplate(t *testing.T) {
 			name:      "slow burn with env and custom 99% target, 6x over 6h/30m",
 			url:       "/alert-templates/slo-burn-rate?namespace=team-a&service=my-svc&environment=prod-gcp&window=slow&slo=0.99",
 			wantDSUID: "mimir-prod-gcp",
-			wantExpr: sloBurnExpr(calls,
-				`service_name="my-svc", service_namespace="team-a", k8s_cluster_name="prod-gcp", status_code="STATUS_CODE_ERROR"`,
+			wantExpr: sloBurnExpr(`service_name="my-svc", service_namespace="team-a", k8s_cluster_name="prod-gcp", status_code="STATUS_CODE_ERROR"`,
 				`service_name="my-svc", service_namespace="team-a", k8s_cluster_name="prod-gcp"`,
 				"6h", "30m", "0.01", "6"),
 			wantName:       "Slow burn (6x) – SLO 99% – my-svc (prod-gcp)",
@@ -309,8 +307,7 @@ func TestSLOBurnRateTemplate(t *testing.T) {
 			name:      "four-nines target renders 0.0001 budget",
 			url:       "/alert-templates/slo-burn-rate?namespace=_&service=my-svc&slo=0.9999",
 			wantDSUID: "mimir-default",
-			wantExpr: sloBurnExpr(calls,
-				`service_name="my-svc", status_code="STATUS_CODE_ERROR"`,
+			wantExpr: sloBurnExpr(`service_name="my-svc", status_code="STATUS_CODE_ERROR"`,
 				`service_name="my-svc"`,
 				"1h", "5m", "0.0001", "14.4"),
 			wantName:       "Fast burn (14.4x) – SLO 99.99% – my-svc",
@@ -325,8 +322,7 @@ func TestSLOBurnRateTemplate(t *testing.T) {
 			name:      "invalid slo falls back to 99.9% default",
 			url:       "/alert-templates/slo-burn-rate?namespace=team-a&service=my-svc&slo=not-a-number",
 			wantDSUID: "mimir-default",
-			wantExpr: sloBurnExpr(calls,
-				`service_name="my-svc", service_namespace="team-a", status_code="STATUS_CODE_ERROR"`,
+			wantExpr: sloBurnExpr(`service_name="my-svc", service_namespace="team-a", status_code="STATUS_CODE_ERROR"`,
 				`service_name="my-svc", service_namespace="team-a"`,
 				"1h", "5m", "0.001", "14.4"),
 			wantName:       "Fast burn (14.4x) – SLO 99.9% – my-svc",

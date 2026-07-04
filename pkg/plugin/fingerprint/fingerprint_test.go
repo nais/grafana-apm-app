@@ -7,9 +7,9 @@ import (
 
 func TestNormalize(t *testing.T) {
 	tests := []struct {
-		name  string
-		in    string
-		want  string
+		name string
+		in   string
+		want string
 	}{
 		{"uuid", "Invalid søknad 8f3a1b2c-4d5e-6f70-8192-a3b4c5d6e7f8", "Invalid søknad <uuid>"},
 		{"url with path and ids", `Failed to fetch https://api.nav.no/soknad/12345?token=abc from upstream`, "Failed to fetch <url> from upstream"},

@@ -346,7 +346,6 @@ func streakAndStatus(children []*jobRec) (streak int, status string) {
 		case "succeeded":
 			if !decided {
 				status = "ok"
-				decided = true
 			}
 			return streak, status
 		default:

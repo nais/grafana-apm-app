@@ -90,7 +90,7 @@ func (a *App) queryFrontendFromAlloyHistogram(ctx context.Context, service, envi
 	resp := FrontendMetricsResponse{
 		Available: true,
 		Source:    "alloy-histogram",
-		Vitals:   make(map[string]float64),
+		Vitals:    make(map[string]float64),
 	}
 
 	vitalMetrics := map[string]string{
@@ -178,5 +178,3 @@ func (a *App) hasLokiFaroData(ctx context.Context, service, env string, at time.
 	}
 	return total > 0
 }
-
-

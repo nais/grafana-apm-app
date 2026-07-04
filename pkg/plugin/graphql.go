@@ -22,13 +22,13 @@ const (
 
 // graphqlProbe defines how to detect and query a specific GraphQL metric pattern.
 type graphqlProbe struct {
-	framework    string
-	countMetric  string // metric to check for existence and query rates
-	sumMetric    string // metric for latency (rate of sum / rate of count)
-	opLabel      string // label that contains the operation/field name
-	typeLabel    string // label for operation type (query/mutation), empty if N/A
-	errorFilter  string // label filter for errors, empty if not available
-	latencyUnit  string // "s" or "ms" — what unit the raw metric values are in
+	framework   string
+	countMetric string // metric to check for existence and query rates
+	sumMetric   string // metric for latency (rate of sum / rate of count)
+	opLabel     string // label that contains the operation/field name
+	typeLabel   string // label for operation type (query/mutation), empty if N/A
+	errorFilter string // label filter for errors, empty if not available
+	latencyUnit string // "s" or "ms" — what unit the raw metric values are in
 }
 
 // Ordered list of probes. First match wins.

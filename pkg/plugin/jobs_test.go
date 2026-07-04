@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -29,7 +30,8 @@ func pvSchedule(labels map[string]string, schedule string) queries.PromResult {
 }
 
 // pvReason clones labels and adds a failure reason (for kube_job_status_failed).
-func pvReason(labels map[string]string, reason, value string) queries.PromResult {
+func pvReason(labels map[string]string, reason string) queries.PromResult {
+	const value = "1"
 	m := make(map[string]string, len(labels)+1)
 	for k, v := range labels {
 		m[k] = v
@@ -99,10 +101,10 @@ func TestAggregateJobsStreakAndStatus(t *testing.T) {
 		},
 		"jobFailed": {
 			pv(jl("healthy-3"), "0"),
-			pvReason(jl("healthy-2"), "BackoffLimitExceeded", "1"),
+			pvReason(jl("healthy-2"), "BackoffLimitExceeded"),
 			pv(jl("healthy-1"), "0"),
-			pvReason(jl("broken-3"), "DeadlineExceeded", "1"),
-			pvReason(jl("broken-2"), "Evicted", "1"),
+			pvReason(jl("broken-3"), "DeadlineExceeded"),
+			pvReason(jl("broken-2"), "Evicted"),
 			pv(jl("broken-1"), "0"),
 		},
 		"jobStart": {
@@ -185,7 +187,7 @@ func TestAggregateJobsRunningNewest(t *testing.T) {
 		"jobOwner":    {pv(child("cj-2"), "1"), pv(child("cj-1"), "1")},
 		// cj-2 newest: running (no succeeded/failed, start but no completion).
 		"jobSucceeded":  {pv(jl("cj-2"), "0"), pv(jl("cj-1"), "0")},
-		"jobFailed":     {pv(jl("cj-2"), "0"), pvReason(jl("cj-1"), "Evicted", "1")},
+		"jobFailed":     {pv(jl("cj-2"), "0"), pvReason(jl("cj-1"), "Evicted")},
 		"jobStart":      {pv(jl("cj-2"), "2000"), pv(jl("cj-1"), "1000")},
 		"jobCompletion": {},
 	}
@@ -211,7 +213,7 @@ func TestAggregateJobsStandalone(t *testing.T) {
 	rm := map[string][]queries.PromResult{
 		"jobOwner":      {pv(jl("oneshot"), "1")}, // no owner_kind label → standalone
 		"jobSucceeded":  {pv(jl("oneshot"), "0")},
-		"jobFailed":     {pvReason(jl("oneshot"), "BackoffLimitExceeded", "1")},
+		"jobFailed":     {pvReason(jl("oneshot"), "BackoffLimitExceeded")},
 		"jobStart":      {pv(jl("oneshot"), "1000")},
 		"jobCompletion": {},
 	}
@@ -238,11 +240,11 @@ func TestAggregateJobsStandalone(t *testing.T) {
 // building + parsing) against a fake Prometheus datasource server, and checks
 // the namespace scope is applied to the emitted queries.
 func TestQueryJobsAgainstFakeDatasource(t *testing.T) {
-	var sawScopedQuery bool
+	var sawScopedQuery atomic.Bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query().Get("query")
 		if strings.Contains(query, `namespace="team-a"`) {
-			sawScopedQuery = true
+			sawScopedQuery.Store(true)
 		}
 		var result []queries.PromResult
 		switch {
@@ -280,7 +282,7 @@ func TestQueryJobsAgainstFakeDatasource(t *testing.T) {
 	app.promClient = queries.NewPrometheusClient(srv.URL, "")
 
 	resp := app.queryJobs(context.Background(), "team-a", time.Unix(2000, 0))
-	if !sawScopedQuery {
+	if !sawScopedQuery.Load() {
 		t.Errorf("expected the namespace scope to be applied to KSM queries")
 	}
 	e := findJob(resp.Jobs, "nightly")

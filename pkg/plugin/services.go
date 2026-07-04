@@ -228,11 +228,11 @@ func (a *App) fetchServiceSummaries(
 	}
 
 	instantQueries := map[string]string{
-		"rate":         rateQuery,
-		"error":        errorQuery,
-		"p95":          p95Query,
-		"sdk":          sdkQuery,
-		"framework":    frameworkQuery,
+		"rate":          rateQuery,
+		"error":         errorQuery,
+		"p95":           p95Query,
+		"sdk":           sdkQuery,
+		"framework":     frameworkQuery,
 		"fallbackRate":  fallbackRateQuery,
 		"fallbackError": fallbackErrorQuery,
 		"fallbackP95":   fallbackP95Query,

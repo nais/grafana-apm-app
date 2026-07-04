@@ -4,6 +4,9 @@ import baseConfig from './.config/eslint.config.mjs';
 export default defineConfig([
   {
     ignores: [
+      'nais-doc/**',
+      'helm-charts/**',
+      'apm-client/**',
       '**/logs',
       '**/*.log',
       '**/npm-debug.log*',

@@ -566,7 +566,7 @@ func (a *App) naisGraphQL(ctx context.Context, query string, vars map[string]any
 		return err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("nais API returned %d: %s", resp.StatusCode, truncateStr(string(raw), 256))
+		return fmt.Errorf("nais API returned %d: %s", resp.StatusCode, truncateStr(string(raw)))
 	}
 
 	var envelope struct {

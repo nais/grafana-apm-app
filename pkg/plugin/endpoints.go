@@ -299,10 +299,10 @@ var noisyPathSegments = []string{
 	"/__next",
 	"/_nuxt/",
 	"/.well-known/",
-	"/_app/",        // SvelteKit
-	"/@vite/",       // Vite dev
-	"/@fs/",         // Vite dev
-	"/__webpack",    // Webpack dev
+	"/_app/",     // SvelteKit
+	"/@vite/",    // Vite dev
+	"/@fs/",      // Vite dev
+	"/__webpack", // Webpack dev
 }
 
 // noisyPathPrefixes are matched only at the start of the path.
@@ -323,10 +323,10 @@ var noisyPathSuffixes = []string{
 
 // noisyExactPaths are specific well-known static paths to filter.
 var noisyExactPaths = map[string]bool{
-	"/manifest.json":  true,
-	"/robots.txt":     true,
-	"/favicon.ico":    true,
-	"/sitemap.xml":    true,
+	"/manifest.json":     true,
+	"/robots.txt":        true,
+	"/favicon.ico":       true,
+	"/sitemap.xml":       true,
 	"/browserconfig.xml": true,
 }
 

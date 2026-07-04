@@ -132,5 +132,3 @@ func (a *App) queryOperations(
 	}
 	return ops
 }
-
-

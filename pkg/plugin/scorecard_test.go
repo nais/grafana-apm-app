@@ -116,7 +116,8 @@ func newScorecardApp(t *testing.T, fx scorecardFixture) *App {
 	return app
 }
 
-func getScorecard(t *testing.T, app *App, namespace, service string) ScorecardResponse {
+func getScorecard(t *testing.T, app *App) ScorecardResponse {
+	const namespace, service = "team-a", "my-app"
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, "/services/"+namespace+"/"+service+"/scorecard", nil)
 	req.SetPathValue("namespace", namespace)
@@ -170,7 +171,7 @@ func TestScorecardReadinessScore(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			app := newScorecardApp(t, tc.fx)
-			resp := getScorecard(t, app, "team-a", "my-app")
+			resp := getScorecard(t, app)
 
 			if resp.Readiness.Total != 6 {
 				t.Fatalf("total = %d, want 6", resp.Readiness.Total)
@@ -196,7 +197,7 @@ func TestScorecardReadinessScore(t *testing.T) {
 
 func TestScorecardConsoleUnconfigured(t *testing.T) {
 	app := newScorecardApp(t, scorecardFixture{spanMetrics: true})
-	resp := getScorecard(t, app, "team-a", "my-app")
+	resp := getScorecard(t, app)
 
 	if resp.Console.Configured {
 		t.Error("console.configured = true without nais API settings")
@@ -236,7 +237,7 @@ func TestScorecardConsoleEnrichment(t *testing.T) {
 			return `{"errors":[{"message":"unknown query"}]}`
 		},
 	})
-	resp := getScorecard(t, app, "team-a", "my-app")
+	resp := getScorecard(t, app)
 
 	c := resp.Console
 	if !c.Configured {
@@ -269,7 +270,7 @@ func TestScorecardConsolePerFieldDegradation(t *testing.T) {
 			return `{"errors":[{"message":"unknown query"}]}`
 		},
 	})
-	resp := getScorecard(t, app, "team-a", "my-app")
+	resp := getScorecard(t, app)
 
 	c := resp.Console
 	if !c.Configured {

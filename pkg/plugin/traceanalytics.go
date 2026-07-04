@@ -438,7 +438,7 @@ func (c *tempoQueryClient) metricQuery(ctx context.Context, uid, query, step str
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("ds query returned %d: %s", resp.StatusCode, truncateStr(string(raw), 256))
+		return nil, fmt.Errorf("ds query returned %d: %s", resp.StatusCode, truncateStr(string(raw)))
 	}
 
 	var envelope tempoDsResponse

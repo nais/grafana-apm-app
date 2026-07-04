@@ -97,10 +97,10 @@ func (a *App) setOpsWatchlist(w http.ResponseWriter, req *http.Request) {
 
 // pluginSettings holds the subset of plugin settings needed for read-modify-write.
 type pluginSettings struct {
-	Enabled         bool              `json:"enabled"`
-	Pinned          bool              `json:"pinned"`
-	JSONData        map[string]any    `json:"jsonData"`
-	SecureJSONFields map[string]bool  `json:"secureJsonFields"`
+	Enabled          bool            `json:"enabled"`
+	Pinned           bool            `json:"pinned"`
+	JSONData         map[string]any  `json:"jsonData"`
+	SecureJSONFields map[string]bool `json:"secureJsonFields"`
 }
 
 // fetchPluginSettings retrieves the plugin's current settings from the Grafana API.

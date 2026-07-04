@@ -9,8 +9,8 @@ func TestIsSidecar(t *testing.T) {
 	}{
 		{"wonderwall", true},
 		{"texas", true},
-		{"Wonderwall", true},  // case-insensitive
-		{"TEXAS", true},       // case-insensitive
+		{"Wonderwall", true},   // case-insensitive
+		{"TEXAS", true},        // case-insensitive
 		{" wonderwall ", true}, // trimmed
 		{"my-app", false},
 		{"wonderwall-proxy", false}, // not an exact match

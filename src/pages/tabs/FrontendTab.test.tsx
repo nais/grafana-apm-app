@@ -42,10 +42,7 @@ describe('FrontendTab setup placeholder links', () => {
     renderTab();
 
     const tutorial = await screen.findByRole('link', { name: /Track frontend errors with Nais APM/ });
-    expect(tutorial).toHaveAttribute(
-      'href',
-      'https://doc.nais.io/observability/apm/tutorials/track-frontend-errors/'
-    );
+    expect(tutorial).toHaveAttribute('href', 'https://doc.nais.io/observability/apm/tutorials/track-frontend-errors/');
 
     const sdk = screen.getByRole('link', { name: /@nais\/apm SDK/ });
     expect(sdk).toHaveAttribute('href', 'https://github.com/nais/apm');

@@ -126,11 +126,11 @@ type ServiceMapNode struct {
 
 // ServiceMapEdge represents an edge between two services.
 type ServiceMapEdge struct {
-	ID            string  `json:"id"`
-	Source        string  `json:"source"`
-	Target        string  `json:"target"`
-	MainStat      string  `json:"mainStat,omitempty"`
-	SecondaryStat string  `json:"secondaryStat,omitempty"`
+	ID            string `json:"id"`
+	Source        string `json:"source"`
+	Target        string `json:"target"`
+	MainStat      string `json:"mainStat,omitempty"`
+	SecondaryStat string `json:"secondaryStat,omitempty"`
 }
 
 // ServiceMapResponse is the full service map graph.

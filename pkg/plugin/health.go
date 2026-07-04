@@ -239,8 +239,8 @@ func (a *App) queryHealth(
 func (a *App) detectDegradedOps(resultMap map[string][]queries.PromResult, durationUnit string) []DegradedOperation {
 	type opKey struct{ name, kind string }
 	type opData struct {
-		rate, errorRate, p95         float64
-		prevRate, prevErrorRate, prevP95 float64
+		rate, errorRate, p95                  float64
+		prevRate, prevErrorRate, prevP95      float64
 		hasPrevRate, hasPrevError, hasPrevP95 bool
 	}
 
@@ -394,8 +394,8 @@ func (a *App) queryDegradedDeps(
 	}, logger)
 
 	type depData struct {
-		rate, errorRate, p95             float64
-		prevRate, prevErrorRate, prevP95 float64
+		rate, errorRate, p95                  float64
+		prevRate, prevErrorRate, prevP95      float64
 		hasPrevRate, hasPrevError, hasPrevP95 bool
 	}
 

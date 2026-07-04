@@ -307,13 +307,7 @@ function SetupPlaceholder({ namespace, service }: { namespace: string; service: 
       </div>
 
       <div className={styles.setupLinks}>
-        <LinkButton
-          href={apmDocs.trackFrontendErrors()}
-          target="_blank"
-          variant="primary"
-          icon="book"
-          size="sm"
-        >
+        <LinkButton href={apmDocs.trackFrontendErrors()} target="_blank" variant="primary" icon="book" size="sm">
           Track frontend errors with Nais APM
         </LinkButton>
         <LinkButton href={APM_SDK_REPO_URL} target="_blank" variant="secondary" icon="github" size="sm">
