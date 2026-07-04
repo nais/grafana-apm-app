@@ -1,6 +1,7 @@
 # Nais APM
 
-APM for teams that already run the LGTM stack.
+APM for teams that already run the LGTM stack. This is the **Legend** release
+of Nais APM.
 
 If you have OpenTelemetry data flowing into Mimir, Tempo, and Loki, this Grafana
 plugin turns it into a full APM experience — service inventory, RED dashboards,
@@ -114,7 +115,7 @@ Then enable the plugin under **Administration > Plugins** in Grafana.
 ## Configuration
 
 1. Go to the plugin's **Configuration** page
-2. Enter data source UIDs for Mimir, Tempo, and Loki
+2. Enter datasource UIDs for Mimir, Tempo, and Loki
 3. Click **Auto-detect capabilities** to verify connectivity and detect metric names
 4. Save
 5. _(Optional)_ To enable deploy/release tracking and the scorecard ownership

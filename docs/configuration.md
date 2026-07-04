@@ -19,7 +19,7 @@ The plugin needs three Grafana datasources:
 ### Setup
 
 1. Go to the plugin's **Configuration** page
-2. Enter data source UIDs for Mimir, Tempo, and Loki
+2. Enter datasource UIDs for Mimir, Tempo, and Loki
 3. Click **Auto-detect capabilities** to verify connectivity and detect metric names
 4. Save
 

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## Unreleased ("Legend")
 
 ### Features
 
@@ -42,9 +42,8 @@
 
 ### Fixes
 
-- **Session counts zeroed out on wide time ranges** — the distinct-sessions query exceeds Loki's series limit for chatty apps; it now retries over a narrowing recent window (labelled in the column header, e.g. "Sessions (last 5m)") and shows a dash instead of a misleading 0 when even that fails. Exception queries now use Grafana's `/api/ds/query` API instead of the deprecated datasource proxy.
+- **Session counts zeroed out on wide time ranges** — the distinct-sessions query exceeds Loki's series limit for chatty apps; it now retries over a narrowing recent window (labeled in the column header, e.g. "Sessions (last 5m)") and shows a dash instead of a misleading 0 when even that fails. Exception queries now use Grafana's `/api/ds/query` API instead of the deprecated datasource proxy.
 - **Column sorting was dead while searching** — fuzzy-search relevance ranking silently overrode explicit column sorts; relevance is now only the default order during a search.
-
 
 - **Infrequent dependencies missing from the service map** — The service-graph rate window now spans the full selected time range (floor 5m, cap 24h) instead of capping at 1h, so hourly batch jobs and cron-driven dependencies stay visible on wide dashboard ranges. (#36)
 - **Status boards re-queried a frozen time window** — Auto-refresh on the Ops Status Board and namespace Status Board now re-resolves relative time ranges (`now-1h`) each tick instead of re-querying the window resolved at first page render forever.
@@ -313,7 +312,7 @@
 
 ### Features
 
-- **Status Board** — New TV-friendly dashboard view showing all services in a namespace as color-coded health cards (green/yellow/red/grey). Auto-refreshes, tracks last-seen services, and auto-paginates through cards when they exceed the viewport. Accessible from the namespace page via "Status Board" button. (#29)
+- **Status Board** — New TV-friendly dashboard view showing all services in a namespace as color-coded health cards (green/yellow/red/gray). Auto-refreshes, tracks last-seen services, and auto-paginates through cards when they exceed the viewport. Accessible from the namespace page via "Status Board" button. (#29)
 - **Card Size Selector** — Status Board supports S/M/L card sizes to fit more or fewer services on screen. Small cards show name + status only; large cards include sparkline trends.
 - **Auto-Pagination** — Status Board automatically rotates through pages at a configurable interval (10s/30s/60s) when services exceed the viewport, perfect for wall-mounted displays.
 - **Multi-Select Environment Filter** — All pages (Services, Namespace, Status Board) now support filtering by multiple environments simultaneously using a multi-select combobox.
@@ -430,7 +429,7 @@
 - **Messaging System Classification** — `classifyDependency` now correctly distinguishes between Kafka, RabbitMQ, JMS, and generic messaging types, matching frontend icon rendering.
 - **Shared Components** — Extracted `PageHeader`, `DataState`, section styles, and option helpers into reusable modules.
 - **Environment Column** — Namespace services table shows environment column when multiple environments exist (hidden when env filter is active).
-- **Framework Badge Styling** — Lighter weight (`font-weight: 400`) and subtle rounding (`border-radius: 4px`) for framework badges. Unknown frameworks now render a grey fallback badge instead of being hidden.
+- **Framework Badge Styling** — Lighter weight (`font-weight: 400`) and subtle rounding (`border-radius: 4px`) for framework badges. Unknown frameworks now render a gray fallback badge instead of being hidden.
 - **Canvas Layout** — Namespace page uses `PageLayoutType.Canvas` for a clean, headerless layout matching the service detail page.
 
 ### Bug Fixes
