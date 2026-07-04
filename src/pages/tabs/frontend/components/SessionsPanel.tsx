@@ -46,6 +46,7 @@ export function SessionsPanel({ namespace, service, environment }: SessionsPanel
         </span>
         <div className={styles.search}>
           <Input
+            aria-label="Search sessions"
             prefix={<Icon name="search" />}
             placeholder="Session id, user id, or email…"
             value={search}
@@ -66,15 +67,17 @@ export function SessionsPanel({ namespace, service, environment }: SessionsPanel
             : 'No session data in the selected time range.'
         }
       >
-        <table className={styles.table}>
+        <table className={styles.table} aria-label="Sessions">
           <thead>
             <tr>
-              <th>Session</th>
-              {hasUserData && <th>User</th>}
-              <th>Browser</th>
-              <th>Version</th>
-              <th className={styles.num}>Pages</th>
-              <th className={styles.num}>
+              <th scope="col">Session</th>
+              {hasUserData && <th scope="col">User</th>}
+              <th scope="col">Browser</th>
+              <th scope="col">Version</th>
+              <th scope="col" className={styles.num}>
+                Pages
+              </th>
+              <th scope="col" className={styles.num}>
                 {data?.windowSeconds ? (
                   <Tooltip content="Sessions exceed the Loki series limit over the full range, so counts cover a recent window only.">
                     <span>Events (last {Math.round(data.windowSeconds / 60)}m)</span>
@@ -83,8 +86,10 @@ export function SessionsPanel({ namespace, service, environment }: SessionsPanel
                   'Events'
                 )}
               </th>
-              <th className={styles.num}>Errors</th>
-              <th>Last seen</th>
+              <th scope="col" className={styles.num}>
+                Errors
+              </th>
+              <th scope="col">Last seen</th>
             </tr>
           </thead>
           <tbody>

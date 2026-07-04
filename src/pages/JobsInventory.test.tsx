@@ -101,4 +101,35 @@ describe('JobsInventory', () => {
     renderJobs();
     expect(await screen.findByText(/Job metrics not available/i)).toBeInTheDocument();
   });
+
+  // --- Accessibility (WCAG 1.3.1 / 1.4.1 / 4.1.2) ---
+
+  it('exposes sortable headers with aria-sort that toggles as a keyboard button', async () => {
+    renderJobs();
+    await screen.findByText('nightly-sync');
+    // Default sort is name ascending.
+    const nameHeader = screen.getByRole('columnheader', { name: 'Name' });
+    expect(nameHeader).toHaveAttribute('aria-sort', 'ascending');
+    // The click target is a real button (keyboard-operable), not an onClick <th>.
+    fireEvent.click(screen.getByRole('button', { name: 'Name' }));
+    await waitFor(() =>
+      expect(screen.getByRole('columnheader', { name: 'Name' })).toHaveAttribute('aria-sort', 'descending')
+    );
+    // Columns that are not the active sort report aria-sort="none".
+    expect(screen.getByRole('columnheader', { name: 'Cluster' })).toHaveAttribute('aria-sort', 'none');
+  });
+
+  it('gives the colour-only status dot a text alternative', async () => {
+    renderJobs();
+    await screen.findByText('broken-report');
+    expect(screen.getByRole('img', { name: 'Failing' })).toBeInTheDocument();
+    expect(screen.getAllByRole('img', { name: 'Healthy' }).length).toBeGreaterThan(0);
+  });
+
+  it('labels the filter input and names the table', async () => {
+    renderJobs();
+    await screen.findByText('nightly-sync');
+    expect(screen.getByRole('textbox', { name: 'Filter jobs' })).toBeInTheDocument();
+    expect(screen.getByRole('table', { name: 'Jobs' })).toBeInTheDocument();
+  });
 });

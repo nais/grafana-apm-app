@@ -30,7 +30,7 @@ export function QueryOperationsTable({ operations, durationUnit, onViewTraces }:
   const sorted = useMemo(() => [...operations].sort(comparator), [operations, comparator]);
 
   return (
-    <table className={styles.table}>
+    <table className={styles.table} aria-label="Database operations">
       <colgroup>
         <col style={{ width: '16%' }} />
         <col style={{ width: 'auto' }} />

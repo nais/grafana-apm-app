@@ -68,6 +68,51 @@ function statusDot(status: JobEntry['status']): string {
   }
 }
 
+function statusLabel(status: JobEntry['status']): string {
+  switch (status) {
+    case 'failing':
+      return 'Failing';
+    case 'ok':
+      return 'Healthy';
+    default:
+      return 'Unknown';
+  }
+}
+
+/**
+ * Sortable column header: a real button (keyboard-operable, WCAG 2.1.1) inside
+ * a `th` whose `aria-sort` reflects the current sort (WCAG 1.3.1 / 4.1.2).
+ */
+function SortTh({
+  field,
+  label,
+  sortField,
+  sortDir,
+  onSort,
+  styles,
+}: {
+  field: SortField;
+  label: string;
+  sortField: SortField;
+  sortDir: SortDir;
+  onSort: (f: SortField) => void;
+  styles: ReturnType<typeof getStyles>;
+}) {
+  const active = sortField === field;
+  const ariaSort: React.AriaAttributes['aria-sort'] = active
+    ? sortDir === 'asc'
+      ? 'ascending'
+      : 'descending'
+    : 'none';
+  return (
+    <th scope="col" aria-sort={ariaSort} className={styles.sortableCell}>
+      <button type="button" className={styles.sortableButton} onClick={() => onSort(field)}>
+        {label} {active && <Icon name={sortDir === 'asc' ? 'arrow-up' : 'arrow-down'} size="sm" />}
+      </button>
+    </th>
+  );
+}
+
 function JobsInventory() {
   const styles = useStyles2(getStyles);
   const appNavigate = useAppNavigate();
@@ -195,9 +240,6 @@ function JobsInventory() {
     }
   };
 
-  const sortIcon = (field: SortField) =>
-    sortField !== field ? null : <Icon name={sortDir === 'asc' ? 'arrow-up' : 'arrow-down'} size="sm" />;
-
   const openLogs = (job: JobEntry) => {
     const url = buildLokiExploreUrl(logsUid, job.name, {
       namespace: job.namespace,
@@ -227,6 +269,7 @@ function JobsInventory() {
                 <div className={styles.filterGroup}>
                   <div className={styles.filterItem}>
                     <Input
+                      aria-label="Filter jobs"
                       prefix={<Icon name="search" />}
                       placeholder="Filter jobs..."
                       value={search}
@@ -263,32 +306,69 @@ function JobsInventory() {
               </div>
             </div>
 
-            <table className={styles.table}>
+            <table className={styles.table} aria-label="Jobs">
               <thead>
                 <tr>
-                  <th className={styles.dotCol} />
-                  <th className={styles.sortable} onClick={() => toggleSort('name')}>
-                    Name {sortIcon('name')}
+                  <th className={styles.dotCol} scope="col">
+                    <span className={styles.srOnly}>Status</span>
                   </th>
-                  <th className={styles.sortable} onClick={() => toggleSort('namespace')}>
-                    Namespace {sortIcon('namespace')}
-                  </th>
-                  <th className={styles.sortable} onClick={() => toggleSort('cluster')}>
-                    Cluster {sortIcon('cluster')}
-                  </th>
-                  <th className={styles.sortable} onClick={() => toggleSort('schedule')}>
-                    Schedule {sortIcon('schedule')}
-                  </th>
-                  <th className={styles.sortable} onClick={() => toggleSort('lastRun')}>
-                    Last run {sortIcon('lastRun')}
-                  </th>
-                  <th className={styles.sortable} onClick={() => toggleSort('nextRun')}>
-                    Next run {sortIcon('nextRun')}
-                  </th>
-                  <th className={styles.sortable} onClick={() => toggleSort('streak')}>
-                    Fail streak {sortIcon('streak')}
-                  </th>
-                  <th>Duration</th>
+                  <SortTh
+                    field="name"
+                    label="Name"
+                    sortField={sortField}
+                    sortDir={sortDir}
+                    onSort={toggleSort}
+                    styles={styles}
+                  />
+                  <SortTh
+                    field="namespace"
+                    label="Namespace"
+                    sortField={sortField}
+                    sortDir={sortDir}
+                    onSort={toggleSort}
+                    styles={styles}
+                  />
+                  <SortTh
+                    field="cluster"
+                    label="Cluster"
+                    sortField={sortField}
+                    sortDir={sortDir}
+                    onSort={toggleSort}
+                    styles={styles}
+                  />
+                  <SortTh
+                    field="schedule"
+                    label="Schedule"
+                    sortField={sortField}
+                    sortDir={sortDir}
+                    onSort={toggleSort}
+                    styles={styles}
+                  />
+                  <SortTh
+                    field="lastRun"
+                    label="Last run"
+                    sortField={sortField}
+                    sortDir={sortDir}
+                    onSort={toggleSort}
+                    styles={styles}
+                  />
+                  <SortTh
+                    field="nextRun"
+                    label="Next run"
+                    sortField={sortField}
+                    sortDir={sortDir}
+                    onSort={toggleSort}
+                    styles={styles}
+                  />
+                  <SortTh
+                    field="streak"
+                    label="Fail streak"
+                    sortField={sortField}
+                    sortDir={sortDir}
+                    onSort={toggleSort}
+                    styles={styles}
+                  />
+                  <th scope="col">Duration</th>
                 </tr>
               </thead>
               <tbody>
@@ -298,7 +378,11 @@ function JobsInventory() {
                     className={styles.row}
                     onClick={() => openLogs(job)}
                   >
-                    <td className={styles.dotCell}>{statusDot(job.status)}</td>
+                    <td className={styles.dotCell}>
+                      <span role="img" aria-label={statusLabel(job.status)}>
+                        {statusDot(job.status)}
+                      </span>
+                    </td>
                     <td>
                       <span className={styles.nameCell}>{job.name}</span>
                       {job.kind === 'Job' && <Badge text="one-shot" color="darkgrey" className={styles.kindBadge} />}
@@ -420,11 +504,40 @@ const getStyles = (theme: GrafanaTheme2) => ({
       vertical-align: middle;
     }
   `,
-  sortable: css`
+  sortableCell: css`
+    padding: 0 !important;
+  `,
+  sortableButton: css`
+    display: block;
+    width: 100%;
+    background: none;
+    border: none;
+    margin: 0;
+    padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
+    font: inherit;
+    color: inherit;
+    text-align: inherit;
+    white-space: nowrap;
     cursor: pointer;
+    user-select: none;
     &:hover {
       color: ${theme.colors.text.primary};
     }
+    &:focus-visible {
+      outline: 2px solid ${theme.colors.primary.border};
+      outline-offset: -2px;
+    }
+  `,
+  srOnly: css`
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   `,
   row: css`
     cursor: pointer;

@@ -140,6 +140,14 @@ describe('SessionsPanel', () => {
     await waitFor(() => expect(screen.getByText('Loki is not available')).toBeInTheDocument());
   });
 
+  it('names the table and labels the search input (WCAG 1.3.1 / 4.1.2)', async () => {
+    getFrontendSessions.mockResolvedValue({ sessions: [SESSION], truncated: false, unavailable: false });
+    renderPanel();
+    await waitFor(() => expect(screen.getByText('sess-abcde')).toBeInTheDocument());
+    expect(screen.getByRole('table', { name: 'Sessions' })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Search sessions' })).toBeInTheDocument();
+  });
+
   it('notes the narrowed counting window and truncation', async () => {
     getFrontendSessions.mockResolvedValue({
       sessions: [SESSION],

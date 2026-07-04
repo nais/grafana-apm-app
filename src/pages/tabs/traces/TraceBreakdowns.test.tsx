@@ -73,6 +73,15 @@ describe('TraceBreakdowns', () => {
     await waitFor(() => expect(screen.getByText('No data')).toBeInTheDocument());
   });
 
+  it('names the table and associates the group-by selector with its label', async () => {
+    getTraceBreakdown.mockResolvedValue(RESPONSE);
+    renderPanel();
+    await waitFor(() => expect(screen.getByText('POST /b')).toBeInTheDocument());
+    expect(screen.getByRole('table', { name: 'Span breakdown' })).toBeInTheDocument();
+    // The dimension picker is programmatically labelled by the visible "Group by:" label.
+    expect(screen.getByRole('combobox', { name: /Group by/ })).toBeInTheDocument();
+  });
+
   it('surfaces unavailability', async () => {
     getTraceBreakdown.mockResolvedValue({
       mode: 'unavailable',

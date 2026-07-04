@@ -36,4 +36,14 @@ describe('ConnectionPoolSection', () => {
     const { container } = render(<ConnectionPoolSection dbPool={{ status: 'detected', pools: [] }} />);
     expect(container).toBeEmptyDOMElement();
   });
+
+  // --- Accessibility (WCAG 1.3.1 / 1.4.1) ---
+
+  it('names the table and gives the colour-coded utilization bar a text equivalent', () => {
+    render(<ConnectionPoolSection dbPool={dbPool} />);
+    expect(screen.getByRole('table', { name: 'Connection pool health' })).toBeInTheDocument();
+    // The fill colour (health band) is also exposed as text, not colour alone.
+    expect(screen.getByRole('img', { name: '20% utilization, healthy' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: '90% utilization, warning' })).toBeInTheDocument();
+  });
 });

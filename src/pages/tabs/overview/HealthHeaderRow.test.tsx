@@ -55,6 +55,24 @@ describe('HealthHeaderRow', () => {
     expect(deltaEl.className).not.toMatch(/deltaBad|deltaGood|deltaWarn/);
   });
 
+  it('carries the colour-coded severity as text so it is not conveyed by colour alone (WCAG 1.4.1)', () => {
+    render(<HealthHeaderRow health={health({ errorRate: 1.0, prevErrorRate: 0.3 })} loading={false} />);
+    // The red "bad" delta also reads "worse" for screen-reader users.
+    expect(screen.getByText(/\+233\.3% vs previous period/)).toHaveTextContent('worse');
+  });
+
+  it('reads "better" for an improvement rendered in green', () => {
+    render(<HealthHeaderRow health={health({ p95Duration: 30, prevP95Duration: 60 })} loading={false} />);
+    expect(screen.getByText(/-50\.0% vs previous period/)).toHaveTextContent('better');
+  });
+
+  it('adds no better/worse qualifier for a neutral-polarity delta', () => {
+    render(<HealthHeaderRow health={health({ rate: 1000, prevRate: 100 })} loading={false} />);
+    const deltaEl = screen.getByText(/\+900\.0% vs previous period/);
+    expect(deltaEl).not.toHaveTextContent('worse');
+    expect(deltaEl).not.toHaveTextContent('better');
+  });
+
   it('shows "no previous-period data" when there is no baseline', () => {
     render(
       <HealthHeaderRow

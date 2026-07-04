@@ -72,6 +72,16 @@ describe('SloPanel', () => {
     expect(docsLink).toHaveAttribute('href', 'https://doc.nais.io/observability/apm/how-to/create-alerts/');
   });
 
+  it('exposes the colour-coded budget bar status as text (WCAG 1.4.1)', async () => {
+    mockedFetchMetrics.mockResolvedValue({ errorRatio30d: 0.0002, total30d: 1_000_000, errorRatio1h: 0.0001 });
+    renderPanel();
+    await screen.findByText('99.980%');
+    // The budget bar colour (healthy/warning/critical) is also carried as text.
+    expect(screen.getByRole('img', { name: /Error budget status:/ })).toBeInTheDocument();
+    // The SLO target radio group is named for context.
+    expect(screen.getByRole('radiogroup', { name: 'SLO target' })).toBeInTheDocument();
+  });
+
   it('degrades honestly to "not enough data" when 30d traffic is too low', async () => {
     mockedFetchMetrics.mockResolvedValue({ errorRatio30d: 0.0002, total30d: 100, errorRatio1h: null });
     renderPanel();

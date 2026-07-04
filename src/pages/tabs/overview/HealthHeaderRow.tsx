@@ -87,6 +87,14 @@ function severityClassName(styles: ReturnType<typeof getStyles>, severity: Delta
   }
 }
 
+/** Screen-reader wording for the severity that is otherwise conveyed by colour only. */
+const SEVERITY_QUALIFIER: Record<DeltaResult['severity'], string> = {
+  good: 'better',
+  warn: 'worse',
+  bad: 'worse',
+  neutral: '',
+};
+
 function DeltaLine({ delta }: { delta: DeltaResult }) {
   const styles = useStyles2(getStyles);
   const className = severityClassName(styles, delta.severity);
@@ -96,9 +104,11 @@ function DeltaLine({ delta }: { delta: DeltaResult }) {
   }
 
   const pctLabel = `${delta.pct >= 0 ? '+' : ''}${(delta.pct * 100).toFixed(1)}%`;
+  const qualifier = SEVERITY_QUALIFIER[delta.severity];
   return (
     <span className={className}>
       <Icon name={DIRECTION_ICON[delta.direction]} size="sm" /> {pctLabel} vs previous period
+      {qualifier && <span className={styles.srOnly}>, {qualifier}</span>}
     </span>
   );
 }
@@ -111,6 +121,17 @@ export const HEALTH_STAT_POLARITY: Record<'rate' | 'errorRate' | 'p95Duration', 
 };
 
 const getStyles = (theme: GrafanaTheme2) => ({
+  srOnly: css`
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  `,
   row: css`
     display: grid;
     grid-template-columns: repeat(3, 1fr);

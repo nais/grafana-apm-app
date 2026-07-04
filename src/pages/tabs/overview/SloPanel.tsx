@@ -104,7 +104,13 @@ export function SloPanel({ namespace, service, environment }: SloPanelProps) {
         </div>
         <div className={styles.targetGroup}>
           <span className={styles.targetLabel}>SLO target</span>
-          <RadioButtonGroup size="sm" options={TARGET_OPTIONS} value={target} onChange={setTarget} />
+          <RadioButtonGroup
+            aria-label="SLO target"
+            size="sm"
+            options={TARGET_OPTIONS}
+            value={target}
+            onChange={setTarget}
+          />
         </div>
       </div>
 
@@ -136,7 +142,7 @@ export function SloPanel({ namespace, service, environment }: SloPanelProps) {
               Slow burn (ticket)
             </Button>
             <Tooltip content="Multi-window multi-burn-rate rules (Google SRE): fast burn = 14.4× budget over 1h & 5m, slow burn = 6× over 6h & 30m.">
-              <Icon name="info-circle" className={styles.infoIcon} />
+              <Icon name="info-circle" className={styles.infoIcon} aria-label="About burn-rate alert windows" />
             </Tooltip>
             <TextLink href={apmDocs.createAlerts()} external variant="bodySmall" className={styles.docsLink}>
               About alert templates
@@ -175,7 +181,7 @@ function SloTiles({ computed, styles }: { computed: SloComputed; styles: ReturnT
         {computed.enoughData && computed.budgetRemainingPct !== null ? (
           <>
             <span className={styles.tileValue}>{formatPct(computed.budgetRemainingPct, 0)}</span>
-            <div className={styles.barTrack}>
+            <div className={styles.barTrack} role="img" aria-label={`Error budget status: ${computed.status}`}>
               <div className={`${styles.barFill} ${barClass}`} style={{ width: `${barWidth}%` }} />
             </div>
           </>

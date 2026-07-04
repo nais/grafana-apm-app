@@ -38,16 +38,16 @@ export function ConnectionPoolSection({ dbPool }: ConnectionPoolSectionProps) {
           <Icon name="info-circle" size="sm" />
         </span>
       </h4>
-      <table className={styles.table}>
+      <table className={styles.table} aria-label="Connection pool health">
         <thead>
           <tr>
-            <th>Pool</th>
-            <th>Active</th>
-            <th>Idle</th>
-            <th>Max</th>
-            <th>Pending</th>
-            <th>Utilization</th>
-            <th>Timeouts/s</th>
+            <th scope="col">Pool</th>
+            <th scope="col">Active</th>
+            <th scope="col">Idle</th>
+            <th scope="col">Max</th>
+            <th scope="col">Pending</th>
+            <th scope="col">Utilization</th>
+            <th scope="col">Timeouts/s</th>
           </tr>
         </thead>
         <tbody>
@@ -82,14 +82,19 @@ function UtilizationBar({ value }: { value: number }) {
   const theme = useTheme2();
   const fillColor =
     value > 90 ? theme.colors.error.main : value > 70 ? theme.colors.warning.main : theme.colors.success.main;
+  // The fill colour is the only visual cue for the health band — expose it as
+  // text so it does not rely on colour alone (WCAG 1.4.1).
+  const status = value > 90 ? 'critical' : value > 70 ? 'warning' : 'healthy';
   const pct = value === 0 ? '0%' : value < 1 ? `${value.toFixed(1)}%` : `${value.toFixed(0)}%`;
 
   return (
-    <div className={styles.utilBar}>
-      <div className={styles.utilBarBg}>
+    <div className={styles.utilBar} role="img" aria-label={`${pct} utilization, ${status}`}>
+      <div className={styles.utilBarBg} aria-hidden="true">
         <div className={styles.utilBarFill} style={{ width: `${Math.min(value, 100)}%`, backgroundColor: fillColor }} />
       </div>
-      <span className={styles.utilLabel}>{pct}</span>
+      <span className={styles.utilLabel} aria-hidden="true">
+        {pct}
+      </span>
     </div>
   );
 }

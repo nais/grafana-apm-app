@@ -149,7 +149,13 @@ function ServiceMap() {
         </div>
 
         <div className={styles.toolbar}>
-          <RadioButtonGroup options={viewOptions} value={view} onChange={(v) => v && setView(v)} size="sm" />
+          <RadioButtonGroup
+            aria-label="Service map view"
+            options={viewOptions}
+            value={view}
+            onChange={(v) => v && setView(v)}
+            size="sm"
+          />
           {view === 'namespaces' && clusteredData && (
             <span className={styles.counts}>
               {clusteredData.nodes.length} namespaces · {totalServices} services · {clusteredData.edges.length}{' '}

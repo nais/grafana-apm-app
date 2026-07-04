@@ -67,4 +67,20 @@ describe('QueryOperationsTable', () => {
     const row = screen.getByText('SELECT users').closest('tr');
     expect(row).not.toHaveAttribute('title');
   });
+
+  // --- Accessibility (WCAG 1.3.1 / 4.1.2) ---
+
+  it('names the table and reflects the active sort via aria-sort', () => {
+    renderWithRouter(<QueryOperationsTable operations={operations} durationUnit="ms" />);
+    expect(screen.getByRole('table', { name: 'Database operations' })).toBeInTheDocument();
+    // Default sort is rate descending.
+    expect(screen.getByRole('columnheader', { name: /Rate/ })).toHaveAttribute('aria-sort', 'descending');
+    expect(screen.getByRole('columnheader', { name: /System/ })).toHaveAttribute('aria-sort', 'none');
+  });
+
+  it('toggles aria-sort when the header button is activated', () => {
+    renderWithRouter(<QueryOperationsTable operations={operations} durationUnit="ms" />);
+    fireEvent.click(screen.getByRole('button', { name: /Rate/ }));
+    expect(screen.getByRole('columnheader', { name: /Rate/ })).toHaveAttribute('aria-sort', 'ascending');
+  });
 });

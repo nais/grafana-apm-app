@@ -82,9 +82,21 @@ interface SortHeaderProps<F extends string> {
 
 export function SortHeader<F extends string>({ field, label, sortField, sortDir, onSort }: SortHeaderProps<F>) {
   const styles = useStyles2(getTableStyles);
+  const active = sortField === field;
+  // aria-sort must live on the columnheader cell; the click target is a real
+  // button so the sort is keyboard-operable (WCAG 2.1.1). The arrow Icon is
+  // decorative (Grafana Icon is aria-hidden by default) — aria-sort conveys
+  // the state to assistive tech.
+  const ariaSort: React.AriaAttributes['aria-sort'] = active
+    ? sortDir === 'asc'
+      ? 'ascending'
+      : 'descending'
+    : 'none';
   return (
-    <th className={styles.sortableHeader} onClick={() => onSort(field)}>
-      {label} {sortField === field && <Icon name={sortDir === 'asc' ? 'arrow-up' : 'arrow-down'} size="sm" />}
+    <th scope="col" aria-sort={ariaSort} className={styles.sortableHeaderCell}>
+      <button type="button" className={styles.sortableHeaderButton} onClick={() => onSort(field)}>
+        {label} {active && <Icon name={sortDir === 'asc' ? 'arrow-up' : 'arrow-down'} size="sm" />}
+      </button>
     </th>
   );
 }
@@ -135,11 +147,30 @@ export const getTableStyles = (theme: GrafanaTheme2) => ({
       text-overflow: ellipsis;
     }
   `,
-  sortableHeader: css`
+  sortableHeaderCell: css`
+    padding: 0 !important;
+  `,
+  sortableHeaderButton: css`
+    display: block;
+    width: 100%;
+    background: none;
+    border: none;
+    margin: 0;
+    padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
+    font: inherit;
+    color: inherit;
+    text-align: inherit;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     cursor: pointer;
     user-select: none;
     &:hover {
       color: ${theme.colors.text.primary};
+    }
+    &:focus-visible {
+      outline: 2px solid ${theme.colors.primary.border};
+      outline-offset: -2px;
     }
   `,
   clickableRow: css`

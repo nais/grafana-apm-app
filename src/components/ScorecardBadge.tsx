@@ -52,7 +52,11 @@ function ScorecardDetails({ data }: { data: ScorecardResponse }) {
       <ul className={styles.checkList}>
         {data.readiness.checks.map((check) => (
           <li key={check.key} className={styles.check}>
-            <span className={check.ok ? styles.checkIconOk : styles.checkIconMissing}>
+            <span
+              className={check.ok ? styles.checkIconOk : styles.checkIconMissing}
+              role="img"
+              aria-label={check.ok ? 'Enabled' : 'Not enabled'}
+            >
               <Icon name={check.ok ? 'check-circle' : 'circle'} size="sm" />
             </span>
             <span>

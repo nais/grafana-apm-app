@@ -61,8 +61,11 @@ export function TraceBreakdowns({ namespace, service, tracesUid, fromMs, toMs, o
     <div className={styles.container}>
       <div className={styles.header}>
         <h6 className={styles.title}>Breakdown</h6>
-        <label className={styles.label}>Group by:</label>
+        <label id="trace-breakdown-groupby" className={styles.label}>
+          Group by:
+        </label>
         <Combobox
+          aria-labelledby="trace-breakdown-groupby"
           options={dimensionOptions}
           value={dimension}
           onChange={(v) => setDimension(v?.value ?? 'name')}
@@ -88,14 +91,22 @@ export function TraceBreakdowns({ namespace, service, tracesUid, fromMs, toMs, o
         emptyTitle="No data"
         emptyMessage="No spans for this dimension in the selected time range."
       >
-        <table className={styles.table}>
+        <table className={styles.table} aria-label="Span breakdown">
           <thead>
             <tr>
-              <th>{DIMENSION_LABELS[dimension] ?? dimension}</th>
-              <th className={styles.num}>Rate</th>
-              <th className={styles.num}>Error %</th>
-              <th className={styles.num}>P95</th>
-              <th className={styles.num}>P99</th>
+              <th scope="col">{DIMENSION_LABELS[dimension] ?? dimension}</th>
+              <th scope="col" className={styles.num}>
+                Rate
+              </th>
+              <th scope="col" className={styles.num}>
+                Error %
+              </th>
+              <th scope="col" className={styles.num}>
+                P95
+              </th>
+              <th scope="col" className={styles.num}>
+                P99
+              </th>
             </tr>
           </thead>
           <tbody>

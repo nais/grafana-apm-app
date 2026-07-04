@@ -87,4 +87,16 @@ describe('ScorecardBadge', () => {
     );
     expect(screen.getByRole('link', { name: 'my-app.nav.no' })).toHaveAttribute('href', 'https://my-app.nav.no');
   });
+
+  // --- Accessibility (WCAG 1.4.1 / 4.1.2) ---
+
+  it('announces each check pass/fail state that is otherwise only an icon colour', async () => {
+    mockGetScorecard.mockResolvedValue(baseResponse);
+    render(<ScorecardBadge namespace="team-a" service="my-app" />);
+    fireEvent.click(await screen.findByTestId('scorecard-badge'));
+    await screen.findByTestId('scorecard-details');
+    // 4 enabled + 2 not-enabled checks, each with a text alternative for the status icon.
+    expect(screen.getAllByRole('img', { name: 'Enabled' })).toHaveLength(4);
+    expect(screen.getAllByRole('img', { name: 'Not enabled' })).toHaveLength(2);
+  });
 });
