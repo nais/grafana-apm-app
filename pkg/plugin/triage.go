@@ -29,6 +29,9 @@ import (
 const (
 	triageTag       = "nais-apm:triage"
 	maxTriageEvents = 1000
+	// maxTriagePages bounds pagination: 10k events per service is far beyond
+	// any observed history and keeps a pathological loop finite.
+	maxTriagePages = 10
 )
 
 var fingerprintRe = regexp.MustCompile(`^[a-z0-9:]{1,64}$`)
@@ -112,32 +115,77 @@ func (s *annotationTriageStore) do(ctx context.Context, method, path string, bod
 
 // fetch reads triage annotations matching all given tags, newest first (the
 // annotations API sorts descending by time).
+// fetch reads triage annotations for the given tag set. Two scale measures
+// from the 2026-07 audit (ADR-0001 appendix):
+//
+//   - The ultra-common triageTag is NOT sent to the API — Grafana's multi-tag
+//     AND filter scans the popular-tag set, coupling every read to org-wide
+//     triage volume (measured 31ms@1k -> 1.5s@50k events). We query by the
+//     rare tags (app:/fp:) and verify triageTag client-side instead.
+//   - Reads paginate past the per-request cap: the newest-1000 window
+//     silently dropped older resolves on heavily-triaged services (the
+//     fold then reported them active).
 func (s *annotationTriageStore) fetch(ctx context.Context, tags []string) ([]grafanaAnnotation, error) {
-	q := url.Values{}
-	for _, t := range tags {
-		q.Add("tags", t)
+	queryTags := make([]string, 0, len(tags))
+	for _, tg := range tags {
+		if tg != triageTag {
+			queryTags = append(queryTags, tg)
+		}
 	}
-	q.Set("limit", strconv.Itoa(maxTriageEvents))
-	q.Set("from", "0")
-	q.Set("to", strconv.FormatInt(time.Now().UnixMilli(), 10))
 
-	resp, err := s.do(ctx, http.MethodGet, "/api/annotations?"+q.Encode(), nil)
-	if err != nil {
-		return nil, fmt.Errorf("fetching triage annotations: %w", err)
+	var out []grafanaAnnotation
+	to := time.Now().UnixMilli()
+	for page := 0; page < maxTriagePages; page++ {
+		q := url.Values{}
+		for _, tg := range queryTags {
+			q.Add("tags", tg)
+		}
+		q.Set("limit", strconv.Itoa(maxTriageEvents))
+		q.Set("from", "0")
+		q.Set("to", strconv.FormatInt(to, 10))
+
+		resp, err := s.do(ctx, http.MethodGet, "/api/annotations?"+q.Encode(), nil)
+		if err != nil {
+			return nil, fmt.Errorf("fetching triage annotations: %w", err)
+		}
+		raw, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
+		_ = resp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("reading triage annotations: %w", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("annotations API returned %d: %s", resp.StatusCode, truncateStr(string(raw)))
+		}
+		var anns []grafanaAnnotation
+		if err := json.Unmarshal(raw, &anns); err != nil {
+			return nil, fmt.Errorf("unmarshaling annotations: %w", err)
+		}
+		for _, ann := range anns {
+			if hasTag(ann.Tags, triageTag) {
+				out = append(out, ann)
+			}
+		}
+		if len(anns) < maxTriageEvents {
+			return out, nil
+		}
+		// Full page: older events may remain — continue below the oldest
+		// timestamp seen (results are newest-first).
+		oldest := anns[len(anns)-1].Time
+		if oldest >= to {
+			return out, nil
+		}
+		to = oldest
 	}
-	defer resp.Body.Close() //nolint:errcheck
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
-	if err != nil {
-		return nil, fmt.Errorf("reading triage annotations: %w", err)
+	return out, nil
+}
+
+func hasTag(tags []string, want string) bool {
+	for _, tg := range tags {
+		if tg == want {
+			return true
+		}
 	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("annotations API returned %d: %s", resp.StatusCode, truncateStr(string(raw)))
-	}
-	var anns []grafanaAnnotation
-	if err := json.Unmarshal(raw, &anns); err != nil {
-		return nil, fmt.Errorf("unmarshaling annotations: %w", err)
-	}
-	return anns, nil
+	return false
 }
 
 func parseTriageEvent(ann grafanaAnnotation) (fp string, ev TriageEvent, ok bool) {
