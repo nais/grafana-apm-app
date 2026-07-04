@@ -6,11 +6,13 @@ import { PLUGIN_BASE_URL, ROUTES } from '../../constants';
 import { useFavoritesSync } from '../../utils/useFavoritesSync';
 
 const ServiceInventory = React.lazy(() => import('../../pages/ServiceInventory'));
+const JobsInventory = React.lazy(() => import('../../pages/JobsInventory'));
 const ServiceOverview = React.lazy(() => import('../../pages/ServiceOverview'));
 const NamespaceOverview = React.lazy(() => import('../../pages/NamespaceOverview'));
 const StatusBoard = React.lazy(() => import('../../pages/StatusBoard'));
 const OpsStatusBoard = React.lazy(() => import('../../pages/OpsStatusBoard'));
 const Dependencies = React.lazy(() => import('../../pages/Dependencies'));
+const ServiceMap = React.lazy(() => import('../../pages/ServiceMap'));
 const DependencyDetail = React.lazy(() => import('../../pages/DependencyDetail'));
 
 function FavoritesRedirect() {
@@ -93,8 +95,10 @@ function App(props: AppRootProps) {
         <Route path={ROUTES.NamespaceOverview} element={<NamespaceOverview />} />
         <Route path={ROUTES.DependencyDetail} element={<DependencyDetail />} />
         <Route path={ROUTES.Dependencies} element={<Dependencies />} />
+        <Route path={ROUTES.ServiceMap} element={<ServiceMap />} />
         <Route path={ROUTES.Favorites} element={<FavoritesRedirect />} />
         <Route path={ROUTES.Services} element={<ServiceInventory />} />
+        <Route path={ROUTES.Jobs} element={<JobsInventory />} />
         <Route path="/" element={<Navigate to={ROUTES.Services} replace />} />
         <Route path="*" element={<Navigate to={ROUTES.Services} replace />} />
       </Routes>

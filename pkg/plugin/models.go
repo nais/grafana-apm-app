@@ -119,6 +119,9 @@ type ServiceMapNode struct {
 	HubDegree     int     `json:"hubDegree,omitempty"`
 	CallerCount   int     `json:"callerCount,omitempty"`
 	ErrorRate     float64 `json:"errorRate"`
+	// ServiceCount is the number of distinct services a clustered (namespace)
+	// node represents. Zero/omitted for ordinary service-level nodes.
+	ServiceCount int `json:"serviceCount,omitempty"`
 }
 
 // ServiceMapEdge represents an edge between two services.

@@ -45,6 +45,10 @@ type App struct {
 
 	respCache *responseCache // short-lived response cache for expensive queries
 
+	naisToken      string         // nais Console API token (scorecard enrichment + deploy sync)
+	scorecardOnce  sync.Once      // lazily builds the dedicated long-TTL scorecard cache
+	scorecardCache *responseCache // see scorecardResponseCache()
+
 	// ingressByService maps service_name → list of ingress hostnames that route to it.
 	// Built from settings.IngressAliases (reversed). Used to expand caller queries.
 	ingressByService map[string][]string
@@ -154,7 +158,8 @@ func NewApp(_ context.Context, settings backend.AppInstanceSettings) (instancemg
 
 	// nais deploy sync (#64 Phase 2) — enabled only when both the GraphQL URL
 	// (jsonData.naisApiUrl) and token (secureJsonData.naisApiToken) are set.
-	app.startNaisDeploySync(settings.DecryptedSecureJSONData["naisApiToken"])
+	app.naisToken = settings.DecryptedSecureJSONData["naisApiToken"]
+	app.startNaisDeploySync(app.naisToken)
 
 	mux := http.NewServeMux()
 	app.registerRoutes(mux)
@@ -380,7 +385,10 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/services/{namespace}/{service}/graphql", a.handleGraphQLMetrics)
 	mux.HandleFunc("/services/{namespace}/{service}/runtime", a.handleRuntime)
 	mux.HandleFunc("/services/{namespace}/{service}/custom-metrics", a.handleCustomMetrics)
+	mux.HandleFunc("/services/{namespace}/{service}/scorecard", a.handleScorecard)
+	mux.HandleFunc("/jobs", a.handleJobs)
 	mux.HandleFunc("/service-map", a.handleServiceMap)
+	mux.HandleFunc("/service-map/clustered", a.handleClusteredServiceMap)
 	mux.HandleFunc("/dependencies", a.handleGlobalDependencies)
 	mux.HandleFunc("/dependencies/{name}", a.handleDependencyDetail)
 	mux.HandleFunc("/namespaces/{namespace}/dependencies", a.handleNamespaceDependencies)
