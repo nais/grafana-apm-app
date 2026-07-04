@@ -21,14 +21,14 @@
 
 ### Next up (ordered — resume here)
 
-1. **Land the in-flight M7 wave**: Console scorecards (+ observability
-   readiness score), cron/Naisjob monitoring view (KSM-gated), #22 namespace
-   clustering on the global map, in-plugin links to the user docs
+1. **Land the in-flight M7 wave**: Console scorecards + readiness score
+   (PRD: #73), cron/Naisjob monitoring view (PRD: #74, KSM-gated), #22
+   namespace clustering on the global map, in-plugin links to the user docs
    (docs/observability/apm in nais/doc, branch nais-apm-docs) and to the
    nais/apm SDK.
-2. **Resource API docs** (M7): documented, versioned plugin resource API
-   (issue PRD below) — enables CI gates and bots against /issues, /triage,
-   /scorecard.
+2. **Resource API docs** (M7, PRD: #75): documented, versioned plugin
+   resource API — CI gates and bots against /issues, /triage, /scorecard.
+   Sequenced after the in-flight wave so shapes settle first.
 3. **#68 P1**: curated custom-metrics (per-user pins → shared jsonData with
    version/409) + Faro measurement discovery on the Frontend tab.
 4. **Backlog by demand**: #37 log field selector, #36 topology remainder,
