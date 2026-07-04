@@ -36,6 +36,27 @@ demand-driven or waits on external events:
 5. **Standing QA**: run `scripts/data-review.sh` when data shapes or
    queries change (docs/qa/data-review.md).
 
+### Hardening pass (2026-07-04) — all committed
+
+Post-milestone audit wave, all green in `mise run all` (745 jest, 624 go):
+- **Security audit**: injection/limits/cache-isolation/error-disclosure clean;
+  fixed the two confused-deputy issues (editor-gate on the settings write,
+  datasource-UID allowlist on patterns/breakdown). Triage-by-viewer and
+  fleet-wide scorecard kept as accepted decisions ([docs/security-model.md]).
+- **Robustness**: React error boundaries (per-tab + per-route) so one crash
+  can't white-screen the plugin; e2e coverage for every page shipped since
+  April; accessibility (WCAG 2.1 AA) on the new tables and color-coded panels.
+- **QA leftovers**: safeFloat guards, writeCached migration, dsquery frame
+  tests, drawer loading state, DataState sweep.
+- **Docs**: README feature list current + nais-API-token/netpol platform
+  dependency; resource API reference (#75); ADR-0001 with measured baseline;
+  infra platform-dependency section; url-contract + CHANGELOG currency.
+- **SDK**: apm-client verified byte-identical to frozen sdk/; publish workflow
+  hardened (version-tag guard, prerelease channel, pack verification);
+  RELEASING.md.
+- **Repeatable QA**: scripts/data-review.sh (needs the NAV datasources
+  reachable to re-baseline; PASS=152 when they are).
+
 ### Open follow-ups (accumulated during implementation)
 
 - **Smoke tests in a real env**: alert-rule `defaults=` contract against deployed
