@@ -59,6 +59,15 @@ Post-milestone audit wave, all green in `mise run all` (745 jest, 624 go):
 
 ### Open follow-ups (accumulated during implementation)
 
+- **@nais/apm/react (#79)** — drop-in React ErrorBoundary + route tracking +
+  a Next.js client-init helper; audit-backed (docs/navikt-faro-sentry-audit.md:
+  ~140 Faro apps, no shared wrapper, Next.js+Vite spread), design partners are
+  the 14 Faro+Sentry dual-stack repos.
+- **Replay/snapshot privacy** — PRD docs/plans/replay-privacy-hardening.md;
+  the three safe-by-default fixes (close the screenshotOnError ingest gate,
+  transport-layer scrub pass, scrub Meta href) in progress; events-only "safe
+  tier" and the rrweb fork bump are the larger follow-ups.
+
 - **New PRDs filed 2026-07-04** (net-new gaps from the hardening pass):
   [#76](https://github.com/nais/grafana-apm-app/issues/76) run the contract +
   conformance harnesses in CI · [#77](https://github.com/nais/grafana-apm-app/issues/77)
