@@ -70,6 +70,12 @@ func Compute(e Event) Result {
 	case strings.TrimSpace(e.Value) != "":
 		normalized := Normalize(e.Value)
 		return Result{Value: hashFingerprint(TierMessage, normalized), Tier: TierMessage, Title: title}
+	case strings.TrimSpace(e.Type) != "":
+		// Type but no message (server logs often carry only exception_type):
+		// hash on the type — falling through to the UpstreamHash default would
+		// merge every message-less type into one group when the caller has no
+		// upstream hash (the server-log path never does).
+		return Result{Value: hashFingerprint(TierTypeMessage, strings.TrimSpace(e.Type)), Tier: TierTypeMessage, Title: title}
 	default:
 		return Result{Value: hashFingerprint(TierUpstreamHash, e.UpstreamHash), Tier: TierUpstreamHash, Title: title}
 	}

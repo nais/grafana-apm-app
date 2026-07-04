@@ -123,3 +123,21 @@ func TestTiersDoNotCollide(t *testing.T) {
 		t.Error("tier must participate in the hash")
 	}
 }
+
+func TestComputeTypeOnlyEventsStayDistinct(t *testing.T) {
+	// Regression (QA review): type-but-no-message events fell through to the
+	// UpstreamHash tier; with no upstream hash (the server-log path) every
+	// message-less type collapsed into one fingerprint.
+	a := Compute(Event{Type: "NullPointerException"})
+	b := Compute(Event{Type: "TimeoutException"})
+	if a.Value == b.Value {
+		t.Fatalf("distinct types with empty messages share fingerprint %s", a.Value)
+	}
+	if a.Tier != TierTypeMessage {
+		t.Errorf("tier = %v, want TierTypeMessage", a.Tier)
+	}
+	// Still deterministic for the same type.
+	if again := Compute(Event{Type: "NullPointerException"}); again.Value != a.Value {
+		t.Errorf("not deterministic: %s vs %s", again.Value, a.Value)
+	}
+}

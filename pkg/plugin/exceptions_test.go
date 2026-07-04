@@ -243,3 +243,37 @@ func TestQueryExceptionGroupsSessionsUnavailable(t *testing.T) {
 		t.Errorf("sessionsWindowSeconds = %d, want 0", resp.SessionsWindowSeconds)
 	}
 }
+
+func TestQueryExceptionGroupsSessionsFallbackDescendsBelowRange(t *testing.T) {
+	// Regression (QA review): the ladder used `break` where it needed
+	// `continue` — a 30m range skips the 1h/15m rungs but must still try
+	// 5m/1m instead of giving up on the first too-wide rung.
+	counts := []queries.PromResult{
+		{Metric: map[string]string{"hash": "111", "type": "Error", "value": "boom"}, Value: queries.NewPromValue(0, "100")},
+	}
+	sessions := []queries.PromResult{
+		{Metric: map[string]string{"hash": "111"}, Value: queries.NewPromValue(0, "7")},
+	}
+	// Full range (30m = [1800s]) errors; so do the 15m and 5m rungs; 1m succeeds.
+	app, ds := exceptionsTestApp(t,
+		map[string][]queries.PromResult{"sum by": counts, "count by": sessions},
+		map[string]string{
+			"session_id [1800s]": "maximum number of series (5000) reached for a single query",
+			"session_id [900s]":  "maximum number of series (5000) reached for a single query",
+			"session_id [300s]":  "maximum number of series (5000) reached for a single query",
+		},
+	)
+
+	to := time.Unix(200000, 0)
+	resp := app.queryExceptionGroups(context.Background(), ds, "loki-uid", "my-app", "", to.Add(-30*time.Minute), to)
+
+	if resp.SessionsUnavailable {
+		t.Fatal("sessions should be available via the 1m rung")
+	}
+	if resp.SessionsWindowSeconds != 60 {
+		t.Errorf("sessionsWindowSeconds = %d, want 60", resp.SessionsWindowSeconds)
+	}
+	if len(resp.Groups) != 1 || resp.Groups[0].Sessions != 7 {
+		t.Errorf("unexpected groups: %+v", resp.Groups)
+	}
+}

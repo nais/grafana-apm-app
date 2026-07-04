@@ -179,7 +179,8 @@ func (a *App) queryIssues(ctx context.Context, ds *queries.DsQueryClient, lokiUI
 func (a *App) serverLogSelector(service, env string) string {
 	sel := fmt.Sprintf(`{%s="%s", %s=""`, a.otelCfg.Labels.ServiceName, service, a.otelCfg.FaroLoki.Kind)
 	if env != "" {
-		sel += fmt.Sprintf(`, %s="%s"`, a.otelCfg.Labels.DeploymentEnv, env)
+		// env may be comma-separated multi-select — equality would match nothing.
+		sel += ", " + envMatcher(a.otelCfg.Labels.DeploymentEnv, env)
 	}
 	return sel + "}"
 }

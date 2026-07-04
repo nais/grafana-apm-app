@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
+import { getAppEvents } from '@grafana/runtime';
 import { Badge, Button, Icon, IconButton, Pagination, RadioButtonGroup, Tooltip, useStyles2 } from '@grafana/ui';
-import { GrafanaTheme2 } from '@grafana/data';
+import { AppEvents, GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import {
   getIssues,
@@ -85,11 +86,15 @@ export function IssuesTable({ namespace, service, environment, compact = false }
   const [overrides, setOverrides] = useState<Record<string, TriageState>>({});
 
   const act = async (fingerprint: string, action: 'resolve' | 'ignore' | 'unresolve') => {
-    const newState = await postTriageAction(namespace, service, fingerprint, {
-      action,
-      resolvedInVersion: action === 'resolve' ? versions?.latestVersion : undefined,
-    });
-    setOverrides((prev) => ({ ...prev, [fingerprint]: newState }));
+    try {
+      const newState = await postTriageAction(namespace, service, fingerprint, {
+        action,
+        resolvedInVersion: action === 'resolve' ? versions?.latestVersion : undefined,
+      });
+      setOverrides((prev) => ({ ...prev, [fingerprint]: newState }));
+    } catch {
+      getAppEvents().publish({ type: AppEvents.alertError.name, payload: [`Failed to ${action} issue`] });
+    }
   };
 
   const groups = data?.issues ?? [];

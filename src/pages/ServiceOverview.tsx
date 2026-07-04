@@ -60,6 +60,14 @@ function ServiceOverview() {
   const { namespace: rawNamespace = '', service = '' } = useParams<{ namespace: string; service: string }>();
   // '_' is a placeholder for services with no namespace
   const namespace = rawNamespace === '_' ? '' : rawNamespace;
+  // Remount the whole page when the route points at a different service:
+  // fingerprints are service-agnostic, so component-local state (optimistic
+  // triage overrides, probe results, filters, pagination) carried across an
+  // in-place route change would apply one service's state to another.
+  return <ServiceOverviewInner key={`${namespace}/${service}`} namespace={namespace} service={service} />;
+}
+
+function ServiceOverviewInner({ namespace, service }: { namespace: string; service: string }) {
   const appNavigate = useAppNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const styles = useStyles2(getStyles);
@@ -83,7 +91,14 @@ function ServiceOverview() {
   const durationBucket = caps ? metrics.durationBucket : '';
   const durationUnit = metrics.durationUnit;
   const tabParam = searchParams.get('tab') ?? '';
-  const activeTab: TabId = VALID_TABS.includes(tabParam as TabId) ? (tabParam as TabId) : 'overview';
+  // A capability-gated tab whose datasource is known-unavailable would render
+  // content while its TabsBar button is hidden — fall back to Overview then.
+  const tabUnavailable =
+    caps != null &&
+    ((['issues', 'logs'].includes(tabParam) && caps.loki?.available === false) ||
+      (tabParam === 'traces' && caps.tempo?.available === false) ||
+      (tabParam === 'dependencies' && caps.serviceGraph?.detected === false));
+  const activeTab: TabId = VALID_TABS.includes(tabParam as TabId) && !tabUnavailable ? (tabParam as TabId) : 'overview';
   const setActiveTab = useCallback(
     (tab: TabId) => {
       setSearchParams((prev) => {
@@ -132,18 +147,13 @@ function ServiceOverview() {
   const [percentile, setPercentile] = useUrlString('percentile', '0.95');
   const [depth, setDepth] = useUrlNumber('depth', 1);
 
-  // Track which tabs have been visited so we keep them mounted.
+  // Track which tabs have been visited so we keep them mounted. Derived
+  // during render (state-adjustment pattern) — an effect would mount the
+  // newly-activated tab one render late and trip set-state-in-effect lint.
   const [visitedTabs, setVisitedTabs] = useState<Set<TabId>>(new Set(['overview']));
-  useEffect(() => {
-    setVisitedTabs((prev) => {
-      if (prev.has(activeTab)) {
-        return prev;
-      }
-      const next = new Set(prev);
-      next.add(activeTab);
-      return next;
-    });
-  }, [activeTab]);
+  if (!visitedTabs.has(activeTab)) {
+    setVisitedTabs(new Set(visitedTabs).add(activeTab));
+  }
 
   // All service data fetching is encapsulated in this hook
   const {

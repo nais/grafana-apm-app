@@ -145,8 +145,13 @@ func (a *App) queryExceptionGroups(ctx context.Context, ds *queries.DsQueryClien
 	wg.Go(func() {
 		sessRes, sessErr = ds.InstantQuery(ctx, lokiUID, sessionsExpr(window), to)
 		for _, w := range sessionsFallbackWindows {
-			if sessErr == nil || to.Sub(from) <= w {
+			if sessErr == nil {
 				break
+			}
+			// Skip rungs that aren't narrower than the requested range — but keep
+			// descending the ladder (a 30m request can still succeed at 15m/5m/1m).
+			if to.Sub(from) <= w {
+				continue
 			}
 			// Wide ranges blow Loki's series limit — retry over a recent window.
 			sessRes, sessErr = ds.InstantQuery(ctx, lokiUID, sessionsExpr(lokiWindow(to.Add(-w), to)), to)
@@ -170,8 +175,8 @@ func (a *App) queryExceptionGroups(ctx context.Context, ds *queries.DsQueryClien
 	}
 
 	groups := make(map[string]*ExceptionGroup)
-	seenHash := make(map[string]map[string]bool)  // fingerprint -> member hash set
-	seenType := make(map[string]map[string]bool)  // fingerprint -> type set
+	seenHash := make(map[string]map[string]bool) // fingerprint -> member hash set
+	seenType := make(map[string]map[string]bool) // fingerprint -> type set
 	for _, r := range countRes {
 		hash := r.Metric[fl.Hash]
 		exType := r.Metric[fl.TypeField]
