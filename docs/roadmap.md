@@ -17,24 +17,24 @@
 | M4 Unified issues | ✅ done | browser+server issues, source badges, trace links. Deferred: #62 P2 frame splitting (gated on #60 prod source-map adoption), server-issue drawer parity |
 | M5 Replay | ✅ done (code) | capture+playback+sessions shipped; ENABLING gated on team opt-in + personvernombud conversation (Hans driving) |
 | M6 Breadth | ✅ done | 2026-07-04 waves: Issues tab + all IA moves (P1–P10), #14 database tab (verified on mongodb/oracle/postgres), #35 overview health header + baseline deltas, feedback pipeline end-to-end, log patterns (pattern ingester live in prod), trace analytics (TraceQL metrics, Tempo 2.10.1), faceted issue search, global header time picker, server-issue shapes fixed, OTel pool discovery (pool_name), #30, #68 P0. Deferred to backlog: #68 P1 curation, #37 field selector, #36 topology remainder, #33/#32 alerting detail |
-| M7 Platform | 🟡 in progress | ✅ SLO burn-rate templates + error-budget panel; ✅ Pyroscope tab (capability-gated, hidden until platform runs Pyroscope). In flight: Console scorecards, cron/Naisjob view, #22 map clustering, in-plugin docs links. Open: resource API docs, mobile story (deferred), app-sdk/unified-storage re-eval (upstream watch) |
+| M7 Platform | ✅ done | SLO burn-rate + error budget, Pyroscope tab (gated), scorecards (#73), cron/Naisjob view (#74), #22 clustering, resource API docs (#75, drift-proof OpenAPI), in-plugin docs links. Deferred by design: mobile story, app-sdk/unified-storage re-eval (upstream watches — triggers in ADR-0001). QA: data-conformance harness (scripts/data-review.sh, PASS=152) fixed 3 findings; triage reads decoupled from org-wide volume + paginated per ADR-0001 mitigations |
 
 ### Next up (ordered — resume here)
 
-1. **Land the in-flight M7 wave**: Console scorecards + readiness score
-   (PRD: #73), cron/Naisjob monitoring view (PRD: #74, KSM-gated), #22
-   namespace clustering on the global map, in-plugin links to the user docs
-   (docs/observability/apm in nais/doc, branch nais-apm-docs) and to the
-   nais/apm SDK.
-2. **Resource API docs** (M7, PRD: #75): documented, versioned plugin
-   resource API — CI gates and bots against /issues, /triage, /scorecard.
-   Sequenced after the in-flight wave so shapes settle first.
-3. **#68 P1**: curated custom-metrics (per-user pins → shared jsonData with
-   version/409) + Faro measurement discovery on the Frontend tab.
-4. **Backlog by demand**: #37 log field selector, #36 topology remainder,
-   #38 command palette, #33/#32 alerting detail pages.
-5. **Housekeeping on merge**: PR #71 closes #57 #58 #61 #62 #63 #64 #65 #66
-   #67 (verify each against shipped scope); update issue states.
+All roadmap milestones (M0–M7) are implemented. Remaining work is
+demand-driven or waits on external events:
+
+1. **On PR #71 merge**: verify issue closures (#57 #58 #61 #62 #63 #64 #65
+   #66 #67 #14 #22 #30 #35 against shipped scope), release notes.
+2. **Hans's side**: push + release apm-client v0.1.0 (GHPR), push nais-doc
+   `nais-apm-docs`, push helm-charts `nais-apm-foundations`, then delete
+   the frozen plugin `sdk/` copy.
+3. **#68 P1** curation + Faro measurement discovery — first post-merge
+   feature.
+4. **Backlog by demand**: #37 field selector, #36 topology remainder, #38
+   command palette, #33/#32 alerting detail.
+5. **Standing QA**: run `scripts/data-review.sh` when data shapes or
+   queries change (docs/qa/data-review.md).
 
 ### Open follow-ups (accumulated during implementation)
 
