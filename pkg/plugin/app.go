@@ -367,6 +367,7 @@ func (a *App) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/services/{namespace}/{service}/frontend", a.handleFrontendMetrics)
 	mux.HandleFunc("/services/{namespace}/{service}/frontend/versions", a.handleFrontendVersions)
 	mux.HandleFunc("/services/{namespace}/{service}/frontend/sessions", a.handleFrontendSessions)
+	mux.HandleFunc("/services/{namespace}/{service}/feedback", a.handleFeedback)
 	mux.HandleFunc("/services/{namespace}/{service}/exceptions/groups", a.handleExceptionGroups)
 	mux.HandleFunc("/services/{namespace}/{service}/issues", a.handleIssues)
 	mux.HandleFunc("/services/{namespace}/{service}/triage", a.handleTriageStates)
