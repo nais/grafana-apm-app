@@ -21,7 +21,7 @@
 #   LOKI_UID    logs datasource uid         (default nav-logs)
 #   TEMPO_UID   traces datasource uid       (default dev-gcp-tempo)
 #   RANGE_SECS  lookback window in seconds  (default 21600 = 6h)
-#   MAXTIME     per-request curl timeout    (default 60)
+#   MAXTIME     per-request curl timeout    (default 90; uncached traceql breakdowns can take ~20s+)
 #   MATRIX_FILE tab-separated matrix file   (default: built-in matrix)
 #   VERBOSE     set to 1 to print response snippets on failure
 #
@@ -43,7 +43,7 @@ AUTH="${AUTH:-admin:admin}"
 LOKI_UID="${LOKI_UID:-nav-logs}"
 TEMPO_UID="${TEMPO_UID:-dev-gcp-tempo}"
 RANGE_SECS="${RANGE_SECS:-21600}"
-MAXTIME="${MAXTIME:-60}"
+MAXTIME="${MAXTIME:-90}"
 VERBOSE="${VERBOSE:-0}"
 
 BASE="$HOST/api/plugins/nais-apm-app/resources"
@@ -90,7 +90,7 @@ has_flag() { case ",$1," in *,"$2",*) return 0;; *) return 1;; esac; }
 default_matrix() {
   cat <<'TSV'
 helsearbeidsgiver	hag-dokument-proxy	nodeSSR	logs
-navno	nav-enonicxp-frontend	node	issues,frontend,logs,traces
+navno	nav-enonicxp-frontend	node	issues,frontend,logs
 amt	amt-distribusjon	jvmKtor	issues,logs
 navno	navno-search-frontend	plaintext	logs
 pdl	pdl-api	mongodb	logs,traces

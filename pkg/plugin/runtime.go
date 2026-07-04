@@ -533,7 +533,10 @@ func (a *App) queryDBPoolRuntime(
 		// HikariCP pools grouped by `pool` (Prometheus micrometer scrape): sum across pods per pool
 		{"hkActive", fmt.Sprintf(`sum by (%s) (avg_over_time(%s{%s}%s))`, rt.PoolLabel, rt.HikariActive, svcFilter, lookback)},
 		{"hkIdle", fmt.Sprintf(`sum by (%s) (avg_over_time(%s{%s}%s))`, rt.PoolLabel, rt.HikariIdle, svcFilter, lookback)},
-		{"hkMax", fmt.Sprintf(`max by (%s) (max_over_time(%s{%s}%s))`, rt.PoolLabel, rt.HikariMax, svcFilter, lookback)},
+		// Sum per-pod capacity: replicas share the pool name (HikariPool-1),
+		// and active/idle above are sums — max by() here understates capacity
+		// and displays idle > max on multi-pod services.
+		{"hkMax", fmt.Sprintf(`sum by (%s) (max_over_time(%s{%s}%s))`, rt.PoolLabel, rt.HikariMax, svcFilter, lookback)},
 		{"hkPending", fmt.Sprintf(`sum by (%s) (avg_over_time(%s{%s}%s))`, rt.PoolLabel, rt.HikariPending, svcFilter, lookback)},
 		{"hkTimeout", fmt.Sprintf(`sum by (%s) (rate(%s{%s}%s))`, rt.PoolLabel, rt.HikariTimeout, svcFilter, lookback)},
 
@@ -541,7 +544,10 @@ func (a *App) queryDBPoolRuntime(
 		// OTel-agent HikariCP): the hikaricp_* gauges above never surface these.
 		{"otActive", fmt.Sprintf(`sum by (%s) (avg_over_time(%s{%s}%s))`, rt.PoolNameLabel, rt.OtelDBActive, usedFilter, lookback)},
 		{"otIdle", fmt.Sprintf(`sum by (%s) (avg_over_time(%s{%s}%s))`, rt.PoolNameLabel, rt.OtelDBActive, idleFilter, lookback)},
-		{"otMax", fmt.Sprintf(`max by (%s) (max_over_time(%s{%s}%s))`, rt.PoolNameLabel, rt.OtelDBMax, svcFilter, lookback)},
+		// Same capacity semantics as hkMax: sum per-pod max. UCP embeds the pod
+		// in pool_name (per-pod series), where sum == max; Hikari-style shared
+		// names need the sum.
+		{"otMax", fmt.Sprintf(`sum by (%s) (max_over_time(%s{%s}%s))`, rt.PoolNameLabel, rt.OtelDBMax, svcFilter, lookback)},
 		{"otPending", fmt.Sprintf(`sum by (%s) (avg_over_time(%s{%s}%s))`, rt.PoolNameLabel, rt.OtelDBPending, svcFilter, lookback)},
 	}
 

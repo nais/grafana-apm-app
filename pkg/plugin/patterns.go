@@ -139,14 +139,22 @@ func (a *App) queryLogPatterns(ctx context.Context, headers http.Header, lokiUID
 	span := to.Sub(from)
 	if span > 0 {
 		if prev, perr := a.fetchLokiPatterns(ctx, headers, token, lokiUID, selector, from.Add(-span), from); perr == nil {
-			seen := make(map[string]bool, len(prev))
-			for _, p := range prev {
-				if strings.EqualFold(p.Level, "error") {
-					seen[p.Pattern] = true
+			// An EMPTY previous window means no baseline — the pattern
+			// ingester's retention is short, and beyond it every window reads
+			// empty, which flagged chronic 40k-count patterns as NEW
+			// (2026-07 data-conformance finding P-1). Only mark newness when
+			// the baseline window actually held patterns; ANY pattern (not
+			// just error-level) proves the ingester covered the window.
+			if len(prev) > 0 {
+				seen := make(map[string]bool, len(prev))
+				for _, p := range prev {
+					if strings.EqualFold(p.Level, "error") {
+						seen[p.Pattern] = true
+					}
 				}
-			}
-			for i := range patterns {
-				patterns[i].IsNew = !seen[patterns[i].Pattern]
+				for i := range patterns {
+					patterns[i].IsNew = !seen[patterns[i].Pattern]
+				}
 			}
 		}
 	}

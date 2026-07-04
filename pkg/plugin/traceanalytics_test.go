@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -281,6 +283,50 @@ func TestRealDimensionValue(t *testing.T) {
 	for _, tc := range tests {
 		if got := realDimensionValue(tc.in); got != tc.want {
 			t.Errorf("realDimensionValue(%q) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestDetectTraceDimensionsProbesNarrowWindow(t *testing.T) {
+	// Regression (data-review T-1): dimension probes ran over the FULL
+	// requested range — 7 concurrent multi-hour TraceQL scans blew the client
+	// timeout and silently degraded every service to span-metrics. Probes
+	// must cover at most ~15 minutes regardless of the requested range.
+	resetTraceDimsCache()
+	var mu sync.Mutex
+	var spans []int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			From    string `json:"from"`
+			To      string `json:"to"`
+			Queries []struct {
+				Query string `json:"query"`
+			} `json:"queries"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		fromMs, _ := strconv.ParseInt(req.From, 10, 64)
+		toMs, _ := strconv.ParseInt(req.To, 10, 64)
+		mu.Lock()
+		spans = append(spans, toMs-fromMs)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"results":{"A":{"frames":[]}}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	app := &App{otelCfg: otelconfig.Default(), grafanaURL: srv.URL}
+	tc := newTempoQueryClient(srv.URL, "", http.Header{})
+	// 24h requested range — probes must still be ~15m.
+	app.detectTraceDimensions(context.Background(), tc, "tempo-uid", "my-svc", time.Unix(100000, 0), time.Unix(100000+86400, 0))
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(spans) == 0 {
+		t.Fatal("no probes issued")
+	}
+	for _, s := range spans {
+		if s > 16*60*1000 {
+			t.Errorf("probe window %dms exceeds the 15m cap", s)
 		}
 	}
 }

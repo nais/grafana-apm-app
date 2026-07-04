@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -213,4 +214,48 @@ func usageQ(dp otelconfig.DBPoolMetrics, state string) string {
 	sb.WriteString(state)
 	sb.WriteString(`"}`)
 	return sb.String()
+}
+
+func TestDBPoolMaxUsesSumAcrossPods(t *testing.T) {
+	// Regression (data-review R-1): replicas share the Hikari pool name, so
+	// capacity must SUM per-pod max — `max by` understated it and rendered
+	// idle > max on multi-pod services.
+	var mu sync.Mutex
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		seen = append(seen, r.URL.Query().Get("query"))
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(queries.PromResponse{
+			Status: "success",
+			Data:   queries.PromData{ResultType: "vector", Result: []queries.PromResult{}},
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	app := &App{otelCfg: otelconfig.Default()}
+	client := queries.NewPrometheusClient(srv.URL, "tok")
+	app.queryDBPoolRuntime(context.Background(), client, `service_name="svc"`, time.Unix(200000, 0), log.DefaultLogger)
+
+	dp := otelconfig.Default().Runtime.DBPool
+	var hkMax, otMax string
+	mu.Lock()
+	defer mu.Unlock()
+	for _, q := range seen {
+		if strings.Contains(q, dp.HikariMax) {
+			hkMax = q
+		}
+		if strings.Contains(q, dp.OtelDBMax) {
+			otMax = q
+		}
+	}
+	for name, q := range map[string]string{"hkMax": hkMax, "otMax": otMax} {
+		if q == "" {
+			t.Fatalf("%s query not issued", name)
+		}
+		if !strings.HasPrefix(q, "sum by") {
+			t.Errorf("%s must sum per-pod capacity, got %q", name, q)
+		}
+	}
 }

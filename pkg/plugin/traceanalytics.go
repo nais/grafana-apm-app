@@ -111,11 +111,19 @@ func (a *App) queryTraceBreakdown(ctx context.Context, headers http.Header, trac
 	dims, tempoOK := a.traceDimensionCaps(ctx, tc, tracesUID, service, from, to)
 	if tempoOK {
 		rows := a.traceQLBreakdown(ctx, tc, tracesUID, service, dimension, from, to)
-		return TraceBreakdownResponse{Mode: "traceql", Dimension: dimension, Dimensions: dims, Rows: rows}
+		if len(rows) > 0 {
+			return TraceBreakdownResponse{Mode: "traceql", Dimension: dimension, Dimensions: dims, Rows: rows}
+		}
+		// Detection succeeded but the data queries came back empty — on busy
+		// services wide-range TraceQL metrics can exceed the client timeout
+		// (data-review T-1 residual). Degrade to span metrics rather than
+		// returning an empty traceql response.
+		logger.Warn("TraceQL breakdown returned no rows, falling back to span metrics", "service", service)
+	} else {
+		logger.Warn("Tempo TraceQL metrics unavailable, falling back to span metrics")
 	}
 
 	// Fallback: span-metrics in Mimir, grouped by the Prometheus label.
-	logger.Warn("Tempo TraceQL metrics unavailable, falling back to span metrics")
 	caps := a.cachedOrDetectCapabilities(ctx)
 	if !caps.SpanMetrics.Detected {
 		return TraceBreakdownResponse{Mode: "unavailable", Dimension: dimension, Rows: []TraceBreakdownRow{}, Note: "trace metrics unavailable"}
@@ -167,7 +175,19 @@ func (a *App) traceDimensionCaps(ctx context.Context, tc *tempoQueryClient, uid,
 // (even empty) marks Tempo as reachable; only when every probe errors do we
 // declare TraceQL metrics unavailable.
 func (a *App) detectTraceDimensions(ctx context.Context, tc *tempoQueryClient, uid, service string, from, to time.Time) ([]string, bool) {
-	step := breakdownStep(from, to)
+	// Probe over a NARROW recent window, never the requested range: dimension
+	// presence is a property of the service, and full-window probes on a busy
+	// Tempo take 3-11s EACH — seven concurrent ones blow the client timeout,
+	// which read as "TraceQL unavailable" and silently degraded every service
+	// to span-metrics (2026-07 data-conformance finding T-1).
+	probeTo := to
+	probeFrom := probeTo.Add(-15 * time.Minute)
+	if from.After(probeFrom) {
+		probeFrom = from
+	}
+	step := breakdownStep(probeFrom, probeTo)
+	// Bounded concurrency keeps the probe fan-out gentle on Tempo.
+	sem := make(chan struct{}, 3)
 	var (
 		wg      sync.WaitGroup
 		mu      sync.Mutex
@@ -180,8 +200,10 @@ func (a *App) detectTraceDimensions(ctx context.Context, tc *tempoQueryClient, u
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 			query := fmt.Sprintf(`{%s="%s"} | rate() by (%s)`, a.otelCfg.TraceQL.ServiceName, service, d.traceAttr)
-			series, err := tc.metricQuery(ctx, uid, query, step, from, to)
+			series, err := tc.metricQuery(ctx, uid, query, step, probeFrom, probeTo)
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {

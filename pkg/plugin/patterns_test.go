@@ -205,3 +205,26 @@ func TestLongestLiteral(t *testing.T) {
 		}
 	}
 }
+
+func TestServerPatternsIsNewNeedsBaseline(t *testing.T) {
+	// Regression (data-review P-1): when the previous window predates the
+	// pattern ingester's retention it returns EMPTY — that means "no
+	// baseline", not "everything is new". Chronic patterns were all NEW.
+	cur := []patternDoc{
+		{"Chronic failure <_>", "error", [][2]float64{{1500, 40000}}},
+		{"Other failure <_>", "error", [][2]float64{{1550, 17000}}},
+	}
+	srv := mockPatternsServer(t, http.StatusOK, cur, []patternDoc{}, 1000, nil)
+	app := patternsTestApp(t, srv)
+
+	resp := app.queryLogPatterns(context.Background(), http.Header{}, "nav-logs", "my-svc", time.Unix(1000, 0), time.Unix(2000, 0))
+
+	if resp.Mode != "serverPatterns" || len(resp.Patterns) != 2 {
+		t.Fatalf("unexpected response: mode=%s patterns=%d", resp.Mode, len(resp.Patterns))
+	}
+	for _, p := range resp.Patterns {
+		if p.IsNew {
+			t.Errorf("pattern %q flagged new with an empty baseline window", p.Pattern)
+		}
+	}
+}
