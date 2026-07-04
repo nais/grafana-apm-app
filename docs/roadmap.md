@@ -1,6 +1,6 @@
 # Roadmap
 
-> Status: updated 2026-07-03 (end of the M0–M6 implementation pass on PR #71).
+> Status: updated 2026-07-04 (end of the orchestrated M6 wave on PR #71).
 > Based on the PRD/research pass covering issues
 > [#57](https://github.com/nais/grafana-apm-app/issues/57)–[#70](https://github.com/nais/grafana-apm-app/issues/70)
 > and the extended gap analysis vs Sentry, Datadog/New Relic, and Grafana's own app layer.
@@ -11,33 +11,58 @@
 | Milestone | Status | Notes |
 |---|---|---|
 | M0 Foundations | ✅ done | perf quick wins, useUrlParams, frame classifier, #36 fix, fuzzy search |
-| M1 Identity + SDK | ✅ done | #62 fingerprints end-to-end; `@nais/apm` Phase 0 in `sdk/` (migrating to github.com/nais/apm) |
+| M1 Identity + SDK | ✅ done | #62 fingerprints end-to-end; `@nais/apm` migrated to github.com/nais/apm, v0.1.0 publish-ready for GHPR (Hans: push + release); plugin `sdk/` frozen |
 | M2 Alerts + releases | ✅ done | deploy markers, alert templates, versions panel, attribution, Drilldown links |
 | M3 Triage | ✅ done | annotations event-log store, mutes, Regressed; nais deploy sync; new-exceptions template |
 | M4 Unified issues | ✅ done | browser+server issues, source badges, trace links. Deferred: #62 P2 frame splitting (gated on #60 prod source-map adoption), server-issue drawer parity |
 | M5 Replay | ✅ done (code) | capture+playback+sessions shipped; ENABLING gated on team opt-in + personvernombud conversation (Hans driving) |
-| M6 Breadth | 🟡 partial | done: #30 auto-refresh, #68 P0 custom metrics. Remaining below |
+| M6 Breadth | 🟡 ~80% | done 2026-07-04 wave: Issues tab + IA moves (P1–P3/P6/P7/P10), #14 database tab (verified on mongodb/oracle/postgres), #35 overview health header + baseline deltas, user feedback pipeline end-to-end, drawer reorder (P8), custom-metrics collapse (P9), server-issue queries fixed for real backend log shapes, #30 auto-refresh, #68 P0. Remaining below |
 | M7 Platform | ⬜ open | needs platform decisions (see below) |
+
+### Next up (ordered — resume here)
+
+1. **Universal header time picker** (Hans's direction): one TimeRangePicker +
+   refresh in the ServiceOverview header replacing all per-tab/scene pickers;
+   kebab-menu the header actions to prevent overflow at 1280px; scenes follow
+   URL `from`/`to`. API research done (SceneTimeRange.onTimeRangeChange +
+   onRefresh in scenes 6.57.2); remove pickers at buildServiceScene.ts,
+   FrontendTab, LogsTab, TracesTab, database/scene.ts; then drop the interim
+   Issues-tab-local controls.
+2. **Log patterns + trace analytics**: implement from
+   `docs/plans/log-patterns-trace-analytics.md`. Probes are DONE and committed
+   there — the Loki pattern ingester is **already enabled** in production (no
+   platform flag needed; direct datasource-proxy GET required, `/api/ds/query`
+   queryType=patterns is broken in Grafana 12.4), and Tempo 2.10.1 supports
+   TraceQL-metrics group-by (`http.*` attrs are nil fleet-wide; routes live in
+   span names — probe dimensions, don't hardcode semconv).
+3. **Faceted issue search** (version/browser/page/user + triage-status facets)
+   on the Issues tab.
+4. **ia-review P4/P5**: remove the Console Errors table; drop the Exception
+   Types panel outside the no-Loki fallback.
+5. **`/runtime` pool fix**: newer `db_client_connections_*` metrics label pools
+   `pool_name`, the endpoint queries `pool` — Oracle UCP and MongoDB pools are
+   invisible today (found during #14 verification).
+6. **#68 P1** curation + Faro measurement discovery; **#22** map clustering.
 
 ### Open follow-ups (accumulated during implementation)
 
-- **Issues tab** (Hans's decision): dedicated service-page Issues tab defaulting
-  to all sources; Frontend tab keeps the table defaulting to browser. In progress.
-- **IA review**: functionality/placement inventory (subagent report) → apply moves.
 - **Smoke tests in a real env**: alert-rule `defaults=` contract against deployed
   Grafana; nais deploy sync against a real Console token; triage actor attribution
   in a browser session (curl showed "unknown").
 - **AppConfig UI** fields for `naisApiUrl`/`naisApiToken` (settings exist backend-only).
-- **SDK migration** `sdk/` → github.com/nais/apm (`./apm-client`); registry decision
-  pending (GHPR leaning — weigh the public-read PAT tax).
+- **@nais/apm first release**: Hans pushes `apm-client` + creates the v0.1.0
+  GitHub release (publish workflow handles GHPR); then delete the frozen plugin
+  `sdk/` copy and point docs at the package.
+- **ia-review remaining**: P4/P5 (above); open questions 1–6 in docs/ia-review.md
+  still want Hans's answers where not implicitly settled by the M6 wave.
 - **#70 remaining**: Go module splits, otelconfig drift-test → codegen,
   DataState sweep, RuntimeTab/ServerTab refresh unification.
-- **M6 remaining**: #14 database tab, log patterns (needs Loki `pattern_ingester`
-  platform flag), #35 overview redesign + baseline deltas, faceted issue search,
-  user feedback widget, trace analytics, #22 map clustering, #68 P1 curation +
-  Faro measurement discovery.
+- **Known noise**: Loki `detected_level` false-positives on logback bootstrap
+  lines can produce count-1 plain-text issue groups (sort to bottom; revisit
+  with a bootstrap-line filter if teams report it).
 - **M7**: SLO/burn-rate panels, Pyroscope tab (needs platform to run Pyroscope),
-  nais Console scorecards, documented resource API, mobile/React Native story.
+  nais Console scorecards, #22 clustering, cron/Naisjob view, documented
+  resource API, mobile/React Native story.
 
 ## Vision
 
@@ -283,19 +308,25 @@ Loki line stays under default limits with zero config changes.
 
 *Theme: close the commercial-APM gaps beyond error tracking. Items are independent — pull by demand.*
 
-- #35 Overview redesign: instant health signal, baseline deltas vs previous
+- ✅ #35 Overview redesign: instant health signal, baseline deltas vs previous
   period (the pragmatic anomaly-detection substitute), deploy-marker context.
-- #14 Database tab: query analytics from spans + pool health.
+  Shipped 2026-07-04 (health header reuses /health prev-period data).
+- ✅ #14 Database tab: query analytics from spans + pool health. Shipped
+  2026-07-04, verified live on mongodb/oracle/postgres apps; requirements
+  empty states double as interim instrumentation docs. Follow-up: /runtime
+  `pool_name` label fix (see Next up).
 - #68 custom metrics: Phase 0 auto-discovery (denylist inversion of
   `runtime.go`), Faro custom measurements surfaced in FrontendTab; Phase 1
   curation (per-user pins → shared jsonData config with version/409).
-- **Log patterns**: enable Loki pattern ingester (platform flag) + Patterns view
-  in LogsTab and "new error patterns" card — strongest incident-triage gap found
-  vs Datadog.
+- **Log patterns**: Patterns view in LogsTab + "new error patterns" card —
+  strongest incident-triage gap found vs Datadog. UPDATE 2026-07-04: the Loki
+  pattern ingester is already enabled in production (no platform ask); see
+  docs/plans/log-patterns-trace-analytics.md for the probe evidence and plan.
 - **Trace analytics**: TraceQL-metrics group-by-attribute latency/error
-  breakdowns (Tempo version probe; the "which tag explains the p99" view).
-- **User feedback widget**: `@nais/apm` feedback API → Loki stream → feedback
-  joined to issues by session/fingerprint in the drawer.
+  breakdowns (the "which tag explains the p99" view). UPDATE 2026-07-04:
+  confirmed working live on Tempo 2.10.1; plan in the same doc.
+- ✅ **User feedback widget**: `@nais/apm` feedback API → Loki stream → feedback
+  joined to issues by fingerprint in the drawer. Shipped 2026-07-04.
 - Faceted exception search (version/browser/page/user facets) + triage-status
   filter facets.
 - #36 remaining topology work, #33/#32 alerting detail, #30 auto-refresh
