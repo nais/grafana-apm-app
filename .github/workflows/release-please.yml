@@ -11,6 +11,15 @@ on:
   push:
     branches:
       - main
+  # Manual re-publish escape hatch: (re)build, sign, validate and attach the plugin
+  # to an already-created release — e.g. if this publish job failed after
+  # release-please had already cut the tag/release. Idempotent (--clobber).
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to (re)publish, e.g. nais-apm-app-v0.20.2'
+        required: true
+        type: string
 
 # release-please needs to write the Release PR and create tags/releases; the publish
 # job needs id-token/attestations for build provenance. Least-privilege is tightened
@@ -35,6 +44,9 @@ jobs:
   # ---------------------------------------------------------------------------
   release-please:
     runs-on: ubuntu-latest
+    # Only on a push to main. A manual workflow_dispatch is a publish-only
+    # re-run, so this job is skipped there (no Release-PR side effects).
+    if: github.event_name == 'push'
     permissions:
       contents: write
       pull-requests: write
@@ -70,7 +82,13 @@ jobs:
   # ---------------------------------------------------------------------------
   publish:
     needs: release-please
-    if: needs.release-please.outputs.releases_created == 'true'
+    # !cancelled() lets this run on a manual dispatch even though release-please
+    # is skipped there (a needs: dependency being skipped would otherwise skip
+    # this job). The tag guard below still gates it: auto-publish only when a
+    # release was cut, manual publish only on workflow_dispatch.
+    if: |
+      !cancelled() &&
+      (needs.release-please.outputs.releases_created == 'true' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     permissions:
       contents: write # upload the release asset
@@ -78,11 +96,13 @@ jobs:
       attestations: write
     env:
       GRAFANA_ACCESS_POLICY_TOKEN: ${{ secrets.GRAFANA_ACCESS_POLICY_TOKEN }}
+      # Auto-release: the tag release-please just cut. Manual dispatch: the tag input.
+      RELEASE_TAG: ${{ needs.release-please.outputs.tag_name || inputs.tag }}
     steps:
       - name: Checkout release tag
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # ratchet:actions/checkout@v6
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
+          ref: ${{ env.RELEASE_TAG }}
           persist-credentials: false
 
       - name: Enable corepack
@@ -109,10 +129,14 @@ jobs:
       - name: Verify package version matches release tag
         run: |
           PKG_VERSION="$(node -p "require('./package.json').version")"
-          TAG="${{ needs.release-please.outputs.tag_name }}"
-          EXPECTED="${TAG#v}"
+          TAG="$RELEASE_TAG"
+          # Tags are 'nais-apm-app-v<semver>' (release-please derives the component
+          # from package-name). Strip the component prefix and the leading 'v' to
+          # get the bare version; also tolerate a plain 'v<semver>' tag.
+          EXPECTED="${TAG#nais-apm-app-}"
+          EXPECTED="${EXPECTED#v}"
           if [ "$PKG_VERSION" != "$EXPECTED" ]; then
-            echo "::error::package.json version ($PKG_VERSION) does not match release tag $TAG (expected $EXPECTED)."
+            echo "::error::package.json version ($PKG_VERSION) does not match release tag $TAG (expected version $EXPECTED)."
             exit 1
           fi
           echo "package.json version $PKG_VERSION matches release tag $TAG"
@@ -190,5 +214,5 @@ jobs:
         run: gh release upload "$TAG" "$ARCHIVE" "$ARCHIVE.sha1" --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.release-please.outputs.tag_name }}
+          TAG: ${{ env.RELEASE_TAG }}
           ARCHIVE: ${{ steps.metadata.outputs.archive }}
