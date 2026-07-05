@@ -88,6 +88,20 @@ func (a *App) handleSourcemapDoctor(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// SSRF guard (primary): don't fetch the caller's parsed URL — rebuild a
+	// fresh URL whose authority is the hardcoded CDN constant, carrying over
+	// only the caller's path/query. After the sourcemapHostAllowed() check
+	// above the host can only be cdn.nav.no, so this changes no behaviour; it
+	// makes the fetched host *guaranteed constant* rather than merely checked,
+	// which also breaks the taint flow static analysis follows from the query
+	// parameter into the HTTP client.
+	safeURL := &url.URL{
+		Scheme:   "https",
+		Host:     sourcemapCDNHost,
+		Path:     u.Path,
+		RawQuery: u.RawQuery,
+	}
+
 	// Reuse the shared outbound client's transport/timeout, but add a
 	// redirect guard so a 30x can't bounce the request off the allowlist.
 	client := &http.Client{
@@ -104,7 +118,7 @@ func (a *App) handleSourcemapDoctor(w http.ResponseWriter, req *http.Request) {
 		},
 	}
 
-	res := diagnoseSourcemap(req.Context(), client, u, sourcemapHostAllowed)
+	res := diagnoseSourcemap(req.Context(), client, safeURL, sourcemapHostAllowed)
 	writeJSON(w, res)
 }
 
@@ -156,7 +170,11 @@ func diagnoseSourcemap(ctx context.Context, client *http.Client, jsURL *url.URL,
 		res.Checks = append(res.Checks, SourcemapCheck{Name: "sourcemap-fetchable", Status: "fail", Detail: "source map points off-CDN (" + mapURL.Host + ") — not fetched"})
 		return res
 	}
-	_, mapStatus, err := fetchLimited(ctx, client, mapURL.String(), maxSourcemapBytes)
+	// SSRF guard: rebuild the fetched map URL against the bundle's already
+	// validated authority (constant in production) rather than trusting the
+	// scheme/host embedded in the sourceMappingURL comment string.
+	fetchMapURL := &url.URL{Scheme: jsURL.Scheme, Host: jsURL.Host, Path: mapURL.Path, RawQuery: mapURL.RawQuery}
+	_, mapStatus, err := fetchLimited(ctx, client, fetchMapURL.String(), maxSourcemapBytes)
 	if err != nil {
 		res.Checks = append(res.Checks, SourcemapCheck{Name: "sourcemap-fetchable", Status: "fail", Detail: "could not fetch .map: " + err.Error()})
 		return res
