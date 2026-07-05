@@ -33,6 +33,8 @@ overrides:
   undici@>=7.0.0 <7.28.0: '>=7.28.0'
   js-yaml@<3.15.0: '>=3.15.0'
   js-yaml@>=4.0.0 <=4.1.1: '>=4.2.0'
+  '@openfeature/react-sdk': 1.2.1
+  '@openfeature/core': 1.9.2
 
 importers:
 
@@ -52,10 +54,10 @@ importers:
         version: 2.0.0-grafana.2
       '@grafana/runtime':
         specifier: 12.4.5
-        version: 12.4.5(@openfeature/web-sdk@1.7.3(@openfeature/core@1.11.0))(@react-spectrum/provider@3.11.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@types/react@18.3.28)(eslint@9.39.4(jiti@2.7.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3)
+        version: 12.4.5(@openfeature/web-sdk@1.7.3(@openfeature/core@1.9.2))(@react-spectrum/provider@3.11.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@types/react@18.3.28)(eslint@9.39.4(jiti@2.7.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3)
       '@grafana/scenes':
         specifier: ^6.57.2
-        version: 6.57.2(@grafana/data@12.4.5(eslint@9.39.4(jiti@2.7.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3))(@grafana/e2e-selectors@13.1.0-25644485979)(@grafana/i18n@12.4.5(eslint@9.39.4(jiti@2.7.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3))(@grafana/runtime@12.4.5(@openfeature/web-sdk@1.7.3(@openfeature/core@1.11.0))(@react-spectrum/provider@3.11.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@types/react@18.3.28)(eslint@9.39.4(jiti@2.7.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3))(@grafana/schema@12.4.5)(@grafana/ui@12.4.5(@react-spectrum/provider@3.11.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@types/react@18.3.28)(eslint@9.39.4(jiti@2.7.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3))(react-dom@18.3.1(react@18.3.1))(react-router-dom@6.30.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)
+        version: 6.57.2(@grafana/data@12.4.5(eslint@9.39.4(jiti@2.7.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3))(@grafana/e2e-selectors@13.1.0-25644485979)(@grafana/i18n@12.4.5(eslint@9.39.4(jiti@2.7.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3))(@grafana/runtime@12.4.5(@openfeature/web-sdk@1.7.3(@openfeature/core@1.9.2))(@react-spectrum/provider@3.11.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@types/react@18.3.28)(eslint@9.39.4(jiti@2.7.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3))(@grafana/schema@12.4.5)(@grafana/ui@12.4.5(@react-spectrum/provider@3.11.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@types/react@18.3.28)(eslint@9.39.4(jiti@2.7.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3))(react-dom@18.3.1(react@18.3.1))(react-router-dom@6.30.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)
       '@grafana/schema':
         specifier: 12.4.5
         version: 12.4.5
@@ -1222,29 +1224,29 @@ packages:
       '@emnapi/core': ^1.7.1
       '@emnapi/runtime': ^1.7.1
 
-  '@openfeature/core@1.11.0':
-    resolution: {integrity: sha512-P0u3/ht/oZCQT89fOed+laLk0kZR529a825cS02uPDglxXbE97irWYpDAeRGGVETIzKfuy+H2g8c3Ccv/tXJNQ==}
+  '@openfeature/core@1.9.2':
+    resolution: {integrity: sha512-0lX0xYTflLrjiYNlareYmdV98xEddR5+PhcuoGvH+BMIqpZ2icAC7us9Uv86KRVqofXvpAUwpP32wgqmtUFs8Q==}
 
   '@openfeature/ofrep-core@2.2.0':
     resolution: {integrity: sha512-YbeT8mYS4Ggo/JFcYY1IzN0O0UvsCx7RPk1m40TFc4ip0gJdFVpYc5a8WDwZC2v/YqxreJ7NWBDxHxP5SOevsA==}
     peerDependencies:
-      '@openfeature/core': ^1.6.0
+      '@openfeature/core': 1.9.2
 
   '@openfeature/ofrep-web-provider@0.3.6':
     resolution: {integrity: sha512-fV4BHab6gg0IMPeJJZ3lxtyfStSpea7N81sHJeBjgf7wYrU/SIYmdWV9Vy5HwlONjcsV58EKtOndV3WdkCqnAQ==}
     peerDependencies:
       '@openfeature/web-sdk': ^1.4.0
 
-  '@openfeature/react-sdk@1.4.1':
-    resolution: {integrity: sha512-xKpXBXVT0w9CIrhl6IzGkIuxmsqy7At+eYUW1XtaZbk+odKW424ZnmmjqiQMrbu31pfAhQrzww36QokTQaIf7g==}
+  '@openfeature/react-sdk@1.2.1':
+    resolution: {integrity: sha512-W4vRe76HVB/PkCJQGycllIcHCT4q3C++8wFXxL3XZC3VWm7NEnFAzmboXfsMg/6N9KNWh0KRJYQAj0XTWAiyww==}
     peerDependencies:
-      '@openfeature/web-sdk': ^1.9.0
+      '@openfeature/web-sdk': ^1.5.0
       react: '>=16.8.0'
 
   '@openfeature/web-sdk@1.7.3':
     resolution: {integrity: sha512-WrerPh3KwtpyNGHtWfWgbBnIv3iyOimnsljXJnx2UMcFzQNmj3xgsUZRvE/gAb+BTgz22+kvks1EXA/DJRmhpg==}
     peerDependencies:
-      '@openfeature/core': ^1.9.2
+      '@openfeature/core': 1.9.2
 
   '@opentelemetry/api-logs@0.219.0':
     resolution: {integrity: sha512-FFx7YnaYJlIjqWW/AG/yAZ0L/NEY724PipXXXQLdtZPbLwBGbUMTGL1i/esI56TWfTUXxhLfpgrnWJCG8aUJyg==}
@@ -7234,16 +7236,16 @@ snapshots:
       base64-arraybuffer: 1.0.2
       mitt: 3.0.1
 
-  '@grafana/runtime@12.4.5(@openfeature/web-sdk@1.7.3(@openfeature/core@1.11.0))(@react-spectrum/provider@3.11.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@types/react@18.3.28)(eslint@9.39.4(jiti@2.7.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3)':
+  '@grafana/runtime@12.4.5(@openfeature/web-sdk@1.7.3(@openfeature/core@1.9.2))(@react-spectrum/provider@3.11.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@types/react@18.3.28)(eslint@9.39.4(jiti@2.7.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3)':
     dependencies:
       '@grafana/data': 12.4.5(eslint@9.39.4(jiti@2.7.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3)
       '@grafana/e2e-selectors': 12.4.5
       '@grafana/faro-web-sdk': 2.8.2
       '@grafana/schema': 12.4.5
       '@grafana/ui': 12.4.5(@react-spectrum/provider@3.11.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@types/react@18.3.28)(eslint@9.39.4(jiti@2.7.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3)
-      '@openfeature/core': 1.11.0
-      '@openfeature/ofrep-web-provider': 0.3.6(@openfeature/core@1.11.0)(@openfeature/web-sdk@1.7.3(@openfeature/core@1.11.0))
-      '@openfeature/react-sdk': 1.4.1(@openfeature/web-sdk@1.7.3(@openfeature/core@1.11.0))(react@18.3.1)
+      '@openfeature/core': 1.9.2
+      '@openfeature/ofrep-web-provider': 0.3.6(@openfeature/core@1.9.2)(@openfeature/web-sdk@1.7.3(@openfeature/core@1.9.2))
+      '@openfeature/react-sdk': 1.2.1(@openfeature/web-sdk@1.7.3(@openfeature/core@1.9.2))(react@18.3.1)
       '@types/systemjs': 6.15.3
       history: 4.10.1
       lodash: 4.18.1
@@ -7264,13 +7266,13 @@ snapshots:
       - supports-color
       - typescript
 
-  '@grafana/scenes@6.57.2(@grafana/data@12.4.5(eslint@9.39.4(jiti@2.7.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3))(@grafana/e2e-selectors@13.1.0-25644485979)(@grafana/i18n@12.4.5(eslint@9.39.4(jiti@2.7.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3))(@grafana/runtime@12.4.5(@openfeature/web-sdk@1.7.3(@openfeature/core@1.11.0))(@react-spectrum/provider@3.11.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@types/react@18.3.28)(eslint@9.39.4(jiti@2.7.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3))(@grafana/schema@12.4.5)(@grafana/ui@12.4.5(@react-spectrum/provider@3.11.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@types/react@18.3.28)(eslint@9.39.4(jiti@2.7.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3))(react-dom@18.3.1(react@18.3.1))(react-router-dom@6.30.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)':
+  '@grafana/scenes@6.57.2(@grafana/data@12.4.5(eslint@9.39.4(jiti@2.7.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3))(@grafana/e2e-selectors@13.1.0-25644485979)(@grafana/i18n@12.4.5(eslint@9.39.4(jiti@2.7.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3))(@grafana/runtime@12.4.5(@openfeature/web-sdk@1.7.3(@openfeature/core@1.9.2))(@react-spectrum/provider@3.11.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@types/react@18.3.28)(eslint@9.39.4(jiti@2.7.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3))(@grafana/schema@12.4.5)(@grafana/ui@12.4.5(@react-spectrum/provider@3.11.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@types/react@18.3.28)(eslint@9.39.4(jiti@2.7.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3))(react-dom@18.3.1(react@18.3.1))(react-router-dom@6.30.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)':
     dependencies:
       '@floating-ui/react': 0.26.28(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@grafana/data': 12.4.5(eslint@9.39.4(jiti@2.7.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3)
       '@grafana/e2e-selectors': 13.1.0-25644485979
       '@grafana/i18n': 12.4.5(eslint@9.39.4(jiti@2.7.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3)
-      '@grafana/runtime': 12.4.5(@openfeature/web-sdk@1.7.3(@openfeature/core@1.11.0))(@react-spectrum/provider@3.11.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@types/react@18.3.28)(eslint@9.39.4(jiti@2.7.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3)
+      '@grafana/runtime': 12.4.5(@openfeature/web-sdk@1.7.3(@openfeature/core@1.9.2))(@react-spectrum/provider@3.11.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@types/react@18.3.28)(eslint@9.39.4(jiti@2.7.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3)
       '@grafana/schema': 12.4.5
       '@grafana/ui': 12.4.5(@react-spectrum/provider@3.11.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(@types/react@18.3.28)(eslint@9.39.4(jiti@2.7.0))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3)
       '@leeoniya/ufuzzy': 1.0.19
@@ -7705,27 +7707,27 @@ snapshots:
       '@tybys/wasm-util': 0.10.3
     optional: true
 
-  '@openfeature/core@1.11.0': {}
+  '@openfeature/core@1.9.2': {}
 
-  '@openfeature/ofrep-core@2.2.0(@openfeature/core@1.11.0)':
+  '@openfeature/ofrep-core@2.2.0(@openfeature/core@1.9.2)':
     dependencies:
-      '@openfeature/core': 1.11.0
+      '@openfeature/core': 1.9.2
 
-  '@openfeature/ofrep-web-provider@0.3.6(@openfeature/core@1.11.0)(@openfeature/web-sdk@1.7.3(@openfeature/core@1.11.0))':
+  '@openfeature/ofrep-web-provider@0.3.6(@openfeature/core@1.9.2)(@openfeature/web-sdk@1.7.3(@openfeature/core@1.9.2))':
     dependencies:
-      '@openfeature/ofrep-core': 2.2.0(@openfeature/core@1.11.0)
-      '@openfeature/web-sdk': 1.7.3(@openfeature/core@1.11.0)
+      '@openfeature/ofrep-core': 2.2.0(@openfeature/core@1.9.2)
+      '@openfeature/web-sdk': 1.7.3(@openfeature/core@1.9.2)
     transitivePeerDependencies:
       - '@openfeature/core'
 
-  '@openfeature/react-sdk@1.4.1(@openfeature/web-sdk@1.7.3(@openfeature/core@1.11.0))(react@18.3.1)':
+  '@openfeature/react-sdk@1.2.1(@openfeature/web-sdk@1.7.3(@openfeature/core@1.9.2))(react@18.3.1)':
     dependencies:
-      '@openfeature/web-sdk': 1.7.3(@openfeature/core@1.11.0)
+      '@openfeature/web-sdk': 1.7.3(@openfeature/core@1.9.2)
       react: 18.3.1
 
-  '@openfeature/web-sdk@1.7.3(@openfeature/core@1.11.0)':
+  '@openfeature/web-sdk@1.7.3(@openfeature/core@1.9.2)':
     dependencies:
-      '@openfeature/core': 1.11.0
+      '@openfeature/core': 1.9.2
 
   '@opentelemetry/api-logs@0.219.0':
     dependencies:
