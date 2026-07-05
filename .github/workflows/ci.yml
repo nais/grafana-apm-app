@@ -9,6 +9,10 @@ on:
     branches:
       - master
       - main
+  # Required so the CI jobs (notably the required `publish-report` check) run on
+  # the merge queue's synthetic merge_group branch. Without this the queue waits
+  # forever for a check that never fires.
+  merge_group:
 
 jobs:
   frontend:
