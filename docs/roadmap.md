@@ -59,6 +59,13 @@ Post-milestone audit wave, all green in `mise run all` (745 jest, 624 go):
 
 ### Open follow-ups (accumulated during implementation)
 
+- **Seed / synthetic test data (#90)** — a deterministic LGTM seed (local +
+  CI) so data-flow e2e (Exception Drawer, triage, issue grouping) becomes
+  possible, offline local dev works without VPN/tenant access, and
+  scripts/data-review.sh can run against a fixture instead of prod. The e2e
+  suite today is structure/render-resilience smoke only; #90 is the frontier.
+  Feeds #76 (conformance in CI).
+
 - **Rollout (epic #89)** — land -> deploy -> pilot -> widen; checklist in
   docs/plans/rollout.md. Phase issues: plugin deploy #87, pilot #88.
   Dependency/PRD issues split out this session: replay privacy hardening +
