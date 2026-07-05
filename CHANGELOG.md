@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased ("Legend")
+## 0.20.0 — "Legend" (2026-07-05)
 
 ### Features
 
