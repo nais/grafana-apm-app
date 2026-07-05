@@ -406,6 +406,12 @@ export interface AlertRuleSummary {
   groupName: string;
   /** Where the rule is defined: Mimir ruler or Grafana unified alerting. */
   source?: 'mimir' | 'grafana';
+  /** Raw PromQL/LogQL query, for the drawer's collapsible condition block (#32). */
+  expression?: string;
+  /** The rule's `for` window in seconds (how long the condition must hold). */
+  forDuration?: number;
+  /** Standard runbook_url annotation, surfaced verbatim as a button (#32). */
+  runbookUrl?: string;
   /** Per-instance firing detail (value vs threshold, matched labels), capped (#33). */
   instances?: AlertInstance[];
   /** True when more active instances existed than the server-side cap surfaced. */

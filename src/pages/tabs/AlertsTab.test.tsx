@@ -13,7 +13,7 @@ jest.mock('../../api/client', () => ({
 
 const mockPush = jest.fn();
 jest.mock('@grafana/runtime', () => ({
-  getBackendSrv: () => ({ fetch: jest.fn() }),
+  getBackendSrv: () => ({ fetch: jest.fn(), get: jest.fn().mockResolvedValue([]) }),
   getAppEvents: () => ({ publish: jest.fn() }),
   locationService: { push: (url: string) => mockPush(url) },
 }));
@@ -111,6 +111,75 @@ describe('AlertsTab (#32/#33 home)', () => {
     renderTab();
 
     await waitFor(() => expect(screen.getByText('Alert rules are currently unavailable.')).toBeInTheDocument());
+  });
+
+  it('opens the firing-alert detail drawer (#32) from a firing row', async () => {
+    getServiceAlerts.mockResolvedValue({
+      rules: [
+        {
+          name: 'OrdersHighErrorRate',
+          state: 'firing',
+          severity: 'critical',
+          summary: 'Orders erroring',
+          description: '',
+          activeSince: new Date(Date.now() - 20 * 60_000).toISOString(),
+          activeCount: 1,
+          groupName: 'orders-alerts',
+          source: 'grafana',
+          expression: 'sum(rate(calls_total[5m])) > 0.05',
+          forDuration: 300,
+          firingState: {
+            state: 'firing',
+            activeCount: 1,
+            instances: [{ state: 'firing', value: '0.12', labels: { endpoint: '/checkout' } }],
+            value: '0.12',
+          },
+        },
+      ],
+    });
+
+    renderTab();
+
+    // The firing rule name is a button that opens the drawer.
+    const trigger = await screen.findByRole('button', { name: 'OrdersHighErrorRate' });
+    fireEvent.click(trigger);
+
+    // Drawer content: the condition block appears.
+    await waitFor(() => expect(screen.getByText('Current value')).toBeInTheDocument());
+    expect(screen.getByText('Evaluation window')).toBeInTheDocument();
+  });
+
+  it('opens the drawer directly from a shared firingAlert URL param (#32)', async () => {
+    getServiceAlerts.mockResolvedValue({
+      rules: [
+        {
+          name: 'OrdersHighErrorRate',
+          state: 'firing',
+          severity: 'critical',
+          summary: 'Orders erroring',
+          description: '',
+          activeSince: new Date(Date.now() - 20 * 60_000).toISOString(),
+          activeCount: 1,
+          groupName: 'orders-alerts',
+          source: 'mimir',
+          firingState: {
+            state: 'firing',
+            activeCount: 1,
+            instances: [{ state: 'firing', value: '0.12', labels: { endpoint: '/checkout' } }],
+            value: '0.12',
+          },
+        },
+      ],
+    });
+
+    renderTab(['/?firingAlert=OrdersHighErrorRate']);
+
+    await waitFor(() => expect(screen.getByText('Current value')).toBeInTheDocument());
+    // Footer deep link uses the name-search fallback (no rule UID available).
+    expect(screen.getByRole('link', { name: /Open in Grafana Alerting/ })).toHaveAttribute(
+      'href',
+      '/alerting/list?search=OrdersHighErrorRate'
+    );
   });
 
   it('creates an alert via the template flow and navigates to the pre-filled editor', async () => {
