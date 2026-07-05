@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.2](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.20.1...nais-apm-app-v0.20.2) (2026-07-05)
+
+
+### Bug Fixes
+
+* **config:** allow clearing the service account token + de-bloat the page ([#92](https://github.com/nais/grafana-apm-app/issues/92)) ([b6afbc2](https://github.com/nais/grafana-apm-app/commit/b6afbc2fd57a5cde9824a3a96b1e36e4e631aba1))
+
 ## 0.20.1 — "Legend" patch (2026-07-05)
 
 ### Fixes
