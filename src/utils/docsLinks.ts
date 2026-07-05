@@ -56,3 +56,20 @@ export const apmDocs = {
   // Explanations
   howNaisApmWorks: () => docsUrl(`${APM}/explanations/how-nais-apm-works`),
 } as const;
+
+/**
+ * Frontend-observability docs section root. This is a DIFFERENT section from
+ * `observability/apm` — the source-maps guideline is owned by the frontend
+ * observability docs, not the APM docs — so it composes its own base.
+ */
+const FRONTEND = 'observability/frontend';
+
+/**
+ * Docs that live outside the APM section but are linked from APM plugin UI.
+ * Keep these separate from `apmDocs` so the differing section root stays
+ * explicit at the call site.
+ */
+export const frontendDocs = {
+  // How-to: fixing minified frontend stacks (source-map resolution at ingest).
+  sourcemaps: () => docsUrl(`${FRONTEND}/how-to/sourcemaps`),
+} as const;

@@ -1250,6 +1250,47 @@ export interface FeedbackResponse {
   unavailable?: boolean;
 }
 
+// ---- Source-map doctor (#60) ----
+
+export type SourcemapCheckStatus = 'pass' | 'fail' | 'skip';
+
+/** One pass/fail step in the source-map diagnosis. */
+export interface SourcemapCheck {
+  name: string;
+  status: SourcemapCheckStatus;
+  detail?: string;
+}
+
+/**
+ * Result of the server-side source-map "doctor": whether the referenced bundle
+ * advertises a source map and whether that map is fetchable. This is pure
+ * diagnostics — the plugin never resolves/symbolicates the stack itself
+ * (that happens at ingest in Alloy's faro.receiver).
+ */
+export interface SourcemapDoctorResult {
+  url: string;
+  ok: boolean;
+  checks: SourcemapCheck[];
+  sourceMapUrl?: string;
+}
+
+/**
+ * Diagnose why a minified frame's source map wasn't resolved. The backend
+ * fetches the bundle from cdn.nav.no (host-allowlisted, server-side) and
+ * reports a pass/fail checklist. `frameUrl` must be an absolute cdn.nav.no
+ * script URL (see frames.firstScriptUrl).
+ */
+export async function getSourcemapDoctor(
+  namespace: string,
+  service: string,
+  frameUrl: string
+): Promise<SourcemapDoctorResult> {
+  return fetchResource<SourcemapDoctorResult>(
+    `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/sourcemap-doctor`,
+    { url: frameUrl }
+  );
+}
+
 /** Feedback captured via @nais/apm's captureFeedback(), newest first. */
 export async function getFeedback(
   namespace: string,
