@@ -59,6 +59,12 @@ Post-milestone audit wave, all green in `mise run all` (745 jest, 624 go):
 
 ### Open follow-ups (accumulated during implementation)
 
+- **Rollout (epic #89)** — land -> deploy -> pilot -> widen; checklist in
+  docs/plans/rollout.md. Phase issues: plugin deploy #87, pilot #88.
+  Dependency/PRD issues split out this session: replay privacy hardening +
+  events tier #82, capability-detection fallback retirement #83, server-issue
+  drawer parity #84, platform pipeline gaps #85, multi-tenant #86.
+
 - **@nais/apm known-limitation PRDs** — the three items deferred out of the
   0.1.0 SDK release, split from the umbrella #59 into standalone issues:
   browser tracing via @grafana/faro-web-tracing (#80), npmjs.org publish under
