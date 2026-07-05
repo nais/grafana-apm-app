@@ -44,7 +44,7 @@ jobs:
     steps:
       - name: Run release-please
         id: release
-        uses: googleapis/release-please-action@v4
+        uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # ratchet:googleapis/release-please-action@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
@@ -90,7 +90,10 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # ratchet:actions/setup-node@v6
         with:
-          node-version: '22'
+          # Pinned >= 22.12.0: @commitlint/cli (a devDependency installed below)
+          # declares engines.node ">=22.12.0"; a bare '22' could resolve to an
+          # earlier 22.x patch and break `pnpm install`.
+          node-version: '22.12.0'
           cache: 'pnpm'
       - name: Setup Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # ratchet:actions/setup-go@v6
@@ -150,10 +153,33 @@ jobs:
           ARCHIVE: ${{ steps.metadata.outputs.archive }}
           PLUGIN_ID: ${{ steps.metadata.outputs.plugin-id }}
 
+      # Release-grade validation. ci.yml's "Package and validate" job only runs
+      # `-analyzer=metadatavalid`, which does NOT inspect README links — so the
+      # README-relative-link class (relative links are rejected by the Grafana
+      # plugin catalog; it broke an earlier submission) would slip through to a
+      # published release. The `brokenlinks` analyzer's `relative-link` rule is
+      # Error severity (fails the release), while its unreachable-link rule is
+      # only warning severity (a transient network blip won't block a release).
+      # Verified locally: a relative link -> exit 1; a clean README with only
+      # unreachable-link warnings -> exit 0. We run both analyzers (metadatavalid
+      # for parity with ci.yml, brokenlinks for the relative-link gate) BEFORE
+      # uploading the asset, so a bad README fails the job before publish.
+      - name: Validate plugin (release-grade)
+        run: |
+          for analyzer in metadatavalid brokenlinks; do
+            echo "::group::plugin-validator ${analyzer}"
+            docker run --pull=always \
+              -v "$PWD/${ARCHIVE}:/archive.zip" \
+              grafana/plugin-validator-cli -analyzer="${analyzer}" /archive.zip
+            echo "::endgroup::"
+          done
+        env:
+          ARCHIVE: ${{ steps.metadata.outputs.archive }}
+
       # Preserve release.yml's attestation: true. build-plugin did this internally;
       # here we attest the packaged zip directly.
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # ratchet:actions/attest-build-provenance@v2
         with:
           subject-path: ${{ steps.metadata.outputs.archive }}
 

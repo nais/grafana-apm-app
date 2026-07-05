@@ -26,7 +26,9 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # ratchet:actions/setup-node@v6
         with:
-          node-version: '22'
+          # Pinned >= 22.12.0: @commitlint/cli declares engines.node ">=22.12.0";
+          # a bare '22' could resolve to an earlier 22.x patch and break install.
+          node-version: '22.12.0'
           cache: 'pnpm'
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
