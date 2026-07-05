@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 )
 
 // RulesResponse models the Prometheus /api/v1/rules response.
@@ -49,7 +51,19 @@ type Alert struct {
 // We omit the type=alerting param because some Mimir versions don't support it;
 // callers should filter by rule.Type == "alerting" instead.
 func (c *PrometheusClient) GetAlertRules(ctx context.Context) (*RulesResponse, error) {
-	reqURL := c.baseURL + "/api/v1/rules"
+	// The host/scheme/path come from c.baseURL (fixed datasource/Grafana config),
+	// never from user input. Compose the request URL structurally via net/url —
+	// matching the rest of this client (LabelValues, Metadata, doQuery) — instead
+	// of concatenating strings, which CodeQL flags as request forgery.
+	base, err := url.Parse(c.baseURL)
+	if err != nil {
+		return nil, fmt.Errorf("parsing base URL: %w", err)
+	}
+	reqURL := (&url.URL{
+		Scheme: base.Scheme,
+		Host:   base.Host,
+		Path:   strings.TrimRight(base.Path, "/") + "/api/v1/rules",
+	}).String()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
