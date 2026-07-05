@@ -1,0 +1,97 @@
+{
+  "type": "grafana",
+  "name": "LCP p75 above 2.5s – my-svc (prod-gcp)",
+  "condition": "C",
+  "evaluateFor": "5m",
+  "queries": [
+    {
+      "refId": "A",
+      "queryType": "",
+      "relativeTimeRange": {
+        "from": 600,
+        "to": 0
+      },
+      "datasourceUid": "mimir-prod-gcp",
+      "model": {
+        "expr": "histogram_quantile(0.75, sum by (le) (rate(loki_process_custom_faro_web_vitals_lcp_milliseconds_bucket{app_name=\"my-svc\", env=\"prod-gcp\"}[15m])))",
+        "refId": "A"
+      }
+    },
+    {
+      "refId": "B",
+      "queryType": "",
+      "datasourceUid": "__expr__",
+      "model": {
+        "datasource": {
+          "type": "__expr__",
+          "uid": "__expr__"
+        },
+        "expression": "A",
+        "reducer": "last",
+        "refId": "B",
+        "type": "reduce"
+      }
+    },
+    {
+      "refId": "C",
+      "queryType": "",
+      "datasourceUid": "__expr__",
+      "model": {
+        "conditions": [
+          {
+            "evaluator": {
+              "params": [
+                2500
+              ],
+              "type": "gt"
+            },
+            "operator": {
+              "type": "and"
+            },
+            "query": {
+              "params": [
+                "C"
+              ]
+            },
+            "reducer": {
+              "params": [],
+              "type": "last"
+            },
+            "type": "query"
+          }
+        ],
+        "datasource": {
+          "type": "__expr__",
+          "uid": "__expr__"
+        },
+        "expression": "B",
+        "refId": "C",
+        "type": "threshold"
+      }
+    }
+  ],
+  "annotations": [
+    {
+      "key": "summary",
+      "value": "Largest Contentful Paint p75 for my-svc is above 2500ms (Core Web Vitals \"poor\")"
+    },
+    {
+      "key": "nais_apm_url",
+      "value": "/a/nais-apm-app/services/team-a/my-svc?environment=prod-gcp\u0026tab=frontend"
+    }
+  ],
+  "labels": [
+    {
+      "key": "namespace",
+      "value": "team-a"
+    },
+    {
+      "key": "service",
+      "value": "my-svc"
+    },
+    {
+      "key": "source",
+      "value": "nais-apm"
+    }
+  ]
+}

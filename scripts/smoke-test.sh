@@ -67,6 +67,10 @@ DEPLOY_SVC="${DEPLOY_SVC:-nav-enonicxp-frontend}"
 EXPECT_DEPLOY_SYNC="${EXPECT_DEPLOY_SYNC:-}"
 USER_TOKEN="${USER_TOKEN:-}"
 VERBOSE="${VERBOSE:-0}"
+# ALERT_TEMPLATE_ONLY=1 runs ONLY §1 (the alert-template defaults= contract).
+# That is the one check that needs no live datasource, user session or nais
+# token, so it is the section CI wires onto every PR (#77).
+ALERT_TEMPLATE_ONLY="${ALERT_TEMPLATE_ONLY:-}"
 
 BASE="$HOST/api/plugins/nais-apm-app/resources"
 NOW="$(date +%s)"
@@ -162,6 +166,23 @@ for kind in error-rate exception-spike web-vitals new-exceptions slo-burn-rate; 
   fi
   assert "alert-templates/$kind" "$HTTP" "$BODY" "$DEFAULTS_CHECK"
 done
+
+# In CI (ALERT_TEMPLATE_ONLY=1) the remaining sections need a live datasource,
+# a nais token or a real user session — all absent on a PR runner — so they
+# would only ever SKIP. Stop here and report the §1 result.
+if [ "$ALERT_TEMPLATE_ONLY" = "1" ]; then
+  echo
+  echo "=============================================================="
+  echo " SUMMARY (alert-template only): PASS=$PASS  SKIP=$SKIP  FAIL=$FAIL"
+  if [ "$FAIL" -gt 0 ]; then
+    echo " FAILURES:"
+    for f in "${FAILURES[@]}"; do echo "   - $f"; done
+    echo "=============================================================="
+    exit 1
+  fi
+  echo "=============================================================="
+  exit 0
+fi
 
 # --- 2. nais deploy sync -----------------------------------------------------
 echo; echo "### 2. nais deploy sync ($DEPLOY_NS/$DEPLOY_SVC) ###"
