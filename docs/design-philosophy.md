@@ -688,7 +688,7 @@ for rendering a histogram), rather than actual latencies."
 |------|---------------|-------------|
 | Namespace | ✅ Error counts, health status | ❌ |
 | Service overview | ✅ RED time series | Partial (heatmap hints at cause) |
-| Runtime tab | ❌ | ✅ CPU, memory, GC, threads |
+| Runtime (Backend tab) | ❌ | ✅ CPU, memory, GC, threads |
 | Traces tab | ❌ | ✅ Per-request waterfall |
 | Logs tab | ❌ | ✅ Error messages, stack traces |
 
