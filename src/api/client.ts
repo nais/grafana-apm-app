@@ -382,6 +382,19 @@ export async function getNamespaceDependencies(
 
 // ---- Namespace Alerts ----
 
+/**
+ * One active (firing/pending) instance of an alert rule: the concrete label set
+ * that matched and the value that tripped the threshold (#33). Mirrors the
+ * Prometheus-compatible rules API's inline alerts[]. Capped server-side; see
+ * AlertRuleSummary.instancesTruncated.
+ */
+export interface AlertInstance {
+  state: 'firing' | 'pending';
+  value?: string;
+  activeAt?: string;
+  labels?: Record<string, string>;
+}
+
 export interface AlertRuleSummary {
   name: string;
   state: 'firing' | 'pending' | 'inactive';
@@ -393,6 +406,10 @@ export interface AlertRuleSummary {
   groupName: string;
   /** Where the rule is defined: Mimir ruler or Grafana unified alerting. */
   source?: 'mimir' | 'grafana';
+  /** Per-instance firing detail (value vs threshold, matched labels), capped (#33). */
+  instances?: AlertInstance[];
+  /** True when more active instances existed than the server-side cap surfaced. */
+  instancesTruncated?: boolean;
 }
 
 export interface NamespaceAlertsResponse {
@@ -460,19 +477,24 @@ export async function getAlertTemplate(
 
 /**
  * Active-instance firing detail for a rule: what is firing, since when, at what
- * value vs threshold. Populated by the #32/#33 follow-up (fetched from the
- * Alertmanager APIs and joined by rule UID); undefined in the v1 rule list,
- * where the Alerts tab renders it as "—".
+ * value vs threshold, and the matched instances (#33). Derived from the inline
+ * active instances the Prometheus-compatible rules API already returns
+ * (deriveFiringState); the #32 detail drawer and Alertmanager silences layer on
+ * top of this as a later follow-up.
  */
 export interface AlertFiringState {
   state: 'firing' | 'pending' | 'inactive';
   activeSince?: string;
+  /** Current value of the first active instance (a representative reading). */
   value?: string;
+  activeCount: number;
+  instances: AlertInstance[];
+  instancesTruncated?: boolean;
 }
 
 /** A rule mentioning a service, from the merged Mimir + Grafana rule fetch. */
 export interface ServiceAlertRule extends AlertRuleSummary {
-  /** #32/#33 seam — absent in v1; the Alerts tab shows "—" until it lands. */
+  /** Read-only firing state (#33), derived from the rule's inline instances. */
   firingState?: AlertFiringState;
 }
 
@@ -483,8 +505,32 @@ export interface ServiceAlertsResponse {
   errorMessage?: string;
 }
 
+/**
+ * Derive the read-only firing state (#33) from a rule's inline active
+ * instances. The Prometheus-compatible rules API returns these inline; the
+ * backend caps and forwards them, and here we shape them into the seam the
+ * Alerts tab renders.
+ */
+export function deriveFiringState(rule: AlertRuleSummary): AlertFiringState {
+  const instances = rule.instances ?? [];
+  return {
+    state: rule.state,
+    activeSince: rule.activeSince || undefined,
+    value: instances[0]?.value,
+    activeCount: rule.activeCount,
+    instances,
+    instancesTruncated: rule.instancesTruncated,
+  };
+}
+
 export async function getServiceAlerts(namespace: string, service: string): Promise<ServiceAlertsResponse> {
-  return fetchResource<ServiceAlertsResponse>(`/services/${nsParam(namespace)}/${encodeURIComponent(service)}/alerts`);
+  const resp = await fetchResource<ServiceAlertsResponse>(
+    `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/alerts`
+  );
+  return {
+    ...resp,
+    rules: (resp.rules ?? []).map((rule) => ({ ...rule, firingState: deriveFiringState(rule) })),
+  };
 }
 
 /**

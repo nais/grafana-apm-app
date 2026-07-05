@@ -44,6 +44,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/grafana/grafana-plugin-sdk-go/backend"
+
 	"github.com/nais/grafana-otel-plugin/pkg/plugin/queries"
 )
 
@@ -82,6 +84,62 @@ const (
 // alertHashPattern restricts exception hashes to alphanumerics so they can be
 // embedded in LogQL line filters and regex alternations without escaping.
 var alertHashPattern = regexp.MustCompile(`^[a-zA-Z0-9]+$`)
+
+// ruleFormValuesSchema identifies which RuleFormValues shape the `defaults=`
+// object must use. Values are ordered by Grafana major.
+type ruleFormValuesSchema int
+
+const (
+	// ruleFormValuesV1 is the single shape shipped today — the RuleFormValues
+	// contract used by Grafana 10, 11 and 12 (the versions this plugin
+	// supports). Grafana 8/9 legacy alerting predates this URL contract and is
+	// not supported.
+	ruleFormValuesV1 ruleFormValuesSchema = iota
+)
+
+// selectRuleFormValuesSchema is the SINGLE version-guard point for the
+// `defaults=` contract (#77). That contract mirrors Grafana's INTERNAL,
+// unversioned RuleFormValues type
+// (public/app/features/alerting/unified/types/rule-form.ts), which can be
+// reshaped across Grafana majors — and a shape mismatch silently produces a
+// blank rule form rather than an error. Every alert template funnels its shape
+// decision through here, so when a future Grafana major reshapes RuleFormValues
+// the branch lives in exactly one place, pinned by the golden tests in
+// alerttemplates_test.go.
+//
+// grafanaMajor is the already-detected running Grafana major (see
+// grafanaMajorVersion). Do NOT add speculative branches: keep returning
+// ruleFormValuesV1 until a real incompatible major ships, then add its case
+// here together with the alternate builder and a new golden snapshot.
+//
+//nolint:unparam // Intentionally returns the one shipped shape today; the
+// parameter and switch are the forward-looking version-branch seam (#77).
+func selectRuleFormValuesSchema(grafanaMajor int) ruleFormValuesSchema {
+	switch {
+	case grafanaMajor >= 13:
+		// Grafana 13+ has not shipped. When it lands, verify the RuleFormValues
+		// shape against a fresh "New alert rule from panel" URL and, if it
+		// changed, branch here (e.g. `return ruleFormValuesV2`). Until then the
+		// v1 shape is still the correct one, so fall through to it.
+		return ruleFormValuesV1
+	default:
+		return ruleFormValuesV1
+	}
+}
+
+// grafanaMajorVersion reads the running Grafana major from the request context.
+// The SDK carries the Grafana version in the User-Agent it stamps on every
+// backend call (e.g. "12.4.0"); it is "0.0.0" when unknown, yielding 0 here —
+// which the version guard treats as "assume the current supported shape".
+func grafanaMajorVersion(ctx context.Context) int {
+	version := backend.UserAgentFromContext(ctx).GrafanaVersion()
+	major, _, _ := strings.Cut(version, ".")
+	n, err := strconv.Atoi(major)
+	if err != nil {
+		return 0
+	}
+	return n
+}
 
 // alertKeyValue mirrors the KVObject entries in Grafana's RuleFormValues
 // annotations/labels arrays.
@@ -199,6 +257,17 @@ func (a *App) handleAlertTemplate(w http.ResponseWriter, req *http.Request) {
 	default:
 		http.Error(w, `{"error":"unknown alert template kind"}`, http.StatusNotFound)
 		return
+	}
+
+	// Version guard (#77): key the emitted RuleFormValues shape to the running
+	// Grafana major. Only one shape ships today, so this is the branch point,
+	// not yet a branch — see selectRuleFormValuesSchema.
+	//
+	//nolint:gocritic // Deliberate single-case switch: the version-branch seam
+	// where future Grafana majors add their RuleFormValues shape (#77).
+	switch selectRuleFormValuesSchema(grafanaMajorVersion(req.Context())) {
+	case ruleFormValuesV1:
+		// Current shape — `defaults` is already built for it above.
 	}
 
 	data, err := json.Marshal(defaults)

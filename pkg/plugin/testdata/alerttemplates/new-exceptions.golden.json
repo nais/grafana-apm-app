@@ -1,0 +1,97 @@
+{
+  "type": "grafana",
+  "name": "New exception types – my-svc (prod-gcp)",
+  "condition": "C",
+  "evaluateFor": "5m",
+  "queries": [
+    {
+      "refId": "A",
+      "queryType": "",
+      "relativeTimeRange": {
+        "from": 600,
+        "to": 0
+      },
+      "datasourceUid": "loki-prod-gcp",
+      "model": {
+        "expr": "sum by (hash, value) (count_over_time({service_name=\"my-svc\", kind=\"exception\", k8s_cluster_name=\"prod-gcp\"} | logfmt | hash!=\"\" | keep hash, value [30m]))\nunless on (hash)\nsum by (hash) (count_over_time({service_name=\"my-svc\", kind=\"exception\", k8s_cluster_name=\"prod-gcp\"} | logfmt | hash!=\"\" | keep hash [7d] offset 30m))",
+        "refId": "A"
+      }
+    },
+    {
+      "refId": "B",
+      "queryType": "",
+      "datasourceUid": "__expr__",
+      "model": {
+        "datasource": {
+          "type": "__expr__",
+          "uid": "__expr__"
+        },
+        "expression": "A",
+        "reducer": "last",
+        "refId": "B",
+        "type": "reduce"
+      }
+    },
+    {
+      "refId": "C",
+      "queryType": "",
+      "datasourceUid": "__expr__",
+      "model": {
+        "conditions": [
+          {
+            "evaluator": {
+              "params": [
+                0
+              ],
+              "type": "gt"
+            },
+            "operator": {
+              "type": "and"
+            },
+            "query": {
+              "params": [
+                "C"
+              ]
+            },
+            "reducer": {
+              "params": [],
+              "type": "last"
+            },
+            "type": "query"
+          }
+        ],
+        "datasource": {
+          "type": "__expr__",
+          "uid": "__expr__"
+        },
+        "expression": "B",
+        "refId": "C",
+        "type": "threshold"
+      }
+    }
+  ],
+  "annotations": [
+    {
+      "key": "summary",
+      "value": "Exception {{ $labels.value }} in my-svc was not seen in the previous 7 days (approximate stateless detection: issues older than the 7d lookback re-fire as new, and resolved-issue regressions do not fire)"
+    },
+    {
+      "key": "nais_apm_url",
+      "value": "/a/nais-apm-app/services/team-a/my-svc?environment=prod-gcp\u0026exceptionHash=%7B%7B+%24labels.hash+%7D%7D\u0026tab=issues"
+    }
+  ],
+  "labels": [
+    {
+      "key": "namespace",
+      "value": "team-a"
+    },
+    {
+      "key": "service",
+      "value": "my-svc"
+    },
+    {
+      "key": "source",
+      "value": "nais-apm"
+    }
+  ]
+}

@@ -17,6 +17,12 @@ const (
 	alertSourceGrafana = "grafana" // Grafana-managed (unified alerting) rules
 )
 
+// alertInstanceCap bounds the per-rule active-instance list (#33). A rule with
+// a high-cardinality label set (e.g. per-path) can have thousands of firing
+// instances; we surface the first handful and set InstancesTruncated for the
+// rest so the payload stays small.
+const alertInstanceCap = 20
+
 // handleNamespaceAlerts returns alert rules for a namespace, merged from the
 // Mimir ruler and Grafana-managed alerting (#65 Phase 0: rules created via the
 // plugin's alert templates are Grafana-managed and must show up here too).
@@ -102,7 +108,8 @@ func (a *App) grafanaRulesClient(req *http.Request) *queries.PrometheusClient {
 // the same conservative name matcher the scorecard uses (ruleMentionsService,
 // scorecard.go) — no fleet-wide substring hits. This is the service-scoped
 // sibling of handleNamespaceAlerts and the payload behind the Alerts tab's
-// rule list; per-rule firing-state detail (#32/#33) enriches this list later.
+// rule list, now enriched with each rule's read-only firing state and active
+// instances (#33); the #32 firing-alert detail drawer builds on this later.
 // GET /services/{namespace}/{service}/alerts
 func (a *App) handleServiceAlerts(w http.ResponseWriter, req *http.Request) {
 	if !requireGET(w, req) {
@@ -250,25 +257,42 @@ func summarizeServiceAlertRules(rules *queries.RulesResponse, service, source st
 func alertRuleSummary(rule queries.Rule, group queries.RuleGroup, source string) AlertRuleSummary {
 	var activeAt string
 	var activeCount int
+	var instances []AlertInstance
+	truncated := false
 	for _, alert := range rule.Alerts {
-		if alert.State == "firing" || alert.State == "pending" {
-			activeCount++
-			if activeAt == "" || alert.ActiveAt < activeAt {
-				activeAt = alert.ActiveAt
-			}
+		if alert.State != "firing" && alert.State != "pending" {
+			continue
+		}
+		activeCount++
+		if activeAt == "" || alert.ActiveAt < activeAt {
+			activeAt = alert.ActiveAt
+		}
+		// Keep the per-instance value/labels the summary used to discard (#33),
+		// capping the list so a high-cardinality rule can't bloat the payload.
+		if len(instances) < alertInstanceCap {
+			instances = append(instances, AlertInstance{
+				State:    alert.State,
+				Value:    alert.Value,
+				ActiveAt: alert.ActiveAt,
+				Labels:   alert.Labels,
+			})
+		} else {
+			truncated = true
 		}
 	}
 
 	return AlertRuleSummary{
-		Name:        rule.Name,
-		State:       rule.State,
-		Severity:    rule.Labels["severity"],
-		Summary:     rule.Annotations["summary"],
-		Description: rule.Annotations["description"],
-		ActiveSince: activeAt,
-		ActiveCount: activeCount,
-		GroupName:   group.Name,
-		Source:      source,
+		Name:               rule.Name,
+		State:              rule.State,
+		Severity:           rule.Labels["severity"],
+		Summary:            rule.Annotations["summary"],
+		Description:        rule.Annotations["description"],
+		ActiveSince:        activeAt,
+		ActiveCount:        activeCount,
+		GroupName:          group.Name,
+		Source:             source,
+		Instances:          instances,
+		InstancesTruncated: truncated,
 	}
 }
 
@@ -294,6 +318,17 @@ func dedupeAndSortAlertRules(filtered []AlertRuleSummary) []AlertRuleSummary {
 			existing.ActiveCount += r.ActiveCount
 			if r.ActiveSince != "" && (existing.ActiveSince == "" || r.ActiveSince < existing.ActiveSince) {
 				existing.ActiveSince = r.ActiveSince
+			}
+			// Merge the active instances of the mirrored rule, keeping the cap.
+			for _, inst := range r.Instances {
+				if len(existing.Instances) < alertInstanceCap {
+					existing.Instances = append(existing.Instances, inst)
+				} else {
+					existing.InstancesTruncated = true
+				}
+			}
+			if r.InstancesTruncated {
+				existing.InstancesTruncated = true
 			}
 			if existing.Severity == "" && r.Severity != "" {
 				existing.Severity = r.Severity

@@ -2,15 +2,23 @@ package plugin
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/nais/grafana-otel-plugin/pkg/plugin/queries"
 )
+
+// updateGolden regenerates the RuleFormValues golden snapshots. Run:
+//
+//	go test ./pkg/plugin -run TestAlertTemplateGolden -update
+var updateGolden = flag.Bool("update", false, "update alert-template golden snapshots")
 
 // newAlertTemplateApp builds a test App with datasources configured and
 // capabilities pre-detected (non-default spanmetrics naming so tests catch
@@ -454,6 +462,165 @@ func TestAlertTemplateDatasourceNotConfigured(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestAlertTemplateGolden pins the full RuleFormValues `defaults=` shape for
+// every alert-template kind against a committed golden snapshot (#77). The
+// `defaults=` object mirrors Grafana's INTERNAL, unversioned RuleFormValues
+// type; if that shape ever drifts (a renamed/removed/added field), the snapshot
+// diff fails the build here instead of silently producing a blank rule form in
+// Grafana. Regenerate intentionally with `-update` after eyeballing the diff.
+//
+// Alongside the snapshot, each kind is checked against the structural contract
+// that must hold regardless of the exact query strings (assertRuleFormContract):
+// required key set, condition == "C", C among the query refIds, the threshold
+// living in the C threshold expression, and a resolved datasource UID.
+func TestAlertTemplateGolden(t *testing.T) {
+	kinds := []struct {
+		name      string
+		url       string
+		wantDSUID string
+	}{
+		{
+			name:      "error-rate",
+			url:       "/alert-templates/error-rate?namespace=team-a&service=my-svc&environment=prod-gcp",
+			wantDSUID: "mimir-prod-gcp",
+		},
+		{
+			name:      "exception-spike",
+			url:       "/alert-templates/exception-spike?namespace=team-a&service=my-svc&environment=prod-gcp&hash=abc123&fingerprint=v1:9f2ab31c04d7e655",
+			wantDSUID: "loki-prod-gcp",
+		},
+		{
+			name:      "web-vitals",
+			url:       "/alert-templates/web-vitals?namespace=team-a&service=my-svc&environment=prod-gcp",
+			wantDSUID: "mimir-prod-gcp",
+		},
+		{
+			name:      "new-exceptions",
+			url:       "/alert-templates/new-exceptions?namespace=team-a&service=my-svc&environment=prod-gcp",
+			wantDSUID: "loki-prod-gcp",
+		},
+		{
+			name:      "slo-burn-rate",
+			url:       "/alert-templates/slo-burn-rate?namespace=team-a&service=my-svc&environment=prod-gcp&window=fast",
+			wantDSUID: "mimir-prod-gcp",
+		},
+	}
+
+	for _, tc := range kinds {
+		t.Run(tc.name, func(t *testing.T) {
+			app := newAlertTemplateApp(t)
+			w := serveAlertTemplate(t, app, tc.url)
+			resp := decodeAlertTemplate(t, w)
+
+			assertRuleFormContract(t, resp.Defaults, tc.wantDSUID)
+
+			// Snapshot the exact object Grafana receives (indented for a
+			// reviewable diff). Re-marshal from the decoded struct so the golden
+			// is independent of HTTP-level whitespace.
+			got, err := json.MarshalIndent(resp.Defaults, "", "  ")
+			if err != nil {
+				t.Fatalf("marshal defaults: %v", err)
+			}
+			got = append(got, '\n')
+
+			golden := filepath.Join("testdata", "alerttemplates", tc.name+".golden.json")
+			if *updateGolden {
+				if err := os.MkdirAll(filepath.Dir(golden), 0o755); err != nil {
+					t.Fatalf("mkdir golden dir: %v", err)
+				}
+				if err := os.WriteFile(golden, got, 0o644); err != nil {
+					t.Fatalf("write golden: %v", err)
+				}
+				return
+			}
+
+			want, err := os.ReadFile(golden)
+			if err != nil {
+				t.Fatalf("read golden (%s) — run `go test ./pkg/plugin -run TestAlertTemplateGolden -update`: %v", golden, err)
+			}
+			if string(got) != string(want) {
+				t.Errorf("RuleFormValues shape drifted from golden %s.\n"+
+					"If this change is intentional, re-run with -update and review the diff.\n--- got ---\n%s\n--- want ---\n%s",
+					golden, got, want)
+			}
+		})
+	}
+}
+
+// assertRuleFormContract asserts the version-fragile invariants of the
+// RuleFormValues `defaults=` object that must hold for Grafana's rule editor to
+// pre-fill correctly, independent of the exact PromQL/LogQL query strings.
+func assertRuleFormContract(t *testing.T, d ruleFormDefaults, wantDSUID string) {
+	t.Helper()
+
+	// Required key set (a missing/renamed field breaks the merge silently).
+	if d.Type != "grafana" {
+		t.Errorf("type = %q, want %q", d.Type, "grafana")
+	}
+	if d.Name == "" {
+		t.Error("name is empty")
+	}
+	if d.EvaluateFor == "" {
+		t.Error("evaluateFor is empty")
+	}
+	if len(d.Queries) < 2 {
+		t.Fatalf("expected at least data+threshold queries, got %d", len(d.Queries))
+	}
+	if findKV(d.Annotations, "summary") == "" {
+		t.Error("missing summary annotation")
+	}
+	if findKV(d.Annotations, "nais_apm_url") == "" {
+		t.Error("missing nais_apm_url annotation")
+	}
+	if findKV(d.Labels, "source") != "nais-apm" {
+		t.Errorf("label source = %q, want nais-apm", findKV(d.Labels, "source"))
+	}
+
+	// condition == "C" and C is among the query refIds.
+	if d.Condition != "C" {
+		t.Errorf("condition = %q, want C", d.Condition)
+	}
+	refIDs := map[string]alertQuery{}
+	for _, q := range d.Queries {
+		refIDs[q.RefID] = q
+	}
+	condQuery, ok := refIDs[d.Condition]
+	if !ok {
+		t.Fatalf("condition %q not among query refIds %v", d.Condition, refIDKeys(refIDs))
+	}
+
+	// The threshold lives in the C threshold expression (a Grafana-native
+	// server-side expression), NOT baked into the data query's PromQL/LogQL.
+	if condQuery.DatasourceUID != expressionDatasourceUID {
+		t.Errorf("condition query datasourceUid = %q, want %q (server-side expression)", condQuery.DatasourceUID, expressionDatasourceUID)
+	}
+	if condQuery.Model["type"] != "threshold" {
+		t.Errorf("condition query model.type = %v, want threshold", condQuery.Model["type"])
+	}
+	if _, hasExpr := condQuery.Model["expr"]; hasExpr {
+		t.Error("condition (threshold) query must not carry a PromQL/LogQL expr")
+	}
+	// The data query A resolves to the real datasource (UID resolution seam).
+	dataQ, ok := refIDs["A"]
+	if !ok {
+		t.Fatal("no refId A data query")
+	}
+	if dataQ.DatasourceUID != wantDSUID {
+		t.Errorf("data query datasourceUid = %q, want %q", dataQ.DatasourceUID, wantDSUID)
+	}
+	if dataQ.DatasourceUID == "" || dataQ.DatasourceUID == expressionDatasourceUID {
+		t.Errorf("data query datasourceUid = %q, want a resolved datasource UID", dataQ.DatasourceUID)
+	}
+}
+
+func refIDKeys(m map[string]alertQuery) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // assertURLEncoding round-trips the returned URL: the defaults query param
