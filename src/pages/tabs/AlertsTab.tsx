@@ -76,10 +76,10 @@ const ALERT_TEMPLATES: AlertTemplateCard[] = [
  * /services/{ns}/{svc}/alerts, filtered by the conservative ruleMentionsService
  * matcher) and offers the create-alert templates in one coherent place.
  *
- * v1 scope: the rule list + create-alert affordance. Per-rule firing-state
- * DETAIL (active instance, value vs threshold, since when) is the #32/#33
- * follow-up — the ServiceAlertRule.firingState field is the seam, rendered as
- * "—" until that enrichment lands.
+ * Scope: the rule list + read-only firing state (#33) + the create-alert
+ * affordance. Each rule's current state, value and firing instances come inline
+ * from the rules API (ServiceAlertRule.firingState); the #32 firing-alert detail
+ * drawer and Alertmanager silences are the remaining follow-up.
  */
 export function AlertsTab({ service, namespace, environment }: AlertsTabProps) {
   const styles = useStyles2(getStyles);
@@ -232,27 +232,8 @@ function AlertRulesTable({ rules, styles }: { rules: ServiceAlertRule[]; styles:
                 <Badge text="mimir" color="purple" icon="graph-bar" />
               )}
             </td>
-            <td className={styles.narrowCol}>
-              {/*
-                #32/#33 seam: firingState carries the active-instance detail
-                (firing/pending, since when, value vs threshold) once the
-                Alertmanager fetch lands. Until then the list shows only that
-                the rule exists — a dash, never a fabricated state.
-              */}
-              {rule.firingState ? (
-                <Badge
-                  text={rule.firingState.state}
-                  color={
-                    rule.firingState.state === 'firing'
-                      ? 'red'
-                      : rule.firingState.state === 'pending'
-                        ? 'orange'
-                        : 'green'
-                  }
-                />
-              ) : (
-                <span className={styles.muted}>—</span>
-              )}
+            <td>
+              <FiringStateCell rule={rule} />
             </td>
             <td className={styles.narrowCol}>
               <TextLink href={`/alerting/list?search=${encodeURIComponent(rule.name)}`} variant="bodySmall">
@@ -264,6 +245,72 @@ function AlertRulesTable({ rules, styles }: { rules: ServiceAlertRule[]; styles:
       </tbody>
     </table>
   );
+}
+
+/**
+ * The read-only firing-state cell (#33): the current state badge plus, for an
+ * active rule, its current value and the labels of the instances that are
+ * firing — derived from the inline active instances the rules API returns.
+ * Renders a dash for a rule that has never reported a state.
+ */
+export function FiringStateCell({ rule }: { rule: ServiceAlertRule }) {
+  const styles = useStyles2(getStyles);
+  const fs = rule.firingState;
+  if (!fs || !fs.state) {
+    return <span className={styles.muted}>—</span>;
+  }
+
+  const active = fs.state === 'firing' || fs.state === 'pending';
+  const instances = fs.instances ?? [];
+  return (
+    <div className={styles.stateCell}>
+      <Badge text={fs.state} color={fs.state === 'firing' ? 'red' : fs.state === 'pending' ? 'orange' : 'green'} />
+      {active && fs.value !== undefined && <span className={styles.stateValue}>current value {fs.value}</span>}
+      {active && fs.activeSince && <span className={styles.stateMeta}>since {formatRelativeTime(fs.activeSince)}</span>}
+      {active && instances.length > 0 && (
+        <div className={styles.instanceLabels}>
+          {instances.map((inst, i) => (
+            <span key={i} className={styles.instanceLabel} title={formatInstanceLabels(inst.labels)}>
+              {formatInstanceLabels(inst.labels) || '(no labels)'}
+              {inst.value !== undefined ? ` = ${inst.value}` : ''}
+            </span>
+          ))}
+          {fs.instancesTruncated && <span className={styles.stateMeta}>…more</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Render an instance's label set as a compact `k="v"` list, dropping the noisy
+ * alertname/internal labels that don't help disambiguate instances. */
+function formatInstanceLabels(labels?: Record<string, string>): string {
+  if (!labels) {
+    return '';
+  }
+  return Object.entries(labels)
+    .filter(([k]) => k !== 'alertname' && !k.startsWith('__'))
+    .map(([k, v]) => `${k}="${v}"`)
+    .join(', ');
+}
+
+/** Relative "5m ago" / "2h ago" formatting for an ISO timestamp. */
+function formatRelativeTime(isoString: string): string {
+  const date = new Date(isoString);
+  const diffMs = Date.now() - date.getTime();
+  if (isNaN(diffMs) || diffMs < 0) {
+    return isoString;
+  }
+  if (diffMs < 60_000) {
+    return 'just now';
+  }
+  if (diffMs < 3_600_000) {
+    return `${Math.floor(diffMs / 60_000)}m ago`;
+  }
+  if (diffMs < 86_400_000) {
+    return `${Math.floor(diffMs / 3_600_000)}h ago`;
+  }
+  return `${Math.floor(diffMs / 86_400_000)}d ago`;
 }
 
 const getStyles = (theme: GrafanaTheme2) => ({
@@ -344,6 +391,35 @@ const getStyles = (theme: GrafanaTheme2) => ({
   `,
   muted: css`
     color: ${theme.colors.text.disabled};
+  `,
+  stateCell: css`
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: ${theme.spacing(0.5)};
+  `,
+  stateValue: css`
+    font-size: ${theme.typography.bodySmall.fontSize};
+    font-family: ${theme.typography.fontFamilyMonospace};
+    color: ${theme.colors.text.primary};
+  `,
+  stateMeta: css`
+    font-size: ${theme.typography.bodySmall.fontSize};
+    color: ${theme.colors.text.secondary};
+  `,
+  instanceLabels: css`
+    display: flex;
+    flex-direction: column;
+    gap: ${theme.spacing(0.25)};
+  `,
+  instanceLabel: css`
+    font-size: ${theme.typography.bodySmall.fontSize};
+    font-family: ${theme.typography.fontFamilyMonospace};
+    color: ${theme.colors.text.secondary};
+    max-width: 32ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   `,
   cards: css`
     display: grid;

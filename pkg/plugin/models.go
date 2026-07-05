@@ -143,6 +143,18 @@ type ServiceMapResponse struct {
 // API response models — alert endpoints
 // ---------------------------------------------------------------------------
 
+// AlertInstance is one active (firing/pending) instance of an alert rule: the
+// concrete label set that matched and the value that tripped the threshold,
+// straight from the Prometheus-compatible rules API's inline alerts[] (#33).
+// The list is capped per rule (alertInstanceCap) to bound the payload, with
+// AlertRuleSummary.InstancesTruncated flagging when instances were dropped.
+type AlertInstance struct {
+	State    string            `json:"state"` // "firing" or "pending"
+	Value    string            `json:"value,omitempty"`
+	ActiveAt string            `json:"activeAt,omitempty"`
+	Labels   map[string]string `json:"labels,omitempty"`
+}
+
 // AlertRuleSummary is a simplified alert rule for the namespace page.
 type AlertRuleSummary struct {
 	Name        string `json:"name"`
@@ -154,6 +166,12 @@ type AlertRuleSummary struct {
 	ActiveCount int    `json:"activeCount"`
 	GroupName   string `json:"groupName"`
 	Source      string `json:"source,omitempty"` // "mimir" (ruler) or "grafana" (unified alerting)
+	// Instances carries the per-instance firing detail (value vs threshold,
+	// matched labels) for the active alerts, capped at alertInstanceCap (#33).
+	Instances []AlertInstance `json:"instances,omitempty"`
+	// InstancesTruncated is true when more than alertInstanceCap instances were
+	// active and the surplus was dropped from Instances.
+	InstancesTruncated bool `json:"instancesTruncated,omitempty"`
 }
 
 // NamespaceAlertsResponse wraps alert rules for a namespace.
@@ -165,8 +183,9 @@ type NamespaceAlertsResponse struct {
 
 // ServiceAlertsResponse wraps the alert rules that mention a single service —
 // the service-scoped sibling of NamespaceAlertsResponse and the payload of the
-// Alerts tab's rule list. Per-rule active-instance firing detail (#32/#33)
-// layers over this list as a follow-up; v1 returns rule definitions only.
+// Alerts tab's rule list. Each rule now carries its read-only firing state and
+// active instances inline (#33); the #32 firing-alert detail drawer layers over
+// this list as a follow-up.
 type ServiceAlertsResponse struct {
 	Rules        []AlertRuleSummary `json:"rules"`
 	Unavailable  bool               `json:"unavailable,omitempty"`
