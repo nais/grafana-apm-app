@@ -13,6 +13,8 @@ import {
 } from '../../api/client';
 import { apmDocs } from '../../utils/docsLinks';
 import { useFetch } from '../../utils/useFetch';
+import { useUrlParams } from '../../utils/useUrlState';
+import { FiringAlertDrawer } from './alerts/FiringAlertDrawer';
 
 interface AlertsTabProps {
   service: string;
@@ -83,10 +85,19 @@ const ALERT_TEMPLATES: AlertTemplateCard[] = [
  */
 export function AlertsTab({ service, namespace, environment }: AlertsTabProps) {
   const styles = useStyles2(getStyles);
-  const [, setSearchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const updateParams = useUrlParams();
 
   const { data, loading, error } = useFetch(() => getServiceAlerts(namespace, service), [namespace, service]);
   const rules = data?.rules ?? [];
+
+  // The #32 firing-alert detail drawer is opened purely from the URL
+  // (docs/url-contract.md): `firingAlert=<ruleName>` is shareable and resolves
+  // against the rule set this tab already loaded — no new fetch.
+  const firingAlert = searchParams.get('firingAlert') ?? '';
+  const selectedRule = firingAlert ? rules.find((r) => r.name === firingAlert) : undefined;
+  const openDrawer = useCallback((name: string) => updateParams({ firingAlert: name }), [updateParams]);
+  const closeDrawer = useCallback(() => updateParams({ firingAlert: null }), [updateParams]);
 
   const [creating, setCreating] = useState<string | null>(null);
   const createAlert = useCallback(
@@ -149,7 +160,7 @@ export function AlertsTab({ service, namespace, environment }: AlertsTabProps) {
             <div className={styles.emptyHint}>Create one below to get notified when this service degrades.</div>
           </div>
         ) : (
-          <AlertRulesTable rules={rules} styles={styles} />
+          <AlertRulesTable rules={rules} styles={styles} onOpenDetail={openDrawer} />
         )}
       </section>
 
@@ -201,11 +212,31 @@ export function AlertsTab({ service, namespace, environment }: AlertsTabProps) {
           </TextLink>
         </div>
       </section>
+
+      {firingAlert && (
+        <FiringAlertDrawer
+          rule={selectedRule}
+          ruleName={firingAlert}
+          namespace={namespace}
+          service={service}
+          environment={environment}
+          loading={loading}
+          onClose={closeDrawer}
+        />
+      )}
     </div>
   );
 }
 
-function AlertRulesTable({ rules, styles }: { rules: ServiceAlertRule[]; styles: ReturnType<typeof getStyles> }) {
+function AlertRulesTable({
+  rules,
+  styles,
+  onOpenDetail,
+}: {
+  rules: ServiceAlertRule[];
+  styles: ReturnType<typeof getStyles>;
+  onOpenDetail: (ruleName: string) => void;
+}) {
   return (
     <table className={styles.table}>
       <thead>
@@ -217,31 +248,48 @@ function AlertRulesTable({ rules, styles }: { rules: ServiceAlertRule[]; styles:
         </tr>
       </thead>
       <tbody>
-        {rules.map((rule) => (
-          <tr key={`${rule.source ?? ''}:${rule.groupName}:${rule.name}`}>
-            <td>
-              <div className={styles.ruleName}>{rule.name}</div>
-              {(rule.summary || rule.description) && (
-                <div className={styles.ruleSummary}>{rule.summary || rule.description}</div>
-              )}
-            </td>
-            <td className={styles.narrowCol}>
-              {rule.source === 'grafana' ? (
-                <Badge text="grafana" color="blue" icon="bell" />
-              ) : (
-                <Badge text="mimir" color="purple" icon="graph-bar" />
-              )}
-            </td>
-            <td>
-              <FiringStateCell rule={rule} />
-            </td>
-            <td className={styles.narrowCol}>
-              <TextLink href={`/alerting/list?search=${encodeURIComponent(rule.name)}`} variant="bodySmall">
-                Open in Grafana
-              </TextLink>
-            </td>
-          </tr>
-        ))}
+        {rules.map((rule) => {
+          // A row is "actionable" (has a detail drawer to open) only when it is
+          // actively firing or pending (#32) — inactive rules have no instances.
+          const isActive = rule.firingState?.state === 'firing' || rule.firingState?.state === 'pending';
+          return (
+            <tr key={`${rule.source ?? ''}:${rule.groupName}:${rule.name}`}>
+              <td>
+                {isActive ? (
+                  <button type="button" className={styles.ruleNameButton} onClick={() => onOpenDetail(rule.name)}>
+                    {rule.name}
+                  </button>
+                ) : (
+                  <div className={styles.ruleName}>{rule.name}</div>
+                )}
+                {(rule.summary || rule.description) && (
+                  <div className={styles.ruleSummary}>{rule.summary || rule.description}</div>
+                )}
+              </td>
+              <td className={styles.narrowCol}>
+                {rule.source === 'grafana' ? (
+                  <Badge text="grafana" color="blue" icon="bell" />
+                ) : (
+                  <Badge text="mimir" color="purple" icon="graph-bar" />
+                )}
+              </td>
+              <td>
+                <FiringStateCell rule={rule} />
+              </td>
+              <td className={styles.narrowCol}>
+                {isActive ? (
+                  <Button size="sm" variant="secondary" fill="text" onClick={() => onOpenDetail(rule.name)}>
+                    Details
+                  </Button>
+                ) : (
+                  <TextLink href={`/alerting/list?search=${encodeURIComponent(rule.name)}`} variant="bodySmall">
+                    Open in Grafana
+                  </TextLink>
+                )}
+              </td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );
@@ -384,6 +432,18 @@ const getStyles = (theme: GrafanaTheme2) => ({
   `,
   ruleName: css`
     font-weight: ${theme.typography.fontWeightMedium};
+  `,
+  ruleNameButton: css`
+    font-weight: ${theme.typography.fontWeightMedium};
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    color: ${theme.colors.text.link};
+    text-align: left;
+    &:hover {
+      text-decoration: underline;
+    }
   `,
   ruleSummary: css`
     font-size: ${theme.typography.bodySmall.fontSize};

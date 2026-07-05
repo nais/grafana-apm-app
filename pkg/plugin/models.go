@@ -166,6 +166,16 @@ type AlertRuleSummary struct {
 	ActiveCount int    `json:"activeCount"`
 	GroupName   string `json:"groupName"`
 	Source      string `json:"source,omitempty"` // "mimir" (ruler) or "grafana" (unified alerting)
+	// Expression is the rule's raw PromQL/LogQL query, surfaced for the #32
+	// firing-alert drawer's collapsible condition block. Empty when the ruler
+	// omits it.
+	Expression string `json:"expression,omitempty"`
+	// ForDuration is the rule's `for` window in seconds (how long the condition
+	// must hold before firing) — the evaluation window shown in the drawer.
+	ForDuration float64 `json:"forDuration,omitempty"`
+	// RunbookURL is the standard runbook_url annotation, surfaced verbatim as a
+	// button in the drawer (#32). Empty when the rule sets no runbook.
+	RunbookURL string `json:"runbookUrl,omitempty"`
 	// Instances carries the per-instance firing detail (value vs threshold,
 	// matched labels) for the active alerts, capped at alertInstanceCap (#33).
 	Instances []AlertInstance `json:"instances,omitempty"`

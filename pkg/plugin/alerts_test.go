@@ -563,11 +563,13 @@ func TestHandleServiceAlerts_FiringInstances(t *testing.T) {
 			File: "dev/teamorders/orders-alerts/abc123",
 			Rules: []queries.Rule{
 				{
-					Type:   "alerting",
-					Name:   "OrdersHighErrorRate",
-					Query:  `sum(rate(calls_total{service_name="orders"}[5m])) > 0.05`,
-					State:  "firing",
-					Labels: map[string]string{"namespace": "teamorders", "severity": "critical"},
+					Type:        "alerting",
+					Name:        "OrdersHighErrorRate",
+					Query:       `sum(rate(calls_total{service_name="orders"}[5m])) > 0.05`,
+					Duration:    300,
+					State:       "firing",
+					Labels:      map[string]string{"namespace": "teamorders", "severity": "critical"},
+					Annotations: map[string]string{"runbook_url": "https://runbooks.example/orders"},
 					Alerts: []queries.Alert{
 						{
 							State:    "firing",
@@ -657,6 +659,17 @@ func TestHandleServiceAlerts_FiringInstances(t *testing.T) {
 	}
 	if checkout.State != "firing" {
 		t.Errorf("checkout instance state = %q, want firing", checkout.State)
+	}
+	// The #32 drawer fields ride along on the summary: raw expression, the
+	// `for` window (seconds), and the runbook_url annotation surfaced verbatim.
+	if firing.Expression != `sum(rate(calls_total{service_name="orders"}[5m])) > 0.05` {
+		t.Errorf("firing expression = %q, want the rule query", firing.Expression)
+	}
+	if firing.ForDuration != 300 {
+		t.Errorf("firing forDuration = %v, want 300", firing.ForDuration)
+	}
+	if firing.RunbookURL != "https://runbooks.example/orders" {
+		t.Errorf("firing runbookUrl = %q, want the runbook_url annotation", firing.RunbookURL)
 	}
 
 	pending, ok := byName["OrdersLatency"]

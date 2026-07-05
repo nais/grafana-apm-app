@@ -73,6 +73,24 @@ or absent value means no filter.
 | ----- | ---------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | `slo` | `0.99` \| `0.995` \| `0.999` \| `0.9999` | Selected SLO target for the error-budget panel. Any other value falls back to `0.999` (default). |
 
+## Firing-alert drawer (Alerts tab)
+
+The #32 firing-alert detail drawer opens purely from URL state, so a firing
+alert is shareable as a deep link without a new route:
+
+```
+/a/nais-apm-app/services/{namespace}/{service}?tab=alerts&environment={env}&firingAlert={ruleName}
+```
+
+| Param         | Meaning                                                                                                                                                                                                                                                                                                                                                     |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `firingAlert` | Alert **rule name** (not a UID — the ruler→Grafana rule-UID join is out of scope, #33 Phase 2). Opens the read-only detail drawer for that rule, resolved against the Alerts tab's already-loaded rule set (`getServiceAlerts`) — no extra fetch. When the name resolves to no firing rule (state cleared, rule gone), the drawer degrades to "state unavailable". |
+
+The drawer's own outbound links reuse existing contracts: the RED-panel link
+targets `tab=backend&from={activeAt-15m}&to=now`, and the best-effort
+related-Issue link uses `issueId`/`exceptionHash` (above) — emitted **only**
+when an instance label confidently resolves to an issue identity.
+
 ## Exception drawer (Issues tab + Frontend tab)
 
 The ExceptionDrawer opens purely from URL state — this is the deep-link target

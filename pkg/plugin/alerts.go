@@ -291,6 +291,9 @@ func alertRuleSummary(rule queries.Rule, group queries.RuleGroup, source string)
 		ActiveCount:        activeCount,
 		GroupName:          group.Name,
 		Source:             source,
+		Expression:         rule.Query,
+		ForDuration:        rule.Duration,
+		RunbookURL:         rule.Annotations["runbook_url"],
 		Instances:          instances,
 		InstancesTruncated: truncated,
 	}
