@@ -1,4 +1,4 @@
-import { docsUrl, apmDocs, DOCS_BASE_URL, APM_SDK_REPO_URL } from './docsLinks';
+import { docsUrl, apmDocs, frontendDocs, DOCS_BASE_URL, APM_SDK_REPO_URL } from './docsLinks';
 
 describe('docsUrl', () => {
   it('builds a trailing-slash URL against the default public base', () => {
@@ -44,5 +44,13 @@ describe('apmDocs builders', () => {
     expect(apmDocs.issuesModel()).toBe('https://doc.nais.io/observability/apm/reference/issues-model/');
     expect(apmDocs.urlContract()).toBe('https://doc.nais.io/observability/apm/reference/url-contract/');
     expect(apmDocs.howNaisApmWorks()).toBe('https://doc.nais.io/observability/apm/explanations/how-nais-apm-works/');
+  });
+});
+
+describe('frontendDocs builders', () => {
+  it('links the source-maps guideline under the frontend (not apm) docs section', () => {
+    // #60: the sourcemaps doc lives under observability/frontend, a different
+    // section from the observability/apm slugs.
+    expect(frontendDocs.sourcemaps()).toBe('https://doc.nais.io/observability/frontend/how-to/sourcemaps/');
   });
 });

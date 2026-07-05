@@ -386,6 +386,7 @@ func (a *App) routes() []appRoute {
 		{"/services/{namespace}/{service}/frontend/versions", a.handleFrontendVersions},
 		{"/services/{namespace}/{service}/frontend/sessions", a.handleFrontendSessions},
 		{"/services/{namespace}/{service}/logs/patterns", a.handleLogPatterns},
+		{"/services/{namespace}/{service}/sourcemap-doctor", a.handleSourcemapDoctor},
 		{"/services/{namespace}/{service}/traces/breakdown", a.handleTraceBreakdown},
 		{"/services/{namespace}/{service}/feedback", a.handleFeedback},
 		{"/services/{namespace}/{service}/exceptions/groups", a.handleExceptionGroups},
