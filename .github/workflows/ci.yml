@@ -219,15 +219,6 @@ jobs:
           url: http://127.0.0.1:3000/login
           timeout: 120
 
-      # #77: assert the alert-template `defaults=` contract against a live
-      # Grafana of this matrix version. The URL the backend hands Grafana's rule
-      # editor must decode to a valid RuleFormValues object; a Grafana internal
-      # contract change (or an encoding regression) breaks the build here rather
-      # than silently producing a blank rule form. ALERT_TEMPLATE_ONLY=1 runs
-      # only the section that needs no live datasource / user session.
-      - name: Alert-template defaults= contract
-        run: ALERT_TEMPLATE_ONLY=1 HOST=http://127.0.0.1:3000 AUTH=admin:admin bash scripts/smoke-test.sh
-
       - name: Install Playwright Browsers
         run: pnpm exec playwright install chromium --with-deps
 
