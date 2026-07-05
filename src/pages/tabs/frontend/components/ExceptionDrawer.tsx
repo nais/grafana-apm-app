@@ -188,7 +188,7 @@ export function ExceptionDrawer({
     let cancelled = false;
     // While the deep link is still resolving to hashes, keep the spinner and
     // don't query — the same drawer instance will re-run this once hashes land.
-    if (resolving || hashes.length === 0) {
+    if (resolving || hashesKey === '') {
       setLoading(true);
       return;
     }
@@ -332,6 +332,7 @@ export function ExceptionDrawer({
     // straight back into another fetch — a self-sustaining refetch loop, not
     // just a one-off double-fire.
   }, [
+    resolving,
     hashesKey,
     service,
     environment,

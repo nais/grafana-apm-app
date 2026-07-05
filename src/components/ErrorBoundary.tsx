@@ -35,7 +35,6 @@ export function ErrorBoundary({ label, resetKeys = [], children }: ErrorBoundary
   const onError = useCallback(
     (error: Error) => {
       const where = label ? ` [${label}]` : '';
-      // eslint-disable-next-line no-console
       console.error(`ErrorBoundary caught an error${where}:`, error);
       getAppEvents().publish({
         type: AppEvents.alertError.name,

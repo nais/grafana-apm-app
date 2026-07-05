@@ -19,8 +19,13 @@ import (
 // ServiceMapNode, ServiceMapEdge, ServiceMapResponse → models.go
 
 // sanitizeLogValue strips newlines and control characters from user input
-// to prevent log injection attacks.
+// to prevent log injection attacks. The explicit CR/LF replacement is what
+// breaks the log-injection taint flow (and is what static analysis recognizes
+// as the sanitizer); the strings.Map pass then strips any remaining control
+// characters.
 func sanitizeLogValue(s string) string {
+	s = strings.ReplaceAll(s, "\n", "_")
+	s = strings.ReplaceAll(s, "\r", "_")
 	return strings.Map(func(r rune) rune {
 		if r < 0x20 || r == 0x7f {
 			return '_'
