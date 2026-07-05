@@ -1144,20 +1144,24 @@ const getStyles = (theme: GrafanaTheme2) => ({
     font-weight: bold;
     padding: 2px 6px;
     border-radius: 4px;
-    background: ${kind === 'exception' || kind === 'error'
-      ? theme.colors.error.transparent
-      : kind === 'measurement'
-        ? theme.colors.warning.transparent
-        : kind === 'event'
-          ? theme.colors.success.transparent
-          : theme.colors.primary.transparent};
-    color: ${kind === 'exception' || kind === 'error'
-      ? theme.colors.error.text
-      : kind === 'measurement'
-        ? theme.colors.warning.text
-        : kind === 'event'
-          ? theme.colors.success.text
-          : theme.colors.primary.text};
+    background: ${
+      kind === 'exception' || kind === 'error'
+        ? theme.colors.error.transparent
+        : kind === 'measurement'
+          ? theme.colors.warning.transparent
+          : kind === 'event'
+            ? theme.colors.success.transparent
+            : theme.colors.primary.transparent
+    };
+    color: ${
+      kind === 'exception' || kind === 'error'
+        ? theme.colors.error.text
+        : kind === 'measurement'
+          ? theme.colors.warning.text
+          : kind === 'event'
+            ? theme.colors.success.text
+            : theme.colors.primary.text
+    };
     min-width: 90px;
     text-align: left;
     display: flex;
