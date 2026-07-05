@@ -1,3 +1,14 @@
 {
-  "extends": "./.config/tsconfig.json"
+  "extends": "./.config/tsconfig.json",
+  "compilerOptions": {
+    // TypeScript 6.0 deprecates `baseUrl` (set by the scaffolded .config/tsconfig.json)
+    // ahead of its removal in 7.0. Silence TS5101 here — the sanctioned extension point —
+    // until the create-plugin scaffold drops baseUrl in favour of `paths`.
+    "ignoreDeprecations": "6.0",
+    // TypeScript 6.0 no longer auto-includes @types/node's ambient globals
+    // (process, Buffer, __dirname, require, …) the way 5.x did, so list the
+    // ambient type packages the code relies on explicitly. Packages pulled in
+    // via imports (react, lodash, …) load regardless of this list.
+    "types": ["node", "jest"]
+  }
 }
