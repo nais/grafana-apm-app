@@ -8,14 +8,17 @@ const NAMESPACE = 'myteam';
 const SERVICE = 'myapp';
 const DETAIL_PATH = `/services/${NAMESPACE}/${SERVICE}`;
 
-// Tabs that are always present regardless of which datasources are configured.
-// The UI label is what the user sees (note: "Endpoints" maps to tab=server).
-const ALWAYS_PRESENT_TABS = ['Overview', 'Endpoints', 'Frontend', 'Runtime', 'Database'] as const;
+// Tabs that are always present regardless of which datasources are configured
+// (they render an empty/setup state when there's no data). "Backend" is the
+// merged Endpoints (RED) + Runtime (USE) tab (docs/ia-review-2.md).
+const ALWAYS_PRESENT_TABS = ['Overview', 'Alerts', 'Backend', 'Frontend', 'Database'] as const;
 
-// Capability-gated tabs — only rendered when their datasource is detected.
-// Without Tempo/Loki/Pyroscope in CI these are typically absent, so we assert
-// on them conditionally (if the tab exists, clicking it must render a state).
-const GATED_TABS = ['Issues', 'Traces', 'Logs', 'Profiling'] as const;
+// Capability-gated tabs — only rendered when their datasource is detected
+// (Issues/Logs need Loki, Dependencies needs service-graph metrics, Traces
+// needs Tempo, Profiling needs Pyroscope). Without those in CI these are
+// typically absent, so we assert on them conditionally (if the tab exists,
+// clicking it must render a state).
+const GATED_TABS = ['Issues', 'Dependencies', 'Traces', 'Logs', 'Profiling'] as const;
 
 /** The service-detail tab bar (Grafana <TabsBar> renders role="tablist"). */
 function tabList(page: Page) {
@@ -76,11 +79,25 @@ test.describe('Service Detail', () => {
     ]);
   });
 
-  test('Endpoints tab renders a meaningful state', async ({ page }) => {
-    await page.getByRole('tab', { name: 'Endpoints', exact: true }).first().click();
-    await expectMeaningfulTabState(page, 'Endpoints', [
+  test('Backend tab renders a meaningful state', async ({ page }) => {
+    await page.getByRole('tab', { name: 'Backend', exact: true }).first().click();
+    // Backend merges Endpoints (RED, always expanded) with Runtime (USE, in a
+    // collapsed section). Assert on the Endpoints surface plus the Runtime
+    // collapse header so both halves of the merged tab are proven to mount.
+    await expectMeaningfulTabState(page, 'Backend', [
       page.getByText('No endpoint data').first(),
       page.getByText('HTTP Endpoints').first(),
+      page.getByRole('heading', { name: 'Endpoints' }).first(),
+      page.getByText(/Runtime/).first(),
+    ]);
+  });
+
+  test('Alerts tab renders a meaningful state', async ({ page }) => {
+    await page.getByRole('tab', { name: 'Alerts', exact: true }).first().click();
+    await expectMeaningfulTabState(page, 'Alerts', [
+      page.getByText('Alert rules').first(),
+      page.getByText('Create alert').first(),
+      page.getByText(/No alerts|unavailable/i).first(),
     ]);
   });
 
@@ -90,15 +107,6 @@ test.describe('Service Detail', () => {
       page.getByText('Frontend Observability').first(),
       page.getByText('No recent measurements').first(),
       page.getByText('Core Web Vitals').first(),
-    ]);
-  });
-
-  test('Runtime tab renders a meaningful state', async ({ page }) => {
-    await page.getByRole('tab', { name: 'Runtime', exact: true }).first().click();
-    await expectMeaningfulTabState(page, 'Runtime', [
-      page.getByText('No runtime metrics detected').first(),
-      page.getByText('CPU', { exact: true }).first(),
-      page.getByText('Memory', { exact: true }).first(),
     ]);
   });
 
