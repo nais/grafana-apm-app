@@ -36,6 +36,23 @@ updates:
         versions: ['>=19.0.0']
       - dependency-name: '@types/react-dom'
         versions: ['>=19.0.0']
+      # ESLint 10 ecosystem — eslint-plugin-react has no ESLint 10 support yet
+      # (crashes); defer until the plugin ecosystem catches up.
+      - dependency-name: 'eslint'
+        versions: ['>=10.0.0']
+      - dependency-name: '@grafana/eslint-config'
+        versions: ['>=10.0.0']
+      # react-hooks 7.1 adds set-state-in-effect, which flags existing effects —
+      # a refactor, not a dep bump; defer.
+      - dependency-name: 'eslint-plugin-react-hooks'
+        versions: ['>=7.1.0']
+      # React Router 7 — breaks Grafana's react-router-dom-v5-compat shim
+      # (the repo pins react-router 6.30.4 via overrides); defer to a Grafana
+      # version whose compat shim supports v7.
+      - dependency-name: 'react-router'
+        versions: ['>=7.0.0']
+      - dependency-name: 'react-router-dom'
+        versions: ['>=7.0.0']
     groups:
       npm-all:
         patterns:
