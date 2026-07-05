@@ -63,6 +63,21 @@ test.describe('Service Detail', () => {
     }
   });
 
+  test('legacy tab aliases resolve to the merged Backend tab', async ({ gotoPage, page }) => {
+    // docs/url-contract.md promises tab=server / tab=runtime (the former
+    // Endpoints/Runtime tabs) resolve to Backend forever — old bookmarks and
+    // alert annotations depend on it. Assert they select Backend, not fall
+    // back to Overview.
+    for (const legacy of ['server', 'runtime']) {
+      await gotoPage(`${DETAIL_PATH}?tab=${legacy}`);
+      await expect(page.getByRole('tab', { name: 'Backend', exact: true }).first()).toHaveAttribute(
+        'aria-selected',
+        'true',
+        { timeout: 15_000 }
+      );
+    }
+  });
+
   test('header time picker control is present', async ({ page }) => {
     // The global HeaderTimeControls renders Grafana's TimeRangePicker.
     await expect(page.locator('[data-testid="data-testid TimePicker Open Button"]').first()).toBeVisible({
