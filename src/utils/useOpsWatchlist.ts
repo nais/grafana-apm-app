@@ -7,18 +7,18 @@ interface UseOpsWatchlistResult {
   watchlist: OpsWatchlistEntry[];
   loading: boolean;
   error: string | null;
-  /** Add a service to the watchlist. */
-  add: (namespace: string, service: string) => void;
-  /** Remove a service from the watchlist by namespace/service. */
-  remove: (namespace: string, service: string) => void;
-  /** Check if a namespace/service is on the watchlist. */
-  has: (namespace: string, service: string) => boolean;
+  /** Add a service (in one environment) to the watchlist. */
+  add: (namespace: string, service: string, environment?: string) => void;
+  /** Remove a service (in one environment) from the watchlist. */
+  remove: (namespace: string, service: string, environment?: string) => void;
+  /** Check if a service (in one environment) is on the watchlist. */
+  has: (namespace: string, service: string, environment?: string) => boolean;
   /** Reload the watchlist from the server. */
   refetch: () => void;
 }
 
-function entryKey(ns: string, svc: string): string {
-  return `${ns}/${svc}`;
+function entryKey(ns: string, svc: string, env?: string): string {
+  return `${ns}/${svc}/${env ?? ''}`;
 }
 
 /**
@@ -82,12 +82,14 @@ export function useOpsWatchlist(): UseOpsWatchlistResult {
   );
 
   const add = useCallback(
-    (namespace: string, service: string) => {
+    (namespace: string, service: string, environment?: string) => {
       const prev = watchlistRef.current;
-      if (prev.some((e) => e.namespace === namespace && e.service === service)) {
+      if (
+        prev.some((e) => entryKey(e.namespace, e.service, e.environment) === entryKey(namespace, service, environment))
+      ) {
         return;
       }
-      const next = [...prev, { namespace, service }];
+      const next = [...prev, { namespace, service, environment }];
       setWatchlist(next);
       persist(next);
     },
@@ -95,9 +97,10 @@ export function useOpsWatchlist(): UseOpsWatchlistResult {
   );
 
   const remove = useCallback(
-    (namespace: string, service: string) => {
+    (namespace: string, service: string, environment?: string) => {
       const prev = watchlistRef.current;
-      const next = prev.filter((e) => !(e.namespace === namespace && e.service === service));
+      const target = entryKey(namespace, service, environment);
+      const next = prev.filter((e) => entryKey(e.namespace, e.service, e.environment) !== target);
       if (next.length === prev.length) {
         return;
       }
@@ -108,8 +111,9 @@ export function useOpsWatchlist(): UseOpsWatchlistResult {
   );
 
   const has = useCallback(
-    (namespace: string, service: string) => {
-      return watchlist.some((e) => e.namespace === namespace && e.service === service);
+    (namespace: string, service: string, environment?: string) => {
+      const target = entryKey(namespace, service, environment);
+      return watchlist.some((e) => entryKey(e.namespace, e.service, e.environment) === target);
     },
     [watchlist]
   );
@@ -121,7 +125,7 @@ export function useOpsWatchlist(): UseOpsWatchlistResult {
 export function watchlistToSet(watchlist: OpsWatchlistEntry[]): Set<string> {
   const set = new Set<string>();
   for (const e of watchlist) {
-    set.add(entryKey(e.namespace, e.service));
+    set.add(entryKey(e.namespace, e.service, e.environment));
   }
   return set;
 }

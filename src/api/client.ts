@@ -1051,6 +1051,12 @@ export async function getRuntimeMetrics(
 export interface OpsWatchlistEntry {
   namespace: string;
   service: string;
+  /**
+   * Environment the service is watched in. One entry per environment, so
+   * watching prod doesn't pull in dev. Empty/undefined = legacy entry watched
+   * across all environments.
+   */
+  environment?: string;
 }
 
 function extractErrorDetail(error: unknown): string {

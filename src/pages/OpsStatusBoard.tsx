@@ -127,7 +127,7 @@ function OpsStatusBoard() {
     [gridDims.width, gridDims.height, cardSize]
   );
 
-  const watchlistParam = useMemo(() => watchlist.map((w) => `${w.namespace}/${w.service}`), [watchlist]);
+  const watchlistParam = useMemo(() => [...new Set(watchlist.map((w) => `${w.namespace}/${w.service}`))], [watchlist]);
 
   // Fetch services — we filter to watchlist client-side, but pass filters to backend for performance
   const {
@@ -191,7 +191,7 @@ function OpsStatusBoard() {
 
   // Watchlist services only — these are the cards shown on the board.
   const allServices = useMemo(() => {
-    return discoveredServices.filter((s) => watchlistSet.has(watchlistKey(s.namespace, s.name)));
+    return discoveredServices.filter((s) => watchlistSet.has(watchlistKey(s.namespace, s.name, s.environment)));
   }, [discoveredServices, watchlistSet]);
 
   const envOptions = useMemo(() => extractEnvironmentOptions(allServices), [allServices]);
@@ -211,7 +211,7 @@ function OpsStatusBoard() {
     }
     const m = new Map<string, ServiceSummary>();
     for (const s of prevServices) {
-      if (watchlistSet.has(watchlistKey(s.namespace, s.name))) {
+      if (watchlistSet.has(watchlistKey(s.namespace, s.name, s.environment))) {
         m.set(svcKey(s), s);
       }
     }
@@ -224,7 +224,9 @@ function OpsStatusBoard() {
       return new Map<string, ServiceSummary>();
     }
     return new Map(
-      sparklineResult.filter((s) => watchlistSet.has(watchlistKey(s.namespace, s.name))).map((s) => [svcKey(s), s])
+      sparklineResult
+        .filter((s) => watchlistSet.has(watchlistKey(s.namespace, s.name, s.environment)))
+        .map((s) => [svcKey(s), s])
     );
   }, [sparklineResult, watchlistSet]);
 

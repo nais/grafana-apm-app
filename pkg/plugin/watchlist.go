@@ -11,10 +11,13 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 )
 
-// OpsWatchlistEntry is a single namespace/service pair in the ops watchlist.
+// OpsWatchlistEntry is a single watched service in the ops watchlist. An entry
+// is scoped to one environment; an empty Environment means the service is
+// watched across all environments (legacy entries saved before env scoping).
 type OpsWatchlistEntry struct {
-	Namespace string `json:"namespace"`
-	Service   string `json:"service"`
+	Namespace   string `json:"namespace"`
+	Service     string `json:"service"`
+	Environment string `json:"environment,omitempty"`
 }
 
 // watchlistMu serializes write operations to prevent concurrent read-modify-write races.

@@ -10,8 +10,8 @@ interface OpsServicePickerProps {
   services: ServiceSummary[];
   watchlist: OpsWatchlistEntry[];
   onDismiss: () => void;
-  onAdd: (namespace: string, service: string) => void;
-  onRemove: (namespace: string, service: string) => void;
+  onAdd: (namespace: string, service: string, environment?: string) => void;
+  onRemove: (namespace: string, service: string, environment?: string) => void;
 }
 
 function serviceLabel(service: ServiceSummary): string {
@@ -24,7 +24,7 @@ export function OpsServicePicker({ isOpen, services, watchlist, onDismiss, onAdd
   const [search, setSearch] = useState('');
 
   const watchlistSet = useMemo(
-    () => new Set(watchlist.map((entry) => watchlistKey(entry.namespace, entry.service))),
+    () => new Set(watchlist.map((entry) => watchlistKey(entry.namespace, entry.service, entry.environment))),
     [watchlist]
   );
 
@@ -37,7 +37,7 @@ export function OpsServicePicker({ isOpen, services, watchlist, onDismiss, onAdd
   }, [search, services]);
 
   return (
-    <Modal isOpen={isOpen} onDismiss={onDismiss} title="Configure services">
+    <Modal isOpen={isOpen} onDismiss={onDismiss} title="Configure services" className={styles.modal}>
       <div className={styles.content}>
         <Input
           value={search}
@@ -59,7 +59,7 @@ export function OpsServicePicker({ isOpen, services, watchlist, onDismiss, onAdd
           <div className={styles.list} role="list" aria-label="Available services">
             {filteredServices.slice(0, 100).map((service) => {
               const itemKey = `${service.namespace}/${service.name}/${service.environment ?? ''}`;
-              const watchlistSetKey = watchlistKey(service.namespace, service.name);
+              const watchlistSetKey = watchlistKey(service.namespace, service.name, service.environment);
               const selected = watchlistSet.has(watchlistSetKey);
               return (
                 <div key={itemKey} className={styles.row} role="listitem">
@@ -71,7 +71,9 @@ export function OpsServicePicker({ isOpen, services, watchlist, onDismiss, onAdd
                     size="sm"
                     variant={selected ? 'secondary' : 'primary'}
                     onClick={() =>
-                      selected ? onRemove(service.namespace, service.name) : onAdd(service.namespace, service.name)
+                      selected
+                        ? onRemove(service.namespace, service.name, service.environment)
+                        : onAdd(service.namespace, service.name, service.environment)
                     }
                   >
                     {selected ? 'Remove' : 'Add'}
@@ -98,11 +100,18 @@ export function OpsServicePicker({ isOpen, services, watchlist, onDismiss, onAdd
 }
 
 const getStyles = (theme: GrafanaTheme2) => ({
+  modal: css`
+    width: 760px;
+    max-width: 90vw;
+  `,
   content: css`
     display: flex;
     flex-direction: column;
     gap: ${theme.spacing(1.5)};
-    min-width: min(760px, 80vw);
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
   `,
   list: css`
     display: flex;
@@ -117,9 +126,14 @@ const getStyles = (theme: GrafanaTheme2) => ({
     align-items: center;
     justify-content: space-between;
     gap: ${theme.spacing(2)};
+    min-width: 0;
     padding: ${theme.spacing(1.25)} ${theme.spacing(1.5)};
     border: 1px solid ${theme.colors.border.medium};
     border-radius: ${theme.shape.radius.default};
+
+    & > button {
+      flex-shrink: 0;
+    }
   `,
   meta: css`
     display: flex;
