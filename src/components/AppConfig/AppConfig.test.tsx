@@ -138,6 +138,61 @@ describe('Components/AppConfig', () => {
     expect(payload.secureJsonData?.serviceAccountToken).toBeUndefined();
   });
 
+  test('clears a configured service account token via reset + save (sends empty string)', async () => {
+    const plugin = {
+      meta: {
+        ...props.plugin.meta,
+        enabled: true,
+        secureJsonFields: { serviceAccountToken: true },
+      },
+    };
+
+    await act(async () => {
+      // @ts-ignore
+      render(<AppConfig plugin={plugin} query={props.query} />);
+    });
+
+    // A configured SecretInput renders a Reset button; clicking it signals intent
+    // to clear the secret rather than leaving the stored value untouched.
+    const resetButtons = screen.getAllByText('Reset');
+    await act(async () => {
+      fireEvent.click(resetButtons[0]);
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(testIds.appConfig.submit));
+    });
+
+    const payload = submittedPayload();
+    // Explicit reset must send an empty string so Grafana overwrites/clears it.
+    expect(payload.secureJsonData?.serviceAccountToken).toBe('');
+    // The untouched nais token must not be sent at all.
+    expect(payload.secureJsonData?.naisApiToken).toBeUndefined();
+  });
+
+  test('does not send a configured secret that was left untouched', async () => {
+    const plugin = {
+      meta: {
+        ...props.plugin.meta,
+        enabled: true,
+        secureJsonFields: { serviceAccountToken: true, naisApiToken: true },
+      },
+    };
+
+    await act(async () => {
+      // @ts-ignore
+      render(<AppConfig plugin={plugin} query={props.query} />);
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(testIds.appConfig.submit));
+    });
+
+    const payload = submittedPayload();
+    // Nothing was touched, so no secure payload should be sent (secrets preserved).
+    expect(payload.secureJsonData).toBeUndefined();
+  });
+
   test('shows the nais API token as configured and round-trips a provisioned URL', async () => {
     const plugin = {
       meta: {
