@@ -17,6 +17,7 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/backend/instancemgmt"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/resource/httpadapter"
+	"github.com/grafana/grafana-plugin-sdk-go/config"
 	"github.com/nais/grafana-otel-plugin/pkg/plugin/otelconfig"
 	"github.com/nais/grafana-otel-plugin/pkg/plugin/queries"
 	"golang.org/x/sync/singleflight"
@@ -269,7 +270,7 @@ func (a *App) promClientForRequest(r *http.Request) *queries.PrometheusClient {
 // feature (PluginAppClientSecret), then falls back to the manual token
 // from secureJsonData.
 func (a *App) resolveServiceToken(ctx context.Context) string {
-	cfg := backend.GrafanaConfigFromContext(ctx)
+	cfg := config.GrafanaConfigFromContext(ctx)
 	if cfg != nil {
 		if token, err := cfg.PluginAppClientSecret(); err == nil && token != "" {
 			return token

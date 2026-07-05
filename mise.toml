@@ -4,7 +4,7 @@ task_output = "interleave"
 
 [tools]
 node = "22"
-go = "1.25"
+go = "1.26"
 "golangci-lint" = "latest"
 
 [env]
