@@ -391,6 +391,8 @@ export interface AlertRuleSummary {
   activeSince: string;
   activeCount: number;
   groupName: string;
+  /** Where the rule is defined: Mimir ruler or Grafana unified alerting. */
+  source?: 'mimir' | 'grafana';
 }
 
 export interface NamespaceAlertsResponse {
@@ -401,6 +403,358 @@ export interface NamespaceAlertsResponse {
 
 export async function getNamespaceAlerts(namespace: string): Promise<NamespaceAlertsResponse> {
   return fetchResource<NamespaceAlertsResponse>(`/namespaces/${encodeURIComponent(namespace)}/alerts`);
+}
+
+// ---- Alert rule templates (#65 Phase 1) ----
+
+export type AlertTemplateKind = 'error-rate' | 'exception-spike' | 'web-vitals' | 'new-exceptions' | 'slo-burn-rate';
+
+export interface AlertTemplateResponse {
+  /**
+   * Ready-to-navigate Grafana URL (`/alerting/new?defaults=<encoded JSON>`).
+   * Append `&returnTo=<encoded current plugin URL>` before navigating — see
+   * buildAlertRuleUrl().
+   */
+  url: string;
+  /** The decoded RuleFormValues-shaped defaults object (debugging aid). */
+  defaults: unknown;
+}
+
+export async function getAlertTemplate(
+  kind: AlertTemplateKind,
+  opts: {
+    namespace?: string;
+    service: string;
+    environment?: string;
+    fingerprint?: string;
+    hashes?: string[];
+    /** slo-burn-rate: which burn tier ('fast' pages, 'slow' tickets). */
+    window?: 'fast' | 'slow';
+    /** slo-burn-rate: SLO target as a fraction (e.g. 0.999). */
+    slo?: number;
+  }
+): Promise<AlertTemplateResponse> {
+  const params: Record<string, string> = { service: opts.service };
+  if (opts.namespace) {
+    params.namespace = opts.namespace;
+  }
+  if (opts.environment) {
+    params.environment = opts.environment;
+  }
+  if (opts.fingerprint) {
+    params.fingerprint = opts.fingerprint;
+  }
+  if (opts.hashes?.length) {
+    params.hash = opts.hashes.join(',');
+  }
+  if (opts.window) {
+    params.window = opts.window;
+  }
+  if (opts.slo !== undefined) {
+    params.slo = String(opts.slo);
+  }
+  return fetchResource<AlertTemplateResponse>(`/alert-templates/${kind}`, params);
+}
+
+// ---- Service alerts (rules mentioning a service, #32/#33 home) ----
+
+/**
+ * Active-instance firing detail for a rule: what is firing, since when, at what
+ * value vs threshold. Populated by the #32/#33 follow-up (fetched from the
+ * Alertmanager APIs and joined by rule UID); undefined in the v1 rule list,
+ * where the Alerts tab renders it as "—".
+ */
+export interface AlertFiringState {
+  state: 'firing' | 'pending' | 'inactive';
+  activeSince?: string;
+  value?: string;
+}
+
+/** A rule mentioning a service, from the merged Mimir + Grafana rule fetch. */
+export interface ServiceAlertRule extends AlertRuleSummary {
+  /** #32/#33 seam — absent in v1; the Alerts tab shows "—" until it lands. */
+  firingState?: AlertFiringState;
+}
+
+export interface ServiceAlertsResponse {
+  rules: ServiceAlertRule[];
+  /** Both rule sources were configured but unreachable. */
+  unavailable?: boolean;
+  errorMessage?: string;
+}
+
+export async function getServiceAlerts(namespace: string, service: string): Promise<ServiceAlertsResponse> {
+  return fetchResource<ServiceAlertsResponse>(`/services/${nsParam(namespace)}/${encodeURIComponent(service)}/alerts`);
+}
+
+/**
+ * Append returnTo (the current plugin URL) to a template URL so Grafana's
+ * alert editor navigates back here on save/cancel. Call at click time — the
+ * template URL from the backend never embeds returnTo.
+ */
+export function buildAlertRuleUrl(templateUrl: string): string {
+  const returnTo = window.location.pathname + window.location.search;
+  return `${templateUrl}&returnTo=${encodeURIComponent(returnTo)}`;
+}
+
+// ---- Exception groups (fingerprint-keyed issues, #62) ----
+
+export interface ExceptionGroup {
+  /** Versioned fingerprint, e.g. "v1:9f2ab31c04d7e655" — the stable issue identity. */
+  fingerprint: string;
+  tier: number;
+  title: string;
+  types?: string[];
+  count: number;
+  sessions: number;
+  /** Upstream Alloy hashes merged into this group (drawer queries by these). */
+  memberHashes: string[];
+  truncated?: boolean;
+}
+
+export interface ExceptionGroupsResponse {
+  fingerprintVersion: string;
+  groups: ExceptionGroup[];
+  unavailable?: boolean;
+  /** Sessions were computed over this narrower window (Loki series-limit fallback). */
+  sessionsWindowSeconds?: number;
+  /** Session counts could not be computed at all — render a dash, not 0. */
+  sessionsUnavailable?: boolean;
+}
+
+export async function getExceptionGroups(
+  namespace: string,
+  service: string,
+  from: number,
+  to: number,
+  environment?: string
+): Promise<ExceptionGroupsResponse> {
+  const params: Record<string, string> = { ...timeParams(from, to) };
+  if (environment) {
+    params.environment = environment;
+  }
+  return fetchResource<ExceptionGroupsResponse>(
+    `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/exceptions/groups`,
+    params
+  );
+}
+
+// ---- Unified issues (browser + server errors, #63) ----
+
+export type IssueSource = 'browser' | 'server';
+
+export interface IssueImpact {
+  /** Distinct pods with occurrences (server issues; may be 0). */
+  pods: number;
+  /** App versions with occurrences (may be empty). */
+  versions: string[];
+}
+
+export interface UnifiedIssue {
+  /** Versioned fingerprint, e.g. "v1:9f2ab31c04d7e655" — the stable issue identity. */
+  fingerprint: string;
+  tier: number;
+  title: string;
+  types?: string[];
+  count: number;
+  /** Distinct sessions — always 0 for server issues (no session concept). */
+  sessions: number;
+  /** Upstream Alloy hashes merged into this group — empty for server issues. */
+  memberHashes: string[];
+  truncated?: boolean;
+  source: IssueSource;
+  impact?: IssueImpact;
+}
+
+/** One discovered facet value with its occurrence count in range. */
+export interface IssueFacetValue {
+  value: string;
+  count: number;
+}
+
+/** Discoverable browser-facet values (top 15 by occurrence) for narrowing the list. */
+export interface IssueFacets {
+  versions: IssueFacetValue[];
+  browsers: IssueFacetValue[];
+  topPages: IssueFacetValue[];
+}
+
+/** Active browser facets that scope the issues list to Faro telemetry. */
+export interface IssueFacetSelection {
+  version?: string;
+  browser?: string;
+  page?: string;
+}
+
+export interface IssuesResponse {
+  fingerprintVersion: string;
+  /** Which sources contributed data (probe results). */
+  sources: { browser: boolean; serverLogs: boolean };
+  issues: UnifiedIssue[];
+  unavailable?: boolean;
+  /** Sessions were computed over this narrower window (Loki series-limit fallback). */
+  sessionsWindowSeconds?: number;
+  /** Session counts could not be computed at all — render a dash, not 0. */
+  sessionsUnavailable?: boolean;
+  /** Discoverable facet values for narrowing (absent when Faro is unavailable). */
+  facets?: IssueFacets;
+  /** 'browser' when a facet is active: the list is scoped to browser telemetry. */
+  facetedSource?: IssueSource;
+}
+
+export async function getIssues(
+  namespace: string,
+  service: string,
+  from: number,
+  to: number,
+  environment?: string,
+  facets?: IssueFacetSelection
+): Promise<IssuesResponse> {
+  const params: Record<string, string> = { ...timeParams(from, to) };
+  if (environment) {
+    params.environment = environment;
+  }
+  if (facets?.version) {
+    params.version = facets.version;
+  }
+  if (facets?.browser) {
+    params.browser = facets.browser;
+  }
+  if (facets?.page) {
+    params.page = facets.page;
+  }
+  return fetchResource<IssuesResponse>(`/services/${nsParam(namespace)}/${encodeURIComponent(service)}/issues`, params);
+}
+
+// ---- Frontend versions (release health, #64) ----
+
+export interface VersionStat {
+  /** Release identity — the git commit SHA by convention (#64). */
+  version: string;
+  /** Distinct sessions observed on this version in range. */
+  sessions: number;
+  /** Share of all sessions in range on this version (0..1). */
+  adoption: number;
+  /** 1 - (sessions with >=1 exception / sessions), 0..1. 0 when sessions is 0. */
+  errorFreeRate: number;
+  /** Exception occurrences on this version in range. */
+  exceptions: number;
+  /** Deploy annotation timestamp (epoch ms), when a deploy marker exists. */
+  deployedAtMs?: number;
+}
+
+export interface FrontendVersionsResponse {
+  versions: VersionStat[];
+  /** Version tag on the newest deploy annotation in range. */
+  latestVersion?: string;
+  unavailable?: boolean;
+}
+
+export async function getFrontendVersions(
+  namespace: string,
+  service: string,
+  from: number,
+  to: number,
+  environment?: string
+): Promise<FrontendVersionsResponse> {
+  const params: Record<string, string> = { ...timeParams(from, to) };
+  if (environment) {
+    params.environment = environment;
+  }
+  return fetchResource<FrontendVersionsResponse>(
+    `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/frontend/versions`,
+    params
+  );
+}
+
+// ---- Frontend sessions (M5) ----
+
+export interface SessionSummary {
+  sessionId: string;
+  /** Activity bounds from the metadata harvest (epoch ms); 0 when unknown. */
+  firstSeenMs: number;
+  lastSeenMs: number;
+  /** Total Faro lines (all kinds) for the session in range. */
+  events: number;
+  /** Exception count for the session in range. */
+  errors: number;
+  userId: string;
+  userEmail: string;
+  browser: string;
+  os: string;
+  appVersion: string;
+  /** Distinct page URLs seen for the session in the metadata harvest. */
+  pages: number;
+}
+
+export interface FrontendSessionsResponse {
+  sessions: SessionSummary[];
+  /** True when more sessions matched than the response cap (50). */
+  truncated: boolean;
+  unavailable: boolean;
+  /** Set when counts cover a narrower recent window than the requested range. */
+  windowSeconds?: number;
+}
+
+export async function getFrontendSessions(
+  namespace: string,
+  service: string,
+  from: number,
+  to: number,
+  environment?: string,
+  q?: string
+): Promise<FrontendSessionsResponse> {
+  const params: Record<string, string> = { ...timeParams(from, to) };
+  if (environment) {
+    params.environment = environment;
+  }
+  if (q) {
+    params.q = q;
+  }
+  return fetchResource<FrontendSessionsResponse>(
+    `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/frontend/sessions`,
+    params
+  );
+}
+
+// ---- Issue triage (#57) ----
+
+export interface TriageState {
+  status: 'active' | 'resolved' | 'ignored';
+  assignee?: string;
+  resolvedInVersion?: string;
+  updatedAt: number;
+  updatedBy: string;
+}
+
+export interface TriageAction {
+  action: 'resolve' | 'ignore' | 'unresolve' | 'assign';
+  assignee?: string;
+  resolvedInVersion?: string;
+  note?: string;
+}
+
+export async function getTriageStates(namespace: string, service: string): Promise<Record<string, TriageState>> {
+  const resp = await fetchResource<{ states: Record<string, TriageState> }>(
+    `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/triage`
+  );
+  return resp.states ?? {};
+}
+
+export async function postTriageAction(
+  namespace: string,
+  service: string,
+  fingerprint: string,
+  body: TriageAction
+): Promise<TriageState> {
+  const response = await lastValueFrom(
+    getBackendSrv().fetch<TriageState>({
+      url: `${BASE_URL}/services/${nsParam(namespace)}/${encodeURIComponent(service)}/triage/${encodeURIComponent(fingerprint)}`,
+      method: 'POST',
+      data: body,
+    })
+  );
+  return response.data;
 }
 
 export async function getDependencyDetail(
@@ -697,6 +1051,12 @@ export async function getRuntimeMetrics(
 export interface OpsWatchlistEntry {
   namespace: string;
   service: string;
+  /**
+   * Environment the service is watched in. One entry per environment, so
+   * watching prod doesn't pull in dev. Empty/undefined = legacy entry watched
+   * across all environments.
+   */
+  environment?: string;
 }
 
 function extractErrorDetail(error: unknown): string {
@@ -769,4 +1129,86 @@ export async function saveOpsWatchlist(entries: OpsWatchlistEntry[]): Promise<Op
   } catch (error) {
     throw formatWatchlistError('failed to save plugin settings', error);
   }
+}
+
+// ---- Custom metrics (#68 Phase 0) ----
+
+export interface CustomMetric {
+  name: string;
+  /** Prometheus metadata type (counter, gauge, histogram, …) or a suffix-heuristic guess. */
+  type: string;
+  help: string;
+  unit: string;
+  /** Active series count for the family within the service filter. */
+  series: number;
+  /** Families over the series threshold are listed but not auto-charted. */
+  highCardinality: boolean;
+  /** Auto-chart hint derived from the metric type. */
+  chart: 'rate' | 'p95' | 'gauge';
+}
+
+export interface CustomMetricsResponse {
+  metrics: CustomMetric[];
+  truncated: boolean;
+}
+
+export async function getCustomMetrics(
+  namespace: string,
+  service: string,
+  from: number,
+  to: number,
+  environment?: string
+): Promise<CustomMetricsResponse> {
+  const params: Record<string, string> = { ...timeParams(from, to) };
+  if (environment) {
+    params.environment = environment;
+  }
+  return fetchResource<CustomMetricsResponse>(
+    `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/custom-metrics`,
+    params
+  );
+}
+
+// ---- User feedback (M6) ----
+
+export interface FeedbackEntry {
+  timeMs: number;
+  message: string;
+  category: string;
+  email?: string;
+  sessionId?: string;
+  fingerprint?: string;
+  pageUrl?: string;
+  appVersion?: string;
+}
+
+export interface FeedbackResponse {
+  feedback: FeedbackEntry[];
+  unavailable?: boolean;
+}
+
+/** Feedback captured via @nais/apm's captureFeedback(), newest first. */
+export async function getFeedback(
+  namespace: string,
+  service: string,
+  from: number,
+  to: number,
+  environment?: string,
+  sessionId?: string,
+  fingerprint?: string
+): Promise<FeedbackResponse> {
+  const params: Record<string, string> = { ...timeParams(from, to) };
+  if (environment) {
+    params.environment = environment;
+  }
+  if (sessionId) {
+    params.sessionId = sessionId;
+  }
+  if (fingerprint) {
+    params.fingerprint = fingerprint;
+  }
+  return fetchResource<FeedbackResponse>(
+    `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/feedback`,
+    params
+  );
 }

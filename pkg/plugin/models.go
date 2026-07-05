@@ -119,15 +119,18 @@ type ServiceMapNode struct {
 	HubDegree     int     `json:"hubDegree,omitempty"`
 	CallerCount   int     `json:"callerCount,omitempty"`
 	ErrorRate     float64 `json:"errorRate"`
+	// ServiceCount is the number of distinct services a clustered (namespace)
+	// node represents. Zero/omitted for ordinary service-level nodes.
+	ServiceCount int `json:"serviceCount,omitempty"`
 }
 
 // ServiceMapEdge represents an edge between two services.
 type ServiceMapEdge struct {
-	ID            string  `json:"id"`
-	Source        string  `json:"source"`
-	Target        string  `json:"target"`
-	MainStat      string  `json:"mainStat,omitempty"`
-	SecondaryStat string  `json:"secondaryStat,omitempty"`
+	ID            string `json:"id"`
+	Source        string `json:"source"`
+	Target        string `json:"target"`
+	MainStat      string `json:"mainStat,omitempty"`
+	SecondaryStat string `json:"secondaryStat,omitempty"`
 }
 
 // ServiceMapResponse is the full service map graph.
@@ -150,10 +153,21 @@ type AlertRuleSummary struct {
 	ActiveSince string `json:"activeSince,omitempty"`
 	ActiveCount int    `json:"activeCount"`
 	GroupName   string `json:"groupName"`
+	Source      string `json:"source,omitempty"` // "mimir" (ruler) or "grafana" (unified alerting)
 }
 
 // NamespaceAlertsResponse wraps alert rules for a namespace.
 type NamespaceAlertsResponse struct {
+	Rules        []AlertRuleSummary `json:"rules"`
+	Unavailable  bool               `json:"unavailable,omitempty"`
+	ErrorMessage string             `json:"errorMessage,omitempty"`
+}
+
+// ServiceAlertsResponse wraps the alert rules that mention a single service —
+// the service-scoped sibling of NamespaceAlertsResponse and the payload of the
+// Alerts tab's rule list. Per-rule active-instance firing detail (#32/#33)
+// layers over this list as a follow-up; v1 returns rule definitions only.
+type ServiceAlertsResponse struct {
 	Rules        []AlertRuleSummary `json:"rules"`
 	Unavailable  bool               `json:"unavailable,omitempty"`
 	ErrorMessage string             `json:"errorMessage,omitempty"`

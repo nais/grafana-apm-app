@@ -6,8 +6,6 @@ import {
   SceneFlexLayout,
   SceneFlexItem,
   SceneTimeRange,
-  SceneTimePicker,
-  SceneRefreshPicker,
   SceneVariableSet,
   CustomVariable,
   VariableValueSelectors,
@@ -18,10 +16,14 @@ import {
 import { DashboardCursorSync } from '@grafana/schema';
 import { getFrontendMetrics } from '../../api/client';
 import { usePluginDatasources, usePluginLabelOverrides } from '../../utils/datasources';
+import { useTimeRange } from '../../utils/timeRange';
+import { useSceneTimeSync } from '../../utils/useSceneTimeSync';
 import { sanitizeLabelValue } from '../../utils/sanitize';
+import { apmDocs, APM_SDK_REPO_URL } from '../../utils/docsLinks';
 import { otel } from '../../otelconfig';
-import { useSearchParams } from 'react-router-dom';
+import { buildDeployAnnotationsLayer } from '../buildServiceScene';
 import { ExceptionDrawer } from './frontend/components/ExceptionDrawer';
+import { useExceptionDrawerState } from './frontend/useExceptionDrawer';
 
 import {
   WebVitalsBullets,
@@ -30,10 +32,11 @@ import {
   buildTrendsSection,
   buildPerPageSection,
   buildErrorsSection,
-  buildSupportSection,
+  buildBrowserBreakdownSection,
   buildTrafficSection,
   type FrontendSceneContext,
 } from './frontend';
+import { buildAttributionSection } from './frontend/attribution';
 
 interface FrontendTabProps {
   service: string;
@@ -46,21 +49,20 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
   const [available, setAvailable] = useState<boolean | null>(null);
   const [hasLoki, setHasLoki] = useState<boolean>(false);
   const [vitals, setVitals] = useState<Record<string, number> | undefined>();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const selectedHash = searchParams.get('exceptionHash') ?? '';
-  const selectedSessionId = searchParams.get('exceptionSessionId') ?? '';
-  const setSelectedSessionId = (id: string) => {
-    setSearchParams((prev) => {
-      const params = new URLSearchParams(prev);
-      if (id) {
-        params.set('exceptionSessionId', id);
-      } else {
-        params.delete('exceptionSessionId');
-      }
-      return params;
-    });
-  };
   const ds = usePluginDatasources(environment || undefined);
+  const { from, to } = useTimeRange();
+  // Shared with the Issues tab (#69 P1/P10) — an issueId deep link opens the
+  // drawer identically on both tabs.
+  const {
+    drawerHashes,
+    drawerLoading,
+    selectedGroupTitle,
+    selectedIssueId,
+    selectedHash,
+    selectedSessionId,
+    setSelectedSessionId,
+    closeDrawer,
+  } = useExceptionDrawerState(namespace, service, environment);
 
   useEffect(() => {
     let cancelled = false;
@@ -114,25 +116,22 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
         environment={environment}
         vitals={vitals}
         hasLoki={hasLoki}
+        from={from}
+        to={to}
       />
-      {selectedHash && (
+      {(drawerLoading || (drawerHashes && drawerHashes.length > 0)) && (
         <ExceptionDrawer
-          key={selectedHash}
-          hash={selectedHash}
+          key={selectedIssueId || selectedHash}
+          hashes={drawerHashes ?? []}
+          resolving={drawerLoading}
+          title={selectedGroupTitle}
           service={service}
           namespace={namespace}
           environment={environment}
           logsUid={ds.logsUid}
           selectedSessionId={selectedSessionId}
           onSessionChange={setSelectedSessionId}
-          onClose={() => {
-            setSearchParams((prev) => {
-              const params = new URLSearchParams(prev);
-              params.delete('exceptionHash');
-              params.delete('exceptionSessionId');
-              return params;
-            });
-          }}
+          onClose={closeDrawer}
         />
       )}
     </div>
@@ -151,10 +150,14 @@ function FrontendPanels({
   environment,
   vitals,
   hasLoki,
+  from,
+  to,
 }: {
   service: string;
   namespace: string;
   environment?: string;
+  from: string;
+  to: string;
   vitals?: Record<string, number>;
   hasLoki: boolean;
 }) {
@@ -186,7 +189,8 @@ function FrontendPanels({
     const trendsRow = buildTrendsSection(ctx);
     const perPageTable = buildPerPageSection(ctx);
     const errorsRow = buildErrorsSection(ctx);
-    const supportRow = buildSupportSection(ctx);
+    const browserBreakdownRow = buildBrowserBreakdownSection(ctx);
+    const attributionRow = buildAttributionSection(ctx);
     const trafficRow = buildTrafficSection(ctx);
 
     // Browser filter variable
@@ -208,24 +212,40 @@ function FrontendPanels({
       : null;
 
     return new EmbeddedScene({
-      $timeRange: new SceneTimeRange({ from: 'now-1h', to: 'now' }),
+      // Synced to the shared URL time range (was hardcoded now-1h, which left
+      // scene panels and the drawer/issues table querying different windows).
+      $timeRange: new SceneTimeRange({ from, to }),
+      // Deploy markers (#64): annotation layer inherited by all child panels.
+      $data: buildDeployAnnotationsLayer(service, environment),
       $variables: new SceneVariableSet({ variables: [browserVar] }),
       $behaviors: [new behaviors.CursorSync({ sync: DashboardCursorSync.Crosshair })],
-      controls: [new VariableValueSelectors({}), new SceneTimePicker({}), new SceneRefreshPicker({})],
+      // Global header owns time controls; the browser variable stays.
+      controls: [new VariableValueSelectors({})],
       body: new SceneFlexLayout({
         direction: 'column',
         children: [
           ...(bulletsItem ? [bulletsItem] : []),
           insightsRow,
-          trendsRow,
+          // Vitals-first (#69 P6): the tab's primary question is "is the UX
+          // healthy?" — issues stays as one compact browser-scoped row (full
+          // triage moved to the Issues tab) so the trends below aren't pushed
+          // down by a tall table.
           errorsRow,
+          trendsRow,
+          // Web-vitals attribution: which LCP element / interaction / layout
+          // shift is responsible — right after the vitals trends they explain.
+          ...(attributionRow ? [attributionRow] : []),
           ...(perPageTable ? [perPageTable] : []),
+          ...(browserBreakdownRow ? [browserBreakdownRow] : []),
           trafficRow,
-          ...(supportRow ? [supportRow] : []),
         ],
       }),
     });
-  }, [ds, service, namespace, environment, svcFilter, ah, hasLoki, vitals, labelOverrides]);
+  }, [ds, service, namespace, environment, svcFilter, ah, hasLoki, vitals, labelOverrides, from, to]);
+  // Header refresh of a relative range re-resolves fromMs/toMs while the raw
+  // strings stay put — re-query the live scene instead of rebuilding it.
+  const { fromMs, toMs } = useTimeRange();
+  useSceneTimeSync(scene, fromMs, toMs);
 
   return <scene.Component model={scene} />;
 }
@@ -288,15 +308,23 @@ function SetupPlaceholder({ namespace, service }: { namespace: string; service: 
         </div>
       </div>
 
-      <LinkButton
-        href="https://grafana.com/docs/faro-web-sdk/latest/tutorials/quick-start-browser/"
-        target="_blank"
-        variant="secondary"
-        icon="external-link-alt"
-        size="sm"
-      >
-        Faro Quick Start Guide
-      </LinkButton>
+      <div className={styles.setupLinks}>
+        <LinkButton href={apmDocs.trackFrontendErrors()} target="_blank" variant="primary" icon="book" size="sm">
+          Track frontend errors with Nais APM
+        </LinkButton>
+        <LinkButton href={APM_SDK_REPO_URL} target="_blank" variant="secondary" icon="github" size="sm">
+          @nais/apm SDK
+        </LinkButton>
+        <LinkButton
+          href="https://grafana.com/docs/faro-web-sdk/latest/tutorials/quick-start-browser/"
+          target="_blank"
+          variant="secondary"
+          icon="external-link-alt"
+          size="sm"
+        >
+          Faro Quick Start Guide
+        </LinkButton>
+      </div>
     </div>
   );
 }
@@ -319,6 +347,11 @@ const getStyles = (theme: GrafanaTheme2) => ({
     display: flex;
     flex-direction: column;
     gap: ${theme.spacing(3)};
+  `,
+  setupLinks: css`
+    display: flex;
+    flex-wrap: wrap;
+    gap: ${theme.spacing(1)};
   `,
   features: css`
     display: flex;

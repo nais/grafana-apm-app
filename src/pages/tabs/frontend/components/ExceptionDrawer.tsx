@@ -1,16 +1,104 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Drawer, Icon, Spinner, Alert, useStyles2, Combobox } from '@grafana/ui';
-import { GrafanaTheme2 } from '@grafana/data';
+import { useSearchParams } from 'react-router-dom';
+import {
+  Button,
+  Drawer,
+  Icon,
+  Input,
+  Spinner,
+  Alert,
+  useStyles2,
+  Combobox,
+  Badge,
+  Tooltip,
+  ControlledCollapse,
+  TextLink,
+} from '@grafana/ui';
+import { AppEvents, GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
-import { getBackendSrv } from '@grafana/runtime';
+import { getAppEvents, getBackendSrv, locationService } from '@grafana/runtime';
 import { lastValueFrom } from 'rxjs';
+import {
+  getAlertTemplate,
+  buildAlertRuleUrl,
+  getTriageStates,
+  postTriageAction,
+  getFeedback,
+  TriageState,
+  FeedbackEntry,
+} from '../../../../api/client';
 import { otel } from '../../../../otelconfig';
 import { PLUGIN_BASE_URL } from '../../../../constants';
 import { sanitizeLabelValue } from '../../../../utils/sanitize';
+import { apmDocs } from '../../../../utils/docsLinks';
 import { usePluginLabelOverrides } from '../../../../utils/datasources';
+import { useTimeRange } from '../../../../utils/timeRange';
+import { StackTraceView, isConsoleCaptureValue } from './StackTraceView';
+import {
+  parseLogfmt,
+  getBreadcrumbIcon,
+  groupBreadcrumbs,
+  formatTimestampNs,
+  formatListWithMore,
+  cleanUrl,
+  Breadcrumb,
+  GroupedBreadcrumb,
+} from '../exception-utils';
+import { probeReplay, ReplayProbeResult } from '../replay/fetchReplay';
+import { ReplaySection } from '../replay/ReplaySection';
+
+/** Millisecond timestamp → Loki nanosecond string (string concat avoids float precision loss). */
+function msToNs(ms: number): string {
+  return `${Math.floor(ms)}000000`;
+}
+
+/**
+ * Pad session-scoped queries (breadcrumbs, replay chunks) by an hour on both
+ * sides so a session that started before (or ended after) the selected page
+ * range isn't clipped.
+ */
+const SESSION_PAD_MS = 3600_000;
+
+/** Compact "Xm/Xh/Xd ago" label for the impact strip and feedback list. */
+function formatRelativeTime(ms: number): string {
+  const diffMs = Date.now() - ms;
+  if (diffMs < 60_000) {
+    return 'just now';
+  }
+  const minutes = Math.floor(diffMs / 60_000);
+  if (minutes < 60) {
+    return `${minutes}m ago`;
+  }
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return `${hours}h ago`;
+  }
+  const days = Math.floor(hours / 24);
+  if (days < 30) {
+    return `${days}d ago`;
+  }
+  const months = Math.floor(days / 30);
+  if (months < 12) {
+    return `${months}mo ago`;
+  }
+  return `${Math.floor(months / 12)}y ago`;
+}
 
 interface ExceptionDrawerProps {
-  hash: string;
+  /**
+   * Upstream Alloy hashes to load occurrences for. One entry for legacy
+   * exceptionHash links; several when a fingerprint group (#62) merged
+   * multiple raw hashes.
+   */
+  hashes: string[];
+  /**
+   * True while a fresh `issueId` deep link is still resolving to its member
+   * hashes. The drawer mounts immediately (so the open animation plays once)
+   * and shows its spinner; the occurrence fetch is skipped until hashes land.
+   */
+  resolving?: boolean;
+  /** Group title from the fingerprint pipeline (falls back to parsed value). */
+  title?: string;
   service: string;
   namespace: string;
   environment?: string;
@@ -40,41 +128,21 @@ interface ParsedException {
   userEmail?: string;
 }
 
-interface Breadcrumb {
-  timestampNs: string;
-  kind: string;
-  message: string;
-  type?: string;
-  value?: string;
-  eventName?: string;
-  eventDomain?: string;
-  level?: string;
-  fcp?: string;
-  lcp?: string;
-  cls?: string;
-  inp?: string;
-  ttfb?: string;
-  rating?: string;
-  attributes?: Record<string, string>;
-}
-
-interface GroupedBreadcrumb {
-  timestampNs: string;
-  kind: string;
-  message: string;
-  count: number;
-}
-
 interface AggregatedStats {
   uniqueUsers: number;
   uniqueSessions: number;
   appVersions: string[];
   browsers: string[];
   total: number;
+  /** Earliest/latest occurrence timestamp (ms) across all returned lines, for the impact strip. */
+  firstSeenMs?: number;
+  lastSeenMs?: number;
 }
 
 export function ExceptionDrawer({
-  hash,
+  hashes,
+  resolving = false,
+  title,
   service,
   namespace,
   environment,
@@ -91,11 +159,19 @@ export function ExceptionDrawer({
   const [occurrences, setOccurrences] = useState<ParsedException[]>([]);
   const [breadcrumbs, setBreadcrumbs] = useState<GroupedBreadcrumb[]>([]);
   const [loadingBreadcrumbs, setLoadingBreadcrumbs] = useState(false);
+  const [replayProbe, setReplayProbe] = useState<ReplayProbeResult | null>(null);
+  const [creatingAlert, setCreatingAlert] = useState(false);
+  const [feedback, setFeedback] = useState<FeedbackEntry[]>([]);
   const labelOverrides = usePluginLabelOverrides();
+  // The drawer is opened purely from URL state (docs/url-contract.md) — the
+  // fingerprint identity lives in the `issueId` search param, not in props.
+  const [searchParams] = useSearchParams();
+  const issueId = searchParams.get('issueId') ?? '';
 
   const fl = otel.faroLoki;
   const clusterLabel = labelOverrides.deploymentEnvLabel || otel.labels.deploymentEnv;
   const clusterStream = environment ? `, ${clusterLabel}="${sanitizeLabelValue(environment)}"` : '';
+  const { fromMs, toMs } = useTimeRange();
 
   const selectedSessionIdRef = useRef(selectedSessionId);
   const onSessionChangeRef = useRef(onSessionChange);
@@ -105,11 +181,25 @@ export function ExceptionDrawer({
     onSessionChangeRef.current = onSessionChange;
   }, [selectedSessionId, onSessionChange]);
 
+  // Stable key so the occurrences effect doesn't refire on array identity.
+  const hashesKey = hashes.map(sanitizeLabelValue).join('|');
+
   useEffect(() => {
     let cancelled = false;
+    // While the deep link is still resolving to hashes, keep the spinner and
+    // don't query — the same drawer instance will re-run this once hashes land.
+    if (resolving || hashesKey === '') {
+      setLoading(true);
+      return;
+    }
     setLoading(true);
 
-    const query = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindException}"${clusterStream}} | logfmt | ${fl.hash}="${sanitizeLabelValue(hash)}"`;
+    // Line prefilters let Loki skip logfmt-parsing lines for other hashes.
+    // Multiple hashes = one fingerprint group's members (#62).
+    const single = !hashesKey.includes('|');
+    const lineFilter = single ? `|= \`${fl.hash}=${hashesKey}\`` : `|~ \`${fl.hash}=(${hashesKey})\``;
+    const fieldFilter = single ? `${fl.hash}="${hashesKey}"` : `${fl.hash}=~"(${hashesKey})"`;
+    const query = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindException}"${clusterStream}} ${lineFilter} | logfmt | ${fieldFilter}`;
 
     lastValueFrom(
       getBackendSrv().fetch<any>({
@@ -117,6 +207,8 @@ export function ExceptionDrawer({
         params: {
           query,
           limit: '100', // Fetch up to 100 instances to aggregate impact
+          start: msToNs(fromMs),
+          end: msToNs(toMs),
         },
         method: 'GET',
       })
@@ -139,6 +231,8 @@ export function ExceptionDrawer({
         const sessions = new Set<string>();
         const versions = new Set<string>();
         const browsers = new Set<string>();
+        let firstSeenMs: number | undefined;
+        let lastSeenMs: number | undefined;
 
         // Aggregate across all returned streams (Loki might return multiple streams if labels differ)
         streams.forEach((stream: any) => {
@@ -169,6 +263,12 @@ export function ExceptionDrawer({
               uniqueSessionsMap.set(ex.sessionId, ex);
             }
 
+            const parsedTs = ex.timestamp ? Date.parse(ex.timestamp) : NaN;
+            if (Number.isFinite(parsedTs)) {
+              firstSeenMs = firstSeenMs === undefined ? parsedTs : Math.min(firstSeenMs, parsedTs);
+              lastSeenMs = lastSeenMs === undefined ? parsedTs : Math.max(lastSeenMs, parsedTs);
+            }
+
             const user = parsed.user_email || parsed.user_username || parsed.user_id;
             if (user) {
               users.add(user);
@@ -192,6 +292,8 @@ export function ExceptionDrawer({
           appVersions: Array.from(versions),
           browsers: Array.from(browsers),
           total,
+          firstSeenMs,
+          lastSeenMs,
         });
 
         const sessionList = Array.from(uniqueSessionsMap.values());
@@ -220,13 +322,24 @@ export function ExceptionDrawer({
     return () => {
       cancelled = true;
     };
+    // `labelOverrides` (the raw object from usePluginLabelOverrides) is
+    // deliberately NOT a dep here — the effect only ever reads it indirectly
+    // via `clusterStream`, which is already listed. Depending on the object
+    // itself made this effect refire whenever that reference changed for any
+    // reason unrelated to the query it built, and since a successful fetch
+    // sets several new-identity state values (stats/occurrences/exception),
+    // any re-render that also produced a fresh `labelOverrides` reference fed
+    // straight back into another fetch — a self-sustaining refetch loop, not
+    // just a one-off double-fire.
   }, [
-    hash,
+    resolving,
+    hashesKey,
     service,
     environment,
     logsUid,
-    labelOverrides,
     clusterStream,
+    fromMs,
+    toMs,
     fl.hash,
     fl.kind,
     fl.kindException,
@@ -241,7 +354,10 @@ export function ExceptionDrawer({
     let cancelled = false;
     setLoadingBreadcrumbs(true);
 
-    const breadcrumbsQuery = `{${fl.serviceName}="${sanitizeLabelValue(service)}"${clusterStream}} | logfmt | ${fl.sessionId}="${sanitizeLabelValue(selectedSessionId)}"`;
+    // The |= line filter lets Loki skip logfmt-parsing every Faro line for the app.
+    const breadcrumbsQuery = `{${fl.serviceName}="${sanitizeLabelValue(service)}"${clusterStream}} |= \`${fl.sessionId}=${sanitizeLabelValue(selectedSessionId)}\` | logfmt | ${fl.sessionId}="${sanitizeLabelValue(selectedSessionId)}"`;
+
+    const padMs = SESSION_PAD_MS;
 
     lastValueFrom(
       getBackendSrv().fetch<any>({
@@ -250,6 +366,8 @@ export function ExceptionDrawer({
           query: breadcrumbsQuery,
           limit: '20',
           direction: 'backward', // get the most recent 20 events for the session
+          start: msToNs(fromMs - padMs),
+          end: msToNs(toMs + padMs),
         },
         method: 'GET',
       })
@@ -302,23 +420,7 @@ export function ExceptionDrawer({
         crumbs.sort((a, b) => (a.timestampNs > b.timestampNs ? 1 : -1));
 
         // Group consecutive duplicates
-        const groupedCrumbs: GroupedBreadcrumb[] = [];
-        crumbs.forEach((crumb) => {
-          const msg = getBreadcrumbMessage(crumb);
-          const last = groupedCrumbs[groupedCrumbs.length - 1];
-          if (last && last.kind === crumb.kind && last.message === msg) {
-            last.count++;
-          } else {
-            groupedCrumbs.push({
-              timestampNs: crumb.timestampNs,
-              kind: crumb.kind,
-              message: msg,
-              count: 1,
-            });
-          }
-        });
-
-        setBreadcrumbs(groupedCrumbs);
+        setBreadcrumbs(groupBreadcrumbs(crumbs));
         setLoadingBreadcrumbs(false);
       })
       .catch(() => {
@@ -330,7 +432,65 @@ export function ExceptionDrawer({
     return () => {
       cancelled = true;
     };
-  }, [selectedSessionId, service, environment, logsUid, clusterStream, fl.serviceName, fl.sessionId]);
+  }, [selectedSessionId, service, environment, logsUid, clusterStream, fromMs, toMs, fl.serviceName, fl.sessionId]);
+
+  // Probe for session-replay chunks (#58/#67) whenever the session changes —
+  // a cheap count-only metric query; the chunks themselves are only fetched
+  // when the user clicks the replay button.
+  useEffect(() => {
+    setReplayProbe(null);
+    if (!selectedSessionId) {
+      return;
+    }
+    let cancelled = false;
+    probeReplay({
+      logsUid,
+      service,
+      sessionId: selectedSessionId,
+      fromMs: fromMs - SESSION_PAD_MS,
+      toMs: toMs + SESSION_PAD_MS,
+      environment,
+      environmentLabel: clusterLabel,
+    })
+      .then((probe) => {
+        if (!cancelled) {
+          setReplayProbe(probe);
+        }
+      })
+      .catch(() => {
+        // No replay section on probe failure — replay is best-effort.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSessionId, service, environment, logsUid, clusterLabel, fromMs, toMs]);
+
+  // User feedback (M6): scoped to this issue's fingerprint, not the selected
+  // session — feedback is rare, so we show everything tied to the issue
+  // rather than narrowing to whichever occurrence happens to be selected.
+  // No fingerprint (legacy exceptionHash-only links) means no reliable join
+  // key, so skip the fetch entirely rather than showing unrelated feedback.
+  useEffect(() => {
+    if (!issueId) {
+      setFeedback([]);
+      return;
+    }
+    let cancelled = false;
+    getFeedback(namespace, service, fromMs, toMs, environment, undefined, issueId)
+      .then((res) => {
+        if (!cancelled) {
+          setFeedback(res.unavailable ? [] : (res.feedback ?? []));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFeedback([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [issueId, namespace, service, environment, fromMs, toMs]);
 
   useEffect(() => {
     if (occurrences.length > 0 && selectedSessionId) {
@@ -349,22 +509,51 @@ export function ExceptionDrawer({
     }
   };
 
+  // "Create alert" (#65): fetch the server-rendered exception-spike template
+  // and open Grafana's new-alert-rule form pre-filled for this issue.
+  const onCreateAlert = async () => {
+    setCreatingAlert(true);
+    try {
+      const template = await getAlertTemplate('exception-spike', {
+        namespace: namespace || undefined,
+        service,
+        environment,
+        fingerprint: issueId || undefined,
+        hashes,
+      });
+      locationService.push(buildAlertRuleUrl(template.url));
+    } catch (err) {
+      setCreatingAlert(false);
+      getAppEvents().publish({
+        type: AppEvents.alertError.name,
+        payload: ['Could not prepare alert rule', err instanceof Error ? err.message : String(err)],
+      });
+    }
+  };
+
   const envParam = environment ? `&environment=${encodeURIComponent(environment)}` : '';
   const nsSegment = encodeURIComponent(namespace || '_');
 
+  // Absolute exception time (ms) when derivable — recordings seek to it minus 10s.
+  const parsedExceptionTs = exception?.timestamp ? Date.parse(exception.timestamp) : NaN;
+  const exceptionTsMs = Number.isFinite(parsedExceptionTs) ? parsedExceptionTs : undefined;
+
+  // Logs search takes one term — use the session when known, else the first
+  // member hash (merged groups: searching a single member is still useful).
   const logsUrl = exception?.sessionId
     ? `${PLUGIN_BASE_URL}/services/${nsSegment}/${encodeURIComponent(service)}?tab=logs&from=now-6h&to=now${envParam}&includeFaro=true&logSearch=${encodeURIComponent(exception.sessionId)}`
-    : `${PLUGIN_BASE_URL}/services/${nsSegment}/${encodeURIComponent(service)}?tab=logs&from=now-6h&to=now${envParam}&includeFaro=true&kindFilter=exception&logSearch=${encodeURIComponent(hash)}`;
+    : `${PLUGIN_BASE_URL}/services/${nsSegment}/${encodeURIComponent(service)}?tab=logs&from=now-6h&to=now${envParam}&includeFaro=true&kindFilter=exception&logSearch=${encodeURIComponent(hashes[0] ?? '')}`;
 
   return (
     <Drawer
       title={exception?.type || 'Exception Details'}
-      subtitle={exception?.value || hash}
+      subtitle={title || exception?.value || hashes[0] || ''}
       onClose={onClose}
       closeOnMaskClick={true}
       size="lg"
     >
       <div className={styles.container}>
+        {issueId && <TriageControls namespace={namespace} service={service} fingerprint={issueId} />}
         {loading && (
           <div className={styles.center}>
             <Spinner size="lg" />
@@ -380,9 +569,60 @@ export function ExceptionDrawer({
 
         {exception && (
           <>
+            {/* P8 (docs/ia-review.md): stack trace leads — "where in my code?"
+                is the developer's first question — with a one-line impact
+                summary above it. Full context/breadcrumbs are collapsed by
+                default so they don't push the stack trace below the fold. */}
             {stats && (
+              <div className={styles.impactStrip}>
+                <Icon name="fire" size="sm" />
+                <span>
+                  {stats.total} occurrence{stats.total === 1 ? '' : 's'}
+                </span>
+                <span className={styles.impactDivider}>·</span>
+                <span>
+                  {stats.uniqueSessions} session{stats.uniqueSessions === 1 ? '' : 's'}
+                </span>
+                {stats.firstSeenMs !== undefined && (
+                  <>
+                    <span className={styles.impactDivider}>·</span>
+                    <span>first seen {formatRelativeTime(stats.firstSeenMs)}</span>
+                  </>
+                )}
+                {stats.lastSeenMs !== undefined && (
+                  <>
+                    <span className={styles.impactDivider}>·</span>
+                    <span>last seen {formatRelativeTime(stats.lastSeenMs)}</span>
+                  </>
+                )}
+              </div>
+            )}
+
+            {exception.stacktrace && (
               <div className={styles.section}>
-                <h4 className={styles.sectionTitle}>Context & Impact (Last {stats.total} occurrences)</h4>
+                <h4 className={styles.sectionTitle}>
+                  Stack Trace
+                  {isConsoleCaptureValue(exception.value) && (
+                    <Tooltip content="This exception was captured via console.error — the stack shows the call site of console.error (often a shared logger), not where the error was thrown. The first in-app frame below is the best origin guess.">
+                      <Badge
+                        className={styles.captureBadge}
+                        text="Captured via console.error"
+                        color="orange"
+                        icon="exclamation-triangle"
+                      />
+                    </Tooltip>
+                  )}
+                </h4>
+                <StackTraceView
+                  stack={exception.stacktrace}
+                  isConsoleCapture={isConsoleCaptureValue(exception.value)}
+                  className={styles.stacktrace}
+                />
+              </div>
+            )}
+
+            {stats && (
+              <ControlledCollapse label={`Occurrence context (last ${stats.total} occurrences)`} isOpen={false}>
                 <div className={styles.contextImpactContainer}>
                   <div className={styles.contextColumn}>
                     <h5 className={styles.subSectionTitle}>Most Recent Occurrence</h5>
@@ -469,21 +709,14 @@ export function ExceptionDrawer({
                     </div>
                   </div>
                 </div>
-              </div>
-            )}
-
-            {exception.stacktrace && (
-              <div className={styles.section}>
-                <h4 className={styles.sectionTitle}>Stack Trace</h4>
-                <pre className={styles.stacktrace}>
-                  <code>{formatStackTrace(exception.stacktrace)}</code>
-                </pre>
-              </div>
+              </ControlledCollapse>
             )}
 
             {exception.sessionId && (
-              <div className={styles.section}>
-                <h4 className={styles.sectionTitle}>Session Timeline (Breadcrumbs)</h4>
+              <ControlledCollapse
+                label={`Session timeline — ${breadcrumbs.length} event${breadcrumbs.length === 1 ? '' : 's'}`}
+                isOpen={false}
+              >
                 {loadingBreadcrumbs ? (
                   <div className={styles.bcLoading}>
                     <Spinner inline /> Loading breadcrumbs...
@@ -513,8 +746,33 @@ export function ExceptionDrawer({
                 ) : (
                   <span style={{ color: '#8c95a5', fontSize: '12px' }}>No session events found.</span>
                 )}
+              </ControlledCollapse>
+            )}
+
+            {exception.sessionId && replayProbe?.hasChunks && (
+              <div className={styles.section}>
+                <h4 className={styles.sectionTitle}>Session Replay</h4>
+                <ReplaySection
+                  key={exception.sessionId}
+                  logsUid={logsUid}
+                  service={service}
+                  environment={environment}
+                  environmentLabel={clusterLabel}
+                  sessionId={exception.sessionId}
+                  fromMs={fromMs - SESSION_PAD_MS}
+                  toMs={toMs + SESSION_PAD_MS}
+                  mode={replayProbe.mode ?? 'recording'}
+                  exceptionTsMs={exceptionTsMs}
+                />
+                <div className={styles.sectionDocsLink}>
+                  <TextLink href={apmDocs.enableSessionReplay()} external variant="bodySmall">
+                    Enable session replay
+                  </TextLink>
+                </div>
               </div>
             )}
+
+            {feedback.length > 0 && <FeedbackSection entries={feedback} />}
 
             <div className={styles.footerLinks}>
               {exception.sessionId && (
@@ -526,13 +784,26 @@ export function ExceptionDrawer({
                 </>
               )}
               <a
-                href={`${PLUGIN_BASE_URL}/services/${nsSegment}/${encodeURIComponent(service)}?tab=logs&from=now-6h&to=now${envParam}&includeFaro=true&kindFilter=exception&logSearch=${encodeURIComponent(hash)}`}
+                href={`${PLUGIN_BASE_URL}/services/${nsSegment}/${encodeURIComponent(service)}?tab=logs&from=now-6h&to=now${envParam}&includeFaro=true&kindFilter=exception&logSearch=${encodeURIComponent(hashes[0] ?? '')}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className={styles.footerLink}
               >
                 <Icon name="file-alt" /> View Raw Loki Log
               </a>
+              <span className={styles.footerDivider}>|</span>
+              <Button
+                size="sm"
+                variant="secondary"
+                icon="bell"
+                onClick={onCreateAlert}
+                disabled={creatingAlert || hashes.length === 0}
+              >
+                {creatingAlert ? 'Preparing alert…' : 'Create alert'}
+              </Button>
+              <TextLink href={apmDocs.createAlerts()} external variant="bodySmall" className={styles.footerDocsLink}>
+                About alert templates
+              </TextLink>
             </div>
           </>
         )}
@@ -564,190 +835,170 @@ function MetaItem({ label, value, link, icon }: { label: string; value?: string;
   );
 }
 
-function parseLogfmt(line: string): Record<string, string> {
-  const result: Record<string, string> = {};
-  const regex = /([a-zA-Z0-9_-]+)=(?:"([^"]*)"|([^\s]+))/g;
-  let match;
-  while ((match = regex.exec(line)) !== null) {
-    const key = match[1];
-    const val = match[2] !== undefined ? match[2] : match[3];
-    result[key] = val;
+const FEEDBACK_DISPLAY_LIMIT = 20;
+
+/** Category → Badge color, per M6 spec. Unknown categories fall back to gray. */
+function feedbackBadgeColor(category: string): 'red' | 'blue' | 'darkgrey' {
+  if (category === 'bug') {
+    return 'red';
   }
-  return result;
+  if (category === 'idea') {
+    return 'blue';
+  }
+  return 'darkgrey';
 }
 
-function getBreadcrumbMessage(bc: Breadcrumb): string {
-  if (bc.kind === 'event') {
-    const name = bc.eventName ? `${bc.eventDomain ? bc.eventDomain + '/' : ''}${bc.eventName}` : 'Unknown Event';
+/**
+ * User feedback (M6): entries captured via @nais/apm's captureFeedback(),
+ * joined to this issue by fingerprint. Rendered only when non-empty — the
+ * caller (ExceptionDrawer) hides this section entirely otherwise, since
+ * feedback is rare and an empty shell wastes drawer space.
+ */
+function FeedbackSection({ entries }: { entries: FeedbackEntry[] }) {
+  const styles = useStyles2(getStyles);
+  // API already returns newest-first; sort defensively so display order
+  // doesn't depend on that contract holding forever.
+  const sorted = [...entries].sort((a, b) => b.timeMs - a.timeMs);
+  const shown = sorted.slice(0, FEEDBACK_DISPLAY_LIMIT);
+  const extra = sorted.length - shown.length;
 
-    if (bc.eventName === 'faro.performance.resource' && bc.attributes) {
-      const resUrl = bc.attributes.name || '';
-      const cleanUrl = resUrl.split('?')[0];
-      const duration = bc.attributes.duration ? `${parseInt(bc.attributes.duration, 10)}ms` : '';
-      const initiator = bc.attributes.initiatorType || '';
-      const cache = bc.attributes.cacheHitStatus || '';
-      let sizeStr = '';
-      if (bc.attributes.transferSize) {
-        const bytes = parseInt(bc.attributes.transferSize, 10);
-        if (bytes > 0) {
-          sizeStr = bytes >= 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${bytes} B`;
-        }
-      }
-      const details = [initiator, duration, sizeStr, cache].filter(Boolean).join(', ');
-      return `resource: ${cleanUrl}${details ? ` [${details}]` : ''}`;
-    }
-
-    if (bc.eventName === 'faro.performance.navigation' && bc.attributes) {
-      const pageUrl = bc.attributes.name || '';
-      const cleanUrl = pageUrl.split('?')[0];
-      const duration = bc.attributes.duration ? `${parseInt(bc.attributes.duration, 10)}ms` : '';
-      return `navigation: ${cleanUrl}${duration ? ` [${duration}]` : ''}`;
-    }
-
-    if (bc.attributes) {
-      const attrStr = Object.entries(bc.attributes)
-        .map(([k, v]) => `${k}="${v}"`)
-        .join(', ');
-      return `${name} {${attrStr}}`;
-    }
-    return name;
-  }
-  if (bc.kind === 'measurement' && bc.type === 'web-vitals') {
-    const vitals = [];
-    if (bc.fcp) {
-      vitals.push(`FCP=${parseFloat(bc.fcp).toFixed(0)}ms`);
-    }
-    if (bc.lcp) {
-      vitals.push(`LCP=${parseFloat(bc.lcp).toFixed(0)}ms`);
-    }
-    if (bc.cls) {
-      vitals.push(`CLS=${parseFloat(bc.cls).toFixed(3)}`);
-    }
-    if (bc.inp) {
-      vitals.push(`INP=${parseFloat(bc.inp).toFixed(0)}ms`);
-    }
-    if (bc.ttfb) {
-      vitals.push(`TTFB=${parseFloat(bc.ttfb).toFixed(0)}ms`);
-    }
-    const val = vitals.length > 0 ? vitals.join(', ') : 'Empty Measurement';
-    return bc.rating ? `${val} [${bc.rating}]` : val;
-  }
-  if (bc.kind === 'exception' || bc.level === 'error') {
-    return bc.message || bc.value || bc.type || 'Error';
-  }
-  return bc.message || bc.value || bc.type || '';
-}
-
-function getBreadcrumbIcon(kind: string): string {
-  if (kind === 'event') {
-    return 'bolt';
-  }
-  if (kind === 'measurement') {
-    return 'chart-line';
-  }
-  if (kind === 'exception' || kind === 'error') {
-    return 'exclamation-triangle';
-  }
-  return 'file-alt';
-}
-
-function formatTimestampNs(tsNs: string): string {
-  const tsMs = Math.floor(parseInt(tsNs, 10) / 1000000);
-  const d = new Date(tsMs);
-  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}.${d.getMilliseconds().toString().padStart(3, '0')}`;
-}
-
-function formatListWithMore(items: string[], max = 2): string {
-  if (items.length === 0) {
-    return 'N/A';
-  }
-  if (items.length <= max) {
-    return items.join(', ');
-  }
-  return `${items.slice(0, max).join(', ')} (+${items.length - max} more)`;
-}
-
-function cleanUrl(url?: string): string | undefined {
-  if (!url) {
-    return undefined;
-  }
-  return url.endsWith('.') ? url.slice(0, -1) : url;
-}
-
-function formatStackTrace(stack: string): React.ReactNode[] {
-  const lines = stack.split('\n');
-  return lines.map((line, i) => {
-    const isAtLine = line.trim().startsWith('at ');
-    if (!isAtLine) {
-      return (
-        <div key={i} style={{ color: '#a6acb9' }}>
-          {line}
-        </div>
-      );
-    }
-
-    // Parse: "at FunctionName (http://url/path/file.js:line:col)" or "at http://url/path/file.js:line:col"
-    const atRegex = /at\s+(.+?)\s*\((.+?)\)/;
-    const directRegex = /at\s+(https?:\/\/.+)/;
-
-    let funcName = '';
-    let filePath = '';
-
-    const matchAt = line.match(atRegex);
-    if (matchAt) {
-      funcName = matchAt[1];
-      filePath = matchAt[2];
-    } else {
-      const matchDirect = line.match(directRegex);
-      if (matchDirect) {
-        filePath = matchDirect[1];
-      }
-    }
-
-    if (!filePath) {
-      return (
-        <div key={i} style={{ color: '#8c95a5' }}>
-          {line}
-        </div>
-      );
-    }
-
-    // Check if the path contains line/col numbers
-    const parts = filePath.split(':');
-    let lineCol = '';
-    let fileClean = filePath;
-    if (parts.length >= 3) {
-      // e.g. ["https", "//site/file.js", "12", "34"] -> line:col is the last two
-      const col = parts.pop();
-      const ln = parts.pop();
-      lineCol = `:${ln}:${col}`;
-      fileClean = parts.join(':');
-    }
-
-    // Try to get clean file name (strip protocol/host)
-    let displayFile = fileClean;
-    try {
-      if (fileClean.startsWith('http')) {
-        const url = new URL(fileClean);
-        displayFile = url.pathname;
-      }
-    } catch {
-      // ignore
-    }
-
-    return (
-      <div key={i} style={{ margin: '2px 0' }}>
-        <span style={{ color: '#f97316', fontWeight: 500 }}>at </span>
-        {funcName && <span style={{ color: '#38bdf8' }}>{funcName} </span>}
-        <span style={{ color: '#8c95a5' }}>({displayFile}</span>
-        <span style={{ color: '#f43f5e', fontWeight: 'bold' }}>{lineCol}</span>
-        <span style={{ color: '#8c95a5' }}>)</span>
+  return (
+    <div className={styles.section}>
+      <h4 className={styles.sectionTitle}>
+        User Feedback ({sorted.length}){' '}
+        <Badge
+          text="Preview"
+          color="orange"
+          tooltip="Internal pilot only — free-text feedback goes to a shared log store, so this is gated on the personvernombud process and apps must warn users not to enter personal information."
+        />
+      </h4>
+      <div className={styles.feedbackList}>
+        {shown.map((entry, idx) => (
+          <div key={idx} className={styles.feedbackItem}>
+            <div className={styles.feedbackHeader}>
+              <Badge text={entry.category} color={feedbackBadgeColor(entry.category)} />
+              <span className={styles.feedbackTime}>{formatRelativeTime(entry.timeMs)}</span>
+              {entry.email && <span className={styles.feedbackEmail}>{entry.email}</span>}
+            </div>
+            <div className={styles.feedbackMessage}>{entry.message}</div>
+            {entry.pageUrl && <div className={styles.feedbackSecondary}>{cleanUrl(entry.pageUrl)}</div>}
+          </div>
+        ))}
+        {extra > 0 && <div className={styles.feedbackMore}>+{extra} more</div>}
       </div>
-    );
-  });
+      <div className={styles.sectionDocsLink}>
+        <TextLink href={apmDocs.collectUserFeedback()} external variant="bodySmall">
+          Collect user feedback
+        </TextLink>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Issue triage controls (#57): resolve / ignore / reopen + assignee, shared
+ * across all users via the backend's annotations event log. Rendered only
+ * when the drawer was opened with a fingerprint (issueId param) — legacy
+ * exceptionHash links have no stable identity to attach state to.
+ */
+function TriageControls({
+  namespace,
+  service,
+  fingerprint,
+}: {
+  namespace: string;
+  service: string;
+  fingerprint: string;
+}) {
+  const styles = useStyles2(getStyles);
+  const [state, setState] = useState<TriageState | null>(null);
+  const [assignee, setAssignee] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getTriageStates(namespace, service)
+      .then((states) => {
+        if (!cancelled) {
+          setState(states[fingerprint] ?? null);
+          setAssignee(states[fingerprint]?.assignee ?? '');
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [namespace, service, fingerprint]);
+
+  const act = async (action: 'resolve' | 'ignore' | 'unresolve' | 'assign', extra?: { assignee?: string }) => {
+    setBusy(true);
+    try {
+      const next = await postTriageAction(namespace, service, fingerprint, { action, ...extra });
+      setState(next);
+      setAssignee(next.assignee ?? '');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const status = state?.status ?? 'active';
+  return (
+    <div className={styles.triageBar}>
+      {status === 'resolved' && <Badge text="Resolved" color="green" />}
+      {status === 'ignored' && <Badge text="Ignored" color="darkgrey" />}
+      {status === 'active' && <Badge text="Unresolved" color="orange" />}
+      {status === 'active' ? (
+        <>
+          <Button size="sm" variant="secondary" icon="check" disabled={busy} onClick={() => act('resolve')}>
+            Resolve
+          </Button>
+          <Button size="sm" variant="secondary" icon="eye-slash" disabled={busy} onClick={() => act('ignore')}>
+            Ignore
+          </Button>
+        </>
+      ) : (
+        <Button size="sm" variant="secondary" icon="history" disabled={busy} onClick={() => act('unresolve')}>
+          Reopen
+        </Button>
+      )}
+      <Input
+        width={22}
+        placeholder="Assignee…"
+        value={assignee}
+        disabled={busy}
+        onChange={(e) => setAssignee(e.currentTarget.value)}
+        onKeyDown={(e) => e.key === 'Enter' && act('assign', { assignee })}
+        onBlur={() => (state?.assignee ?? '') !== assignee && act('assign', { assignee })}
+        prefix={<Icon name="user" />}
+      />
+      {state?.updatedBy && <span className={styles.triageMeta}>last change by {state.updatedBy}</span>}
+      <TextLink
+        href={apmDocs.triageAnIssue()}
+        external
+        variant="bodySmall"
+        className={state?.updatedBy ? undefined : styles.triageHelp}
+      >
+        How triage works
+      </TextLink>
+    </div>
+  );
 }
 
 const getStyles = (theme: GrafanaTheme2) => ({
+  triageBar: css`
+    display: flex;
+    align-items: center;
+    gap: ${theme.spacing(1)};
+    padding: ${theme.spacing(1)};
+    border: 1px solid ${theme.colors.border.weak};
+    border-radius: ${theme.shape.radius.default};
+    background: ${theme.colors.background.secondary};
+  `,
+  triageMeta: css`
+    color: ${theme.colors.text.secondary};
+    font-size: ${theme.typography.bodySmall.fontSize};
+    margin-left: auto;
+  `,
   container: css`
     display: flex;
     flex-direction: column;
@@ -773,6 +1024,61 @@ const getStyles = (theme: GrafanaTheme2) => ({
     display: flex;
     flex-direction: column;
     gap: ${theme.spacing(1.5)};
+  `,
+  impactStrip: css`
+    display: flex;
+    align-items: center;
+    gap: ${theme.spacing(1)};
+    color: ${theme.colors.text.secondary};
+    font-size: ${theme.typography.bodySmall.fontSize};
+  `,
+  impactDivider: css`
+    color: ${theme.colors.border.medium};
+  `,
+  feedbackList: css`
+    display: flex;
+    flex-direction: column;
+    gap: ${theme.spacing(1)};
+  `,
+  feedbackItem: css`
+    display: flex;
+    flex-direction: column;
+    gap: ${theme.spacing(0.5)};
+    padding: ${theme.spacing(1)};
+    border: 1px solid ${theme.colors.border.weak};
+    border-radius: ${theme.shape.radius.default};
+    background: ${theme.colors.background.secondary};
+  `,
+  feedbackHeader: css`
+    display: flex;
+    align-items: center;
+    gap: ${theme.spacing(1)};
+  `,
+  feedbackTime: css`
+    color: ${theme.colors.text.secondary};
+    font-size: ${theme.typography.bodySmall.fontSize};
+  `,
+  feedbackEmail: css`
+    color: ${theme.colors.text.secondary};
+    font-size: ${theme.typography.bodySmall.fontSize};
+    margin-left: auto;
+  `,
+  feedbackMessage: css`
+    color: ${theme.colors.text.primary};
+    font-size: ${theme.typography.bodySmall.fontSize};
+    white-space: pre-wrap;
+    word-break: break-word;
+  `,
+  feedbackSecondary: css`
+    color: ${theme.colors.text.secondary};
+    font-size: 11px;
+    word-break: break-all;
+  `,
+  feedbackMore: css`
+    color: ${theme.colors.text.secondary};
+    font-size: ${theme.typography.bodySmall.fontSize};
+    text-align: center;
+    padding-top: ${theme.spacing(0.5)};
   `,
   sectionTitle: css`
     font-size: ${theme.typography.h5.fontSize};
@@ -855,6 +1161,10 @@ const getStyles = (theme: GrafanaTheme2) => ({
     margin: 0 0 ${theme.spacing(0.5)} 0;
     text-transform: uppercase;
     letter-spacing: 0.05em;
+  `,
+  captureBadge: css`
+    margin-left: ${theme.spacing(1)};
+    vertical-align: middle;
   `,
   stacktrace: css`
     background: ${theme.colors.background.secondary};
@@ -971,5 +1281,14 @@ const getStyles = (theme: GrafanaTheme2) => ({
   footerDivider: css`
     color: ${theme.colors.border.weak};
     font-size: ${theme.typography.bodySmall.fontSize};
+  `,
+  footerDocsLink: css`
+    margin-left: auto;
+  `,
+  triageHelp: css`
+    margin-left: auto;
+  `,
+  sectionDocsLink: css`
+    margin-top: ${theme.spacing(0.5)};
   `,
 });

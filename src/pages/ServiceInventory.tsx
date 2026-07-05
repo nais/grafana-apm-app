@@ -27,8 +27,10 @@ import { sparklineColors } from '../utils/colors';
 import { extractEnvironmentOptions, extractNamespaceOptions } from '../utils/options';
 import { useFetch } from '../utils/useFetch';
 import { FrameworkBadge } from '../components/FrameworkBadge';
+import { RefreshControl } from '../components/RefreshControl';
 import { Sparkline } from '../components/Sparkline';
 import { useFavorites, serviceKey } from '../utils/useFavorites';
+import { createServiceSearchIndex, searchServices } from '../utils/serviceSearch';
 
 type SortField = 'name' | 'namespace' | 'environment' | 'p95Duration' | 'errorRate' | 'rate';
 type SortDir = 'asc' | 'desc';
@@ -44,7 +46,7 @@ function ServiceInventory() {
   const theme = useTheme2();
   const sc = sparklineColors(theme);
   const appNavigate = useAppNavigate();
-  const { from, fromMs, toMs, setTimeRange } = useTimeRange();
+  const { from, fromMs, toMs, setTimeRange, refresh: refreshTimeRange } = useTimeRange();
   const { isFavorite, toggle: toggleFavorite, count: favCount } = useFavorites();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -52,25 +54,13 @@ function ServiceInventory() {
     data: fetchResult,
     loading,
     error,
+    refetch,
   } = useFetch<{ services: ServiceSummary[]; caps: Capabilities }>(async () => {
     const [capsResult, servicesResult] = await Promise.all([getCapabilities(), getServices(fromMs, toMs, 60, false)]);
     return { caps: capsResult, services: servicesResult };
   }, [fromMs, toMs]);
 
-  // Lazy-load sparklines after initial data is on screen (stored separately to avoid re-sorting)
-  const { data: sparklineResult } = useFetch<ServiceSummary[]>(
-    () => getServices(fromMs, toMs, 60, true),
-    [fromMs, toMs],
-    { skip: !fetchResult }
-  );
-
   const services = useMemo(() => fetchResult?.services ?? [], [fetchResult]);
-  const sparklineMap = useMemo(() => {
-    if (!sparklineResult) {
-      return new Map<string, ServiceSummary>();
-    }
-    return new Map(sparklineResult.map((s) => [`${s.namespace}/${s.name}/${s.environment ?? ''}`, s]));
-  }, [sparklineResult]);
   const caps = fetchResult?.caps ?? null;
 
   // Read all UI state from query params (persisted across navigation)
@@ -139,6 +129,22 @@ function ServiceInventory() {
   const sdkFilters = useMemo(() => rawSdkFilter.split(',').filter(Boolean), [rawSdkFilter]);
   const setSdkFilters = (sdks: string[]) => updateParams({ sdk: sdks.length > 0 ? sdks.join(',') : null, page: null });
 
+  // Fuzzy search index — indexing is the expensive part, so memoize it on the
+  // service list rather than rebuilding it on every keystroke.
+  const searchIndex = useMemo(() => createServiceSearchIndex(services), [services]);
+  const isSearching = search.trim().length > 0;
+  const searchResults = useMemo(
+    () => (isSearching ? searchServices(services, search, searchIndex) : services),
+    [services, search, searchIndex, isSearching]
+  );
+  // Position of each service in the relevance-ranked search results, used to
+  // order rows by match quality (best match first) while searching.
+  const searchRank = useMemo(() => {
+    const rank = new Map<ServiceSummary, number>();
+    searchResults.forEach((s, i) => rank.set(s, i));
+    return rank;
+  }, [searchResults]);
+
   // Client-side filtering and sorting — computed every render to avoid
   // stale-closure issues with React 18 batching.
   let filtered = services;
@@ -151,9 +157,9 @@ function ServiceInventory() {
   if (envFilters.length > 0) {
     filtered = filtered.filter((s) => s.environment != null && envFilters.includes(s.environment));
   }
-  if (search) {
-    const q = search.toLowerCase();
-    filtered = filtered.filter((s) => s.name.toLowerCase().includes(q) || s.namespace.toLowerCase().includes(q));
+  if (isSearching) {
+    const matched = new Set(searchResults);
+    filtered = filtered.filter((s) => matched.has(s));
   }
   if (showFavoritesOnly) {
     filtered = filtered.filter((s) => isFavorite(serviceKey(s.namespace, s.name)));
@@ -169,6 +175,12 @@ function ServiceInventory() {
   const dir = sortDir === 'desc' ? -1 : 1;
   const isDefaultSort = sortField === 'name' && sortDir === 'asc';
   filtered = [...filtered].sort((a, b) => {
+    // While searching, relevance is the DEFAULT order — but an explicit
+    // column sort still wins, otherwise header clicks silently do nothing
+    // whenever a query is active.
+    if (isSearching && isDefaultSort) {
+      return (searchRank.get(a) ?? 0) - (searchRank.get(b) ?? 0);
+    }
     // Sort boost: favorites float to top on default sort
     if (isDefaultSort) {
       const fa = isFavorite(serviceKey(a.namespace, a.name)) ? 0 : 1;
@@ -239,6 +251,37 @@ function ServiceInventory() {
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
+
+  // Lazy-load sparklines for the VISIBLE page only (stored separately to
+  // avoid re-sorting). An unfiltered withSeries fetch would pull series for
+  // the whole fleet (~4000 services) to render 25 rows. The fetch keys on the
+  // JOINED string — `paginated` is a fresh array every render, and an array
+  // dep would refetch in a loop.
+  const visibleServicesKey = Array.from(new Set(paginated.map((s) => `${s.namespace}/${s.name}`))).join(',');
+  const { data: sparklineResult, refetch: refetchSparklines } = useFetch<ServiceSummary[]>(
+    () => getServices(fromMs, toMs, 60, true, { services: visibleServicesKey.split(',') }),
+    [fromMs, toMs, visibleServicesKey],
+    { skip: !fetchResult || visibleServicesKey === '' }
+  );
+  const sparklineMap = useMemo(() => {
+    if (!sparklineResult) {
+      return new Map<string, ServiceSummary>();
+    }
+    return new Map(sparklineResult.map((s) => [`${s.namespace}/${s.name}/${s.environment ?? ''}`, s]));
+  }, [sparklineResult]);
+
+  // Auto-refresh. For relative ranges (now-1h), re-resolving the range updates
+  // fromMs/toMs and every useFetch above refetches via its deps — without this
+  // each refresh would re-query the window resolved at first render forever.
+  const isRelativeRange = from.startsWith('now');
+  const handleRefresh = useCallback(() => {
+    if (isRelativeRange) {
+      refreshTimeRange();
+      return;
+    }
+    refetch();
+    refetchSparklines();
+  }, [isRelativeRange, refreshTimeRange, refetch, refetchSparklines]);
 
   const toggleSort = (field: SortField) => {
     if (sortField === field) {
@@ -325,6 +368,7 @@ function ServiceInventory() {
                   width={22}
                   prefixIcon="clock-nine"
                 />
+                <RefreshControl onRefresh={handleRefresh} />
               </div>
               {/* Row 2: View options (pills) */}
               <div className={styles.viewRow}>

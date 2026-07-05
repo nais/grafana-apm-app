@@ -24,7 +24,8 @@ func (a *App) handleFrontendMetrics(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// Cache key: frontend metrics are expensive (multiple datasource probes)
-	ck := cacheKey("frontend", namespace, service, env)
+	orgID := req.Header.Get("X-Grafana-Org-Id")
+	ck := cacheKey("frontend", orgID, namespace, service, env)
 	if cached, ok := a.respCache.get(ck); ok {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-Cache", "HIT")
@@ -32,11 +33,15 @@ func (a *App) handleFrontendMetrics(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	now := time.Now()
-	result := a.queryFrontendMetrics(ctx, service, env, now, req.Header)
-
-	a.respCache.setJSON(ck, result)
-	writeJSON(w, result)
+	data, err := a.respCache.getOrCompute(ck, func() (any, error) {
+		return a.queryFrontendMetrics(ctx, service, env, time.Now(), req.Header), nil
+	})
+	if err != nil {
+		http.Error(w, "querying frontend metrics failed", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(data)
 }
 
 // FrontendMetricsResponse → models.go
@@ -85,7 +90,7 @@ func (a *App) queryFrontendFromAlloyHistogram(ctx context.Context, service, envi
 	resp := FrontendMetricsResponse{
 		Available: true,
 		Source:    "alloy-histogram",
-		Vitals:   make(map[string]float64),
+		Vitals:    make(map[string]float64),
 	}
 
 	vitalMetrics := map[string]string{
@@ -173,5 +178,3 @@ func (a *App) hasLokiFaroData(ctx context.Context, service, env string, at time.
 	}
 	return total > 0
 }
-
-

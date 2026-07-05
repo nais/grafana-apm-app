@@ -24,10 +24,13 @@ func (a *App) handleRuntime(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	_, to := parseTimeRange(req)
+	from, to := parseTimeRange(req)
 
-	result := a.queryRuntimeMetrics(ctx, namespace, service, environment, to)
-	writeJSON(w, result)
+	orgID := req.Header.Get("X-Grafana-Org-Id")
+	ck := cacheKey("runtime", orgID, roundedUnix(from), roundedUnix(to), namespace, service, environment)
+	a.writeCached(w, ck, "querying runtime metrics failed", func() (any, error) {
+		return a.queryRuntimeMetrics(ctx, namespace, service, environment, to), nil
+	})
 }
 
 // queryRuntimeMetrics runs a single discovery query to find available runtime
@@ -101,7 +104,7 @@ func (a *App) queryRuntimeMetrics(ctx context.Context, namespace, service, envir
 		assign(func() { resp.NodeJS = nodejs })
 	})
 
-	runCategory(discovered[rt.DBPool.HikariActive] || discovered[rt.DBPool.OtelDBActive], func() {
+	runCategory(discovered[rt.DBPool.HikariActive] || discovered[rt.DBPool.OtelDBActive] || discovered[rt.DBPool.OtelDBMax], func() {
 		dbPool := a.queryDBPoolRuntime(ctx, client, svcFilter, at, logger)
 		assign(func() { resp.DBPool = dbPool })
 	})
@@ -519,16 +522,33 @@ func (a *App) queryDBPoolRuntime(
 		results []queries.PromResult
 	}
 
+	// db_client_connections_usage carries a state=used|idle label; select each.
+	usedFilter := fmt.Sprintf(`%s, %s="%s"`, svcFilter, rt.StateLabel, rt.StateUsed)
+	idleFilter := fmt.Sprintf(`%s, %s="%s"`, svcFilter, rt.StateLabel, rt.StateIdle)
+
 	querySpecs := []struct {
 		name  string
 		query string
 	}{
-		// HikariCP pools grouped by pool name: sum across pods per pool
+		// HikariCP pools grouped by `pool` (Prometheus micrometer scrape): sum across pods per pool
 		{"hkActive", fmt.Sprintf(`sum by (%s) (avg_over_time(%s{%s}%s))`, rt.PoolLabel, rt.HikariActive, svcFilter, lookback)},
 		{"hkIdle", fmt.Sprintf(`sum by (%s) (avg_over_time(%s{%s}%s))`, rt.PoolLabel, rt.HikariIdle, svcFilter, lookback)},
-		{"hkMax", fmt.Sprintf(`max by (%s) (max_over_time(%s{%s}%s))`, rt.PoolLabel, rt.HikariMax, svcFilter, lookback)},
+		// Sum per-pod capacity: replicas share the pool name (HikariPool-1),
+		// and active/idle above are sums — max by() here understates capacity
+		// and displays idle > max on multi-pod services.
+		{"hkMax", fmt.Sprintf(`sum by (%s) (max_over_time(%s{%s}%s))`, rt.PoolLabel, rt.HikariMax, svcFilter, lookback)},
 		{"hkPending", fmt.Sprintf(`sum by (%s) (avg_over_time(%s{%s}%s))`, rt.PoolLabel, rt.HikariPending, svcFilter, lookback)},
 		{"hkTimeout", fmt.Sprintf(`sum by (%s) (rate(%s{%s}%s))`, rt.PoolLabel, rt.HikariTimeout, svcFilter, lookback)},
+
+		// OTel db_client_connections_* pools grouped by `pool_name` (Oracle UCP, newer
+		// OTel-agent HikariCP): the hikaricp_* gauges above never surface these.
+		{"otActive", fmt.Sprintf(`sum by (%s) (avg_over_time(%s{%s}%s))`, rt.PoolNameLabel, rt.OtelDBActive, usedFilter, lookback)},
+		{"otIdle", fmt.Sprintf(`sum by (%s) (avg_over_time(%s{%s}%s))`, rt.PoolNameLabel, rt.OtelDBActive, idleFilter, lookback)},
+		// Same capacity semantics as hkMax: sum per-pod max. UCP embeds the pod
+		// in pool_name (per-pod series), where sum == max; Hikari-style shared
+		// names need the sum.
+		{"otMax", fmt.Sprintf(`sum by (%s) (max_over_time(%s{%s}%s))`, rt.PoolNameLabel, rt.OtelDBMax, svcFilter, lookback)},
+		{"otPending", fmt.Sprintf(`sum by (%s) (avg_over_time(%s{%s}%s))`, rt.PoolNameLabel, rt.OtelDBPending, svcFilter, lookback)},
 	}
 
 	var wg sync.WaitGroup
@@ -552,7 +572,7 @@ func (a *App) queryDBPoolRuntime(
 		resultMap[r.name] = r.results
 	}
 
-	// Build pool map from HikariCP metrics
+	// Build pool map from HikariCP metrics (keyed on the `pool` label).
 	poolMap := make(map[string]*queries.DBPool)
 	getPool := func(name string) *queries.DBPool {
 		if p, ok := poolMap[name]; ok {
@@ -577,6 +597,38 @@ func (a *App) queryDBPoolRuntime(
 	}
 	for _, r := range resultMap["hkTimeout"] {
 		getPool(r.Metric[rt.PoolLabel]).TimeoutRate = roundTo(safeFloat(r.Value.Float()), 4)
+	}
+
+	// Build a separate map from OTel db_client_connections_* metrics (keyed on
+	// pool_name), then merge: only pools whose name isn't already present from
+	// HikariCP are added, so a pool reporting via both families (e.g. HikariPool-1
+	// scraped as hikaricp_* and also exported as db_client_connections_*) is not
+	// duplicated and keeps its richer HikariCP figures.
+	otelMap := make(map[string]*queries.DBPool)
+	getOtelPool := func(name string) *queries.DBPool {
+		if p, ok := otelMap[name]; ok {
+			return p
+		}
+		p := &queries.DBPool{Name: name, Type: "otel"}
+		otelMap[name] = p
+		return p
+	}
+	for _, r := range resultMap["otActive"] {
+		getOtelPool(r.Metric[rt.PoolNameLabel]).Active = roundTo(safeFloat(r.Value.Float()), 1)
+	}
+	for _, r := range resultMap["otIdle"] {
+		getOtelPool(r.Metric[rt.PoolNameLabel]).Idle = roundTo(safeFloat(r.Value.Float()), 1)
+	}
+	for _, r := range resultMap["otMax"] {
+		getOtelPool(r.Metric[rt.PoolNameLabel]).Max = safeFloat(r.Value.Float())
+	}
+	for _, r := range resultMap["otPending"] {
+		getOtelPool(r.Metric[rt.PoolNameLabel]).Pending = roundTo(safeFloat(r.Value.Float()), 1)
+	}
+	for name, p := range otelMap {
+		if _, ok := poolMap[name]; !ok {
+			poolMap[name] = p
+		}
 	}
 
 	// Calculate utilization

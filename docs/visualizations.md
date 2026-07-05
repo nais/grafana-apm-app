@@ -25,7 +25,7 @@ principles, and visual design rules — see [design-philosophy.md](design-philos
 | Change vs previous period | "Is this new or ongoing?" | **Delta arrow** (↑↓→) | Error rate change |
 | Network of dependencies | "How do services connect?" | **Topology graph** | Service map |
 | Tabular data with sorting | "Compare services side by side" | **Sortable table** | Services table, dependencies |
-| Latency distribution | "What does the latency shape look like?" | **Heatmap** (Scenes) | Duration heatmap on Operations tab |
+| Latency distribution | "What does the latency shape look like?" | **Heatmap** (Scenes) | Duration heatmap on the Backend tab |
 
 ---
 
@@ -213,8 +213,8 @@ drill-down.
 - Team/namespace overview pages where you need custom layouts.
 - Inline indicators in tables or cards.
 
-**Current usage:** Operations tab (RED panels, heatmap), Frontend tab (web
-vitals, Loki panels), Traces tab, Logs tab.
+**Current usage:** Backend tab (RED panels, heatmap, runtime/USE stats),
+Frontend tab (web vitals, Loki panels), Traces tab, Logs tab.
 
 ---
 
@@ -240,11 +240,10 @@ interactive exploration with full Grafana features.
 
 | Tab | Visualizations used |
 |-----|-------------------|
-| Operations | Timeseries (RED metrics), heatmap (latency distribution) |
+| Backend | Timeseries (RED metrics), heatmap (latency distribution) in the Endpoints (RED) section; stat boxes (JVM/Node.js/Go metrics) in the Runtime (USE) section |
 | Frontend | Bullet graphs (Web Vitals), Scene stat + timeseries panels |
 | Traces | Scene table (trace list) |
 | Logs | Scene logs panel + volume timeseries |
-| Runtime | Stat boxes (JVM/Node.js/Go metrics) |
 | Dependencies | Table with sparklines |
 
 ### Service Inventory (Top-Level)

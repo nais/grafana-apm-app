@@ -1,0 +1,111 @@
+name: "Nais APM deploy annotation"
+description: >-
+  Posts a Grafana organization annotation marking this deploy, so Nais APM
+  can render deploy markers on RED/frontend charts and (later) compute
+  version-based regression semantics. Phase 0 deliverable of
+  nais/grafana-apm-app#64.
+author: "nais platform team"
+
+# TARGET LOCATION: publish this as its own GitHub Action repo,
+# `nais/apm-deploy-annotation`, tagged `@v1`, so teams consume it as
+# `uses: nais/apm-deploy-annotation@v1`. This directory is the reference
+# implementation to lift into that repo — it is not meant to be `uses:`'d
+# from inside grafana-otel-plugin.
+#
+# Source: nais/grafana-apm-app#64, "Phase 0 — deploy-event contract (docs +
+# reusable action, zero plugin code)". Milestone M2 (target v0.16),
+# Platform track.
+#
+# Design decisions carried over from #64:
+# - The deploy-event store is Grafana organization annotations (POST
+#   /api/annotations, no dashboardUID -> org-wide). HA-safe, zero new
+#   infrastructure, shared across plugin replicas, queryable with stock
+#   Grafana. This action is a producer; it does not read anything back.
+# - Release identity is the git commit SHA, because that is the only
+#   version key the nais deployment API's `Deployment` type carries
+#   (`commitSha` — no image tag / semver field). Keep `version` defaulted
+#   to `github.sha` so it joins against nais deploy data and against the
+#   @nais/apm SDK's default `app.release` / the source-map CDN path.
+
+inputs:
+  grafana-url:
+    description: >-
+      Base URL of the tenant Grafana instance, no trailing slash (e.g.
+      https://my-tenant.grafana.net).
+    required: true
+  grafana-token:
+    description: >-
+      Grafana service-account bearer token with the `annotations:create`
+      permission. Pass via a GitHub secret — never hardcode.
+    required: true
+  service:
+    description: >-
+      App/service name. Must match the value used for `service:<app>` in
+      the plugin's other queries (Faro app.name for frontend apps, the nais
+      Application name for backend services).
+    required: true
+  namespace:
+    description: Nais team namespace the app is deployed into.
+    required: true
+  environment:
+    description: Environment/cluster name (e.g. prod-gcp, dev-gcp).
+    required: true
+  version:
+    description: >-
+      Release identity for the `version:` tag. Defaults to `github.sha`.
+      Only override this if you have a documented reason to break the SHA
+      join key — doing so disables regression detection (#64 Phase 2) for
+      this service, since that path orders by deploy-annotation time keyed
+      on this tag.
+    required: false
+    default: ${{ github.sha }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Post Grafana deploy annotation
+      shell: bash
+      env:
+        GRAFANA_URL: ${{ inputs.grafana-url }}
+        GRAFANA_SA_TOKEN: ${{ inputs.grafana-token }}
+        SERVICE: ${{ inputs.service }}
+        NAMESPACE: ${{ inputs.namespace }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        VERSION: ${{ inputs.version }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        set -euo pipefail
+
+        # Contract per nais/grafana-apm-app#64 Phase 0:
+        #
+        #   curl -sf -X POST "$GRAFANA_URL/api/annotations" \
+        #     -H "Authorization: Bearer $GRAFANA_SA_TOKEN" -H "Content-Type: application/json" \
+        #     -d "{\"time\": $(date +%s000), \
+        #          \"tags\": [\"nais-apm:deploy\",\"service:myapp\",\"namespace:myteam\",\"env:prod\",\"version:${GITHUB_SHA}\"], \
+        #          \"text\": \"Deployed myapp ${GITHUB_SHA:0:7} — ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}\"}"
+        #
+        # Same shape below, parameterized on the action's inputs and built
+        # with jq so service/namespace/environment values are safely
+        # JSON-escaped instead of hand-interpolated into a string.
+
+        SHORT_SHA="${VERSION:0:7}"
+        TIME_MS=$(( $(date +%s%N) / 1000000 ))
+
+        BODY=$(jq -n \
+          --argjson time "${TIME_MS}" \
+          --arg tag_kind "nais-apm:deploy" \
+          --arg tag_service "service:${SERVICE}" \
+          --arg tag_namespace "namespace:${NAMESPACE}" \
+          --arg tag_env "env:${ENVIRONMENT}" \
+          --arg tag_version "version:${VERSION}" \
+          --arg text "Deployed ${SERVICE} ${SHORT_SHA} — ${RUN_URL}" \
+          '{
+            time: $time,
+            tags: [$tag_kind, $tag_service, $tag_namespace, $tag_env, $tag_version],
+            text: $text
+          }')
+
+        curl -sf -X POST "${GRAFANA_URL}/api/annotations" \
+          -H "Authorization: Bearer ${GRAFANA_SA_TOKEN}" \
+          -H "Content-Type: application/json" \
+          -d "${BODY}"

@@ -25,6 +25,26 @@ func (e EnvAwareDataSource) Resolve(env string) DataSourceRef {
 	return DataSourceRef{UID: e.UID, Type: e.Type}
 }
 
+// Allows reports whether uid is one of this datasource's configured UIDs
+// (the default or any per-environment override). Endpoints that accept a
+// client-supplied datasource UID use this to reject arbitrary UIDs before
+// proxying with the service-account token (defence against a confused-deputy
+// proxy to an unrelated datasource).
+func (e EnvAwareDataSource) Allows(uid string) bool {
+	if uid == "" {
+		return false
+	}
+	if uid == e.UID {
+		return true
+	}
+	for _, ds := range e.ByEnvironment {
+		if uid == ds.UID {
+			return true
+		}
+	}
+	return false
+}
+
 // HasEnvironment returns true if an override exists for the given environment.
 func (e EnvAwareDataSource) HasEnvironment(env string) bool {
 	if env == "" {
@@ -69,6 +89,11 @@ type PluginSettings struct {
 	// ingress hostname (e.g., on-prem services calling via nais ingress).
 	// Key: hostname (e.g., "tilgangsmaskin.intern.nav.no"), Value: service_name.
 	IngressAliases map[string]string `json:"ingressAliases,omitempty"`
+
+	// NaisAPIURL enables the deploy-annotation sync (#64 Phase 2): the nais
+	// Console GraphQL endpoint, e.g. https://console.<tenant>.cloud.nais.io/graphql.
+	// The token lives in secureJsonData under "naisApiToken".
+	NaisAPIURL string `json:"naisApiUrl,omitempty"`
 }
 
 // Capabilities represents the detected OTel data capabilities.
@@ -80,9 +105,22 @@ type Capabilities struct {
 	Services     []string               `json:"services"`
 	Environments []string               `json:"environments,omitempty"`
 
+	// Pyroscope profiling datasource availability (M7). Gated on a platform
+	// decision to run Pyroscope; production has none today, so the common
+	// value is {Available: false} and the Profiling tab never appears.
+	Pyroscope PyroscopeCapability `json:"pyroscope"`
+
 	// Per-environment datasource availability
 	TempoByEnv map[string]DataSourceStatus `json:"tempoByEnv,omitempty"`
 	LokiByEnv  map[string]DataSourceStatus `json:"lokiByEnv,omitempty"`
+}
+
+// PyroscopeCapability describes a detected Pyroscope (or legacy Phlare)
+// profiling datasource. UID is the datasource UID used by the frontend
+// Profiling tab's flame-graph queries.
+type PyroscopeCapability struct {
+	Available bool   `json:"available"`
+	UID       string `json:"uid,omitempty"`
 }
 
 // SpanMetricsCapability describes detected span metrics configuration.

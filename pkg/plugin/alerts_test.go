@@ -386,6 +386,172 @@ func TestHandleNamespaceAlerts_RulerUnavailable(t *testing.T) {
 	}
 }
 
+func TestHandleServiceAlerts(t *testing.T) {
+	// A rule mentions the service via a quoted occurrence in its PromQL query
+	// (service_name="orders") or an exact service/app label — the conservative
+	// ruleMentionsService matcher. Rules for other services must not leak in.
+	groups := []queries.RuleGroup{
+		{
+			Name: "orders-alerts",
+			File: "dev/teamorders/orders-alerts/abc123",
+			Rules: []queries.Rule{
+				{
+					Type:  "alerting",
+					Name:  "OrdersHighErrorRate",
+					Query: `sum(rate(calls_total{service_name="orders"}[5m])) > 0.05`,
+					State: "firing",
+					Labels: map[string]string{
+						"namespace": "teamorders",
+						"severity":  "critical",
+					},
+					Annotations: map[string]string{"summary": "Orders erroring"},
+					Alerts: []queries.Alert{
+						{State: "firing", ActiveAt: "2026-04-25T10:00:00Z"},
+					},
+				},
+				{
+					Type:  "alerting",
+					Name:  "OrdersLabelMatch",
+					Query: `up == 0`,
+					State: "inactive",
+					Labels: map[string]string{
+						"namespace": "teamorders",
+						"service":   "orders",
+					},
+					Alerts: []queries.Alert{},
+				},
+				{
+					// Different service — must be excluded.
+					Type:   "alerting",
+					Name:   "PaymentsDown",
+					Query:  `sum(rate(calls_total{service_name="payments"}[5m])) > 0.05`,
+					State:  "firing",
+					Labels: map[string]string{"namespace": "teamorders"},
+					Alerts: []queries.Alert{{State: "firing", ActiveAt: "2026-04-25T11:00:00Z"}},
+				},
+				{
+					// Recording rule mentioning the service — must be excluded.
+					Type:  "recording",
+					Name:  "orders:calls:rate",
+					Query: `sum(rate(calls_total{service_name="orders"}[5m]))`,
+				},
+			},
+		},
+	}
+
+	srv := mockRulerServer(t, groups)
+	defer srv.Close()
+	app := newTestApp(t, srv.URL, queries.Capabilities{})
+
+	t.Run("filters to rules mentioning the service", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/services/teamorders/orders/alerts", nil)
+		req.SetPathValue("namespace", "teamorders")
+		req.SetPathValue("service", "orders")
+		w := httptest.NewRecorder()
+
+		app.handleServiceAlerts(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+
+		var resp ServiceAlertsResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+
+		// OrdersHighErrorRate (query match) + OrdersLabelMatch (label match);
+		// PaymentsDown and the recording rule are excluded.
+		if len(resp.Rules) != 2 {
+			t.Fatalf("expected 2 rules, got %d: %+v", len(resp.Rules), resp.Rules)
+		}
+		// Firing sorts before inactive.
+		if resp.Rules[0].Name != "OrdersHighErrorRate" || resp.Rules[0].State != "firing" {
+			t.Errorf("first rule should be OrdersHighErrorRate (firing), got %s (%s)", resp.Rules[0].Name, resp.Rules[0].State)
+		}
+		if resp.Rules[0].Source != alertSourceMimir {
+			t.Errorf("expected source %q, got %q", alertSourceMimir, resp.Rules[0].Source)
+		}
+		if resp.Rules[0].ActiveCount != 1 {
+			t.Errorf("expected activeCount 1, got %d", resp.Rules[0].ActiveCount)
+		}
+		if resp.Rules[1].Name != "OrdersLabelMatch" {
+			t.Errorf("second rule should be OrdersLabelMatch, got %s", resp.Rules[1].Name)
+		}
+	})
+
+	t.Run("no match returns empty, not unavailable", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/services/teamorders/ghost/alerts", nil)
+		req.SetPathValue("namespace", "teamorders")
+		req.SetPathValue("service", "ghost")
+		w := httptest.NewRecorder()
+
+		app.handleServiceAlerts(w, req)
+
+		var resp ServiceAlertsResponse
+		_ = json.Unmarshal(w.Body.Bytes(), &resp)
+
+		if len(resp.Rules) != 0 {
+			t.Fatalf("expected 0 rules for unknown service, got %d", len(resp.Rules))
+		}
+		if resp.Unavailable {
+			t.Error("should not be unavailable when the ruler responds")
+		}
+	})
+
+	t.Run("missing service is a 400", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/services/teamorders//alerts", nil)
+		req.SetPathValue("namespace", "teamorders")
+		req.SetPathValue("service", "")
+		w := httptest.NewRecorder()
+
+		app.handleServiceAlerts(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 for missing service, got %d", w.Code)
+		}
+	})
+}
+
+func TestHandleServiceAlerts_RulerUnavailable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/rules" {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		resp := queries.PromResponse{
+			Status: "success",
+			Data:   queries.PromData{ResultType: "vector", Result: []queries.PromResult{}},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	app := newTestApp(t, srv.URL, queries.Capabilities{})
+
+	req := httptest.NewRequest("GET", "/services/teamorders/orders/alerts", nil)
+	req.SetPathValue("namespace", "teamorders")
+	req.SetPathValue("service", "orders")
+	w := httptest.NewRecorder()
+
+	app.handleServiceAlerts(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 (graceful degradation), got %d", w.Code)
+	}
+
+	var resp ServiceAlertsResponse
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+
+	if !resp.Unavailable {
+		t.Error("expected unavailable=true when the ruler returns 404")
+	}
+	if len(resp.Rules) != 0 {
+		t.Errorf("expected empty rules, got %d", len(resp.Rules))
+	}
+}
+
 func TestHandleNamespaceAlerts_CaseInsensitive(t *testing.T) {
 	groups := []queries.RuleGroup{
 		{

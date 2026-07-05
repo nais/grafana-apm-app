@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import ServiceInventory from './ServiceInventory';
 import { FavoritesStore, FavoritesStorage } from '../utils/favoritesStorage';
@@ -174,5 +174,95 @@ describe('ServiceInventory — Favorites', () => {
     // First data row (after header) should be payment (favorited)
     const firstDataRow = rows[1];
     expect(firstDataRow).toHaveTextContent('payment');
+  });
+});
+
+describe('ServiceInventory — Fuzzy search', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    activeStore = createStore();
+  });
+
+  afterEach(() => {
+    activeStore.destroy();
+  });
+
+  it('finds a service from a misspelled query', async () => {
+    renderInventory('/services?q=paymnt');
+    expect(await screen.findByText('payment')).toBeInTheDocument();
+    expect(screen.queryByText('my-api')).not.toBeInTheDocument();
+    expect(screen.queryByText('frontend')).not.toBeInTheDocument();
+  });
+
+  it('matches on namespace', async () => {
+    // 'team-b' is an exact namespace match for 'payment' and should rank first,
+    // even though 'team-a' (my-api/frontend) is a close fuzzy neighbor too.
+    renderInventory('/services?q=team-b');
+    const rows = await screen.findAllByRole('row');
+    expect(rows[1]).toHaveTextContent('payment');
+  });
+
+  it('shows no rows for a query that matches nothing', async () => {
+    renderInventory('/services?q=zzzznonexistentzzzz');
+    await waitFor(() => expect(screen.queryByText(/Loading services/i)).not.toBeInTheDocument());
+    expect(screen.queryByText('my-api')).not.toBeInTheDocument();
+    expect(screen.queryByText('payment')).not.toBeInTheDocument();
+    expect(screen.queryByText('frontend')).not.toBeInTheDocument();
+  });
+});
+
+describe('ServiceInventory — Auto-refresh', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    activeStore = createStore();
+  });
+
+  afterEach(() => {
+    activeStore.destroy();
+  });
+
+  it('renders the refresh control in the toolbar', async () => {
+    renderInventory();
+    expect(await screen.findByTestId('refresh-control')).toBeInTheDocument();
+  });
+});
+
+describe('ServiceInventory — Column sorting', () => {
+  beforeEach(() => {
+    activeStore = createStore([]);
+  });
+
+  it('re-sorts rows when a column header is clicked', async () => {
+    renderInventory();
+    await waitFor(() => expect(screen.getByText('my-api')).toBeInTheDocument());
+
+    const names = ['my-api', 'payment', 'frontend'];
+    const rowNames = () =>
+      screen
+        .getAllByRole('row')
+        .slice(1) // skip header row
+        .map((r) => names.find((n) => within(r).queryByText(n, { exact: true }) !== null) ?? '')
+        .filter(Boolean);
+
+    // Default: name ascending
+    expect(rowNames()).toEqual(['frontend', 'my-api', 'payment']);
+
+    // Click P95 header → numeric columns default to descending
+    fireEvent.click(screen.getByText(/P95/i));
+    await waitFor(() => expect(rowNames()).toEqual(['payment', 'my-api', 'frontend']));
+  });
+
+  it('column sorting still wins while a search query is active', async () => {
+    // 'team' fuzzy-matches all three services (both namespaces); relevance is
+    // only the default order — an explicit column sort must override it.
+    renderInventory('/services?q=team&sort=p95Duration&dir=desc');
+    await waitFor(() => expect(screen.getByText('my-api')).toBeInTheDocument());
+
+    const names = ['my-api', 'payment', 'frontend'];
+    const rows = screen.getAllByRole('row').slice(1);
+    const order = rows
+      .map((r) => names.find((n) => within(r).queryByText(n, { exact: true }) !== null) ?? '')
+      .filter(Boolean);
+    expect(order).toEqual(['payment', 'my-api', 'frontend']);
   });
 });

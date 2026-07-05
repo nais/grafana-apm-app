@@ -166,7 +166,11 @@ export function usePluginLabelOverrides(): LabelOverrides {
       _listeners = _listeners.filter((l) => l !== listener);
     };
   }, []);
-  return rev >= 0 ? sanitizeOverrides(getJsonData().labelOverrides) : EMPTY_OVERRIDES;
+  // Memoized on the settings revision: a fresh object per render cascades into
+  // effect deps of every consumer (scene rebuilds, drawer refetch loops).
+  // `rev` intentionally busts the memo when the settings listener fires.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  return useMemo(() => sanitizeOverrides(getJsonData().labelOverrides), [rev]);
 }
 
 // Exported for testing — reset module state between test cases.

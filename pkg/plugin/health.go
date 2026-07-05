@@ -100,15 +100,22 @@ func (a *App) handleHealth(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	caps := a.cachedOrDetectCapabilities(ctx)
-	if !caps.SpanMetrics.Detected {
-		writeJSON(w, HealthSummary{DurationUnit: "ms"})
-		return
-	}
-
 	from, to := parseTimeRange(req)
-	summary := a.queryHealth(ctx, caps, namespace, service, environment, from, to, serverOnly)
-	writeJSON(w, summary)
+
+	// Cache key: org + time range rounded to 30s + all filter params
+	orgID := req.Header.Get("X-Grafana-Org-Id")
+	serverStr := "false"
+	if serverOnly {
+		serverStr = "true"
+	}
+	ck := cacheKey("health", orgID, roundedUnix(from), roundedUnix(to), namespace, service, environment, serverStr)
+	a.writeCached(w, ck, "querying health failed", func() (any, error) {
+		caps := a.cachedOrDetectCapabilities(ctx)
+		if !caps.SpanMetrics.Detected {
+			return HealthSummary{DurationUnit: "ms"}, nil
+		}
+		return a.queryHealth(ctx, caps, namespace, service, environment, from, to, serverOnly), nil
+	})
 }
 
 func (a *App) queryHealth(
@@ -232,8 +239,8 @@ func (a *App) queryHealth(
 func (a *App) detectDegradedOps(resultMap map[string][]queries.PromResult, durationUnit string) []DegradedOperation {
 	type opKey struct{ name, kind string }
 	type opData struct {
-		rate, errorRate, p95         float64
-		prevRate, prevErrorRate, prevP95 float64
+		rate, errorRate, p95                  float64
+		prevRate, prevErrorRate, prevP95      float64
 		hasPrevRate, hasPrevError, hasPrevP95 bool
 	}
 
@@ -387,8 +394,8 @@ func (a *App) queryDegradedDeps(
 	}, logger)
 
 	type depData struct {
-		rate, errorRate, p95             float64
-		prevRate, prevErrorRate, prevP95 float64
+		rate, errorRate, p95                  float64
+		prevRate, prevErrorRate, prevP95      float64
 		hasPrevRate, hasPrevError, hasPrevP95 bool
 	}
 

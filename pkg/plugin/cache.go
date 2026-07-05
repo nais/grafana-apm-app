@@ -4,8 +4,11 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
 
 // responseCache is a simple in-memory cache for expensive API responses.
@@ -16,6 +19,7 @@ type responseCache struct {
 	entries map[string]*cacheEntry
 	ttl     time.Duration
 	maxSize int
+	group   singleflight.Group
 }
 
 type cacheEntry struct {
@@ -23,12 +27,20 @@ type cacheEntry struct {
 	createdAt time.Time
 }
 
-func newResponseCache(ttl time.Duration, maxSize int) *responseCache {
+func newResponseCache() *responseCache {
+	const ttl = 30 * time.Second
+	const maxSize = 200
 	return &responseCache{
 		entries: make(map[string]*cacheEntry, maxSize),
 		ttl:     ttl,
 		maxSize: maxSize,
 	}
+}
+
+// roundedUnix rounds a timestamp down to a 30s bucket for cache keys, so
+// near-simultaneous requests with slightly different ranges share entries.
+func roundedUnix(t time.Time) string {
+	return fmt.Sprintf("%d", t.Unix()/30*30)
 }
 
 // cacheKey builds a deterministic cache key from handler name and params.
@@ -93,4 +105,54 @@ func (c *responseCache) setJSON(key string, v any) {
 		return
 	}
 	c.set(key, data)
+}
+
+// getOrCompute returns cached JSON bytes on hit; on miss it runs compute,
+// coalescing concurrent callers for the same key into a single execution
+// (stampede protection — wallboards polling in lockstep would otherwise all
+// re-run the expensive query fan-out when an entry expires).
+func (c *responseCache) getOrCompute(key string, compute func() (any, error)) ([]byte, error) {
+	if data, ok := c.get(key); ok {
+		return data, nil
+	}
+	v, err, _ := c.group.Do(key, func() (any, error) {
+		// Re-check: another caller may have populated the cache while we
+		// waited for the flight slot.
+		if data, ok := c.get(key); ok {
+			return data, nil
+		}
+		val, err := compute()
+		if err != nil {
+			return nil, err
+		}
+		data, err := json.Marshal(val)
+		if err != nil {
+			return nil, fmt.Errorf("marshaling response: %w", err)
+		}
+		c.set(key, data)
+		return data, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return v.([]byte), nil
+}
+
+// writeCached serves the response for key from the cache (with an X-Cache: HIT
+// header), or computes, caches, and writes it. Concurrent misses for the same
+// key are coalesced by getOrCompute. errMsg is written on compute failure.
+func (a *App) writeCached(w http.ResponseWriter, key, errMsg string, compute func() (any, error)) {
+	if cached, ok := a.respCache.get(key); ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Cache", "HIT")
+		_, _ = w.Write(cached)
+		return
+	}
+	data, err := a.respCache.getOrCompute(key, compute)
+	if err != nil {
+		http.Error(w, errMsg, http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(data)
 }

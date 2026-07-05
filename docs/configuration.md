@@ -10,16 +10,16 @@ the Nais APM app. For the full list of expected metrics and labels, see
 
 The plugin needs three Grafana datasources:
 
-| Signal  | Type        | Default UID | Purpose |
-|---------|------------|-------------|---------|
+| Signal  | Type       | Default UID | Purpose                                                       |
+| ------- | ---------- | ----------- | ------------------------------------------------------------- |
 | Metrics | Prometheus | `mimir`     | Span metrics, service graph, browser metrics, runtime metrics |
-| Traces  | Tempo      | `tempo`     | Trace detail, exemplar links |
-| Logs    | Loki       | `loki`      | Faro browser telemetry, application logs |
+| Traces  | Tempo      | `tempo`     | Trace detail, exemplar links                                  |
+| Logs    | Loki       | `loki`      | Faro browser telemetry, application logs                      |
 
 ### Setup
 
 1. Go to the plugin's **Configuration** page
-2. Enter data source UIDs for Mimir, Tempo, and Loki
+2. Enter datasource UIDs for Mimir, Tempo, and Loki
 3. Click **Auto-detect capabilities** to verify connectivity and detect metric names
 4. Save
 
@@ -32,11 +32,11 @@ discover which metrics exist. This determines which features are enabled.
 
 ### What Gets Detected
 
-| Setting | Values | How |
-|---------|--------|-----|
-| Metric namespace | `traces_span_metrics`, `traces_spanmetrics`, `spanmetrics`, *(bare)* | Probes `{ns}_calls_total` in order |
-| Duration unit | `ms` or `s` | Probes `{ns}_duration_milliseconds_bucket` then `{ns}_duration_seconds_bucket` then `{ns}_latency_bucket` |
-| Service graph prefix | `traces_service_graph` or `service_graph` | Probes `{pfx}_request_total` |
+| Setting              | Values                                                               | How                                                                                                       |
+| -------------------- | -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Metric namespace     | `traces_span_metrics`, `traces_spanmetrics`, `spanmetrics`, _(bare)_ | Probes `{ns}_calls_total` in order                                                                        |
+| Duration unit        | `ms` or `s`                                                          | Probes `{ns}_duration_milliseconds_bucket` then `{ns}_duration_seconds_bucket` then `{ns}_latency_bucket` |
+| Service graph prefix | `traces_service_graph` or `service_graph`                            | Probes `{pfx}_request_total`                                                                              |
 
 See [metrics-reference.md — Auto-Detection](metrics-reference.md#auto-detection--capabilities)
 for the full probe order.
@@ -112,6 +112,23 @@ handles authentication directly (no OAuth2 proxy in front).
 
 The plugin uses a 3-tier fallback: auto-managed token → manual token →
 forwarded user headers.
+
+---
+
+## Deploy Annotations
+
+Time-series panels on the Backend (RED) and Frontend tabs render deploy markers from
+Grafana **organization annotations** tagged `nais-apm:deploy`,
+`service:<app>`, `namespace:<ns>`, `env:<env>`, and `version:<sha>`. The
+plugin queries the built-in `grafana` annotations datasource filtered by the
+`nais-apm:deploy` and `service:` tags (plus `env:` when an environment filter
+is selected); the marker tooltip shows the annotation text, which carries the
+deployed version and a link to the triggering workflow. To produce these
+annotations from CI, use the reusable GitHub Action in
+[`infra/actions/apm-deploy-annotation`](../infra/actions/apm-deploy-annotation/action.yml)
+after a successful deploy — it POSTs one annotation to `/api/annotations`
+using a service-account token with the `annotations:create` permission. No
+plugin configuration is required; markers appear as soon as annotations exist.
 
 ---
 

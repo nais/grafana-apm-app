@@ -39,6 +39,9 @@ type State = {
   opsWatchlist: OpsWatchlistEntry[];
   serviceAccountToken: string;
   tokenConfigured: boolean;
+  naisApiUrl: string;
+  naisApiToken: string;
+  naisTokenConfigured: boolean;
 };
 
 function parseEnvOverrides(
@@ -80,6 +83,9 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
     opsWatchlist: Array.isArray(jsonData?.opsWatchlist) ? jsonData.opsWatchlist : [],
     serviceAccountToken: '',
     tokenConfigured: secureJsonFields?.serviceAccountToken === true,
+    naisApiUrl: jsonData?.naisApiUrl || '',
+    naisApiToken: '',
+    naisTokenConfigured: secureJsonFields?.naisApiToken === true,
   });
   const [caps, setCaps] = useState<Capabilities | null>(null);
   const [detecting, setDetecting] = useState(false);
@@ -313,6 +319,16 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
     // Build ops watchlist, filtering out incomplete entries
     const opsWatchlist = state.opsWatchlist.filter((e) => e.namespace && e.service);
 
+    // Only send secure fields the user just typed — an untouched configured
+    // secret must not be overwritten with an empty value.
+    const secureJsonData: Record<string, string> = {};
+    if (state.serviceAccountToken) {
+      secureJsonData.serviceAccountToken = state.serviceAccountToken;
+    }
+    if (state.naisApiToken) {
+      secureJsonData.naisApiToken = state.naisApiToken;
+    }
+
     updatePluginAndReload(plugin.meta.id, {
       enabled,
       pinned,
@@ -337,8 +353,9 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
         labelOverrides: Object.values(state.labelOverrides).some(Boolean) ? state.labelOverrides : undefined,
         ingressAliases: Object.keys(ingressAliases).length > 0 ? ingressAliases : undefined,
         opsWatchlist: opsWatchlist.length > 0 ? opsWatchlist : undefined,
+        naisApiUrl: state.naisApiUrl || undefined,
       },
-      secureJsonData: state.serviceAccountToken ? { serviceAccountToken: state.serviceAccountToken } : undefined,
+      secureJsonData: Object.keys(secureJsonData).length > 0 ? secureJsonData : undefined,
     } as any);
   };
 
@@ -598,6 +615,48 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
             placeholder="glsa_..."
             onChange={(e) => setState((prev) => ({ ...prev, serviceAccountToken: e.currentTarget.value }))}
             onReset={() => setState((prev) => ({ ...prev, serviceAccountToken: '', tokenConfigured: false }))}
+          />
+        </Field>
+      </FieldSet>
+
+      <FieldSet label="nais API (optional)" className={s.marginTop}>
+        <p className={s.description}>
+          Point the backend at the nais API (Console) GraphQL endpoint to enable{' '}
+          <strong>deploy/release tracking</strong> (deploy markers and regression detection) and the service{' '}
+          <strong>scorecard ownership card</strong> (team, Slack channel, repo, ingress URLs). Both features are gated
+          on the token and no-op cleanly when it is absent. This also requires a network policy (netpol) egress rule
+          from the Grafana workload to the nais API host — see the{' '}
+          <a
+            href="https://github.com/nais/grafana-otel-plugin/blob/main/README.md#platform-dependencies"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Platform dependencies
+          </a>{' '}
+          section of the README.
+        </p>
+        <Field
+          label="nais API URL"
+          description="The nais API (Console) GraphQL endpoint the backend calls for deployments and ownership metadata."
+        >
+          <Input
+            width={40}
+            value={state.naisApiUrl}
+            placeholder="https://console.<tenant>.cloud.nais.io/graphql"
+            onChange={onChange('naisApiUrl')}
+          />
+        </Field>
+        <Field
+          label="nais API Token"
+          description="Bearer token for the nais API. Stored encrypted; only sent when you enter a new value."
+        >
+          <SecretInput
+            width={40}
+            isConfigured={state.naisTokenConfigured}
+            value={state.naisApiToken}
+            placeholder="nais API token"
+            onChange={(e) => setState((prev) => ({ ...prev, naisApiToken: e.currentTarget.value }))}
+            onReset={() => setState((prev) => ({ ...prev, naisApiToken: '', naisTokenConfigured: false }))}
           />
         </Field>
       </FieldSet>

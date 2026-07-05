@@ -64,8 +64,9 @@ function DependencyDetail() {
     [name, fromMs, toMs, envFilter]
   );
 
-  // Resolve namespaces for upstream services (they're internal and should link to service overview)
-  const { data: services } = useFetch<ServiceSummary[]>(() => getServices(fromMs, toMs), [fromMs, toMs]);
+  // Resolve namespaces for upstream services (they're internal and should link to service overview).
+  // Only the name→namespace mapping is needed, so skip the expensive sparkline series.
+  const { data: services } = useFetch<ServiceSummary[]>(() => getServices(fromMs, toMs, 60, false), [fromMs, toMs]);
   const serviceNsMap = useMemo(() => {
     const m = new Map<string, string>();
     for (const svc of services ?? []) {

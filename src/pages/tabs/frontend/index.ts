@@ -10,7 +10,7 @@ export {
   buildTrendsSection,
   buildPerPageSection,
   buildErrorsSection,
-  buildSupportSection,
+  buildBrowserBreakdownSection,
   buildTrafficSection,
 } from './sections';
 export { WebVitalsBullets } from './components/WebVitalsBullets';

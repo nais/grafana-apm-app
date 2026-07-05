@@ -19,8 +19,13 @@ import (
 // ServiceMapNode, ServiceMapEdge, ServiceMapResponse → models.go
 
 // sanitizeLogValue strips newlines and control characters from user input
-// to prevent log injection attacks.
+// to prevent log injection attacks. The explicit CR/LF replacement is what
+// breaks the log-injection taint flow (and is what static analysis recognizes
+// as the sanitizer); the strings.Map pass then strips any remaining control
+// characters.
 func sanitizeLogValue(s string) string {
+	s = strings.ReplaceAll(s, "\n", "_")
+	s = strings.ReplaceAll(s, "\r", "_")
 	return strings.Map(func(r rune) rune {
 		if r < 0x20 || r == 0x7f {
 			return '_'
@@ -87,24 +92,196 @@ func (a *App) handleServiceMap(w http.ResponseWriter, req *http.Request) {
 	writeJSON(w, graph)
 }
 
+// handleClusteredServiceMap returns the global service map aggregated by
+// namespace (team). At NAV scale the unclustered global map is ~1200 service
+// nodes / ~4000 edges — an unusable hairball that crashes the browser tab
+// (why the old global map page was removed, #22). Clustering collapses this to
+// one node per namespace (~130) with cross-namespace call-rate edges.
+//
+// GET /service-map/clustered?from=&to=&environment=
+func (a *App) handleClusteredServiceMap(w http.ResponseWriter, req *http.Request) {
+	if !requireGET(w, req) {
+		return
+	}
+	ctx := a.requestContext(req)
+	filterEnv := parseEnvironment(req)
+
+	now := time.Now()
+	from := parseUnixParam(req, "from", now.Add(-1*time.Hour))
+	to := parseUnixParam(req, "to", now)
+
+	// Unscoped fleet-wide aggregation — cache it (30s-rounded window,
+	// singleflighted against stampedes), mirroring handleGlobalDependencies.
+	orgID := req.Header.Get("X-Grafana-Org-Id")
+	ck := cacheKey("servicemap-clustered", orgID, roundedUnix(from), roundedUnix(to), filterEnv)
+	a.writeCached(w, ck, "querying clustered service map failed", func() (any, error) {
+		caps := a.cachedOrDetectCapabilities(ctx)
+		if !caps.ServiceGraph.Detected {
+			return ServiceMapResponse{Nodes: []ServiceMapNode{}, Edges: []ServiceMapEdge{}}, nil
+		}
+		return a.queryClusteredServiceMap(ctx, from, to, filterEnv), nil
+	})
+}
+
+// queryClusteredServiceMap builds the namespace-clustered global topology. It
+// fetches all service-graph edges once (unscoped) plus the service→namespace
+// map, then folds edges into namespace nodes + cross-namespace edges.
+func (a *App) queryClusteredServiceMap(ctx context.Context, from, to time.Time, filterEnv string) ServiceMapResponse {
+	nsMap := a.buildServiceNamespaceMap(ctx, to, filterEnv)
+	edges := a.queryServiceGraphEdges(ctx, from, to, filterEnv, "")
+	return aggregateByNamespace(edges, nsMap)
+}
+
+// aggregateByNamespace collapses a service-level edge map into a namespace-level
+// (team) topology for the global service map's clustered view.
+//
+// Each service is attributed to a namespace via nsMap (service_name →
+// service_namespace, built from spanmetrics). The service-graph metric's own
+// service_namespace label is deliberately NOT used for edge attribution: it is
+// stamped from whichever span (client or server) carried the resource
+// attributes, so for a given client→server edge it may describe either end.
+//
+// A namespace node's weight is its distinct service count (SubTitle/ServiceCount)
+// plus total incoming request rate (MainStat). Edges carry cross-namespace call
+// rates — only where the client namespace differs from the server namespace;
+// intra-namespace traffic is folded into node weight. Endpoints with no known
+// namespace (external hosts, databases, IPs) carry no team attribution and are
+// dropped from the clustered view — those dependencies live on the Dependencies
+// page.
+func aggregateByNamespace(edges map[sgEdgeKey]*sgEdgeData, nsMap map[string]string) ServiceMapResponse {
+	edges = preprocessServiceMapEdges(edges)
+
+	type nsAgg struct {
+		services  map[string]bool
+		totalRate float64
+		errorRate float64
+		callers   map[string]bool // distinct upstream namespaces
+	}
+	nsNodes := make(map[string]*nsAgg)
+	getNode := func(ns string) *nsAgg {
+		n, ok := nsNodes[ns]
+		if !ok {
+			n = &nsAgg{services: map[string]bool{}, callers: map[string]bool{}}
+			nsNodes[ns] = n
+		}
+		return n
+	}
+
+	type nsEdgeAgg struct {
+		rate      float64
+		errorRate float64
+		p95       float64
+	}
+	nsEdges := make(map[sgEdgeKey]*nsEdgeAgg)
+
+	for k, e := range edges {
+		clientNs := nsMap[k.client]
+		serverNs := nsMap[k.server]
+
+		if clientNs != "" {
+			getNode(clientNs).services[k.client] = true
+		}
+		if serverNs != "" {
+			n := getNode(serverNs)
+			n.services[k.server] = true
+			n.totalRate += e.rate
+			n.errorRate += e.errorRate
+		}
+
+		// Cross-namespace edge only (both ends attributed, different namespaces).
+		if clientNs == "" || serverNs == "" || clientNs == serverNs {
+			continue
+		}
+		getNode(serverNs).callers[clientNs] = true
+		ek := sgEdgeKey{client: clientNs, server: serverNs}
+		ne, ok := nsEdges[ek]
+		if !ok {
+			ne = &nsEdgeAgg{}
+			nsEdges[ek] = ne
+		}
+		ne.rate += e.rate
+		ne.errorRate += e.errorRate
+		if e.p95 > ne.p95 {
+			ne.p95 = e.p95
+		}
+	}
+
+	nodes := make([]ServiceMapNode, 0, len(nsNodes))
+	for ns, agg := range nsNodes {
+		errPct := 0.0
+		if agg.totalRate > 0 {
+			errPct = agg.errorRate / agg.totalRate
+			if errPct > 1.0 {
+				errPct = 1.0
+			}
+		}
+		svcCount := len(agg.services)
+		svcLabel := "services"
+		if svcCount == 1 {
+			svcLabel = "service"
+		}
+		nodes = append(nodes, ServiceMapNode{
+			ID:            ns,
+			Title:         ns,
+			SubTitle:      fmt.Sprintf("%d %s", svcCount, svcLabel),
+			MainStat:      fmt.Sprintf("%.1f req/s", agg.totalRate),
+			SecondaryStat: fmt.Sprintf("%.1f%% errors", errPct*100),
+			ArcErrors:     errPct,
+			ArcOK:         1 - errPct,
+			NodeType:      "service",
+			ServiceCount:  svcCount,
+			CallerCount:   len(agg.callers),
+			ErrorRate:     errPct,
+		})
+	}
+	// Largest namespaces first for deterministic, weight-ordered output.
+	sort.Slice(nodes, func(i, j int) bool {
+		if nodes[i].ServiceCount != nodes[j].ServiceCount {
+			return nodes[i].ServiceCount > nodes[j].ServiceCount
+		}
+		return nodes[i].ID < nodes[j].ID
+	})
+
+	edgeList := make([]ServiceMapEdge, 0, len(nsEdges))
+	for k, e := range nsEdges {
+		secondaryStat := ""
+		if e.p95 > 0 {
+			secondaryStat = fmt.Sprintf("P95: %.0fms", e.p95*1000)
+		}
+		edgeList = append(edgeList, ServiceMapEdge{
+			ID:            fmt.Sprintf("%s->%s", k.client, k.server),
+			Source:        k.client,
+			Target:        k.server,
+			MainStat:      fmt.Sprintf("%.1f req/s", e.rate),
+			SecondaryStat: secondaryStat,
+		})
+	}
+	sort.Slice(edgeList, func(i, j int) bool {
+		return edgeList[i].ID < edgeList[j].ID
+	})
+
+	return ServiceMapResponse{Nodes: nodes, Edges: edgeList}
+}
+
 // computeRangeStr derives a PromQL range duration from the dashboard time window.
-// It uses a floor of 5m (need enough samples for rate()) and a ceiling of 1h
-// (avoid over-smoothing). This ensures infrequent callers are visible when the
-// user has a wider dashboard time range.
+// The window spans the full selected range — floor 5m (rate() needs samples),
+// cap 24h (query cost) — so any edge with traffic anywhere in the range shows
+// up in the graph. A 1h cap here used to make infrequent callers (hourly batch
+// jobs, cron-driven dependencies) vanish from wide time ranges (#36). Edge
+// rates consequently read as averages over the selected range.
 func computeRangeStr(from, to time.Time) string {
 	d := to.Sub(from)
-	switch {
-	case d <= 5*time.Minute:
-		return "[5m]"
-	case d <= 15*time.Minute:
-		return "[10m]"
-	case d <= 30*time.Minute:
-		return "[15m]"
-	case d <= time.Hour:
-		return "[30m]"
-	default:
-		return "[1h]"
+	if d < 5*time.Minute {
+		d = 5 * time.Minute
 	}
+	if d > 24*time.Hour {
+		d = 24 * time.Hour
+	}
+	d = d.Round(time.Minute)
+	if m := int(d.Minutes()); m%60 != 0 {
+		return fmt.Sprintf("[%dm]", m)
+	}
+	return fmt.Sprintf("[%dh]", int(d.Hours()))
 }
 
 // sgEdgeKey identifies a directed edge in the service graph.
@@ -219,6 +396,61 @@ func (a *App) queryServiceGraphEdges(ctx context.Context, from, to time.Time, fi
 	return edges
 }
 
+// queryServiceGraphEdgesForServices queries service graph edges scoped to a
+// set of services via a client (and optionally server) regex matcher. This
+// replaces the unscoped all-edges query for namespace-level views, which can
+// time out at fleet scale. Callers must cap the list at maxScopedServices.
+func (a *App) queryServiceGraphEdgesForServices(ctx context.Context, from, to time.Time, filterEnv string, services []string, includeInbound bool) map[sgEdgeKey]*sgEdgeData {
+	logger := log.DefaultLogger.With("handler", "servicegraph-services", "count", len(services))
+	rangeStr := computeRangeStr(from, to)
+	sgp := a.serviceGraphPrefix()
+	cfg := a.otelCfg
+
+	escaped := make([]string, len(services))
+	for i, s := range services {
+		escaped[i] = promQLEscape(s)
+	}
+	pattern := `^(?:` + strings.Join(escaped, "|") + `)$`
+
+	envFilter := ""
+	if m := envMatcher(cfg.Labels.DeploymentEnv, filterEnv); m != "" {
+		envFilter = ", " + m
+	}
+	clientFilter := fmt.Sprintf(`%s=~"%s"%s`, cfg.Labels.Client, pattern, envFilter)
+	serverFilter := fmt.Sprintf(`%s=~"%s"%s`, cfg.Labels.Server, pattern, envFilter)
+
+	// Same query shape as queryServiceGraphEdges; result keys match
+	// parseSGEdgeResults ("out" = services as client, "in" = services as server).
+	buildJobs := func(prefix, labelFilter string) []QueryJob {
+		return []QueryJob{
+			{prefix + "Rate", fmt.Sprintf(
+				`sum by (%s, %s, %s, %s, %s) (rate(%s%s{%s}%s))`,
+				cfg.Labels.Client, cfg.Labels.Server, cfg.Labels.ConnectionType,
+				cfg.Labels.DBSystem, cfg.Labels.MessagingSystem,
+				sgp, cfg.ServiceGraph.RequestTotal, labelFilter, rangeStr,
+			)},
+			{prefix + "Err", fmt.Sprintf(
+				`sum by (%s, %s, %s) (rate(%s%s{%s}%s))`,
+				cfg.Labels.Client, cfg.Labels.Server, cfg.Labels.ConnectionType,
+				sgp, cfg.ServiceGraph.RequestFailedTotal, labelFilter, rangeStr,
+			)},
+			{prefix + "P95", fmt.Sprintf(
+				`histogram_quantile(0.95, sum by (%s, %s, %s) (rate(%s%s{%s}%s)))`,
+				cfg.Labels.Client, cfg.Labels.Server, cfg.Labels.Le,
+				sgp, cfg.ServiceGraph.RequestServerBucket, labelFilter, rangeStr,
+			)},
+		}
+	}
+
+	jobs := buildJobs("out", clientFilter)
+	if includeInbound {
+		jobs = append(jobs, buildJobs("in", serverFilter)...)
+	}
+
+	resultMap := a.runInstantQueries(ctx, to, jobs, logger)
+	return parseSGEdgeResults(resultMap, cfg)
+}
+
 // queryServiceGraphEdgesScoped runs scoped queries for a single service
 // (client=X OR server=X) and merges results. This avoids the expensive
 // unscoped query that can time out in large environments.
@@ -304,6 +536,12 @@ func (a *App) queryServiceGraphEdgesScoped(ctx context.Context, from, to time.Ti
 }
 
 const maxFrontierSize = 15
+
+// maxScopedServices caps how many service names are packed into a single
+// client/server regex matcher when scoping namespace-level service-graph
+// queries. Beyond this the regex gets unwieldy for Mimir and the unscoped
+// all-edges query (filtered client-side) is used instead.
+const maxScopedServices = 200
 
 // hubDegreeThreshold is the minimum directional degree (number of distinct
 // neighbors in the expansion direction) that causes a node to be classified
@@ -691,7 +929,7 @@ const (
 
 // bfsState holds the mutable state for the multi-hop BFS traversal.
 type bfsState struct {
-	allEdges  map[sgEdgeKey]*sgEdgeData
+	allEdges   map[sgEdgeKey]*sgEdgeData
 	nodeDir    map[string]bfsDirection
 	entryRate  map[string]float64
 	hubNodes   map[string]int // name → directional degree
@@ -961,6 +1199,7 @@ func (a *App) queryServiceMapMultiHop(
 	logger.Info("BFS complete", "totalEdges", len(s.allEdges), "hubs", len(s.hubNodes))
 	return assembleServiceMapResponseWithHubs(s.allEdges, s.hubNodes)
 }
+
 // when service graph metrics are unavailable (e.g., environments without the
 // Tempo service graph processor). It queries calls_total with server_address and
 // http_host labels to find outbound and inbound connections.
@@ -1239,27 +1478,49 @@ func (a *App) queryServiceMap( //nolint:gocyclo // complex due to filtering + no
 	// that service graph queries are scoped directly in PromQL (client=X OR
 	// server=X). This avoids fetching ALL edges in large environments, which
 	// can time out in Mimir when there are thousands of services.
-	// When no filterService is specified (namespace-level view), the unscoped
-	// query is used and filtering happens post-query.
-	edges := a.queryServiceGraphEdges(ctx, from, to, filterEnvironment, filterService)
-
-	// Apply namespace filter: keep edges where at least one end belongs to the namespace.
-	// Service graph metrics lack namespace labels, so we build a name→namespace mapping
-	// from spanmetrics (which DO carry service_namespace).
 	//
-	// Skip the namespace filter when a service filter is active: the scoped queries
-	// already return only that service's direct neighbors, and the namespace filter
-	// would incorrectly remove cross-namespace callers/callees (or all edges if
-	// the nsMap query fails in large environments).
+	// For the namespace-level view (no filterService), we build the namespace's
+	// service list from spanmetrics (service graph metrics lack namespace
+	// labels) and scope the PromQL to those services when the list is small
+	// enough. Only huge namespaces fall back to the unscoped all-edges query
+	// with client-side filtering.
+	//
+	// The namespace filter is skipped when a service filter is active: the
+	// scoped queries already return only that service's direct neighbors, and
+	// the namespace filter would incorrectly remove cross-namespace
+	// callers/callees (or all edges if the nsMap query fails in large
+	// environments).
+	var edges map[sgEdgeKey]*sgEdgeData
 	if filterNamespace != "" && filterService == "" {
 		nsMap := a.buildServiceNamespaceMap(ctx, to, filterEnvironment)
-		filtered := make(map[sgEdgeKey]*sgEdgeData)
-		for k, e := range edges {
-			if nsMap[k.client] == filterNamespace || nsMap[k.server] == filterNamespace {
-				filtered[k] = e
+		nsServices := make([]string, 0)
+		for svc, ns := range nsMap {
+			if ns == filterNamespace {
+				nsServices = append(nsServices, svc)
 			}
 		}
-		edges = filtered
+		sort.Strings(nsServices)
+
+		switch {
+		case len(nsServices) == 0:
+			// Unknown namespace (or nsMap query failed) — matches the previous
+			// behavior where the client-side filter removed every edge.
+			edges = map[sgEdgeKey]*sgEdgeData{}
+		case len(nsServices) <= maxScopedServices:
+			// Keep edges where at least one end belongs to the namespace.
+			edges = a.queryServiceGraphEdgesForServices(ctx, from, to, filterEnvironment, nsServices, true)
+		default:
+			edges = a.queryServiceGraphEdges(ctx, from, to, filterEnvironment, "")
+			filtered := make(map[sgEdgeKey]*sgEdgeData)
+			for k, e := range edges {
+				if nsMap[k.client] == filterNamespace || nsMap[k.server] == filterNamespace {
+					filtered[k] = e
+				}
+			}
+			edges = filtered
+		}
+	} else {
+		edges = a.queryServiceGraphEdges(ctx, from, to, filterEnvironment, filterService)
 	}
 
 	// Calculate per-node aggregate error rates for display.

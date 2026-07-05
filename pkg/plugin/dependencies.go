@@ -26,18 +26,19 @@ func (a *App) handleServiceDependencies(w http.ResponseWriter, req *http.Request
 		return
 	}
 
-	caps := a.cachedOrDetectCapabilities(ctx)
-	if !caps.ServiceGraph.Detected {
-		writeJSON(w, DependenciesResponse{Dependencies: []DependencySummary{}})
-		return
-	}
-
 	now := time.Now()
 	from := parseUnixParam(req, "from", now.Add(-1*time.Hour))
 	to := parseUnixParam(req, "to", now)
 
-	deps := a.queryDependencies(ctx, from, to, service, "", namespace, filterEnv)
-	writeJSON(w, DependenciesResponse{Dependencies: deps})
+	orgID := req.Header.Get("X-Grafana-Org-Id")
+	ck := cacheKey("svcdeps", orgID, roundedUnix(from), roundedUnix(to), namespace, service, filterEnv)
+	a.writeCached(w, ck, "querying dependencies failed", func() (any, error) {
+		caps := a.cachedOrDetectCapabilities(ctx)
+		if !caps.ServiceGraph.Detected {
+			return DependenciesResponse{Dependencies: []DependencySummary{}}, nil
+		}
+		return DependenciesResponse{Dependencies: a.queryDependencies(ctx, from, to, service, "", namespace, filterEnv)}, nil
+	})
 }
 
 // handleGlobalDependencies returns all external dependencies across all services.
@@ -49,18 +50,21 @@ func (a *App) handleGlobalDependencies(w http.ResponseWriter, req *http.Request)
 	ctx := a.requestContext(req)
 	filterEnv := parseEnvironment(req)
 
-	caps := a.cachedOrDetectCapabilities(ctx)
-	if !caps.ServiceGraph.Detected {
-		writeJSON(w, DependenciesResponse{Dependencies: []DependencySummary{}})
-		return
-	}
-
 	now := time.Now()
 	from := parseUnixParam(req, "from", now.Add(-1*time.Hour))
 	to := parseUnixParam(req, "to", now)
 
-	deps := a.queryDependencies(ctx, from, to, "", "", "", filterEnv)
-	writeJSON(w, DependenciesResponse{Dependencies: deps})
+	// This is an unscoped, fleet-wide service-graph aggregation — cache it
+	// (time range rounded to 30s, singleflighted against stampedes).
+	orgID := req.Header.Get("X-Grafana-Org-Id")
+	ck := cacheKey("globaldeps", orgID, roundedUnix(from), roundedUnix(to), filterEnv)
+	a.writeCached(w, ck, "querying dependencies failed", func() (any, error) {
+		caps := a.cachedOrDetectCapabilities(ctx)
+		if !caps.ServiceGraph.Detected {
+			return DependenciesResponse{Dependencies: []DependencySummary{}}, nil
+		}
+		return DependenciesResponse{Dependencies: a.queryDependencies(ctx, from, to, "", "", "", filterEnv)}, nil
+	})
 }
 
 // handleNamespaceDependencies returns external dependencies for all services in a namespace.
@@ -79,18 +83,19 @@ func (a *App) handleNamespaceDependencies(w http.ResponseWriter, req *http.Reque
 		return
 	}
 
-	caps := a.cachedOrDetectCapabilities(ctx)
-	if !caps.ServiceGraph.Detected {
-		writeJSON(w, NamespaceDependenciesResponse{Dependencies: []NamespaceDependency{}})
-		return
-	}
-
 	now := time.Now()
 	from := parseUnixParam(req, "from", now.Add(-1*time.Hour))
 	to := parseUnixParam(req, "to", now)
 
-	deps := a.queryNamespaceDependencies(ctx, from, to, namespace, filterEnv)
-	writeJSON(w, NamespaceDependenciesResponse{Dependencies: deps})
+	orgID := req.Header.Get("X-Grafana-Org-Id")
+	ck := cacheKey("nsdeps", orgID, roundedUnix(from), roundedUnix(to), namespace, filterEnv)
+	a.writeCached(w, ck, "querying dependencies failed", func() (any, error) {
+		caps := a.cachedOrDetectCapabilities(ctx)
+		if !caps.ServiceGraph.Detected {
+			return NamespaceDependenciesResponse{Dependencies: []NamespaceDependency{}}, nil
+		}
+		return NamespaceDependenciesResponse{Dependencies: a.queryNamespaceDependencies(ctx, from, to, namespace, filterEnv)}, nil
+	})
 }
 
 // queryNamespaceDependencies finds external dependencies for a namespace by:
@@ -116,10 +121,21 @@ func (a *App) queryNamespaceDependencies(
 		return []NamespaceDependency{}
 	}
 
-	// Filter service graph edges by environment when specified.
-	// Namespace dependencies need ALL edges (no per-service filter) since
-	// we aggregate across all services in the namespace.
-	edges := a.queryServiceGraphEdges(ctx, from, to, filterEnv, "")
+	// Scope the edge query to the namespace's services when the list is small
+	// enough — the unscoped all-edges query can time out at fleet scale. Only
+	// outbound edges (client in namespace) survive the filter below, so
+	// scoping by client alone is sufficient.
+	var edges map[sgEdgeKey]*sgEdgeData
+	if len(nsServices) <= maxScopedServices {
+		nsList := make([]string, 0, len(nsServices))
+		for svc := range nsServices {
+			nsList = append(nsList, svc)
+		}
+		sort.Strings(nsList)
+		edges = a.queryServiceGraphEdgesForServices(ctx, from, to, filterEnv, nsList, false)
+	} else {
+		edges = a.queryServiceGraphEdges(ctx, from, to, filterEnv, "")
+	}
 
 	// Build db_system and messaging_system maps from edge-level labels.
 	// Service graph metrics now carry these directly — no spanmetrics cross-fetch needed.

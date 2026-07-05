@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useStyles2, MultiCombobox, Input, Icon, Switch, Combobox } from '@grafana/ui';
+import { useStyles2, MultiCombobox, Input, Icon, Switch, Combobox, LinkButton } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { GraphDrawStyle, StackingMode } from '@grafana/schema';
@@ -10,13 +10,14 @@ import {
   SceneFlexLayout,
   SceneFlexItem,
   PanelBuilders,
-  SceneTimePicker,
-  SceneRefreshPicker,
 } from '@grafana/scenes';
 import { useDebouncedValue, escapeRegex } from '../../utils/debounce';
 import { sanitizeLabelValue } from '../../utils/sanitize';
 import { useUrlString, useUrlCsv, useUrlBoolean } from '../../utils/useUrlState';
+import { useTimeRange } from '../../utils/timeRange';
+import { buildLogsDrilldownUrl } from '../../utils/explore';
 import { otel } from '../../otelconfig';
+import { PatternsPanel } from './logs/PatternsPanel';
 
 interface LogsTabProps {
   service: string;
@@ -49,17 +50,6 @@ const FARO_KIND_OPTIONS: Array<{ label: string; value: string }> = [
   { label: 'Events', value: 'event' },
 ];
 
-// detected_level values are inconsistently cased across services.
-// Map each logical severity to all observed variants.
-const SEVERITY_VARIANTS: Record<string, string[]> = {
-  error: ['error', 'ERROR', 'SEVERE'],
-  warn: ['warn', 'WARN'],
-  info: ['info', 'INFO', 'Information'],
-  debug: ['debug', 'DEBUG'],
-  trace: ['trace', 'TRACE'],
-  unknown: ['unknown'],
-};
-
 export function LogsTab({
   service,
   namespace,
@@ -77,6 +67,10 @@ export function LogsTab({
   const [podOptions, setPodOptions] = useState<Array<{ label: string; value: string }>>([]);
   const debouncedSearch = useDebouncedValue(logSearch, 500);
   const styles = useStyles2(getStyles);
+  // Resolved timestamps drive the patterns fetch AND bust the scene memo on a
+  // global time-picker refresh (from/to strings stay "now-1h" but fromMs/toMs
+  // re-resolve), so the scene rebuilds and re-queries the fresh window.
+  const { fromMs, toMs } = useTimeRange();
 
   // Fetch available pod names for this service
   useEffect(() => {
@@ -98,7 +92,13 @@ export function LogsTab({
   }, [service, logsUid, serviceNameLabel, clusterFilter]);
 
   const scene = useMemo(() => {
-    const timeRange = new SceneTimeRange({ from, to });
+    // Resolve against the shared URL range (fromMs/toMs) rather than the raw
+    // relative strings: the global header time picker replaced this scene's own
+    // picker, and a refresh re-resolves fromMs/toMs while from/to stay "now-1h".
+    const timeRange = new SceneTimeRange({
+      from: new Date(fromMs).toISOString(),
+      to: new Date(toMs).toISOString(),
+    });
     const svcLabel = `${serviceNameLabel}="${sanitizeLabelValue(service)}"`;
 
     // Centralized Loki: inject cluster label to scope logs to the selected environment.
@@ -121,13 +121,14 @@ export function LogsTab({
 
     const streamSelector = `{${svcLabel}${clusterStream}${kindStream}${podStream}}`;
 
-    // Severity filtering uses pipeline-level JSON parsing because `detected_level` is
-    // structured metadata in Loki, not an indexed stream label — it can't be used in
-    // stream selectors. We parse JSON and filter on the `level` field instead.
-    const severityValues = severityFilter.flatMap((s) => SEVERITY_VARIANTS[s] ?? [s]);
-    const severityLabelFilter = severityValues.length > 0 ? ` | level=~"${severityValues.join('|')}"` : '';
-    // Volume query needs its own json parser since it has no other parser stage.
-    const severityPipeline = severityValues.length > 0 ? ` | json${severityLabelFilter}` : '';
+    // Severity filtering uses `detected_level`, Loki-computed structured metadata
+    // that's attached to every log entry regardless of body format. Filtering on
+    // it is a bare label-filter expression evaluated *before* any parser stage, so
+    // it works for plain-text/logfmt lines too — unlike the previous `| json |
+    // level=~"…"` approach, which silently dropped every non-JSON log (a failed
+    // `| json` leaves `level` empty). Values are already normalized by Loki
+    // (error/warn/info/debug/trace/unknown), matching SEVERITY_OPTIONS directly.
+    const severityLabelFilter = severityFilter.length > 0 ? ` | detected_level=~"${severityFilter.join('|')}"` : '';
 
     const textFilter = debouncedSearch ? ` |~ "${escapeRegex(debouncedSearch)}"` : '';
 
@@ -136,7 +137,7 @@ export function LogsTab({
       queries: [
         {
           refId: 'volume',
-          expr: `sum by (detected_level) (count_over_time(${streamSelector}${textFilter}${severityPipeline} [$__auto]))`,
+          expr: `sum by (detected_level) (count_over_time(${streamSelector}${textFilter}${severityLabelFilter} [$__auto]))`,
           legendFormat: '{{detected_level}}',
           queryType: 'range',
         },
@@ -148,7 +149,7 @@ export function LogsTab({
       queries: [
         {
           refId: 'A',
-          expr: `${streamSelector}${textFilter} | json${severityLabelFilter} | line_format \`{{ if .message }}{{ .message }}{{ else if .msg }}{{ .msg }}{{ else }}{{ __line__ }}{{ end }}\` | drop __error__, __error_details__`,
+          expr: `${streamSelector}${textFilter}${severityLabelFilter} | json | line_format \`{{ if .message }}{{ .message }}{{ else if .msg }}{{ .msg }}{{ else }}{{ __line__ }}{{ end }}\` | drop __error__, __error_details__`,
           queryType: 'range',
           maxLines: 200,
         },
@@ -157,7 +158,7 @@ export function LogsTab({
 
     return new EmbeddedScene({
       $timeRange: timeRange,
-      controls: [new SceneTimePicker({}), new SceneRefreshPicker({})],
+      controls: [],
       body: new SceneFlexLayout({
         direction: 'column',
         children: [
@@ -197,8 +198,8 @@ export function LogsTab({
     podFilter,
     includeFaro,
     kindFilter,
-    from,
-    to,
+    fromMs,
+    toMs,
     serviceNameLabel,
     clusterFilter,
   ]);
@@ -249,7 +250,30 @@ export function LogsTab({
             />
           </>
         )}
+        <LinkButton
+          variant="secondary"
+          size="sm"
+          icon="gf-logs"
+          className={styles.drilldownLink}
+          href={buildLogsDrilldownUrl(logsUid, service, {
+            namespace,
+            from,
+            to,
+            serviceNameLabel,
+          })}
+          tooltip="Open this service's logs in Grafana's queryless Logs Drilldown app"
+        >
+          Open in Logs Drilldown
+        </LinkButton>
       </div>
+      <PatternsPanel
+        namespace={namespace}
+        service={service}
+        logsUid={logsUid}
+        fromMs={fromMs}
+        toMs={toMs}
+        onSelectFilter={setLogSearch}
+      />
       <div className={styles.sceneWrapper}>
         <scene.Component model={scene} />
       </div>
@@ -288,5 +312,8 @@ const getStyles = (theme: GrafanaTheme2) => ({
     font-size: ${theme.typography.bodySmall.fontSize};
     cursor: pointer;
     margin-left: ${theme.spacing(0.5)};
+  `,
+  drilldownLink: css`
+    margin-left: auto;
   `,
 });

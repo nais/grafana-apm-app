@@ -1,6 +1,6 @@
 {
   "name": "application-observability",
-  "version": "0.13.4",
+  "version": "0.20.0",
   "author": "Nais",
   "license": "Apache-2.0",
   "repository": {
@@ -9,6 +9,7 @@
   },
   "scripts": {
     "build": "webpack -c ./.config/webpack/webpack.config.ts --env production",
+    "postbuild": "node scripts/check-bundle-size.js",
     "dev": "webpack -w -c ./.config/webpack/webpack.config.ts --env development",
     "test": "jest --watch --onlyChanged",
     "test:ci": "jest --passWithNoTests --maxWorkers 4",
@@ -74,12 +75,15 @@
     "@emotion/css": "11.10.6",
     "@grafana/data": "12.4.2",
     "@grafana/i18n": "12.4.2",
+    "@grafana/rrweb-player": "2.0.0-grafana.2",
     "@grafana/runtime": "12.4.2",
     "@grafana/scenes": "^6.57.2",
     "@grafana/schema": "12.4.2",
     "@grafana/ui": "12.4.2",
     "@xyflow/react": "^12.10.2",
     "elkjs": "^0.11.1",
+    "fflate": "0.8.3",
+    "fuse.js": "^7.4.2",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "react-router-dom": "6.30.4",

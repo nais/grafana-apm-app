@@ -284,10 +284,10 @@ endpoints by protocol. Removing a dimension disables the corresponding feature:
 
 | Dimension | Required For |
 |-----------|-------------|
-| `http.method`, `http.route`, `http.status_code` | HTTP endpoints tab |
-| `rpc.service`, `rpc.method` | gRPC endpoints tab |
-| `db.system`, `db.operation` | Database endpoints tab |
-| `messaging.system`, `messaging.operation` | Messaging endpoints tab |
+| `http.method`, `http.route`, `http.status_code` | Backend tab (HTTP endpoints) |
+| `rpc.service`, `rpc.method` | Backend tab (gRPC endpoints) |
+| `db.system`, `db.operation` | Database tab |
+| `messaging.system`, `messaging.operation` | Backend tab (messaging endpoints) |
 | `peer.service` | Dependency detection |
 | `service.namespace` | Namespace filtering |
 | `deployment.environment` | Environment filtering |

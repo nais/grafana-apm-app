@@ -8,12 +8,18 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 )
+
+// metricNamePattern matches valid Prometheus/OpenMetrics metric family names.
+// User-derived metric names are validated against it before being interpolated
+// into a request URL, so untrusted input cannot shape the outgoing request.
+var metricNamePattern = regexp.MustCompile(`^[a-zA-Z_:][a-zA-Z0-9_:]*$`)
 
 // sharedTransport is a connection-pooled HTTP transport reused across all query clients.
 // This avoids repeated TCP/TLS handshakes when querying the same datasource.
@@ -211,11 +217,27 @@ func (c *PrometheusClient) SeriesExists(ctx context.Context, metricName string) 
 	return false, nil
 }
 
-// LabelValues fetches all values for a given label name via /api/v1/label/<name>/values.
-func (c *PrometheusClient) LabelValues(ctx context.Context, labelName string) ([]string, error) {
-	u, err := url.Parse(c.baseURL + "/api/v1/label/" + url.PathEscape(labelName) + "/values")
+// LabelValues fetches values for a given label name via /api/v1/label/<name>/values,
+// bounded to the given time range. Without start/end both Prometheus/Mimir and
+// Loki scan their full retention for label values. RFC3339 timestamps are
+// accepted by both backends. Zero times are omitted.
+func (c *PrometheusClient) LabelValues(ctx context.Context, labelName string, start, end time.Time) ([]string, error) {
+	base, err := url.Parse(c.baseURL)
 	if err != nil {
-		return nil, fmt.Errorf("parsing label values URL: %w", err)
+		return nil, fmt.Errorf("parsing base URL: %w", err)
+	}
+	q := url.Values{}
+	if !start.IsZero() {
+		q.Set("start", start.UTC().Format(time.RFC3339))
+	}
+	if !end.IsZero() {
+		q.Set("end", end.UTC().Format(time.RFC3339))
+	}
+	u := &url.URL{
+		Scheme:   base.Scheme,
+		Host:     base.Host,
+		Path:     strings.TrimRight(base.Path, "/") + "/api/v1/label/" + url.PathEscape(labelName) + "/values",
+		RawQuery: q.Encode(),
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
@@ -248,12 +270,81 @@ func (c *PrometheusClient) LabelValues(ctx context.Context, labelName string) ([
 	return envelope.Data, nil
 }
 
-func (c *PrometheusClient) doQuery(ctx context.Context, path string, params url.Values) ([]PromResult, error) {
-	u, err := url.Parse(c.baseURL + path)
+// MetricMetadata is one entry from the Prometheus /api/v1/metadata endpoint:
+// the metric's type, HELP text, and OpenMetrics UNIT as ingested from scrape
+// targets. Mimir serves the same endpoint (metadata ingestion permitting).
+type MetricMetadata struct {
+	Type string `json:"type"`
+	Help string `json:"help"`
+	Unit string `json:"unit"`
+}
+
+// Metadata fetches metadata for a single metric family via
+// /api/v1/metadata?metric=<name>. Returns the (possibly empty) list of
+// metadata entries for that family — multiple targets may disagree, so
+// Prometheus returns a list. Absence of metadata is not an error.
+func (c *PrometheusClient) Metadata(ctx context.Context, metric string) ([]MetricMetadata, error) {
+	// CodeQL: `metric` is user-derived (metric family names selected from
+	// user-scoped queries). Validate it to the Prometheus metric-name charset
+	// before it reaches the request URL — this rejects any untrusted value and
+	// breaks the taint flow into the network sink at the boundary.
+	if !metricNamePattern.MatchString(metric) {
+		return nil, fmt.Errorf("invalid metric name: %q", metric)
+	}
+	// The host/scheme/path come from c.baseURL (fixed datasource config), never
+	// from user input.
+	base, err := url.Parse(c.baseURL)
 	if err != nil {
 		return nil, fmt.Errorf("parsing base URL: %w", err)
 	}
-	u.RawQuery = params.Encode()
+	u := &url.URL{
+		Scheme:   base.Scheme,
+		Host:     base.Host,
+		Path:     strings.TrimRight(base.Path, "/") + "/api/v1/metadata",
+		RawQuery: url.Values{"metric": {metric}}.Encode(),
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	c.applyAuth(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetching metadata: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("metadata returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var envelope struct {
+		Status string                      `json:"status"`
+		Data   map[string][]MetricMetadata `json:"data"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return nil, fmt.Errorf("unmarshaling metadata: %w", err)
+	}
+	return envelope.Data[metric], nil
+}
+
+func (c *PrometheusClient) doQuery(ctx context.Context, path string, params url.Values) ([]PromResult, error) {
+	base, err := url.Parse(c.baseURL)
+	if err != nil {
+		return nil, fmt.Errorf("parsing base URL: %w", err)
+	}
+	u := &url.URL{
+		Scheme:   base.Scheme,
+		Host:     base.Host,
+		Path:     strings.TrimRight(base.Path, "/") + path,
+		RawQuery: params.Encode(),
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {

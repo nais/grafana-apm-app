@@ -58,6 +58,26 @@ export const otel = {
     serviceNamespace: 'resource.service.namespace',
   },
 
+  /** App-emitted metrics from Prometheus scraping (runtime + custom metrics).
+   * These use app/namespace labels, NOT service_name/service_namespace —
+   * mirrors the backend's `otelconfig.RuntimeLabels`. */
+  runtime: {
+    appLabel: 'app',
+    namespaceLabel: 'namespace',
+    /** OTel db.client.connection.* histograms (verified present in production
+     * alongside the legacy hikaricp_connections_* gauges the backend's
+     * DBPoolMetrics.PoolLabel="pool" already reads — these newer histograms
+     * use a distinct "pool_name" label, confirmed via direct Mimir query
+     * during Database tab (#14) development). Not yet surfaced by the
+     * backend's /runtime endpoint, so the Database tab queries them
+     * directly as a Scenes panel rather than through DBPoolRuntime. */
+    dbPool: {
+      poolLabel: 'pool_name',
+      waitTimeBucket: 'db_client_connections_wait_time_milliseconds_bucket',
+      createTimeBucket: 'db_client_connections_create_time_milliseconds_bucket',
+    },
+  },
+
   /** Faro histogram metrics from improved Alloy pipeline.
    * The loki_process_custom_ prefix is hardcoded by Alloy's loki.process stage. */
   alloyHistogram: {
@@ -94,6 +114,12 @@ export const otel = {
     kindException: 'exception',
     kindEvent: 'event',
     kindLog: 'log',
+    // Session-replay chunks (#58/#67). Today they arrive as kind="event" with
+    // event_name="faro.session_recording.chunk"; the future Alloy pipeline
+    // relabels the stream to kind="replay" (7d retention_stream) — replay
+    // queries must match both during the transition.
+    kindReplay: 'replay',
+    replayChunkEvent: 'faro.session_recording.chunk',
     // logfmt field names
     typeField: 'type',
     typeWebVitals: 'web-vitals',
@@ -110,5 +136,18 @@ export const otel = {
     pageId: 'page_id',
     hash: 'hash',
     sessionId: 'session_id',
+    // Web-vitals attribution context fields (Faro Web SDK v2, always collected).
+    // Source: @grafana/faro-web-sdk 2.8.2
+    // instrumentations/webVitals/webVitalsWithAttribution.ts — the SDK pushes
+    // these keys on the measurement *context*, and Alloy's faro.receiver
+    // flattens context entries into logfmt with a `context_` prefix:
+    //   LCP: context.element              = attribution.target        → context_element
+    //   INP: context.interaction_target   = attribution.interactionTarget → context_interaction_target
+    //   CLS: context.largest_shift_target = attribution.largestShiftTarget → context_largest_shift_target
+    // (Timing sub-parts like element_render_delay / input_delay /
+    // largest_shift_value land in *values*, i.e. unprefixed logfmt keys.)
+    lcpElement: 'context_element',
+    inpInteractionTarget: 'context_interaction_target',
+    clsShiftTarget: 'context_largest_shift_target',
   },
 } as const;

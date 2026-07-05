@@ -26,7 +26,7 @@
         "path": "img/screenshot-service-overview.png"
       },
       {
-        "name": "Server Endpoints",
+        "name": "Backend",
         "path": "img/screenshot-service-server.png"
       },
       {
@@ -53,6 +53,14 @@
     },
     {
       "type": "page",
+      "name": "Jobs",
+      "path": "/a/%PLUGIN_ID%/jobs",
+      "icon": "calendar-alt",
+      "addToNav": true,
+      "role": "Viewer"
+    },
+    {
+      "type": "page",
       "name": "My Apps",
       "path": "/a/%PLUGIN_ID%/favorites",
       "icon": "favorite",
@@ -64,6 +72,14 @@
       "name": "Ops Status",
       "path": "/a/%PLUGIN_ID%/ops",
       "icon": "monitor",
+      "addToNav": true,
+      "role": "Viewer"
+    },
+    {
+      "type": "page",
+      "name": "Service Map",
+      "path": "/a/%PLUGIN_ID%/service-map",
+      "icon": "sitemap",
       "addToNav": true,
       "role": "Viewer"
     },

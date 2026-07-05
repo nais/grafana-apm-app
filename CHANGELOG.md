@@ -1,5 +1,70 @@
 # Changelog
 
+## 0.20.0 — "Legend" (2026-07-05)
+
+### Features
+
+- **Fingerprint-grouped exceptions** — Top Exceptions now groups by a stable, versioned fingerprint computed in the backend (exception type + normalized message) instead of the raw per-message Alloy hash: one logical error is one row even when messages carry UUIDs, URLs, or timestamps, with a "merged ×N" badge showing how many raw hashes combined. The Exception Drawer opens via a shareable `issueId` and aggregates occurrences across all member hashes; legacy `exceptionHash` links keep working. (#62)
+- **Frontend tab follows the page time range** — The Frontend tab's panels were pinned to a hardcoded last-1h window; they now honor the shared `from`/`to` URL range like every other tab.
+- **Top Exceptions promoted to a full-width row** — The issues table now sits directly under the health stats with the full page width, each row showing a share-of-total bar; Exception Types moved down beside the browser panels. Long issue lists paginate 10 rows at a time, and the backend caps the payload at the top 100 groups.
+- **Deploy markers on charts** — RED and Frontend panels render deployment annotations (org annotations tagged `nais-apm:deploy`) as markers with version and workflow link in the tooltip; a reusable GitHub Action for writing them ships under `infra/actions`. (#64)
+- **One-click alert rules** — "Create alert" in the Exception Drawer and "Alert on error rate" in the service header open Grafana's alert editor pre-filled with the right query (detected metric names, fingerprint-scoped exception spikes with a deep link back to the drawer, web-vitals degradation). Rules belong to the team, not the plugin. (#65)
+- **Grafana Drilldown integration** — "Open in Logs Drilldown" from the Logs tab, and an "Open in Nais APM" link on Grafana's Explore toolbar that recognizes `service_name` in the current query.
+- **Versions panel** — per-release sessions, adoption share, error-free rate, and exception counts under Top Exceptions, enriched with deploy timestamps from deploy annotations ("did this start with today's release?"). (#64)
+- **Web-vitals attribution** — three new panels show the slowest LCP elements, INP interaction targets, and CLS layout-shift sources from the attribution data Faro v2 already ships.
+- **Readable stack traces for console-captured exceptions** — The Exception Drawer now collapses runs of Faro SDK, vendored-dependency, and browser-native frames behind an expandable toggle and highlights the first in-app frame as the likely error origin. Exceptions captured via `console.error` get an explanatory badge: their stack shows the console call site, not where the error was thrown. Works retroactively on existing Loki data. (#66)
+- **Grafana-managed alerts on the namespace page** — Namespace alert surfacing now merges Grafana unified-alerting rules (with a "Grafana alert" badge) alongside Mimir ruler rules, fetched in parallel and deduplicated by name. (#65)
+- **Fuzzy service search** — The service inventory search matches partial, misspelled, and out-of-order tokens (e.g. `paymnt svc` finds `nais-payment-service`), ranked by relevance with exact prefix matches first. (#61)
+
+- **Issue triage** — resolve, ignore, reopen, and assign exceptions, shared across all users and Grafana replicas via an append-only event log in org annotations (zero new infrastructure; the log is the audit history). The Top Exceptions list gains an Unresolved/All/Resolved/Ignored filter (default hides handled issues), per-user "mute for me", and a Regressed badge that bubbles resolved-but-recurring issues to the top after a newer deploy. The drawer gets a triage bar with assignee. (#57)
+- **Automatic deploy annotations** — configure `naisApiUrl` + `naisApiToken` and the backend mirrors successful nais deployments as deploy markers, idempotently — no per-team CI step needed. (#64)
+- **Unified Issues: backend errors join the list** — the Top Exceptions panel now also groups exceptions from the service's own backend logs (OTLP structured-metadata and JSON logstash shapes) through the same fingerprint pipeline, with browser/server source badges, a source filter, pod-impact counts, pre-filtered Logs deep links, and example-trace links via event-scope TraceQL (Tempo ≥ 2.6). Triage works identically for server issues. (#63)
+- **Session replay & crash snapshots (opt-in)** — apps using `@nais/apm` can enable error-triggered session replay (`sessionReplay`) or lightweight masked DOM snapshots on crash (`screenshotOnError`); both default off, masked at capture time with a non-overridable privacy floor. The Exception Drawer plays recordings (seeked to just before the error) or shows the snapshot via a lazy-loaded player that non-replay users never download. (#58, #67)
+- **Sessions explorer** — search sessions by user or id, see per-session error counts and metadata, and jump straight into the session's logs. (roadmap M5)
+- **"New exceptions" alert template** — a fourth one-click alert rule fires per exception hash first seen in the last 30 minutes (7-day lookback, honest about its approximations in the alert text). (#65)
+
+- **Dedicated Issues tab** — the unified triage surface (browser and server exceptions, releases, sessions) is now its own top-level tab; the Frontend tab is reordered vitals-first so each surface has a single clear job. (#69)
+- **Database tab** — per-service query analytics and connection-pool health derived from database span metrics, verified across MongoDB, Oracle, and PostgreSQL apps; the empty states double as interim instrumentation docs. (#14)
+- **Service health header** — the Overview page leads with an at-a-glance health signal and baseline deltas versus the previous period (a pragmatic stand-in for anomaly detection), in deploy-marker context. (#35)
+- **Log patterns** — the Logs tab gains a Patterns view that clusters high-volume log lines via Loki's pattern ingester, plus a "new error patterns" card, to show the shape of an incident faster than scrolling raw logs.
+- **Trace analytics** — TraceQL-metrics breakdowns group latency and error rate by span attribute ("which tag explains the p99") on Tempo instances that expose the metrics API.
+- **Faceted issue search** — narrow the Issues list by app version, browser, or page; facet values are discovered from the data and offered as dropdowns, with a triage-status filter alongside. (M6)
+- **Global time picker** — a single page-header time picker drives every tab and fleet page through the shared `from`/`to` URL params, replacing the per-tab pickers.
+- **User feedback** — apps using `@nais/apm`'s feedback API stream user feedback to Loki; matching entries are joined to issues by fingerprint and shown inline in the Exception Drawer.
+- **Custom application metrics** — zero-config auto-discovery surfaces app-defined metrics and Faro custom measurements without denylist maintenance. (#68)
+- **Auto-refresh on inventory pages** — the non-Scene pages (service inventory, jobs, service map) now refresh on an interval like the Scene-based tabs. (#30)
+- **SLO error budgets** — multi-window burn-rate alert-rule templates plus an error-budget panel on the Overview tab, computed from RED metrics — a self-hosted answer to cloud-only SLO tooling.
+- **Profiling tab** — a capability-gated Pyroscope tab with span-to-profile links, shown only when a Pyroscope datasource is detected. (M7)
+- **Service scorecards** — an observability-readiness score per service, enriched with ownership, runbook, and repository links from the nais Console API. (#73)
+- **Jobs monitoring** — a cron / Naisjob inventory built from kube-state-metrics: schedules, last and next run, failure streaks, and one-click logs. (#74)
+- **Global service map** — the fleet-wide service map returns with namespace clustering, replacing the all-services graph removed in 0.5.0. (#22)
+- **In-plugin documentation links** — contextual links to the user docs and the `@nais/apm` SDK throughout the UI.
+
+### Fixes
+
+- **Session counts zeroed out on wide time ranges** — the distinct-sessions query exceeds Loki's series limit for chatty apps; it now retries over a narrowing recent window (labeled in the column header, e.g. "Sessions (last 5m)") and shows a dash instead of a misleading 0 when even that fails. Exception queries now use Grafana's `/api/ds/query` API instead of the deprecated datasource proxy.
+- **Column sorting was dead while searching** — fuzzy-search relevance ranking silently overrode explicit column sorts; relevance is now only the default order during a search.
+
+- **Infrequent dependencies missing from the service map** — The service-graph rate window now spans the full selected time range (floor 5m, cap 24h) instead of capping at 1h, so hourly batch jobs and cron-driven dependencies stay visible on wide dashboard ranges. (#36)
+- **Status boards re-queried a frozen time window** — Auto-refresh on the Ops Status Board and namespace Status Board now re-resolves relative time ranges (`now-1h`) each tick instead of re-querying the window resolved at first page render forever.
+
+- **Server issues matched real backend log shapes** — the unified Issues server side now recognizes the OTLP/semconv, JSON-body (logback/logstash, pino, slog), and unstructured plain-text log shapes seen in production, so backend exceptions actually appear instead of being silently missed; error-level lines with no titleable content surface as a single "Unparsed error logs" group rather than vanishing. (#63)
+- **Connection-pool runtime metrics** — pool utilization now keys on the OTel `pool_name` label, fixing missing or merged pool rows on the Runtime tab.
+- **Duplicated error panels removed** — the Overview and Frontend tabs no longer render the same error panel twice (IA review P4/P5).
+- **Logs tab severity filter dropped plain-text logs** — filtering now matches Loki's `detected_level` structured metadata instead of parsing the log body as JSON, so non-JSON (plain-text, logfmt) logs are no longer silently excluded from the severity filter and volume panel.
+- **Web Vitals enrichment now reports p75** (per the Core Web Vitals definition and matching the histogram panels) instead of the mean.
+
+### Performance
+
+- **Request coalescing and wider caching** — Concurrent cache misses for the same key (wallboards polling in lockstep) now share a single backend query fan-out; all read endpoints (health, operations, endpoints, runtime, dependencies, connected, graphql) are cached; capability probes are coalesced so cache expiry can't stampede detection queries; `/services` sparkline resolution is clamped server-side to ≤50 points per series and the inventory fetches sparklines for the visible page only; namespace service-graph queries are scoped to the namespace's services instead of fetching all fleet edges; label-values lookups are bounded to the request time range; the Exception Drawer's Loki queries use line prefilters and explicit time bounds. (#69)
+- **Fewer redundant fetches** — Dependency detail no longer fetches fleet-wide sparkline series for its namespace lookup, and label-override settings no longer produce a fresh object per render (which cascaded into scene rebuilds and drawer refetch loops).
+
+### Documentation
+
+- **Development roadmap** — the milestone/track sequencing across the plugin, `@nais/apm` SDK, and platform tracks now lives in GitHub Milestones and roadmap tracking issue #91.
+- **Stable URL contract** — `docs/url-contract.md` freezes the Exception Drawer deep-link parameters as a stable API for alert annotations and shared links, and now also documents the Issues/Database/Profiling tabs, the Jobs and Service Map fleet routes, the issue facet params, and the global header time range.
+- **Resource API reference** — a documented, versioned resource API with a drift-proof OpenAPI spec. (#75)
+
 ## 0.13.4 (2026-07-01)
 
 ### Fixes
@@ -249,7 +314,7 @@
 
 ### Features
 
-- **Status Board** — New TV-friendly dashboard view showing all services in a namespace as color-coded health cards (green/yellow/red/grey). Auto-refreshes, tracks last-seen services, and auto-paginates through cards when they exceed the viewport. Accessible from the namespace page via "Status Board" button. (#29)
+- **Status Board** — New TV-friendly dashboard view showing all services in a namespace as color-coded health cards (green/yellow/red/gray). Auto-refreshes, tracks last-seen services, and auto-paginates through cards when they exceed the viewport. Accessible from the namespace page via "Status Board" button. (#29)
 - **Card Size Selector** — Status Board supports S/M/L card sizes to fit more or fewer services on screen. Small cards show name + status only; large cards include sparkline trends.
 - **Auto-Pagination** — Status Board automatically rotates through pages at a configurable interval (10s/30s/60s) when services exceed the viewport, perfect for wall-mounted displays.
 - **Multi-Select Environment Filter** — All pages (Services, Namespace, Status Board) now support filtering by multiple environments simultaneously using a multi-select combobox.
@@ -366,7 +431,7 @@
 - **Messaging System Classification** — `classifyDependency` now correctly distinguishes between Kafka, RabbitMQ, JMS, and generic messaging types, matching frontend icon rendering.
 - **Shared Components** — Extracted `PageHeader`, `DataState`, section styles, and option helpers into reusable modules.
 - **Environment Column** — Namespace services table shows environment column when multiple environments exist (hidden when env filter is active).
-- **Framework Badge Styling** — Lighter weight (`font-weight: 400`) and subtle rounding (`border-radius: 4px`) for framework badges. Unknown frameworks now render a grey fallback badge instead of being hidden.
+- **Framework Badge Styling** — Lighter weight (`font-weight: 400`) and subtle rounding (`border-radius: 4px`) for framework badges. Unknown frameworks now render a gray fallback badge instead of being hidden.
 - **Canvas Layout** — Namespace page uses `PageLayoutType.Canvas` for a clean, headerless layout matching the service detail page.
 
 ### Bug Fixes

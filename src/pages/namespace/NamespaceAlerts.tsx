@@ -96,6 +96,7 @@ function AlertRuleCard({ rule }: { rule: AlertRuleSummary }) {
         <Badge text={rule.state} color={config.color} icon={config.icon as any} />
         <span className={styles.ruleName}>{rule.name}</span>
         {rule.severity && <Badge text={rule.severity} color={rule.severity === 'critical' ? 'red' : 'orange'} />}
+        {rule.source === 'grafana' && <Badge text="Grafana alert" color="blue" icon="bell" />}
       </div>
       <div className={styles.ruleMeta}>
         {(rule.summary || rule.description) && (

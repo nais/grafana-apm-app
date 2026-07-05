@@ -23,6 +23,7 @@ import { useFetch } from '../utils/useFetch';
 import { ServiceGraph, toGraphData } from '../components/ServiceGraph';
 import { CopyMermaidButton } from '../components/CopyMermaidButton';
 import { PageHeader } from '../components/PageHeader';
+import { RefreshControl } from '../components/RefreshControl';
 import { DataState } from '../components/DataState';
 import { NamespaceStats } from './namespace/NamespaceStats';
 import { NeedsAttention } from './namespace/NeedsAttention';
@@ -41,7 +42,7 @@ function NamespaceOverview() {
   const svcSearch = searchParams.get('svcSearch') ?? '';
   const svcPage = Math.max(1, parseInt(searchParams.get('svcPage') ?? '1', 10) || 1);
   const depPage = Math.max(1, parseInt(searchParams.get('depPage') ?? '1', 10) || 1);
-  const { from, fromMs, toMs, setTimeRange } = useTimeRange();
+  const { from, fromMs, toMs, setTimeRange, refresh: refreshTimeRange } = useTimeRange();
   const healthFilter = searchParams.get('healthFilter') ?? '';
 
   // Fetch all services for this namespace (filter by env client-side for multi-select)
@@ -49,6 +50,7 @@ function NamespaceOverview() {
     data: fetchResult,
     loading: servicesLoading,
     error: servicesError,
+    refetch: refetchServices,
   } = useFetch<ServiceSummary[]>(
     () => getServices(fromMs, toMs, 60, false, { namespace: decodedNs }),
     [fromMs, toMs, decodedNs]
@@ -66,7 +68,7 @@ function NamespaceOverview() {
   );
 
   // Lazy-load sparklines after initial data is on screen
-  const { data: sparklineResult } = useFetch<ServiceSummary[]>(
+  const { data: sparklineResult, refetch: refetchSparklines } = useFetch<ServiceSummary[]>(
     () => getServices(fromMs, toMs, 60, true, { namespace: decodedNs }),
     [fromMs, toMs, decodedNs],
     { skip: !fetchResult }
@@ -74,19 +76,41 @@ function NamespaceOverview() {
 
   // Fetch service map filtered by namespace and selected environments
   const mapEnv = envFilters.length > 0 ? envFilters.join(',') : undefined;
-  const { data: mapData } = useFetch<ServiceMapResponse>(
+  const { data: mapData, refetch: refetchMap } = useFetch<ServiceMapResponse>(
     () => getServiceMap(fromMs, toMs, undefined, decodedNs, mapEnv),
     [fromMs, toMs, decodedNs, mapEnv]
   );
 
   // Fetch namespace dependencies from dedicated backend endpoint
-  const { data: depsResult, loading: depsLoading } = useFetch<NamespaceDependenciesResponse>(
+  const {
+    data: depsResult,
+    loading: depsLoading,
+    refetch: refetchDeps,
+  } = useFetch<NamespaceDependenciesResponse>(
     () => getNamespaceDependencies(decodedNs, fromMs, toMs, mapEnv),
     [fromMs, toMs, decodedNs, mapEnv]
   );
 
   // Fetch alert rules for this namespace (current state, no time range dependency)
-  const { data: alertsResult } = useFetch<NamespaceAlertsResponse>(() => getNamespaceAlerts(decodedNs), [decodedNs]);
+  const { data: alertsResult, refetch: refetchAlerts } = useFetch<NamespaceAlertsResponse>(
+    () => getNamespaceAlerts(decodedNs),
+    [decodedNs]
+  );
+
+  // Auto-refresh. For relative ranges (now-1h), re-resolving the range updates
+  // fromMs/toMs and every time-scoped useFetch above refetches via its deps.
+  // Alerts have no time-range dependency, so they are refetched explicitly.
+  const handleRefresh = useCallback(() => {
+    refetchAlerts();
+    if (isRelativeRange) {
+      refreshTimeRange();
+      return;
+    }
+    refetchServices();
+    refetchSparklines();
+    refetchMap();
+    refetchDeps();
+  }, [isRelativeRange, refreshTimeRange, refetchAlerts, refetchServices, refetchSparklines, refetchMap, refetchDeps]);
 
   const allServices = useMemo(() => (fetchResult ?? []).filter((s) => !s.isSidecar), [fetchResult]);
 
@@ -213,6 +237,7 @@ function NamespaceOverview() {
                 onChange={(v) => setTimeRange(v?.value ?? 'now-1h', 'now')}
                 width={22}
               />
+              <RefreshControl onRefresh={handleRefresh} />
             </>
           }
         />

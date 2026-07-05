@@ -1,4 +1,13 @@
-import { buildExploreUrl, buildTempoExploreUrl, buildLokiExploreUrl, buildMimirExploreUrl } from './explore';
+import {
+  buildExploreUrl,
+  buildTempoExploreUrl,
+  buildLokiExploreUrl,
+  buildMimirExploreUrl,
+  buildLogsDrilldownUrl,
+  buildMetricsDrilldownUrl,
+  buildTracesDrilldownUrl,
+  buildExceptionTracesExploreUrl,
+} from './explore';
 
 /** Parse the `left` param from a Grafana Explore URL */
 function parseLeft(url: string): {
@@ -127,5 +136,149 @@ describe('buildMimirExploreUrl', () => {
     const left = parseLeft(url);
     expect(left.datasource).toBe('mimir-uid');
     expect(left.queries[0].expr).toBe(expr);
+  });
+});
+
+describe('buildLogsDrilldownUrl', () => {
+  it('builds a service-scoped path under the default `service` label slug', () => {
+    const url = buildLogsDrilldownUrl('loki-uid', 'backend');
+    expect(url.startsWith('/a/grafana-lokiexplore-app/explore/service/backend/logs?')).toBe(true);
+  });
+
+  it('includes var-ds and a var-filters entry for the service label', () => {
+    const url = buildLogsDrilldownUrl('loki-uid', 'backend');
+    const params = new URLSearchParams(url.split('?')[1]);
+    expect(params.get('var-ds')).toBe('loki-uid');
+    expect(params.getAll('var-filters')).toContain('service_name|=|backend');
+  });
+
+  it('defaults the time range to now-1h/now', () => {
+    const url = buildLogsDrilldownUrl('loki-uid', 'backend');
+    const params = new URLSearchParams(url.split('?')[1]);
+    expect(params.get('from')).toBe('now-1h');
+    expect(params.get('to')).toBe('now');
+  });
+
+  it('uses a custom time range when provided', () => {
+    const url = buildLogsDrilldownUrl('loki-uid', 'backend', { from: 'now-6h', to: 'now' });
+    const params = new URLSearchParams(url.split('?')[1]);
+    expect(params.get('from')).toBe('now-6h');
+  });
+
+  it('adds a namespace filter when provided', () => {
+    const url = buildLogsDrilldownUrl('loki-uid', 'backend', { namespace: 'otel-demo' });
+    const params = new URLSearchParams(url.split('?')[1]);
+    expect(params.getAll('var-filters')).toContain('service_namespace|=|otel-demo');
+  });
+
+  it('uses the overridden label as both the path slug and filter key', () => {
+    const url = buildLogsDrilldownUrl('loki-uid', 'my-svc', { serviceNameLabel: 'service' });
+    expect(url.startsWith('/a/grafana-lokiexplore-app/explore/service/my-svc/logs?')).toBe(true);
+    const params = new URLSearchParams(url.split('?')[1]);
+    expect(params.getAll('var-filters')).toContain('service|=|my-svc');
+  });
+
+  it('escapes slashes in the path segment (mirrors escapePrimaryLabel)', () => {
+    const url = buildLogsDrilldownUrl('loki-uid', 'my/service');
+    expect(url).toContain('/explore/service/my-service/logs');
+  });
+
+  it('escapes pipe/comma delimiters in filter values', () => {
+    const url = buildLogsDrilldownUrl('loki-uid', 'svc|weird,name');
+    const params = new URLSearchParams(url.split('?')[1]);
+    expect(params.getAll('var-filters')).toContain('service_name|=|svc__gfp__weird__gfc__name');
+  });
+});
+
+describe('buildMetricsDrilldownUrl', () => {
+  it('builds the drilldown path with var-ds and a service var-filters entry', () => {
+    const url = buildMetricsDrilldownUrl('mimir-uid', 'backend');
+    expect(url.startsWith('/a/grafana-metricsdrilldown-app/drilldown?')).toBe(true);
+    const params = new URLSearchParams(url.split('?')[1]);
+    expect(params.get('var-ds')).toBe('mimir-uid');
+    expect(params.getAll('var-filters')).toContain('service_name|=|backend');
+  });
+
+  it('includes a metric param when provided', () => {
+    const url = buildMetricsDrilldownUrl('mimir-uid', 'backend', { metric: 'http_server_duration_seconds' });
+    const params = new URLSearchParams(url.split('?')[1]);
+    expect(params.get('metric')).toBe('http_server_duration_seconds');
+  });
+
+  it('omits the metric param when not provided', () => {
+    const url = buildMetricsDrilldownUrl('mimir-uid', 'backend');
+    const params = new URLSearchParams(url.split('?')[1]);
+    expect(params.has('metric')).toBe(false);
+  });
+
+  it('adds a namespace filter when provided', () => {
+    const url = buildMetricsDrilldownUrl('mimir-uid', 'backend', { namespace: 'otel-demo' });
+    const params = new URLSearchParams(url.split('?')[1]);
+    expect(params.getAll('var-filters')).toContain('service_namespace|=|otel-demo');
+  });
+
+  it('defaults the time range to now-1h/now', () => {
+    const url = buildMetricsDrilldownUrl('mimir-uid', 'backend');
+    const params = new URLSearchParams(url.split('?')[1]);
+    expect(params.get('from')).toBe('now-1h');
+    expect(params.get('to')).toBe('now');
+  });
+});
+
+describe('buildTracesDrilldownUrl', () => {
+  it('builds the explore path with var-ds and a TraceQL resource attribute filter', () => {
+    const url = buildTracesDrilldownUrl('tempo-uid', 'backend');
+    expect(url.startsWith('/a/grafana-exploretraces-app/explore?')).toBe(true);
+    const params = new URLSearchParams(url.split('?')[1]);
+    expect(params.get('var-ds')).toBe('tempo-uid');
+    expect(params.getAll('var-filters')).toContain('resource.service.name|=|backend');
+  });
+
+  it('always sets var-primarySignal=true (a filter is always present)', () => {
+    const url = buildTracesDrilldownUrl('tempo-uid', 'backend');
+    const params = new URLSearchParams(url.split('?')[1]);
+    expect(params.get('var-primarySignal')).toBe('true');
+  });
+
+  it('adds a namespace filter using the resource.service.namespace TraceQL path', () => {
+    const url = buildTracesDrilldownUrl('tempo-uid', 'backend', { namespace: 'otel-demo' });
+    const params = new URLSearchParams(url.split('?')[1]);
+    expect(params.getAll('var-filters')).toContain('resource.service.namespace|=|otel-demo');
+  });
+
+  it('sets var-metric=errors when statusCode is error', () => {
+    const url = buildTracesDrilldownUrl('tempo-uid', 'backend', { statusCode: 'error' });
+    const params = new URLSearchParams(url.split('?')[1]);
+    expect(params.get('var-metric')).toBe('errors');
+  });
+
+  it('omits var-metric when no statusCode is given', () => {
+    const url = buildTracesDrilldownUrl('tempo-uid', 'backend');
+    const params = new URLSearchParams(url.split('?')[1]);
+    expect(params.has('var-metric')).toBe(false);
+  });
+
+  it('defaults the time range to now-1h/now', () => {
+    const url = buildTracesDrilldownUrl('tempo-uid', 'backend');
+    const params = new URLSearchParams(url.split('?')[1]);
+    expect(params.get('from')).toBe('now-1h');
+    expect(params.get('to')).toBe('now');
+  });
+});
+
+describe('buildExceptionTracesExploreUrl', () => {
+  it('builds an event-scope TraceQL query for exception span events', () => {
+    const url = buildExceptionTracesExploreUrl('tempo-uid', 'my-app', { exceptionType: 'PSQLException' });
+    const left = JSON.parse(new URLSearchParams(url.split('?')[1]).get('left')!);
+    expect(left.datasource).toBe('tempo-uid');
+    expect(left.queries[0].query).toBe(
+      '{resource.service.name="my-app" && event:name="exception" && event.exception.type="PSQLException"}'
+    );
+  });
+
+  it('omits the type filter when no exception type is known', () => {
+    const url = buildExceptionTracesExploreUrl('tempo-uid', 'my-app');
+    const left = JSON.parse(new URLSearchParams(url.split('?')[1]).get('left')!);
+    expect(left.queries[0].query).toBe('{resource.service.name="my-app" && event:name="exception"}');
   });
 });

@@ -1,5 +1,6 @@
 # Logs
-logs
+logs/
+!src/pages/tabs/logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -49,3 +50,10 @@ ci/
 
 .eslintcache
 coverage.out
+
+# Sibling checkout of nais/helm-charts (real Alloy config lives there)
+helm-charts/
+# SDK future home (github.com/nais/apm) — sibling checkout
+apm-client/
+# Nais docs (external repo for documenting nais apm online for users)
+nais-doc/

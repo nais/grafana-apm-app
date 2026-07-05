@@ -4,11 +4,22 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
+
+	"github.com/nais/grafana-otel-plugin/pkg/plugin/queries"
 )
 
-// handleNamespaceAlerts returns alert rules for a namespace.
+// Alert rule sources surfaced on the namespace page.
+const (
+	alertSourceMimir   = "mimir"   // Prometheus-style rules from the Mimir ruler
+	alertSourceGrafana = "grafana" // Grafana-managed (unified alerting) rules
+)
+
+// handleNamespaceAlerts returns alert rules for a namespace, merged from the
+// Mimir ruler and Grafana-managed alerting (#65 Phase 0: rules created via the
+// plugin's alert templates are Grafana-managed and must show up here too).
 // GET /namespaces/{namespace}/alerts
 func (a *App) handleNamespaceAlerts(w http.ResponseWriter, req *http.Request) {
 	logger := log.DefaultLogger.With("handler", "namespace-alerts")
@@ -19,14 +30,46 @@ func (a *App) handleNamespaceAlerts(w http.ResponseWriter, req *http.Request) {
 	}
 
 	prom := a.promClientForRequest(req)
-	if prom == nil {
+	grafanaRules := a.grafanaRulesClient(req)
+
+	var (
+		wg          sync.WaitGroup
+		mimirRules  *queries.RulesResponse
+		mimirErr    error
+		grafanaResp *queries.RulesResponse
+		grafanaErr  error
+	)
+	if prom != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			mimirRules, mimirErr = prom.GetAlertRules(req.Context())
+		}()
+	}
+	if grafanaRules != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			grafanaResp, grafanaErr = grafanaRules.GetAlertRules(req.Context())
+		}()
+	}
+	wg.Wait()
+
+	if mimirErr != nil {
+		logger.Warn("Failed to fetch Mimir alert rules", "error", mimirErr)
+	}
+	if grafanaErr != nil {
+		// Expected on Grafana instances without unified-alerting rules access;
+		// degrade to Mimir-only rather than failing the page.
+		logger.Debug("Failed to fetch Grafana-managed alert rules", "error", grafanaErr)
+	}
+
+	// Both sources unavailable → surface the error state (matches previous behavior).
+	if prom == nil && grafanaRules == nil {
 		writeJSON(w, NamespaceAlertsResponse{Rules: []AlertRuleSummary{}})
 		return
 	}
-
-	rules, err := prom.GetAlertRules(req.Context())
-	if err != nil {
-		logger.Warn("Failed to fetch alert rules", "error", err)
+	if mimirRules == nil && grafanaResp == nil {
 		writeJSON(w, NamespaceAlertsResponse{
 			Rules:        []AlertRuleSummary{},
 			Unavailable:  true,
@@ -35,7 +78,116 @@ func (a *App) handleNamespaceAlerts(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Filter rules by namespace label (exact match on namespace or kubernetes_namespace)
+	var filtered []AlertRuleSummary
+	filtered = append(filtered, summarizeAlertRules(mimirRules, namespace, alertSourceMimir)...)
+	filtered = append(filtered, summarizeAlertRules(grafanaResp, namespace, alertSourceGrafana)...)
+
+	writeJSON(w, NamespaceAlertsResponse{Rules: dedupeAndSortAlertRules(filtered)})
+}
+
+// grafanaRulesClient returns a client for Grafana's Prometheus-compatible
+// rules API (/api/prometheus/grafana/api/v1/rules), which exposes
+// Grafana-managed alert rules in the same envelope as the Mimir ruler.
+func (a *App) grafanaRulesClient(req *http.Request) *queries.PrometheusClient {
+	if a.grafanaURL == "" {
+		return nil
+	}
+	token := a.resolveServiceToken(req.Context())
+	client := queries.NewPrometheusClient(a.grafanaURL+"/api/prometheus/grafana", token)
+	return client.WithAuthHeaders(req.Header)
+}
+
+// handleServiceAlerts returns the alert rules that mention a single service,
+// merged from the Mimir ruler and Grafana-managed alerting and filtered with
+// the same conservative name matcher the scorecard uses (ruleMentionsService,
+// scorecard.go) — no fleet-wide substring hits. This is the service-scoped
+// sibling of handleNamespaceAlerts and the payload behind the Alerts tab's
+// rule list; per-rule firing-state detail (#32/#33) enriches this list later.
+// GET /services/{namespace}/{service}/alerts
+func (a *App) handleServiceAlerts(w http.ResponseWriter, req *http.Request) {
+	if !requireGET(w, req) {
+		return
+	}
+	namespace, service := parseServiceRef(req)
+	if !requireServiceParam(w, service) {
+		return
+	}
+
+	// Rules aren't time- or environment-scoped in this fetch, so the cache key
+	// is just org + service (namespace disambiguates same-named services).
+	orgID := req.Header.Get("X-Grafana-Org-Id")
+	ck := cacheKey("service-alerts", orgID, namespace, service)
+	a.writeCached(w, ck, "querying service alerts failed", func() (any, error) {
+		return a.computeServiceAlerts(req, service), nil
+	})
+}
+
+// computeServiceAlerts fans out to both rule sources (like handleNamespaceAlerts)
+// and filters to rules mentioning the service, degrading per-source.
+func (a *App) computeServiceAlerts(req *http.Request, service string) ServiceAlertsResponse {
+	logger := log.DefaultLogger.With("handler", "service-alerts")
+
+	prom := a.promClientForRequest(req)
+	grafanaRules := a.grafanaRulesClient(req)
+
+	var (
+		wg          sync.WaitGroup
+		mimirRules  *queries.RulesResponse
+		mimirErr    error
+		grafanaResp *queries.RulesResponse
+		grafanaErr  error
+	)
+	if prom != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			mimirRules, mimirErr = prom.GetAlertRules(req.Context())
+		}()
+	}
+	if grafanaRules != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			grafanaResp, grafanaErr = grafanaRules.GetAlertRules(req.Context())
+		}()
+	}
+	wg.Wait()
+
+	if mimirErr != nil {
+		logger.Warn("Failed to fetch Mimir alert rules", "error", mimirErr)
+	}
+	if grafanaErr != nil {
+		// Expected on Grafana instances without unified-alerting rules access;
+		// degrade to Mimir-only rather than failing the tab.
+		logger.Debug("Failed to fetch Grafana-managed alert rules", "error", grafanaErr)
+	}
+
+	// Neither source configured → empty (not an error; the local/dev case).
+	if prom == nil && grafanaRules == nil {
+		return ServiceAlertsResponse{Rules: []AlertRuleSummary{}}
+	}
+	// Both sources configured but both failed → surface the unavailable state.
+	if mimirRules == nil && grafanaResp == nil {
+		return ServiceAlertsResponse{
+			Rules:        []AlertRuleSummary{},
+			Unavailable:  true,
+			ErrorMessage: "Unable to fetch alert rules",
+		}
+	}
+
+	var filtered []AlertRuleSummary
+	filtered = append(filtered, summarizeServiceAlertRules(mimirRules, service, alertSourceMimir)...)
+	filtered = append(filtered, summarizeServiceAlertRules(grafanaResp, service, alertSourceGrafana)...)
+
+	return ServiceAlertsResponse{Rules: dedupeAndSortAlertRules(filtered)}
+}
+
+// summarizeAlertRules filters alerting rules to the given namespace and maps
+// them to summaries tagged with their source.
+func summarizeAlertRules(rules *queries.RulesResponse, namespace, source string) []AlertRuleSummary {
+	if rules == nil {
+		return nil
+	}
 	var filtered []AlertRuleSummary
 	for _, group := range rules.Groups {
 		for _, rule := range group.Rules {
@@ -47,42 +199,83 @@ func (a *App) handleNamespaceAlerts(w http.ResponseWriter, req *http.Request) {
 			if ruleNs == "" {
 				ruleNs = rule.Labels["kubernetes_namespace"]
 			}
-			// Also check if the ruler group file/namespace matches
 			if ruleNs == "" {
-				ruleNs = extractNamespaceFromGroupFile(group.File)
+				switch source {
+				case alertSourceMimir:
+					// Mimir ruler group file path: "{cluster}/{namespace}/{rule}/{uuid}"
+					ruleNs = extractNamespaceFromGroupFile(group.File)
+				case alertSourceGrafana:
+					// Grafana-managed rules: File is the folder title; teams
+					// commonly use folder-per-team(-namespace).
+					ruleNs = group.File
+				}
 			}
 
 			if !strings.EqualFold(ruleNs, namespace) {
 				continue
 			}
 
-			// Find earliest activeAt among firing/pending instances
-			var activeAt string
-			var activeCount int
-			for _, alert := range rule.Alerts {
-				if alert.State == "firing" || alert.State == "pending" {
-					activeCount++
-					if activeAt == "" || alert.ActiveAt < activeAt {
-						activeAt = alert.ActiveAt
-					}
-				}
-			}
+			filtered = append(filtered, alertRuleSummary(rule, group, source))
+		}
+	}
+	return filtered
+}
 
-			filtered = append(filtered, AlertRuleSummary{
-				Name:        rule.Name,
-				State:       rule.State,
-				Severity:    rule.Labels["severity"],
-				Summary:     rule.Annotations["summary"],
-				Description: rule.Annotations["description"],
-				ActiveSince: activeAt,
-				ActiveCount: activeCount,
-				GroupName:   group.Name,
-			})
+// summarizeServiceAlertRules filters alerting rules to those that mention the
+// service (reusing the scorecard's conservative ruleMentionsService matcher)
+// and maps them to summaries tagged with their source — the service-scoped
+// analogue of summarizeAlertRules.
+func summarizeServiceAlertRules(rules *queries.RulesResponse, service, source string) []AlertRuleSummary {
+	if rules == nil {
+		return nil
+	}
+	var filtered []AlertRuleSummary
+	for _, group := range rules.Groups {
+		for _, rule := range group.Rules {
+			if rule.Type != "alerting" {
+				continue
+			}
+			if !ruleMentionsService(rule, service) {
+				continue
+			}
+			filtered = append(filtered, alertRuleSummary(rule, group, source))
+		}
+	}
+	return filtered
+}
+
+// alertRuleSummary maps one ruler alerting rule to the summary surfaced on the
+// namespace/service pages, deriving the earliest activeAt / active-instance
+// count and tagging it with its source.
+func alertRuleSummary(rule queries.Rule, group queries.RuleGroup, source string) AlertRuleSummary {
+	var activeAt string
+	var activeCount int
+	for _, alert := range rule.Alerts {
+		if alert.State == "firing" || alert.State == "pending" {
+			activeCount++
+			if activeAt == "" || alert.ActiveAt < activeAt {
+				activeAt = alert.ActiveAt
+			}
 		}
 	}
 
-	// Deduplicate rules with the same name (same rule in multiple clusters).
-	// Keep the most severe state and merge instance counts.
+	return AlertRuleSummary{
+		Name:        rule.Name,
+		State:       rule.State,
+		Severity:    rule.Labels["severity"],
+		Summary:     rule.Annotations["summary"],
+		Description: rule.Annotations["description"],
+		ActiveSince: activeAt,
+		ActiveCount: activeCount,
+		GroupName:   group.Name,
+		Source:      source,
+	}
+}
+
+// dedupeAndSortAlertRules merges rules with the same name (same rule in
+// multiple clusters, or mirrored between the ruler and Grafana) keeping the
+// most severe state, and sorts firing → pending → inactive, then by name.
+func dedupeAndSortAlertRules(filtered []AlertRuleSummary) []AlertRuleSummary {
 	stateOrder := map[string]int{"firing": 0, "pending": 1, "inactive": 2}
 	orderOf := func(state string) int {
 		if o, ok := stateOrder[state]; ok {
@@ -112,8 +305,8 @@ func (a *App) handleNamespaceAlerts(w http.ResponseWriter, req *http.Request) {
 				existing.Description = r.Description
 			}
 		} else {
-			copy := *r
-			deduped[r.Name] = &copy
+			cp := *r
+			deduped[r.Name] = &cp
 		}
 	}
 	merged := make([]AlertRuleSummary, 0, len(deduped))
@@ -121,7 +314,6 @@ func (a *App) handleNamespaceAlerts(w http.ResponseWriter, req *http.Request) {
 		merged = append(merged, *r)
 	}
 
-	// Sort: firing first, then pending, then inactive; within each group by name
 	sort.Slice(merged, func(i, j int) bool {
 		oi, oj := orderOf(merged[i].State), orderOf(merged[j].State)
 		if oi != oj {
@@ -129,8 +321,7 @@ func (a *App) handleNamespaceAlerts(w http.ResponseWriter, req *http.Request) {
 		}
 		return merged[i].Name < merged[j].Name
 	})
-
-	writeJSON(w, NamespaceAlertsResponse{Rules: merged})
+	return merged
 }
 
 // extractNamespaceFromGroupFile extracts namespace from Mimir ruler file path.

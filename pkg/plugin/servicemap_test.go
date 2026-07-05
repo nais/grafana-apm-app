@@ -49,14 +49,15 @@ func TestComputeRangeStr(t *testing.T) {
 		{"3m window → floor at 5m", now.Add(-3 * time.Minute), now, "[5m]"},
 		{"5m window → 5m", now.Add(-5 * time.Minute), now, "[5m]"},
 		{"10m window → 10m", now.Add(-10 * time.Minute), now, "[10m]"},
-		{"15m window → 10m", now.Add(-15 * time.Minute), now, "[10m]"},
-		{"20m window → 15m", now.Add(-20 * time.Minute), now, "[15m]"},
-		{"30m window → 15m", now.Add(-30 * time.Minute), now, "[15m]"},
-		{"45m window → 30m", now.Add(-45 * time.Minute), now, "[30m]"},
-		{"1h window → 30m", now.Add(-1 * time.Hour), now, "[30m]"},
-		{"2h window → 1h", now.Add(-2 * time.Hour), now, "[1h]"},
-		{"6h window → 1h cap", now.Add(-6 * time.Hour), now, "[1h]"},
-		{"24h window → 1h cap", now.Add(-24 * time.Hour), now, "[1h]"},
+		{"15m window → 15m", now.Add(-15 * time.Minute), now, "[15m]"},
+		{"30m window → 30m", now.Add(-30 * time.Minute), now, "[30m]"},
+		{"45m window → 45m", now.Add(-45 * time.Minute), now, "[45m]"},
+		{"90m window → 90m", now.Add(-90 * time.Minute), now, "[90m]"},
+		{"1h window → 1h", now.Add(-1 * time.Hour), now, "[1h]"},
+		{"2h window → 2h", now.Add(-2 * time.Hour), now, "[2h]"},
+		{"6h window → 6h", now.Add(-6 * time.Hour), now, "[6h]"},
+		{"24h window → 24h", now.Add(-24 * time.Hour), now, "[24h]"},
+		{"7d window → 24h cap", now.Add(-7 * 24 * time.Hour), now, "[24h]"},
 	}
 
 	for _, tc := range tests {

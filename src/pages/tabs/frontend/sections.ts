@@ -5,24 +5,29 @@
  * Loki provides enrichment panels (per-page, full error messages, console logs,
  * sessions) when available. Each function builds one logical section (row).
  */
-import { SceneFlexLayout, SceneFlexItem, SceneQueryRunner, SceneDataTransformer, PanelBuilders } from '@grafana/scenes';
+import React from 'react';
+import {
+  SceneFlexLayout,
+  SceneFlexItem,
+  SceneQueryRunner,
+  SceneDataTransformer,
+  SceneReactObject,
+  PanelBuilders,
+} from '@grafana/scenes';
 import { ThresholdsMode, GraphThresholdsStyleMode } from '@grafana/schema';
 
 import { otel } from '../../../otelconfig';
 import { sanitizeLabelValue } from '../../../utils/sanitize';
-import { PLUGIN_BASE_URL } from '../../../constants';
 import { VITAL_THRESHOLDS, CWV_BUCKET_BOUNDARIES, type VitalKey } from './constants';
 import { makePromQuery, makeLokiQuery } from './panel-helpers';
 import {
   lokiVitalByGroupExpr,
   lokiVitalByPageExpr,
-  lokiTopExceptionsExpr,
-  lokiExceptionSessionsExpr,
   lokiSessionStartExpr,
-  lokiConsoleErrorsExpr,
   type LokiClusterOpts,
 } from './queries/loki-builders';
 import { FrontendSceneContext } from './scene-context';
+import { IssuesTable } from './components/IssuesTable';
 
 /** Derive LokiClusterOpts from scene context (undefined when no filter needed). */
 function clusterOpts(ctx: FrontendSceneContext): LokiClusterOpts | undefined {
@@ -312,22 +317,22 @@ export function buildPerPageSection(ctx: FrontendSceneContext): SceneFlexItem | 
       .setOverrides((b) => {
         b.matchFieldsWithName(pageUrl).overrideDisplayName('Page');
         b.matchFieldsWithName('Value #lcp')
-          .overrideDisplayName('Avg LCP (ms)')
+          .overrideDisplayName('p75 LCP (ms)')
           .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.lcp })
           .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
           .overrideDecimals(0);
         b.matchFieldsWithName('Value #fcp')
-          .overrideDisplayName('Avg FCP (ms)')
+          .overrideDisplayName('p75 FCP (ms)')
           .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.fcp })
           .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
           .overrideDecimals(0);
         b.matchFieldsWithName('Value #cls')
-          .overrideDisplayName('Avg CLS')
+          .overrideDisplayName('p75 CLS')
           .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.cls })
           .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
           .overrideDecimals(3);
         b.matchFieldsWithName('Value #inp')
-          .overrideDisplayName('Avg INP (ms)')
+          .overrideDisplayName('p75 INP (ms)')
           .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.inp })
           .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
           .overrideDecimals(0);
@@ -337,18 +342,12 @@ export function buildPerPageSection(ctx: FrontendSceneContext): SceneFlexItem | 
 }
 
 // ---------------------------------------------------------------------------
-// Section 4: Errors Row (Exception Types + Top Exceptions + Browser)
+// Section 4: Errors Row (compact issues) + Browser Breakdown
 // ---------------------------------------------------------------------------
 
-/** Errors section — split into two rows: exceptions row + browser row. */
-export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
-  const { logsDs, metricsDs, service, namespace, environment, svcFilter, ah, hasLoki } = ctx;
-  const fl = otel.faroLoki;
-
-  // --- Exceptions row (always has at least the Mimir types panel) ---
-  const exceptionsChildren: SceneFlexItem[] = [];
-
-  // Exception Types from Mimir counter (fast PromQL)
+/** Exception Types from the Mimir counter (fast PromQL) — always available, no Loki required. */
+function buildExceptionTypesItem(ctx: FrontendSceneContext): SceneFlexItem {
+  const { metricsDs, svcFilter, ah } = ctx;
   const exceptionTypeQ = new SceneQueryRunner({
     datasource: { uid: metricsDs.uid, type: 'prometheus' },
     queries: [
@@ -361,93 +360,67 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
       },
     ],
   });
-  exceptionsChildren.push(
-    new SceneFlexItem({
-      minHeight: 250,
-      width: '30%',
-      body: PanelBuilders.table()
-        .setTitle('Exception Types')
-        .setDescription('Which error types occur most often')
-        .setData(exceptionTypeQ)
-        .setOverrides((b) => {
-          b.matchFieldsWithName(ah.exceptionTypeLabel).overrideDisplayName('Exception Type');
-          b.matchFieldsWithName('Value').overrideDisplayName('Count').overrideDecimals(0);
-          b.matchFieldsWithName('Time').overrideCustomFieldConfig('hidden' as any, true);
-        })
-        .build(),
-    })
-  );
-
-  // Top Exceptions with full messages and session count (Loki enrichment)
-  if (hasLoki) {
-    const co = clusterOpts(ctx);
-    const topExceptionsQ = new SceneQueryRunner({
-      datasource: { uid: logsDs.uid, type: 'loki' },
-      queries: [
-        {
-          refId: 'count',
-          expr: lokiTopExceptionsExpr(service, '[$__range]', undefined, co),
-          legendFormat: '__auto',
-          format: 'table',
-          instant: true,
-        },
-        {
-          refId: 'sessions',
-          expr: lokiExceptionSessionsExpr(service, '[$__range]', co),
-          legendFormat: '__auto',
-          format: 'table',
-          instant: true,
-        },
-      ],
-    });
-    const topExceptionsData = new SceneDataTransformer({
-      $data: topExceptionsQ,
-      transformations: [{ id: 'merge', options: {} }],
-    });
-    exceptionsChildren.push(
-      new SceneFlexItem({
-        minHeight: 250,
-        body: PanelBuilders.table()
-          .setTitle('Top Exceptions')
-          .setDescription('Most common JavaScript errors — click an error to see full details in the Logs tab')
-          .setData(topExceptionsData)
-          .setOverrides((b) => {
-            b.matchFieldsWithName(fl.hash).overrideCustomFieldConfig('hidden' as any, true);
-            b.matchFieldsWithName('value').overrideDisplayName('Error');
-            b.matchFieldsWithName('Value #count')
-              .overrideDisplayName('Occurrences')
-              .overrideCustomFieldConfig('width' as any, 120);
-            b.matchFieldsWithName('Value #sessions')
-              .overrideDisplayName('Sessions Affected')
-              .overrideCustomFieldConfig('width' as any, 140);
-            b.matchFieldsWithName('Time').overrideCustomFieldConfig('hidden' as any, true);
-            const envParam = environment ? `&environment=${encodeURIComponent(environment)}` : '';
-            const nsSegment = encodeURIComponent(namespace || '_');
-            b.matchFieldsWithName('value').overrideLinks([
-              {
-                title: 'Inspect Exception',
-                url: `${PLUGIN_BASE_URL}/services/${nsSegment}/${encodeURIComponent(service)}?tab=frontend&from=\${__from}&to=\${__to}${envParam}&exceptionHash=\${__data.fields.${fl.hash}}`,
-                targetBlank: false,
-              } as any,
-              {
-                title: 'View in Logs',
-                url: `${PLUGIN_BASE_URL}/services/${nsSegment}/${encodeURIComponent(service)}?tab=logs&from=\${__from}&to=\${__to}${envParam}&includeFaro=true&kindFilter=exception&logSearch=\${__data.fields.${fl.hash}}`,
-                targetBlank: false,
-              } as any,
-            ]);
-          })
-          .build(),
+  return new SceneFlexItem({
+    minHeight: 250,
+    width: '25%',
+    body: PanelBuilders.table()
+      .setTitle('Exception Types')
+      .setDescription('Which error types occur most often')
+      .setData(exceptionTypeQ)
+      .setOverrides((b) => {
+        b.matchFieldsWithName(ah.exceptionTypeLabel).overrideDisplayName('Exception Type');
+        b.matchFieldsWithName('Value').overrideDisplayName('Count').overrideDecimals(0);
+        b.matchFieldsWithName('Time').overrideCustomFieldConfig('hidden' as any, true);
       })
-    );
-  }
+      .build(),
+  });
+}
 
-  const exceptionsRow = new SceneFlexLayout({ direction: 'row', children: exceptionsChildren });
+/**
+ * Errors section (#69 P6): the Frontend tab keeps only a compact,
+ * browser-scoped glance at issues — full triage (all sources, versions,
+ * sessions) lives on the Issues tab now. Without Loki there is no issues
+ * list at all, so the Exception Types panel remains the sole errors surface
+ * (unchanged fallback — the only errors surface in that mode).
+ */
+export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
+  const { service, namespace, environment, hasLoki } = ctx;
 
-  // --- Browser row (only when Loki available) ---
   if (!hasLoki) {
-    return exceptionsRow;
+    return new SceneFlexLayout({ direction: 'row', children: [buildExceptionTypesItem(ctx)] });
   }
 
+  // Top Exceptions grouped by stable fingerprint via the backend (#62),
+  // compact mode: browser-only, capped rows, "All issues →" to the Issues tab.
+  return new SceneFlexLayout({
+    direction: 'row',
+    children: [
+      new SceneFlexItem({
+        minHeight: 280,
+        body: new SceneReactObject({
+          reactNode: React.createElement(IssuesTable, { namespace, service, environment, compact: true }),
+        }),
+      }),
+    ],
+  });
+}
+
+/**
+ * Browser breakdown (#69 P6): per-browser vitals + traffic share. Requires Loki.
+ *
+ * The Exception Types panel was dropped here per ia-review P5 — it double-answers
+ * the unified Issues table (which the Frontend tab already surfaces compactly via
+ * buildErrorsSection). It survives only in the no-Loki fallback of
+ * buildErrorsSection, where there is no issues list and it is the sole errors
+ * surface. When Loki is unavailable this section returns null entirely.
+ */
+export function buildBrowserBreakdownSection(ctx: FrontendSceneContext): SceneFlexLayout | null {
+  if (!ctx.hasLoki) {
+    return null;
+  }
+
+  const { logsDs, service } = ctx;
+  const fl = otel.faroLoki;
   const browserChildren: SceneFlexItem[] = [];
 
   // Browser breakdown (Loki vitals per browser)
@@ -492,17 +465,17 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
         .setOverrides((b) => {
           b.matchFieldsWithName(fl.browserName).overrideDisplayName('Browser');
           b.matchFieldsWithName('Value #lcp')
-            .overrideDisplayName('Avg LCP (ms)')
+            .overrideDisplayName('p75 LCP (ms)')
             .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.lcp })
             .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
             .overrideDecimals(0);
           b.matchFieldsWithName('Value #fcp')
-            .overrideDisplayName('Avg FCP (ms)')
+            .overrideDisplayName('p75 FCP (ms)')
             .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.fcp })
             .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
             .overrideDecimals(0);
           b.matchFieldsWithName('Value #ttfb')
-            .overrideDisplayName('Avg TTFB (ms)')
+            .overrideDisplayName('p75 TTFB (ms)')
             .overrideThresholds({ mode: ThresholdsMode.Absolute, steps: VITAL_THRESHOLDS.ttfb })
             .overrideCustomFieldConfig('cellOptions', { type: 'color-background' as any })
             .overrideDecimals(0);
@@ -527,7 +500,7 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
   browserChildren.push(
     new SceneFlexItem({
       minHeight: 250,
-      width: '35%',
+      width: '25%',
       body: PanelBuilders.piechart()
         .setTitle('Browser Volume')
         .setDescription('Traffic share per browser')
@@ -536,58 +509,15 @@ export function buildErrorsSection(ctx: FrontendSceneContext): SceneFlexLayout {
     })
   );
 
-  const browserRow = new SceneFlexLayout({ direction: 'row', children: browserChildren });
-
-  return new SceneFlexLayout({
-    direction: 'column',
-    children: [exceptionsRow, browserRow],
-  });
+  return new SceneFlexLayout({ direction: 'row', children: browserChildren });
 }
 
 // ---------------------------------------------------------------------------
-// Section 5: Console Errors (Loki enrichment)
+// Section 5: Traffic (Page Loads + Errors + Sessions timeseries)
 // ---------------------------------------------------------------------------
-
-/** Console errors table — requires Loki. */
-export function buildSupportSection(ctx: FrontendSceneContext): SceneFlexLayout | null {
-  if (!ctx.hasLoki) {
-    return null;
-  }
-
-  const { logsDs, service } = ctx;
-
-  const consoleErrorsQ = makeLokiQuery(
-    logsDs,
-    lokiConsoleErrorsExpr(service, '[$__range]', undefined, clusterOpts(ctx)),
-    '{{value}}',
-    {
-      instant: true,
-    }
-  );
-
-  return new SceneFlexLayout({
-    direction: 'row',
-    children: [
-      new SceneFlexItem({
-        minHeight: 250,
-        body: PanelBuilders.table()
-          .setTitle('Console Errors')
-          .setDescription('Repeated console.error messages from the browser — check if your app logs errors silently')
-          .setData(consoleErrorsQ)
-          .setOverrides((b) => {
-            b.matchFieldsWithName('value').overrideDisplayName('Error Message');
-            b.matchFieldsWithName('Value').overrideDisplayName('Count');
-            b.matchFieldsWithName('Time').overrideCustomFieldConfig('hidden' as any, true);
-          })
-          .build(),
-      }),
-    ],
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Section 6: Traffic (Page Loads + Errors + Sessions timeseries)
-// ---------------------------------------------------------------------------
+// (The former Console Errors table was removed per ia-review P4: browser
+// console captures already flow into the unified Issues table and are badged
+// in the exception drawer, so a separate console-error panel only duplicated.)
 
 /** Traffic timeseries — Mimir rate counters + optional Loki sessions. */
 export function buildTrafficSection(ctx: FrontendSceneContext): SceneFlexLayout {

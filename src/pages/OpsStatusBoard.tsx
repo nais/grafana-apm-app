@@ -69,7 +69,7 @@ function OpsStatusBoard() {
   const styles = useStyles2(getStyles);
   const envParam = sanitizeParam(searchParams.get('environment') ?? '');
   const envFilters = useMemo(() => (envParam ? envParam.split(',').filter(Boolean) : []), [envParam]);
-  const { from, fromMs, toMs, setTimeRange } = useTimeRange();
+  const { from, fromMs, toMs, setTimeRange, refresh: refreshTimeRange } = useTimeRange();
   const { watchlist, loading: watchlistLoading, error: watchlistError, add, remove } = useOpsWatchlist();
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -127,7 +127,7 @@ function OpsStatusBoard() {
     [gridDims.width, gridDims.height, cardSize]
   );
 
-  const watchlistParam = useMemo(() => watchlist.map((w) => `${w.namespace}/${w.service}`), [watchlist]);
+  const watchlistParam = useMemo(() => [...new Set(watchlist.map((w) => `${w.namespace}/${w.service}`))], [watchlist]);
 
   // Fetch services — we filter to watchlist client-side, but pass filters to backend for performance
   const {
@@ -159,8 +159,14 @@ function OpsStatusBoard() {
     { skip: !fetchResult || cardSize !== 'lg' || watchlist.length === 0 }
   );
 
-  // Auto-refresh
+  // Auto-refresh. For relative ranges (now-1h), re-resolving the range updates
+  // fromMs/toMs and every useFetch above refetches via its deps — without this
+  // the board would re-query the window resolved at first render forever.
   const handleRefresh = useCallback(() => {
+    if (isRelativeRange) {
+      refreshTimeRange();
+      return;
+    }
     refetch();
     if (cardSize !== 'sm') {
       refetchPrev();
@@ -168,7 +174,7 @@ function OpsStatusBoard() {
     if (cardSize === 'lg') {
       refetchSparklines();
     }
-  }, [refetch, refetchPrev, refetchSparklines, cardSize]);
+  }, [isRelativeRange, refreshTimeRange, refetch, refetchPrev, refetchSparklines, cardSize]);
 
   const { secondsUntilRefresh } = useAutoRefresh(handleRefresh, refreshInterval);
 
@@ -185,7 +191,7 @@ function OpsStatusBoard() {
 
   // Watchlist services only — these are the cards shown on the board.
   const allServices = useMemo(() => {
-    return discoveredServices.filter((s) => watchlistSet.has(watchlistKey(s.namespace, s.name)));
+    return discoveredServices.filter((s) => watchlistSet.has(watchlistKey(s.namespace, s.name, s.environment)));
   }, [discoveredServices, watchlistSet]);
 
   const envOptions = useMemo(() => extractEnvironmentOptions(allServices), [allServices]);
@@ -205,7 +211,7 @@ function OpsStatusBoard() {
     }
     const m = new Map<string, ServiceSummary>();
     for (const s of prevServices) {
-      if (watchlistSet.has(watchlistKey(s.namespace, s.name))) {
+      if (watchlistSet.has(watchlistKey(s.namespace, s.name, s.environment))) {
         m.set(svcKey(s), s);
       }
     }
@@ -218,7 +224,9 @@ function OpsStatusBoard() {
       return new Map<string, ServiceSummary>();
     }
     return new Map(
-      sparklineResult.filter((s) => watchlistSet.has(watchlistKey(s.namespace, s.name))).map((s) => [svcKey(s), s])
+      sparklineResult
+        .filter((s) => watchlistSet.has(watchlistKey(s.namespace, s.name, s.environment)))
+        .map((s) => [svcKey(s), s])
     );
   }, [sparklineResult, watchlistSet]);
 

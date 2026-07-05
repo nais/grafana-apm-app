@@ -70,7 +70,7 @@ function StatusBoard() {
   const styles = useStyles2(getStyles);
   const envParam = sanitizeParam(searchParams.get('environment') ?? '');
   const envFilters = useMemo(() => (envParam ? envParam.split(',').filter(Boolean) : []), [envParam]);
-  const { from, fromMs, toMs, setTimeRange } = useTimeRange();
+  const { from, fromMs, toMs, setTimeRange, refresh: refreshTimeRange } = useTimeRange();
 
   // Card size from URL (validated)
   const rawSize = searchParams.get('size') ?? 'sm';
@@ -155,8 +155,14 @@ function StatusBoard() {
     { skip: !fetchResult || cardSize !== 'lg' }
   );
 
-  // Auto-refresh (data)
+  // Auto-refresh (data). For relative ranges, re-resolve the range: fromMs/toMs
+  // change and every useFetch refetches via its deps — otherwise the board
+  // re-queries the window resolved at first render forever.
   const handleRefresh = useCallback(() => {
+    if (isRelativeRange) {
+      refreshTimeRange();
+      return;
+    }
     refetch();
     if (cardSize !== 'sm') {
       refetchPrev();
@@ -164,7 +170,7 @@ function StatusBoard() {
     if (cardSize === 'lg') {
       refetchSparklines();
     }
-  }, [refetch, refetchPrev, refetchSparklines, cardSize]);
+  }, [isRelativeRange, refreshTimeRange, refetch, refetchPrev, refetchSparklines, cardSize]);
 
   const { secondsUntilRefresh } = useAutoRefresh(handleRefresh, refreshInterval);
 

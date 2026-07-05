@@ -111,7 +111,7 @@ func TestClassifyCause(t *testing.T) {
 					{SpanName: "POST /order", ErrorAnomaly: true, Rate: 60, ErrorRate: 15},
 				},
 				DegradedDeps: []DegradedDependency{
-					{Name: "payment-svc", ErrorAnomaly: true, Rate: 20, ErrorRate: 10}, // 2 err/s
+					{Name: "payment-svc", ErrorAnomaly: true, Rate: 20, ErrorRate: 10},  // 2 err/s
 					{Name: "inventory-svc", ErrorAnomaly: true, Rate: 15, ErrorRate: 8}, // 1.2 err/s
 				},
 			},
@@ -145,10 +145,10 @@ func TestDetectDegradedOps(t *testing.T) {
 		// 100 req/s, 2% error both current and previous → no anomaly
 		resultMap := map[string][]queries.PromResult{
 			"opRate":      {makeResult("GET /foo", "SPAN_KIND_SERVER", 100)},
-			"opError":     {makeResult("GET /foo", "SPAN_KIND_SERVER", 2)},   // 2/100=2%
+			"opError":     {makeResult("GET /foo", "SPAN_KIND_SERVER", 2)}, // 2/100=2%
 			"opP95":       {makeResult("GET /foo", "SPAN_KIND_SERVER", 100)},
 			"opPrevRate":  {makeResult("GET /foo", "SPAN_KIND_SERVER", 100)},
-			"opPrevError": {makeResult("GET /foo", "SPAN_KIND_SERVER", 2)},   // 2/100=2%
+			"opPrevError": {makeResult("GET /foo", "SPAN_KIND_SERVER", 2)}, // 2/100=2%
 			"opPrevP95":   {makeResult("GET /foo", "SPAN_KIND_SERVER", 100)},
 		}
 		degraded := app.detectDegradedOps(resultMap, "ms")
@@ -161,7 +161,7 @@ func TestDetectDegradedOps(t *testing.T) {
 		// Current: 100 req/s, 10% error; Previous: 80 req/s, 3% error
 		resultMap := map[string][]queries.PromResult{
 			"opRate":      {makeResult("GET /foo", "SPAN_KIND_SERVER", 100)},
-			"opError":     {makeResult("GET /foo", "SPAN_KIND_SERVER", 10)},  // 10%
+			"opError":     {makeResult("GET /foo", "SPAN_KIND_SERVER", 10)}, // 10%
 			"opP95":       {makeResult("GET /foo", "SPAN_KIND_SERVER", 100)},
 			"opPrevRate":  {makeResult("GET /foo", "SPAN_KIND_SERVER", 80)},
 			"opPrevError": {makeResult("GET /foo", "SPAN_KIND_SERVER", 2.4)}, // 2.4/80=3%
@@ -183,10 +183,10 @@ func TestDetectDegradedOps(t *testing.T) {
 		// Both periods at 6% error → absolute threshold (≥5%) triggers
 		resultMap := map[string][]queries.PromResult{
 			"opRate":      {makeResult("GET /foo", "SPAN_KIND_SERVER", 100)},
-			"opError":     {makeResult("GET /foo", "SPAN_KIND_SERVER", 6)},  // 6%
+			"opError":     {makeResult("GET /foo", "SPAN_KIND_SERVER", 6)}, // 6%
 			"opP95":       {makeResult("GET /foo", "SPAN_KIND_SERVER", 50)},
 			"opPrevRate":  {makeResult("GET /foo", "SPAN_KIND_SERVER", 100)},
-			"opPrevError": {makeResult("GET /foo", "SPAN_KIND_SERVER", 6)},  // 6%
+			"opPrevError": {makeResult("GET /foo", "SPAN_KIND_SERVER", 6)}, // 6%
 			"opPrevP95":   {makeResult("GET /foo", "SPAN_KIND_SERVER", 50)},
 		}
 		degraded := app.detectDegradedOps(resultMap, "ms")
@@ -242,7 +242,7 @@ func TestDetectDegradedOps(t *testing.T) {
 		// Without the fix, this would wrongly calculate prev as 1.5/100=1.5% and flag delta anomaly
 		resultMap := map[string][]queries.PromResult{
 			"opRate":      {makeResult("GET /foo", "SPAN_KIND_SERVER", 100)},
-			"opError":     {makeResult("GET /foo", "SPAN_KIND_SERVER", 3)},   // 3%
+			"opError":     {makeResult("GET /foo", "SPAN_KIND_SERVER", 3)}, // 3%
 			"opP95":       {makeResult("GET /foo", "SPAN_KIND_SERVER", 100)},
 			"opPrevRate":  {makeResult("GET /foo", "SPAN_KIND_SERVER", 50)},
 			"opPrevError": {makeResult("GET /foo", "SPAN_KIND_SERVER", 1.5)}, // 1.5/50=3% (correct)

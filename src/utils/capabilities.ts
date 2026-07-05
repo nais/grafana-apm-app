@@ -41,6 +41,30 @@ export function useCapabilities(): { caps: Capabilities | null; loading: boolean
 }
 
 /**
+ * Pyroscope profiling datasource status, emitted by the backend /capabilities
+ * probe (M7). Kept here rather than in api/client.ts so the profiling feature's
+ * type surface stays self-contained.
+ */
+export interface PyroscopeCapability {
+  available: boolean;
+  uid?: string;
+}
+
+type CapabilitiesWithProfiling = Capabilities & {
+  pyroscope?: PyroscopeCapability;
+};
+
+/**
+ * Reads the Pyroscope capability off the capabilities response. Returns
+ * undefined while capabilities are still loading or when the backend omits the
+ * field (older backend); callers gate the Profiling tab on `available === true`
+ * so it appears only when a Pyroscope datasource is actually present.
+ */
+export function getPyroscope(caps: Capabilities | null): PyroscopeCapability | undefined {
+  return (caps as CapabilitiesWithProfiling | null)?.pyroscope;
+}
+
+/**
  * Returns the calls metric name and duration bucket metric name
  * from capabilities, or sensible defaults.
  */

@@ -6,7 +6,10 @@
 // a scatter-shot refactor.
 package otelconfig
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // ---------------------------------------------------------------------------
 // Labels — Prometheus label names produced by OTel span-metrics pipelines.
@@ -103,11 +106,11 @@ type AlloyHistogramMetrics struct {
 	PageLoadsByNav string // counter: page loads by navigation type (labels: app_name, env, nav_type)
 	Errors         string // counter: errors total (labels: app_name, env, exception_type)
 	// Per-vital CWV rating counters (labels: app_name, env, rating)
-	RatingLCP  string
-	RatingFCP  string
-	RatingCLS  string
-	RatingINP  string
-	RatingTTFB string
+	RatingLCP          string
+	RatingFCP          string
+	RatingCLS          string
+	RatingINP          string
+	RatingTTFB         string
 	AppLabel           string // label for app name (e.g. "app_name")
 	EnvLabel           string // label for environment (e.g. "env")
 	BrowserLabel       string // label for browser on page_loads counter
@@ -138,6 +141,9 @@ type FaroLoki struct {
 	// logfmt field names
 	TypeField     string
 	TypeWebVitals string
+	Hash          string
+	SessionID     string
+	AppVersion    string
 
 	// Vital field names in logfmt
 	FCP  string
@@ -230,23 +236,31 @@ type DBPoolMetrics struct {
 	HikariTimeout string // hikaricp_connections_timeout_total — counter
 	HikariUsage   string // hikaricp_connections_usage_seconds — histogram
 
-	// OTel DB client connections (newer instrumentation)
-	OtelDBActive string // db_client_connections_usage — gauge
-	OtelDBIdle   string // db_client_connections_idle_min — gauge
-	OtelDBMax    string // db_client_connections_max — gauge
+	// OTel DB client connections (newer instrumentation). These label pools
+	// with pool_name (not pool) and split active/idle via a state label on
+	// db_client_connections_usage. Emitted by e.g. Oracle UCP and newer
+	// OTel-agent HikariCP, which the hikaricp_* gauges above never surface.
+	OtelDBActive  string // db_client_connections_usage — gauge (state=used|idle)
+	OtelDBIdle    string // db_client_connections_idle_min — gauge (legacy, unused)
+	OtelDBMax     string // db_client_connections_max — gauge
+	OtelDBPending string // db_client_connections_pending_requests — gauge
 
-	PoolLabel string // "pool" — pool name
+	PoolLabel     string // "pool" — pool name on hikaricp_* gauges
+	PoolNameLabel string // "pool_name" — pool name on db_client_connections_* gauges
+	StateLabel    string // "state" — used|idle on db_client_connections_usage
+	StateUsed     string // "used"
+	StateIdle     string // "idle"
 }
 
 // KafkaMetrics defines metric names for Kafka client observability.
 type KafkaMetrics struct {
-	ConsumerLagMax      string // kafka_consumer_records_lag_max — gauge
-	ConsumerConsumed    string // kafka_consumer_records_consumed_total — counter
-	ProducerSent        string // kafka_producer_records_sent_total — counter (if available)
-	TopicLabel          string // "topic"
-	PartitionLabel      string // "partition"
-	ClientIDLabel       string // "client_id"
-	ConsumerGroupLabel  string // "consumer_group" (if available)
+	ConsumerLagMax     string // kafka_consumer_records_lag_max — gauge
+	ConsumerConsumed   string // kafka_consumer_records_consumed_total — counter
+	ProducerSent       string // kafka_producer_records_sent_total — counter (if available)
+	TopicLabel         string // "topic"
+	PartitionLabel     string // "partition"
+	ClientIDLabel      string // "client_id"
+	ConsumerGroupLabel string // "consumer_group" (if available)
 }
 
 // ContainerMetrics defines metric names for Kubernetes container resource metrics.
@@ -264,15 +278,15 @@ type ContainerMetrics struct {
 
 // GoMetrics defines metric names for Go runtime observability.
 type GoMetrics struct {
-	Goroutines  string // go_goroutines — gauge
-	Threads     string // go_threads — gauge
-	MemAlloc    string // go_memstats_alloc_bytes — gauge
-	MemSys      string // go_memstats_sys_bytes — gauge
-	GCDuration  string // go_gc_duration_seconds — summary
-	CPUTotal    string // process_cpu_seconds_total — counter (shared with Node.js)
-	OpenFDs     string // process_open_fds — gauge
-	MaxFDs      string // process_max_fds — gauge
-	Info        string // go_info — info metric with version label
+	Goroutines string // go_goroutines — gauge
+	Threads    string // go_threads — gauge
+	MemAlloc   string // go_memstats_alloc_bytes — gauge
+	MemSys     string // go_memstats_sys_bytes — gauge
+	GCDuration string // go_gc_duration_seconds — summary
+	CPUTotal   string // process_cpu_seconds_total — counter (shared with Node.js)
+	OpenFDs    string // process_open_fds — gauge
+	MaxFDs     string // process_max_fds — gauge
+	Info       string // go_info — info metric with version label
 }
 
 // RuntimeMetrics groups all runtime metric naming conventions.
@@ -284,6 +298,21 @@ type RuntimeMetrics struct {
 	DBPool    DBPoolMetrics
 	Kafka     KafkaMetrics
 	Container ContainerMetrics
+}
+
+// ---------------------------------------------------------------------------
+// Custom metrics — zero-config discovery of app/business metrics (#68).
+// ---------------------------------------------------------------------------
+
+// CustomMetrics groups settings for custom-metric auto-discovery. The
+// denylist lives here as data (not code) so it can be made extensible via
+// plugin settings without a rebuild; misclassification is cosmetic — a
+// platform metric showing up under "Custom" — never corrupting.
+type CustomMetrics struct {
+	// Denylist is the __name__!~ regex that excludes platform/runtime metric
+	// families from discovery: the runtime.go allowlist plus known platform
+	// families (scrape internals, OTel pipeline, container/kube, Alloy Faro).
+	Denylist string
 }
 
 // ---------------------------------------------------------------------------
@@ -302,6 +331,7 @@ type Config struct {
 	FaroLoki              FaroLoki
 	ServiceGraph          ServiceGraph
 	Runtime               RuntimeMetrics
+	CustomMetrics         CustomMetrics
 }
 
 // Default returns the standard OTel + Grafana Faro naming conventions.
@@ -372,6 +402,9 @@ func Default() Config {
 
 			TypeField:     "type",
 			TypeWebVitals: "web-vitals",
+			Hash:          "hash",
+			SessionID:     "session_id",
+			AppVersion:    "app_version",
 
 			FCP:  "fcp",
 			LCP:  "lcp",
@@ -385,19 +418,19 @@ func Default() Config {
 		},
 
 		AlloyHistogramMetrics: AlloyHistogramMetrics{
-			LCP:            "loki_process_custom_faro_web_vitals_lcp_milliseconds",
-			FCP:            "loki_process_custom_faro_web_vitals_fcp_milliseconds",
-			CLS:            "loki_process_custom_faro_web_vitals_cls",
-			INP:            "loki_process_custom_faro_web_vitals_inp_milliseconds",
-			TTFB:           "loki_process_custom_faro_web_vitals_ttfb_milliseconds",
-			PageLoads:      "loki_process_custom_faro_web_vital_measurements_total",
-			PageLoadsByNav: "loki_process_custom_faro_web_vital_measurements_by_nav_total",
-			Errors:         "loki_process_custom_faro_errors_total",
-			RatingLCP:      "loki_process_custom_faro_cwv_lcp_rating_total",
-			RatingFCP:      "loki_process_custom_faro_cwv_fcp_rating_total",
-			RatingCLS:      "loki_process_custom_faro_cwv_cls_rating_total",
-			RatingINP:      "loki_process_custom_faro_cwv_inp_rating_total",
-			RatingTTFB:     "loki_process_custom_faro_cwv_ttfb_rating_total",
+			LCP:                "loki_process_custom_faro_web_vitals_lcp_milliseconds",
+			FCP:                "loki_process_custom_faro_web_vitals_fcp_milliseconds",
+			CLS:                "loki_process_custom_faro_web_vitals_cls",
+			INP:                "loki_process_custom_faro_web_vitals_inp_milliseconds",
+			TTFB:               "loki_process_custom_faro_web_vitals_ttfb_milliseconds",
+			PageLoads:          "loki_process_custom_faro_web_vital_measurements_total",
+			PageLoadsByNav:     "loki_process_custom_faro_web_vital_measurements_by_nav_total",
+			Errors:             "loki_process_custom_faro_errors_total",
+			RatingLCP:          "loki_process_custom_faro_cwv_lcp_rating_total",
+			RatingFCP:          "loki_process_custom_faro_cwv_fcp_rating_total",
+			RatingCLS:          "loki_process_custom_faro_cwv_cls_rating_total",
+			RatingINP:          "loki_process_custom_faro_cwv_inp_rating_total",
+			RatingTTFB:         "loki_process_custom_faro_cwv_ttfb_rating_total",
 			AppLabel:           "app_name",
 			EnvLabel:           "env",
 			BrowserLabel:       "browser_name",
@@ -410,6 +443,10 @@ func Default() Config {
 			RequestTotal:        "_request_total",
 			RequestFailedTotal:  "_request_failed_total",
 			RequestServerBucket: "_request_server_seconds_bucket",
+		},
+
+		CustomMetrics: CustomMetrics{
+			Denylist: `jvm_.*|nodejs_.*|go_.*|process_.*|system_.*|hikaricp_.*|db_client_.*|kafka_(consumer|producer)_.*|http_(server|client)_.*|jdk_.*|logback_.*|tomcat_.*|jetty_.*|executor_.*|spring_.*|application_.*|up|scrape_.*|promhttp_.*|otel_.*|target_info|traces_.*|container_.*|kube_.*|loki_process_custom_.*`,
 		},
 
 		Runtime: RuntimeMetrics{
@@ -468,7 +505,12 @@ func Default() Config {
 				OtelDBActive:  "db_client_connections_usage",
 				OtelDBIdle:    "db_client_connections_idle_min",
 				OtelDBMax:     "db_client_connections_max",
+				OtelDBPending: "db_client_connections_pending_requests",
 				PoolLabel:     "pool",
+				PoolNameLabel: "pool_name",
+				StateLabel:    "state",
+				StateUsed:     "used",
+				StateIdle:     "idle",
 			},
 			Kafka: KafkaMetrics{
 				ConsumerLagMax:     "kafka_consumer_records_lag_max",
@@ -587,7 +629,13 @@ func (c *Config) LokiStreamSelector(service, kind string, cluster ...string) str
 		sel += fmt.Sprintf(`, %s="%s"`, c.FaroLoki.Kind, kind)
 	}
 	if len(cluster) > 0 && cluster[0] != "" {
-		sel += fmt.Sprintf(`, %s="%s"`, c.Labels.DeploymentEnv, cluster[0])
+		// Environment supports comma-separated multi-select ("prod,prod-fss");
+		// an equality match against the joined string matches nothing.
+		if strings.Contains(cluster[0], ",") {
+			sel += fmt.Sprintf(`, %s=~"%s"`, c.Labels.DeploymentEnv, strings.ReplaceAll(cluster[0], ",", "|"))
+		} else {
+			sel += fmt.Sprintf(`, %s="%s"`, c.Labels.DeploymentEnv, cluster[0])
+		}
 	}
 	return sel + "}"
 }

@@ -22,13 +22,13 @@ const (
 
 // graphqlProbe defines how to detect and query a specific GraphQL metric pattern.
 type graphqlProbe struct {
-	framework    string
-	countMetric  string // metric to check for existence and query rates
-	sumMetric    string // metric for latency (rate of sum / rate of count)
-	opLabel      string // label that contains the operation/field name
-	typeLabel    string // label for operation type (query/mutation), empty if N/A
-	errorFilter  string // label filter for errors, empty if not available
-	latencyUnit  string // "s" or "ms" — what unit the raw metric values are in
+	framework   string
+	countMetric string // metric to check for existence and query rates
+	sumMetric   string // metric for latency (rate of sum / rate of count)
+	opLabel     string // label that contains the operation/field name
+	typeLabel   string // label for operation type (query/mutation), empty if N/A
+	errorFilter string // label filter for errors, empty if not available
+	latencyUnit string // "s" or "ms" — what unit the raw metric values are in
 }
 
 // Ordered list of probes. First match wins.
@@ -105,8 +105,11 @@ func (a *App) handleGraphQLMetrics(w http.ResponseWriter, req *http.Request) {
 
 	from, to := parseTimeRange(req)
 
-	result := a.queryGraphQLMetrics(ctx, namespace, service, environment, from, to)
-	writeJSON(w, result)
+	orgID := req.Header.Get("X-Grafana-Org-Id")
+	ck := cacheKey("graphql", orgID, roundedUnix(from), roundedUnix(to), namespace, service, environment)
+	a.writeCached(w, ck, "querying graphql metrics failed", func() (any, error) {
+		return a.queryGraphQLMetrics(ctx, namespace, service, environment, from, to), nil
+	})
 }
 
 func (a *App) queryGraphQLMetrics(ctx context.Context, namespace, service, environment string, _, to time.Time) GraphQLMetricsResponse {
