@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.21.0](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.20.2...nais-apm-app-v0.21.0) (2026-07-05)
+
+
+### Features
+
+* **alerting:** harden defaults= contract ([#77](https://github.com/nais/grafana-apm-app/issues/77)) + surface firing state ([#33](https://github.com/nais/grafana-apm-app/issues/33) Phase 1) ([#104](https://github.com/nais/grafana-apm-app/issues/104)) ([85b6a88](https://github.com/nais/grafana-apm-app/commit/85b6a88589913a8e617f12c051c9a8bd1b0db95d))
+* **alerts:** read-only firing-alert detail drawer ([#32](https://github.com/nais/grafana-apm-app/issues/32)) ([#110](https://github.com/nais/grafana-apm-app/issues/110)) ([2996d1e](https://github.com/nais/grafana-apm-app/commit/2996d1eaaa734606a1ad6544d1840aa047d7588c))
+* **frontend:** detect minified stacks + source-map doctor ([#60](https://github.com/nais/grafana-apm-app/issues/60)) ([#103](https://github.com/nais/grafana-apm-app/issues/103)) ([c402ffa](https://github.com/nais/grafana-apm-app/commit/c402ffa248f496f1a4cbcde688352cc14c2f95cc))
+* **issues:** server-issue drawer parity — open the exception drawer for backend errors ([#84](https://github.com/nais/grafana-apm-app/issues/84) Phase 1) ([#93](https://github.com/nais/grafana-apm-app/issues/93)) ([458950a](https://github.com/nais/grafana-apm-app/commit/458950a34d0d3e5512781fb17359ef3d244eb0f2))
+
+
+### Bug Fixes
+
+* **queries:** close CodeQL request-forgery finding in GetAlertRules ([#102](https://github.com/nais/grafana-apm-app/issues/102)) ([20227bd](https://github.com/nais/grafana-apm-app/commit/20227bd86f147fe0c6290e69e986f027743d67af))
+
 ## [0.20.2](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.20.1...nais-apm-app-v0.20.2) (2026-07-05)
 
 
