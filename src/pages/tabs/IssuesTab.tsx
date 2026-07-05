@@ -34,6 +34,7 @@ export function IssuesTab({ service, namespace, environment }: IssuesTabProps) {
   const {
     drawerHashes,
     drawerLoading,
+    source: drawerSource,
     selectedGroupTitle,
     selectedIssueId,
     selectedHash,
@@ -67,10 +68,11 @@ export function IssuesTab({ service, namespace, environment }: IssuesTabProps) {
           </div>
         </>
       )}
-      {(drawerLoading || (drawerHashes && drawerHashes.length > 0)) && (
+      {(drawerLoading || (drawerHashes && drawerHashes.length > 0) || drawerSource === 'server') && (
         <ExceptionDrawer
           key={selectedIssueId || selectedHash}
           hashes={drawerHashes ?? []}
+          source={drawerSource}
           resolving={drawerLoading}
           title={selectedGroupTitle}
           service={service}

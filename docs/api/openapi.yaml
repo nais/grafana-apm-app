@@ -294,6 +294,34 @@ paths:
               schema: { $ref: "#/components/schemas/IssuesResponse" }
         "400": { $ref: "#/components/responses/MissingService" }
 
+  /services/{namespace}/{service}/issues/occurrences:
+    get:
+      tags: [stable]
+      summary: Server-log occurrences for one issue fingerprint (server-issue drawer).
+      description: >
+        Re-scans the three server-log shapes, recomputes the fingerprint per
+        line, and returns the lines matching the requested fingerprint plus
+        aggregate stats. The data path behind the server-issue exception drawer
+        (server issues have no Alloy hash to query Loki by).
+      parameters:
+        - { $ref: "#/components/parameters/namespacePath" }
+        - { $ref: "#/components/parameters/servicePath" }
+        - { $ref: "#/components/parameters/environment" }
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+        - name: fingerprint
+          in: query
+          required: true
+          schema: { type: string }
+          description: The versioned issue fingerprint (e.g. v1:9f2ab31c04d7e655).
+      responses:
+        "200":
+          description: Issue occurrences.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IssueOccurrencesResponse" }
+        "400": { $ref: "#/components/responses/MissingService" }
+
   /services/{namespace}/{service}/triage:
     get:
       tags: [stable]
@@ -860,6 +888,36 @@ components:
       properties:
         value: { type: string }
         count: { type: number }
+    IssueOccurrence:
+      type: object
+      required: [timeMs, message]
+      properties:
+        timeMs: { type: integer, format: int64 }
+        pod: { type: string }
+        level: { type: string }
+        message: { type: string }
+        stacktrace: { type: string }
+        version: { type: string }
+        type: { type: string }
+    IssueOccurrencesResponse:
+      type: object
+      required: [fingerprint, occurrences, stats]
+      properties:
+        fingerprint: { type: string, example: "v1:bb2cfdb1eb952653" }
+        shape: { type: string, enum: [otlp, json, plaintext] }
+        occurrences:
+          type: array
+          items: { $ref: "#/components/schemas/IssueOccurrence" }
+        stats:
+          type: object
+          properties:
+            total: { type: integer }
+            pods: { type: integer }
+            firstSeenMs: { type: integer, format: int64 }
+            lastSeenMs: { type: integer, format: int64 }
+            versions: { type: array, items: { type: string } }
+        truncated: { type: boolean }
+        unavailable: { type: boolean }
 
     TriageStatesResponse:
       type: object

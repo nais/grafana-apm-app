@@ -261,3 +261,88 @@ func TestLogQueryFrameParsing(t *testing.T) {
 		}
 	})
 }
+
+func TestLogQueryWithLabelsFrameParsing(t *testing.T) {
+	from, to := time.Unix(0, 0), time.Unix(3600, 0)
+
+	t.Run("dataplane labels column carries per-row structured metadata", func(t *testing.T) {
+		// labels field values are an array of JSON objects, one per row.
+		body := `{"results":{"A":{"frames":[{
+			"schema":{"fields":[{"name":"labels"},{"name":"timestamp"},{"name":"body"}]},
+			"data":{"values":[
+				[{"exception_type":"NPE","k8s_pod_name":"pod-a"},{"exception_type":"NPE","k8s_pod_name":"pod-b"}],
+				[5000,6000],
+				["line one","line two"]
+			]}
+		}]}}}`
+		out, err := dsTestClient(t, http.StatusOK, body).LogQueryWithLabels(context.Background(), "loki", "expr", from, to, 100)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(out) != 2 {
+			t.Fatalf("got %d entries, want 2: %+v", len(out), out)
+		}
+		if out[0].Line != "line one" || out[0].TimeMs != 5000 {
+			t.Errorf("out[0] = %+v, want {5000 line one ...}", out[0])
+		}
+		if out[0].Labels["exception_type"] != "NPE" || out[0].Labels["k8s_pod_name"] != "pod-a" {
+			t.Errorf("out[0].Labels = %+v, want exception_type=NPE pod=pod-a", out[0].Labels)
+		}
+		if out[1].Labels["k8s_pod_name"] != "pod-b" {
+			t.Errorf("out[1].Labels = %+v, want pod-b", out[1].Labels)
+		}
+	})
+
+	t.Run("labels column as JSON-encoded strings is decoded", func(t *testing.T) {
+		body := `{"results":{"A":{"frames":[{
+			"schema":{"fields":[{"name":"labels"},{"name":"Time"},{"name":"Line"}]},
+			"data":{"values":[
+				["{\"exception_message\":\"boom\"}"],
+				[7000],
+				["raw"]
+			]}
+		}]}}}`
+		out, err := dsTestClient(t, http.StatusOK, body).LogQueryWithLabels(context.Background(), "loki", "expr", from, to, 100)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(out) != 1 || out[0].Labels["exception_message"] != "boom" {
+			t.Errorf("got %+v, want a single entry with exception_message=boom", out)
+		}
+	})
+
+	t.Run("legacy frame-level labels apply to every row", func(t *testing.T) {
+		// No labels column; labels ride on the line field's schema.
+		body := `{"results":{"A":{"frames":[{
+			"schema":{"fields":[{"name":"Time"},{"name":"Line","labels":{"exception_type":"Timeout"}}]},
+			"data":{"values":[[1000,2000],["a","b"]]}
+		}]}}}`
+		out, err := dsTestClient(t, http.StatusOK, body).LogQueryWithLabels(context.Background(), "loki", "expr", from, to, 100)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(out) != 2 {
+			t.Fatalf("got %d entries, want 2", len(out))
+		}
+		if out[0].Labels["exception_type"] != "Timeout" || out[1].Labels["exception_type"] != "Timeout" {
+			t.Errorf("frame labels not applied to both rows: %+v", out)
+		}
+	})
+
+	t.Run("no labels anywhere degrades to nil labels, lines still returned", func(t *testing.T) {
+		body := `{"results":{"A":{"frames":[{
+			"schema":{"fields":[{"name":"timestamp"},{"name":"body"}]},
+			"data":{"values":[[9000],["only body"]]}
+		}]}}}`
+		out, err := dsTestClient(t, http.StatusOK, body).LogQueryWithLabels(context.Background(), "loki", "expr", from, to, 100)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(out) != 1 || out[0].Line != "only body" {
+			t.Fatalf("got %+v, want single {9000 only body}", out)
+		}
+		if out[0].Labels != nil {
+			t.Errorf("labels = %+v, want nil", out[0].Labels)
+		}
+	})
+}

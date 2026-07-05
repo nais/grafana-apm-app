@@ -93,9 +93,21 @@ describe('IssuesTab (#69 P1/P2/P3)', () => {
   });
 
   it('opens the ExceptionDrawer from an issueId deep link (#69 P10)', async () => {
-    (client.getExceptionGroups as jest.Mock).mockResolvedValue({
+    // The drawer resolves issueId → source + hashes via the unified issues list (#84).
+    (client.getIssues as jest.Mock).mockResolvedValue({
       fingerprintVersion: 'v1',
-      groups: [{ fingerprint: 'v1:aaaa', title: 'Boom', tier: 2, count: 1, sessions: 1, memberHashes: ['h1'] }],
+      sources: { browser: true, serverLogs: true },
+      issues: [
+        {
+          fingerprint: 'v1:aaaa',
+          title: 'Boom',
+          tier: 2,
+          count: 1,
+          sessions: 1,
+          memberHashes: ['h1'],
+          source: 'browser',
+        },
+      ],
     });
     const exceptionLine =
       'timestamp=2026-07-03T10:00:00Z kind=exception type=TypeError value="boom" hash=h1 session_id=sess-1';

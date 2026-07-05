@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Button,
@@ -24,6 +24,7 @@ import {
   getTriageStates,
   postTriageAction,
   getFeedback,
+  IssueSource,
   TriageState,
   FeedbackEntry,
 } from '../../../../api/client';
@@ -31,9 +32,11 @@ import { otel } from '../../../../otelconfig';
 import { PLUGIN_BASE_URL } from '../../../../constants';
 import { sanitizeLabelValue } from '../../../../utils/sanitize';
 import { apmDocs } from '../../../../utils/docsLinks';
-import { usePluginLabelOverrides } from '../../../../utils/datasources';
+import { usePluginLabelOverrides, usePluginDatasources } from '../../../../utils/datasources';
 import { useTimeRange } from '../../../../utils/timeRange';
+import { buildExceptionTracesExploreUrl } from '../../../../utils/explore';
 import { StackTraceView, isConsoleCaptureValue } from './StackTraceView';
+import { useIssueOccurrences, msToNs, ParsedException } from '../useIssueOccurrences';
 import {
   parseLogfmt,
   getBreadcrumbIcon,
@@ -46,11 +49,6 @@ import {
 } from '../exception-utils';
 import { probeReplay, ReplayProbeResult } from '../replay/fetchReplay';
 import { ReplaySection } from '../replay/ReplaySection';
-
-/** Millisecond timestamp → Loki nanosecond string (string concat avoids float precision loss). */
-function msToNs(ms: number): string {
-  return `${Math.floor(ms)}000000`;
-}
 
 /**
  * Pad session-scoped queries (breadcrumbs, replay chunks) by an hour on both
@@ -86,15 +84,21 @@ function formatRelativeTime(ms: number): string {
 
 interface ExceptionDrawerProps {
   /**
-   * Upstream Alloy hashes to load occurrences for. One entry for legacy
-   * exceptionHash links; several when a fingerprint group (#62) merged
-   * multiple raw hashes.
+   * Upstream Alloy hashes to load occurrences for (browser issues). One entry
+   * for legacy exceptionHash links; several when a fingerprint group (#62)
+   * merged multiple raw hashes. Empty for server issues (they have no hash).
    */
   hashes: string[];
   /**
-   * True while a fresh `issueId` deep link is still resolving to its member
-   * hashes. The drawer mounts immediately (so the open animation plays once)
-   * and shows its spinner; the occurrence fetch is skipped until hashes land.
+   * Telemetry source: 'browser' (hash→Loki, the default) or 'server' (backend
+   * occurrences endpoint, #84). Determines the data path and which
+   * source-specific sections render.
+   */
+  source?: IssueSource;
+  /**
+   * True while a fresh `issueId` deep link is still resolving. The drawer
+   * mounts immediately (so the open animation plays once) and shows its
+   * spinner; the occurrence fetch is skipped until the issue resolves.
    */
   resolving?: boolean;
   /** Group title from the fingerprint pipeline (falls back to parsed value). */
@@ -108,39 +112,9 @@ interface ExceptionDrawerProps {
   onClose: () => void;
 }
 
-interface ParsedException {
-  timestamp?: string;
-  type?: string;
-  value?: string;
-  stacktrace?: string;
-  browserName?: string;
-  browserVersion?: string;
-  browserOs?: string;
-  pageUrl?: string;
-  pageId?: string;
-  appName?: string;
-  appNamespace?: string;
-  appVersion?: string;
-  appEnvironment?: string;
-  sessionId?: string;
-  userId?: string;
-  userName?: string;
-  userEmail?: string;
-}
-
-interface AggregatedStats {
-  uniqueUsers: number;
-  uniqueSessions: number;
-  appVersions: string[];
-  browsers: string[];
-  total: number;
-  /** Earliest/latest occurrence timestamp (ms) across all returned lines, for the impact strip. */
-  firstSeenMs?: number;
-  lastSeenMs?: number;
-}
-
 export function ExceptionDrawer({
   hashes,
+  source = 'browser',
   resolving = false,
   title,
   service,
@@ -152,199 +126,73 @@ export function ExceptionDrawer({
   onClose,
 }: ExceptionDrawerProps) {
   const styles = useStyles2(getStyles);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [exception, setException] = useState<ParsedException | null>(null);
-  const [stats, setStats] = useState<AggregatedStats | null>(null);
-  const [occurrences, setOccurrences] = useState<ParsedException[]>([]);
   const [breadcrumbs, setBreadcrumbs] = useState<GroupedBreadcrumb[]>([]);
   const [loadingBreadcrumbs, setLoadingBreadcrumbs] = useState(false);
   const [replayProbe, setReplayProbe] = useState<ReplayProbeResult | null>(null);
   const [creatingAlert, setCreatingAlert] = useState(false);
   const [feedback, setFeedback] = useState<FeedbackEntry[]>([]);
+  // Server occurrences are picked by list index (no session identity).
+  const [serverIndex, setServerIndex] = useState(0);
   const labelOverrides = usePluginLabelOverrides();
+  const ds = usePluginDatasources(environment || undefined);
   // The drawer is opened purely from URL state (docs/url-contract.md) — the
   // fingerprint identity lives in the `issueId` search param, not in props.
   const [searchParams] = useSearchParams();
   const issueId = searchParams.get('issueId') ?? '';
+  const isServer = source === 'server';
 
   const fl = otel.faroLoki;
   const clusterLabel = labelOverrides.deploymentEnvLabel || otel.labels.deploymentEnv;
   const clusterStream = environment ? `, ${clusterLabel}="${sanitizeLabelValue(environment)}"` : '';
   const { fromMs, toMs } = useTimeRange();
 
-  const selectedSessionIdRef = useRef(selectedSessionId);
-  const onSessionChangeRef = useRef(onSessionChange);
-
-  useEffect(() => {
-    selectedSessionIdRef.current = selectedSessionId;
-    onSessionChangeRef.current = onSessionChange;
-  }, [selectedSessionId, onSessionChange]);
-
-  // Stable key so the occurrences effect doesn't refire on array identity.
-  const hashesKey = hashes.map(sanitizeLabelValue).join('|');
-
-  useEffect(() => {
-    let cancelled = false;
-    // While the deep link is still resolving to hashes, keep the spinner and
-    // don't query — the same drawer instance will re-run this once hashes land.
-    if (resolving || hashesKey === '') {
-      setLoading(true);
-      return;
-    }
-    setLoading(true);
-
-    // Line prefilters let Loki skip logfmt-parsing lines for other hashes.
-    // Multiple hashes = one fingerprint group's members (#62).
-    const single = !hashesKey.includes('|');
-    const lineFilter = single ? `|= \`${fl.hash}=${hashesKey}\`` : `|~ \`${fl.hash}=(${hashesKey})\``;
-    const fieldFilter = single ? `${fl.hash}="${hashesKey}"` : `${fl.hash}=~"(${hashesKey})"`;
-    const query = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindException}"${clusterStream}} ${lineFilter} | logfmt | ${fieldFilter}`;
-
-    lastValueFrom(
-      getBackendSrv().fetch<any>({
-        url: `/api/datasources/proxy/uid/${encodeURIComponent(logsUid)}/loki/api/v1/query_range`,
-        params: {
-          query,
-          limit: '100', // Fetch up to 100 instances to aggregate impact
-          start: msToNs(fromMs),
-          end: msToNs(toMs),
-        },
-        method: 'GET',
-      })
-    )
-      .then((res) => {
-        if (cancelled) {
-          return;
-        }
-
-        const streams = res.data?.data?.result ?? [];
-        if (streams.length === 0 || !streams[0].values || streams[0].values.length === 0) {
-          setError('No details found in Loki for this exception hash.');
-          setLoading(false);
-          return;
-        }
-
-        const uniqueSessionsMap = new Map<string, ParsedException>();
-        let total = 0;
-        const users = new Set<string>();
-        const sessions = new Set<string>();
-        const versions = new Set<string>();
-        const browsers = new Set<string>();
-        let firstSeenMs: number | undefined;
-        let lastSeenMs: number | undefined;
-
-        // Aggregate across all returned streams (Loki might return multiple streams if labels differ)
-        streams.forEach((stream: any) => {
-          stream.values.forEach((val: [string, string]) => {
-            total++;
-            const parsed = parseLogfmt(val[1]);
-            const ex: ParsedException = {
-              timestamp: parsed.timestamp,
-              type: parsed.type,
-              value: parsed.value,
-              stacktrace: parsed.stacktrace?.replace(/\\n/g, '\n'),
-              browserName: parsed.browser_name,
-              browserVersion: parsed.browser_version,
-              browserOs: parsed.browser_os,
-              pageUrl: parsed.page_url,
-              pageId: parsed.page_id,
-              appName: parsed.app_name,
-              appVersion: parsed.app_version,
-              appEnvironment: parsed.app_environment,
-              appNamespace: parsed.app_namespace,
-              sessionId: parsed.session_id,
-              userId: parsed.user_id,
-              userName: parsed.user_username,
-              userEmail: parsed.user_email,
-            };
-
-            if (ex.sessionId && !uniqueSessionsMap.has(ex.sessionId)) {
-              uniqueSessionsMap.set(ex.sessionId, ex);
-            }
-
-            const parsedTs = ex.timestamp ? Date.parse(ex.timestamp) : NaN;
-            if (Number.isFinite(parsedTs)) {
-              firstSeenMs = firstSeenMs === undefined ? parsedTs : Math.min(firstSeenMs, parsedTs);
-              lastSeenMs = lastSeenMs === undefined ? parsedTs : Math.max(lastSeenMs, parsedTs);
-            }
-
-            const user = parsed.user_email || parsed.user_username || parsed.user_id;
-            if (user) {
-              users.add(user);
-            }
-            if (parsed.session_id) {
-              sessions.add(parsed.session_id);
-            }
-            if (parsed.app_version) {
-              versions.add(parsed.app_version);
-            }
-            if (parsed.browser_name) {
-              const b = `${parsed.browser_name} ${parsed.browser_version || ''}`.trim();
-              browsers.add(b);
-            }
-          });
-        });
-
-        setStats({
-          uniqueUsers: users.size,
-          uniqueSessions: sessions.size,
-          appVersions: Array.from(versions),
-          browsers: Array.from(browsers),
-          total,
-          firstSeenMs,
-          lastSeenMs,
-        });
-
-        const sessionList = Array.from(uniqueSessionsMap.values());
-        setOccurrences(sessionList);
-
-        if (sessionList.length > 0) {
-          const matched = selectedSessionIdRef.current
-            ? sessionList.find((s) => s.sessionId === selectedSessionIdRef.current)
-            : null;
-          const defaultSession = matched || sessionList[0];
-          setException(defaultSession);
-          if (defaultSession.sessionId && defaultSession.sessionId !== selectedSessionIdRef.current) {
-            onSessionChangeRef.current(defaultSession.sessionId);
-          }
-        }
-
-        setLoading(false);
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setError(err?.message || 'Failed to fetch exception details from Loki.');
-          setLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-    // `labelOverrides` (the raw object from usePluginLabelOverrides) is
-    // deliberately NOT a dep here — the effect only ever reads it indirectly
-    // via `clusterStream`, which is already listed. Depending on the object
-    // itself made this effect refire whenever that reference changed for any
-    // reason unrelated to the query it built, and since a successful fetch
-    // sets several new-identity state values (stats/occurrences/exception),
-    // any re-render that also produced a fresh `labelOverrides` reference fed
-    // straight back into another fetch — a self-sustaining refetch loop, not
-    // just a one-off double-fire.
-  }, [
-    resolving,
-    hashesKey,
+  // The two data paths (browser hash→Loki, server occurrences endpoint) are
+  // abstracted behind this one hook; both resolve to occurrences + stats (#84).
+  const { loading, error, occurrences, stats } = useIssueOccurrences({
+    source,
+    hashes,
+    issueId,
     service,
+    namespace,
     environment,
     logsUid,
-    clusterStream,
     fromMs,
     toMs,
-    fl.hash,
-    fl.kind,
-    fl.kindException,
-    fl.serviceName,
-  ]);
+    resolving,
+  });
+
+  // Browser: selection follows the session URL param (falling back to the most
+  // recent). Server: selection is the picked list index (most recent default).
+  const browserException = isServer
+    ? null
+    : ((selectedSessionId ? occurrences.find((o) => o.sessionId === selectedSessionId) : undefined) ??
+      occurrences[0] ??
+      null);
+  const exception: ParsedException | null = isServer
+    ? (occurrences[serverIndex] ?? occurrences[0] ?? null)
+    : browserException;
+
+  // Default the session param to the most recent occurrence once loaded, so the
+  // session-scoped sections (timeline, replay) have a session to key on.
+  useEffect(() => {
+    if (isServer || occurrences.length === 0) {
+      return;
+    }
+    const matched = selectedSessionId && occurrences.some((o) => o.sessionId === selectedSessionId);
+    if (!matched) {
+      const first = occurrences[0];
+      if (first.sessionId && first.sessionId !== selectedSessionId) {
+        onSessionChange(first.sessionId);
+      }
+    }
+    // Only re-run when the occurrence set changes; onSessionChange is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isServer, occurrences]);
+
+  // Reset the server picker when a new issue's occurrences load.
+  useEffect(() => {
+    setServerIndex(0);
+  }, [issueId, occurrences.length]);
 
   // Fetch breadcrumbs whenever the selected session ID changes
   useEffect(() => {
@@ -471,7 +319,9 @@ export function ExceptionDrawer({
   // No fingerprint (legacy exceptionHash-only links) means no reliable join
   // key, so skip the fetch entirely rather than showing unrelated feedback.
   useEffect(() => {
-    if (!issueId) {
+    // Feedback is browser-captured (@nais/apm) and joined by fingerprint;
+    // server feedback is deferred (#84), so skip the fetch for server issues.
+    if (!issueId || isServer) {
       setFeedback([]);
       return;
     }
@@ -490,23 +340,10 @@ export function ExceptionDrawer({
     return () => {
       cancelled = true;
     };
-  }, [issueId, namespace, service, environment, fromMs, toMs]);
-
-  useEffect(() => {
-    if (occurrences.length > 0 && selectedSessionId) {
-      const matched = occurrences.find((o) => o.sessionId === selectedSessionId);
-      if (matched) {
-        setException(matched);
-      }
-    }
-  }, [selectedSessionId, occurrences]);
+  }, [issueId, isServer, namespace, service, environment, fromMs, toMs]);
 
   const handleSessionChange = (sessionId: string) => {
     onSessionChange(sessionId);
-    const matched = occurrences.find((o) => o.sessionId === sessionId);
-    if (matched) {
-      setException(matched);
-    }
   };
 
   // "Create alert" (#65): fetch the server-rendered exception-spike template
@@ -544,6 +381,20 @@ export function ExceptionDrawer({
     ? `${PLUGIN_BASE_URL}/services/${nsSegment}/${encodeURIComponent(service)}?tab=logs&from=now-6h&to=now${envParam}&includeFaro=true&logSearch=${encodeURIComponent(exception.sessionId)}`
     : `${PLUGIN_BASE_URL}/services/${nsSegment}/${encodeURIComponent(service)}?tab=logs&from=now-6h&to=now${envParam}&includeFaro=true&kindFilter=exception&logSearch=${encodeURIComponent(hashes[0] ?? '')}`;
 
+  // Server issues have no session or Alloy hash: deep-link the raw backend logs
+  // by the error message (kind="" streams, no Faro), and — where Tempo ≥ 2.6 is
+  // available — the traces carrying this exception type (#84).
+  const serverLogSearch = (exception?.value ?? title ?? '').slice(0, 60);
+  const serverLogsUrl = `${PLUGIN_BASE_URL}/services/${nsSegment}/${encodeURIComponent(service)}?tab=logs&from=now-6h&to=now${envParam}&logSearch=${encodeURIComponent(serverLogSearch)}`;
+  const serverTracesUrl =
+    isServer && ds.tracesUid
+      ? buildExceptionTracesExploreUrl(ds.tracesUid, service, {
+          exceptionType: exception?.type || undefined,
+          from: 'now-6h',
+          to: 'now',
+        })
+      : undefined;
+
   return (
     <Drawer
       title={exception?.type || 'Exception Details'}
@@ -580,9 +431,15 @@ export function ExceptionDrawer({
                   {stats.total} occurrence{stats.total === 1 ? '' : 's'}
                 </span>
                 <span className={styles.impactDivider}>·</span>
-                <span>
-                  {stats.uniqueSessions} session{stats.uniqueSessions === 1 ? '' : 's'}
-                </span>
+                {isServer ? (
+                  <span>
+                    {stats.pods ?? 0} pod{(stats.pods ?? 0) === 1 ? '' : 's'}
+                  </span>
+                ) : (
+                  <span>
+                    {stats.uniqueSessions} session{stats.uniqueSessions === 1 ? '' : 's'}
+                  </span>
+                )}
                 {stats.firstSeenMs !== undefined && (
                   <>
                     <span className={styles.impactDivider}>·</span>
@@ -627,85 +484,133 @@ export function ExceptionDrawer({
                   <div className={styles.contextColumn}>
                     <h5 className={styles.subSectionTitle}>Most Recent Occurrence</h5>
                     <div className={styles.metaList}>
-                      <MetaItem
-                        label="Browser"
-                        value={
-                          exception.browserName
-                            ? `${exception.browserName} ${exception.browserVersion ?? ''}`
-                            : undefined
-                        }
-                        icon="monitor"
-                      />
-                      <MetaItem label="OS" value={exception.browserOs} icon="desktop" />
-                      <MetaItem
-                        label="URL"
-                        value={cleanUrl(exception.pageUrl)}
-                        link={cleanUrl(exception.pageUrl)}
-                        icon="link"
-                      />
-                      <MetaItem label="Page ID / Route" value={exception.pageId} icon="compass" />
-                      <MetaItem
-                        label="App instance"
-                        value={
-                          exception.appName
-                            ? `${exception.appName}${exception.appVersion ? ` @ ${exception.appVersion}` : ''}`
-                            : undefined
-                        }
-                        icon="cube"
-                      />
-                      <MetaItem label="Environment" value={exception.appEnvironment} icon="cloud" />
-                      <MetaItem
-                        label="User"
-                        value={exception.userEmail || exception.userName || exception.userId || 'Anonymous'}
-                        icon="users-alt"
-                      />
-                      {occurrences.length > 1 ? (
-                        <div className={styles.metaItem} style={{ alignItems: 'center' }}>
-                          <span
-                            className={styles.metaLabel}
-                            style={{ display: 'inline-flex', alignItems: 'center', height: '32px' }}
-                          >
-                            <Icon name="user" className={styles.metaIcon} /> Session ID:
-                          </span>
-                          <span className={styles.metaValue} style={{ width: '220px' }}>
-                            <Combobox<string>
-                              options={occurrences.map((occ) => {
-                                const browserStr = occ.browserName
-                                  ? `${occ.browserName} ${occ.browserVersion || ''}`.trim()
-                                  : '';
-                                const sysStr = occ.browserOs ? `on ${occ.browserOs}` : '';
-                                return {
-                                  label: `${occ.sessionId?.slice(0, 8)}... (${occ.timestamp ? new Date(occ.timestamp).toLocaleTimeString() : 'unknown'})`,
-                                  value: occ.sessionId || '',
-                                  description: `${browserStr} ${sysStr}`.trim() || undefined,
-                                };
-                              })}
-                              value={selectedSessionId}
-                              onChange={(opt) => opt && handleSessionChange(opt.value || '')}
-                            />
-                          </span>
-                        </div>
+                      {isServer ? (
+                        <>
+                          <MetaItem label="Type" value={exception.type} icon="bug" />
+                          <MetaItem label="Level" value={exception.level} icon="exclamation-triangle" />
+                          <MetaItem label="App version" value={exception.appVersion} icon="cube" />
+                          {occurrences.length > 1 ? (
+                            <div className={styles.metaItem} style={{ alignItems: 'center' }}>
+                              <span
+                                className={styles.metaLabel}
+                                style={{ display: 'inline-flex', alignItems: 'center', height: '32px' }}
+                              >
+                                <Icon name="cube" className={styles.metaIcon} /> Pod:
+                              </span>
+                              <span className={styles.metaValue} style={{ width: '220px' }}>
+                                <Combobox<number>
+                                  options={occurrences.map((occ, idx) => ({
+                                    label: `${occ.pod || 'unknown pod'} (${occ.timestamp ? new Date(occ.timestamp).toLocaleTimeString() : 'unknown'})`,
+                                    value: idx,
+                                    description: occ.level || undefined,
+                                  }))}
+                                  value={serverIndex}
+                                  onChange={(opt) => opt && setServerIndex(opt.value ?? 0)}
+                                />
+                              </span>
+                            </div>
+                          ) : (
+                            <MetaItem label="Pod" value={exception.pod} icon="cube" />
+                          )}
+                          <MetaItem label="Timestamp" value={exception.timestamp} icon="clock-nine" />
+                        </>
                       ) : (
-                        <MetaItem label="Session ID" value={exception.sessionId} icon="user" />
+                        <>
+                          <MetaItem
+                            label="Browser"
+                            value={
+                              exception.browserName
+                                ? `${exception.browserName} ${exception.browserVersion ?? ''}`
+                                : undefined
+                            }
+                            icon="monitor"
+                          />
+                          <MetaItem label="OS" value={exception.browserOs} icon="desktop" />
+                          <MetaItem
+                            label="URL"
+                            value={cleanUrl(exception.pageUrl)}
+                            link={cleanUrl(exception.pageUrl)}
+                            icon="link"
+                          />
+                          <MetaItem label="Page ID / Route" value={exception.pageId} icon="compass" />
+                          <MetaItem
+                            label="App instance"
+                            value={
+                              exception.appName
+                                ? `${exception.appName}${exception.appVersion ? ` @ ${exception.appVersion}` : ''}`
+                                : undefined
+                            }
+                            icon="cube"
+                          />
+                          <MetaItem label="Environment" value={exception.appEnvironment} icon="cloud" />
+                          <MetaItem
+                            label="User"
+                            value={exception.userEmail || exception.userName || exception.userId || 'Anonymous'}
+                            icon="users-alt"
+                          />
+                          {occurrences.length > 1 ? (
+                            <div className={styles.metaItem} style={{ alignItems: 'center' }}>
+                              <span
+                                className={styles.metaLabel}
+                                style={{ display: 'inline-flex', alignItems: 'center', height: '32px' }}
+                              >
+                                <Icon name="user" className={styles.metaIcon} /> Session ID:
+                              </span>
+                              <span className={styles.metaValue} style={{ width: '220px' }}>
+                                <Combobox<string>
+                                  options={occurrences.map((occ) => {
+                                    const browserStr = occ.browserName
+                                      ? `${occ.browserName} ${occ.browserVersion || ''}`.trim()
+                                      : '';
+                                    const sysStr = occ.browserOs ? `on ${occ.browserOs}` : '';
+                                    return {
+                                      label: `${occ.sessionId?.slice(0, 8)}... (${occ.timestamp ? new Date(occ.timestamp).toLocaleTimeString() : 'unknown'})`,
+                                      value: occ.sessionId || '',
+                                      description: `${browserStr} ${sysStr}`.trim() || undefined,
+                                    };
+                                  })}
+                                  value={selectedSessionId}
+                                  onChange={(opt) => opt && handleSessionChange(opt.value || '')}
+                                />
+                              </span>
+                            </div>
+                          ) : (
+                            <MetaItem label="Session ID" value={exception.sessionId} icon="user" />
+                          )}
+                          <MetaItem label="Timestamp" value={exception.timestamp} icon="clock-nine" />
+                        </>
                       )}
-                      <MetaItem label="Timestamp" value={exception.timestamp} icon="clock-nine" />
                     </div>
                   </div>
                   <div className={styles.impactColumn}>
                     <h5 className={styles.subSectionTitle}>Aggregate Impact</h5>
                     <div className={styles.metaList}>
-                      <MetaItem
-                        label="Impacted Users"
-                        value={stats.uniqueUsers > 0 ? `${stats.uniqueUsers} identified` : '0 (Anonymous)'}
-                        icon="users-alt"
-                      />
-                      <MetaItem
-                        label="Unique Sessions"
-                        value={stats.uniqueSessions ? `${stats.uniqueSessions} sessions` : '0'}
-                        icon="user"
-                      />
-                      <MetaItem label="App Versions" value={formatListWithMore(stats.appVersions, 4)} icon="cube" />
-                      <MetaItem label="Browsers" value={formatListWithMore(stats.browsers, 4)} icon="monitor" />
+                      {isServer ? (
+                        <>
+                          <MetaItem label="Occurrences" value={`${stats.total}`} icon="fire" />
+                          <MetaItem label="Distinct Pods" value={stats.pods ? `${stats.pods} pods` : '0'} icon="cube" />
+                          <MetaItem
+                            label="App Versions"
+                            value={formatListWithMore(stats.appVersions, 4) || undefined}
+                            icon="cube"
+                          />
+                        </>
+                      ) : (
+                        <>
+                          <MetaItem
+                            label="Impacted Users"
+                            value={stats.uniqueUsers > 0 ? `${stats.uniqueUsers} identified` : '0 (Anonymous)'}
+                            icon="users-alt"
+                          />
+                          <MetaItem
+                            label="Unique Sessions"
+                            value={stats.uniqueSessions ? `${stats.uniqueSessions} sessions` : '0'}
+                            icon="user"
+                          />
+                          <MetaItem label="App Versions" value={formatListWithMore(stats.appVersions, 4)} icon="cube" />
+                          <MetaItem label="Browsers" value={formatListWithMore(stats.browsers, 4)} icon="monitor" />
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -775,35 +680,58 @@ export function ExceptionDrawer({
             {feedback.length > 0 && <FeedbackSection entries={feedback} />}
 
             <div className={styles.footerLinks}>
-              {exception.sessionId && (
+              {isServer ? (
                 <>
-                  <a href={logsUrl} target="_blank" rel="noopener noreferrer" className={styles.footerLink}>
-                    <Icon name="history" /> View Full Session Timeline in Logs
+                  <a href={serverLogsUrl} target="_blank" rel="noopener noreferrer" className={styles.footerLink}>
+                    <Icon name="file-alt" /> View Raw Loki Log
+                  </a>
+                  {serverTracesUrl && (
+                    <>
+                      <span className={styles.footerDivider}>|</span>
+                      <a href={serverTracesUrl} target="_blank" rel="noopener noreferrer" className={styles.footerLink}>
+                        <Icon name="gf-traces" /> View traces with this exception
+                      </a>
+                    </>
+                  )}
+                </>
+              ) : (
+                <>
+                  {exception.sessionId && (
+                    <>
+                      <a href={logsUrl} target="_blank" rel="noopener noreferrer" className={styles.footerLink}>
+                        <Icon name="history" /> View Full Session Timeline in Logs
+                      </a>
+                      <span className={styles.footerDivider}>|</span>
+                    </>
+                  )}
+                  <a
+                    href={`${PLUGIN_BASE_URL}/services/${nsSegment}/${encodeURIComponent(service)}?tab=logs&from=now-6h&to=now${envParam}&includeFaro=true&kindFilter=exception&logSearch=${encodeURIComponent(hashes[0] ?? '')}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={styles.footerLink}
+                  >
+                    <Icon name="file-alt" /> View Raw Loki Log
                   </a>
                   <span className={styles.footerDivider}>|</span>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    icon="bell"
+                    onClick={onCreateAlert}
+                    disabled={creatingAlert || hashes.length === 0}
+                  >
+                    {creatingAlert ? 'Preparing alert…' : 'Create alert'}
+                  </Button>
+                  <TextLink
+                    href={apmDocs.createAlerts()}
+                    external
+                    variant="bodySmall"
+                    className={styles.footerDocsLink}
+                  >
+                    About alert templates
+                  </TextLink>
                 </>
               )}
-              <a
-                href={`${PLUGIN_BASE_URL}/services/${nsSegment}/${encodeURIComponent(service)}?tab=logs&from=now-6h&to=now${envParam}&includeFaro=true&kindFilter=exception&logSearch=${encodeURIComponent(hashes[0] ?? '')}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={styles.footerLink}
-              >
-                <Icon name="file-alt" /> View Raw Loki Log
-              </a>
-              <span className={styles.footerDivider}>|</span>
-              <Button
-                size="sm"
-                variant="secondary"
-                icon="bell"
-                onClick={onCreateAlert}
-                disabled={creatingAlert || hashes.length === 0}
-              >
-                {creatingAlert ? 'Preparing alert…' : 'Create alert'}
-              </Button>
-              <TextLink href={apmDocs.createAlerts()} external variant="bodySmall" className={styles.footerDocsLink}>
-                About alert templates
-              </TextLink>
             </div>
           </>
         )}

@@ -334,11 +334,10 @@ export function IssuesTable({ namespace, service, environment, compact = false }
                 totalCount={totalCount}
                 sessionsUnavailable={data?.sessionsUnavailable}
                 onOpen={() =>
-                  g.source === 'server'
-                    ? // Server issues have no member hashes to drive the drawer —
-                      // deep-link to the Logs tab pre-filtered on the error title.
-                      updateParams({ tab: 'logs', logSearch: g.title.slice(0, 60) })
-                    : updateParams({ issueId: g.fingerprint })
+                  // Both sources open the exception drawer on issueId (#84):
+                  // server issues resolve their occurrences via the backend
+                  // endpoint (no Alloy hash), the drawer keeps a raw-Loki link.
+                  updateParams({ issueId: g.fingerprint })
                 }
                 onAct={(action) => act(g.fingerprint, action).then(refetchTriage)}
                 onMute={() => toggleMute(g.fingerprint)}
@@ -417,16 +416,13 @@ function IssueRow({
     >
       <td className={styles.errorCell}>
         {group.source === 'server' ? (
-          <Tooltip content="Backend error from server logs — opens the Logs tab pre-filtered.">
+          <Tooltip content="Backend error from server logs — opens the exception drawer.">
             <Badge className={styles.sourceBadge} text="server" color="orange" icon="database" />
           </Tooltip>
         ) : (
           <Badge className={styles.sourceBadge} text="browser" color="blue" icon="monitor" />
         )}
         <span className={styles.errorTitle}>{group.title}</span>
-        {group.source === 'server' && (
-          <Icon className={styles.externalIcon} name="external-link-alt" size="sm" aria-label="Opens Logs tab" />
-        )}
         {group.memberHashes.length > 1 && (
           <Tooltip
             content={`Merged from ${group.memberHashes.length} raw exception hashes whose messages differ only by dynamic content (ids, urls, timestamps).`}

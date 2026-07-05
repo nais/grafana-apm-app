@@ -21,6 +21,7 @@ jest.mock('@grafana/runtime', () => ({
 
 jest.mock('../../../../utils/datasources', () => ({
   usePluginLabelOverrides: () => ({}),
+  usePluginDatasources: () => ({ tracesUid: 'tempo-uid', logsUid: 'loki-uid' }),
 }));
 
 jest.mock('../../../../api/client', () => ({
@@ -28,6 +29,7 @@ jest.mock('../../../../api/client', () => ({
   getTriageStates: jest.fn().mockResolvedValue({}),
   postTriageAction: jest.fn(),
   getFeedback: jest.fn().mockResolvedValue({ feedback: [] }),
+  getIssueOccurrences: jest.fn(),
 }));
 
 jest.mock('../replay/fetchReplay', () => ({
@@ -37,6 +39,7 @@ jest.mock('../replay/fetchReplay', () => ({
 }));
 
 const getFeedback = client.getFeedback as jest.Mock;
+const getIssueOccurrences = client.getIssueOccurrences as jest.Mock;
 const probeReplay = replayApi.probeReplay as jest.Mock;
 
 const exceptionLine =
@@ -72,6 +75,7 @@ function renderDrawer() {
 beforeEach(() => {
   mockFetch.mockReset().mockImplementation(lokiFetchImpl);
   getFeedback.mockReset().mockResolvedValue({ feedback: [] });
+  getIssueOccurrences.mockReset();
   probeReplay.mockReset().mockResolvedValue({ hasChunks: false, mode: null, chunkCount: 0 });
 });
 
@@ -254,6 +258,103 @@ describe('user feedback section (M6)', () => {
         'v1:abc123'
       )
     );
+  });
+});
+
+describe('server issues (#84)', () => {
+  function renderServerDrawer() {
+    return render(
+      <MemoryRouter initialEntries={['/?issueId=v1:server1']}>
+        <ExceptionDrawer
+          hashes={[]}
+          source="server"
+          service="my-app"
+          namespace="ns"
+          logsUid="loki-uid"
+          selectedSessionId=""
+          onSessionChange={jest.fn()}
+          onClose={jest.fn()}
+        />
+      </MemoryRouter>
+    );
+  }
+
+  const serverResponse = {
+    fingerprint: 'v1:server1',
+    shape: 'otlp',
+    occurrences: [
+      {
+        timeMs: 1751536800000,
+        pod: 'app-abc',
+        level: 'error',
+        message: 'connection refused',
+        stacktrace: 'at Foo.bar(Foo.java:10)',
+        version: '1.4.2',
+        type: 'ConnectException',
+      },
+      {
+        timeMs: 1751536700000,
+        pod: 'app-def',
+        level: 'error',
+        message: 'connection refused',
+        type: 'ConnectException',
+      },
+    ],
+    stats: { total: 2, pods: 2, firstSeenMs: 1751536700000, lastSeenMs: 1751536800000, versions: ['1.4.2'] },
+  };
+
+  it('fetches occurrences from the backend endpoint, not Loki directly', async () => {
+    getIssueOccurrences.mockResolvedValue(serverResponse);
+    renderServerDrawer();
+
+    await screen.findByText(/^2 occurrences$/);
+    expect(screen.getByText('Stack Trace')).toBeInTheDocument();
+    expect(getIssueOccurrences).toHaveBeenCalledWith(
+      'ns',
+      'my-app',
+      'v1:server1',
+      expect.any(Number),
+      expect.any(Number),
+      undefined
+    );
+    // Server path must not touch the browser hash→Loki query.
+    const hashCalls = mockFetch.mock.calls.filter(([opts]: [any]) => (opts?.params?.query ?? '').includes('hash='));
+    expect(hashCalls).toHaveLength(0);
+  });
+
+  it('shows the stack trace and a pod-based impact strip (not sessions)', async () => {
+    getIssueOccurrences.mockResolvedValue(serverResponse);
+    renderServerDrawer();
+
+    await screen.findByText(/^2 occurrences$/);
+    expect(screen.getByText('Stack Trace')).toBeInTheDocument();
+    expect(screen.getByText(/^2 pods$/)).toBeInTheDocument();
+    // No "sessions" wording for a server issue.
+    expect(screen.queryByText(/session/i)).not.toBeInTheDocument();
+  });
+
+  it('renders pod / version / level in the occurrence context, no feedback fetch', async () => {
+    getIssueOccurrences.mockResolvedValue(serverResponse);
+    renderServerDrawer();
+    await screen.findByText(/^2 occurrences$/);
+
+    fireEvent.click(screen.getByRole('button', { name: /Occurrence context/ }));
+    expect(await screen.findByText('Aggregate Impact')).toBeInTheDocument();
+    expect(screen.getByText(/Distinct Pods/)).toBeInTheDocument();
+    expect(screen.getAllByText('2 pods').length).toBeGreaterThan(0);
+    // Feedback is a browser-only fetch — never called for server issues.
+    expect(getFeedback).not.toHaveBeenCalled();
+  });
+
+  it('surfaces an empty-result message when no occurrences match', async () => {
+    getIssueOccurrences.mockResolvedValue({
+      fingerprint: 'v1:server1',
+      occurrences: [],
+      stats: { total: 0, pods: 0, versions: [] },
+    });
+    renderServerDrawer();
+
+    expect(await screen.findByText(/No matching server-log occurrences/)).toBeInTheDocument();
   });
 });
 
