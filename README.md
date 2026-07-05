@@ -16,7 +16,7 @@ already operate.
 ### Error tracking
 
 - **Issues** — frontend _and_ backend errors grouped by a stable, owned fingerprint (versioned, computed query-time, HA-safe) so dynamic message content doesn't splinter issues; source badges, occurrence/session counts, faceted search (version/browser/page)
-- **Triage** — resolve / ignore / assign / mute with regression detection ("did this come back after the latest deploy?"), stored HA-safe as an append-only annotation event log (no plugin database — see [docs/adr/0001](docs/adr/0001-state-in-grafana-shared-db.md))
+- **Triage** — resolve / ignore / assign / mute with regression detection ("did this come back after the latest deploy?"), stored HA-safe as an append-only annotation event log (no plugin database — see [docs/adr/0001](https://github.com/nais/grafana-apm-app/blob/main/docs/adr/0001-state-in-grafana-shared-db.md))
 - **Exception drawer** — real stack traces (console-capture frames de-polluted), in-app frame highlighting, breadcrumbs, deep links to traces/logs, and joined user feedback
 - **Session replay & crash snapshots** — opt-in rrweb recording with a non-overridable privacy masking floor, self-hosted player in the drawer
 - **Alerting** — pre-filled Grafana alert rules for error-rate, exception spikes, web-vitals, new/regressed exceptions, and SLO burn-rate
@@ -92,8 +92,8 @@ This requires two things in the platform:
    the Console API endpoint; without it the backend's HTTPS calls time out and
    the dependent features stay empty (they never block the rest of the plugin).
 
-See [infra/README.md](infra/README.md) for the full platform-dependency list
-and [docs/adr/0001](docs/adr/0001-state-in-grafana-shared-db.md) for why triage
+See [infra/README.md](https://github.com/nais/grafana-apm-app/blob/main/infra/README.md) for the full platform-dependency list
+and [docs/adr/0001](https://github.com/nais/grafana-apm-app/blob/main/docs/adr/0001-state-in-grafana-shared-db.md) for why triage
 state needs Grafana annotation retention kept at keep-forever.
 
 ## Installation

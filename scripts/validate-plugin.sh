@@ -44,6 +44,23 @@ for screenshot in $(jq -r '.info.screenshots[]?.path // empty' "$PLUGIN_JSON"); 
   fi
 done
 
+# README.md: the Grafana plugin catalog rejects RELATIVE links — they must be
+# absolute https:// URLs. The full plugin-validator only enforces this at
+# release/tag time (CI's package step uses -analyzer=metadatavalid, which skips
+# it), so guard it here so `mise run all` catches it before a tag is cut.
+if [ -f README.md ]; then
+  while IFS= read -r rel; do
+    [ -n "$rel" ] && errors+=("README.md relative link (catalog needs absolute https://): $rel")
+  done < <(python3 -c "
+import re
+for i, l in enumerate(open('README.md'), 1):
+    for m in re.finditer(r'\]\(([^)]+)\)', l):
+        t = m.group(1).strip()
+        if not t.startswith(('http://', 'https://', '#', 'mailto:')):
+            print(f'{i}: {t}')
+")
+fi
+
 if [ ${#errors[@]} -gt 0 ]; then
   echo "❌ plugin.json validation failed:"
   for e in "${errors[@]}"; do
