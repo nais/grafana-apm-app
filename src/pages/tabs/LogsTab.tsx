@@ -12,7 +12,7 @@ import {
   PanelBuilders,
 } from '@grafana/scenes';
 import { useDebouncedValue, escapeRegex } from '../../utils/debounce';
-import { sanitizeLabelValue } from '../../utils/sanitize';
+import { sanitizeLabelValue, escapeQueryString } from '../../utils/sanitize';
 import { useUrlString, useUrlCsv, useUrlBoolean } from '../../utils/useUrlState';
 import { useTimeRange } from '../../utils/timeRange';
 import { buildLogsDrilldownUrl } from '../../utils/explore';
@@ -130,7 +130,11 @@ export function LogsTab({
     // (error/warn/info/debug/trace/unknown), matching SEVERITY_OPTIONS directly.
     const severityLabelFilter = severityFilter.length > 0 ? ` | detected_level=~"${severityFilter.join('|')}"` : '';
 
-    const textFilter = debouncedSearch ? ` |~ "${escapeRegex(debouncedSearch)}"` : '';
+    // escapeRegex makes the term a literal regex; escapeQueryString then escapes
+    // the backslashes/quotes for the LogQL double-quoted string literal — without
+    // it, a term with a regex metachar (e.g. `[` from an issue-table deep link)
+    // becomes an invalid `\[` string escape and Loki rejects the whole query.
+    const textFilter = debouncedSearch ? ` |~ "${escapeQueryString(escapeRegex(debouncedSearch))}"` : '';
 
     const volumeQuery = new SceneQueryRunner({
       datasource: { uid: logsUid, type: 'loki' },

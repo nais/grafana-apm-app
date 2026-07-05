@@ -104,7 +104,12 @@
     "plugins": []
   },
   "iam": {
-    "permissions": [{ "action": "datasources:query", "scope": "datasources:*" }]
+    "permissions": [
+      { "action": "datasources:query", "scope": "datasources:*" },
+      { "action": "annotations:read", "scope": "annotations:*" },
+      { "action": "annotations:create", "scope": "annotations:*" },
+      { "action": "annotations:write", "scope": "annotations:*" }
+    ]
   },
   "extensions": {
     "addedLinks": [

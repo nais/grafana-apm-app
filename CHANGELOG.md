@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.20.1 — "Legend" patch (2026-07-05)
+
+### Fixes
+
+- **Triage state failed with 502 in production** — the plugin's `iam.permissions` (plugin.json) declared only `datasources:query`, so Grafana's auto-provisioned managed service account had no access to the annotations API that triage reads/writes. Added `annotations:read`/`create`/`write`. Also unblocks deploy-marker annotations, which use the same service account.
+- **Logs tab failed to render on issue deep-links** — a search term containing a regex metacharacter (e.g. `[` from an Issues-table "view logs" link) was regex-escaped but not string-escaped, producing an invalid `\[` LogQL string escape that Loki rejected. `LogsTab` now applies `escapeQueryString` around the regex, matching the Traces tab.
+
 ## 0.20.0 — "Legend" (2026-07-05)
 
 ### Features
