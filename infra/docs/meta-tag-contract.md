@@ -11,7 +11,7 @@
 > Source: nais/grafana-apm-app#59, "Proposed platform meta-tag contract".
 > Referenced again in nais/grafana-apm-app#60 (Phase 1, `app.release`
 > alignment with CDN paths). Milestone M1 (target v0.15), Platform track —
-> the roadmap lists it as "Meta-tag contract … filed with the platform
+> roadmap issue #91 lists it as "Meta-tag contract … filed with the platform
 > team; SDK reads build-time env as the stopgap."
 
 ## Problem

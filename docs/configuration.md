@@ -117,7 +117,7 @@ forwarded user headers.
 
 ## Deploy Annotations
 
-Time-series panels on the RED and Frontend tabs render deploy markers from
+Time-series panels on the Backend (RED) and Frontend tabs render deploy markers from
 Grafana **organization annotations** tagged `nais-apm:deploy`,
 `service:<app>`, `namespace:<ns>`, `env:<env>`, and `version:<sha>`. The
 plugin queries the built-in `grafana` annotations datasource filtered by the

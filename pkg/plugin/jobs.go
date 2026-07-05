@@ -12,7 +12,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Cron/Naisjob monitoring view (roadmap M7).
+// Cron/Naisjob monitoring view (#74).
 //
 // Built from the standard kube-state-metrics (KSM) job/cronjob families. These
 // label and metric names are the KSM public contract, NOT OTel span metrics, so

@@ -61,7 +61,7 @@
 
 ### Documentation
 
-- **Development roadmap** — `docs/roadmap.md` sequences milestones M0–M7 across the plugin, `@nais/apm` SDK, and platform tracks.
+- **Development roadmap** — the milestone/track sequencing across the plugin, `@nais/apm` SDK, and platform tracks now lives in GitHub Milestones and roadmap tracking issue #91.
 - **Stable URL contract** — `docs/url-contract.md` freezes the Exception Drawer deep-link parameters as a stable API for alert annotations and shared links, and now also documents the Issues/Database/Profiling tabs, the Jobs and Service Map fleet routes, the issue facet params, and the global header time range.
 - **Resource API reference** — a documented, versioned resource API with a drift-proof OpenAPI spec. (#75)
 

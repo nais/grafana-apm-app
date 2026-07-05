@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (2026-07-04)
 - **Deciders:** Hans Kristian Flaatten (platform), implementation review 2026-07-04
-- **Related:** docs/triage.md (mechanics), #57 (PRD), docs/roadmap.md standing risks
+- **Related:** docs/triage.md (mechanics), #57 (PRD), roadmap issue #91 (standing risks)
 
 ## Context
 

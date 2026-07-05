@@ -1,14 +1,14 @@
 # infra/
 
 Platform infrastructure recommendations for the Nais APM error-tracking
-roadmap (see `docs/roadmap.md` at the repo root). **Everything under this
+roadmap (see GitHub Milestones and roadmap issue #91). **Everything under this
 directory is a deliverable for the NAIS platform team to apply in their own
 repos** — nothing here is consumed by `grafana-otel-plugin` itself, and
 nothing here should be wired into this repo's build/CI. Each file states
 its own target location; this README is the index.
 
 Source material: `gh issue view 60/64/59/58` in `nais/grafana-apm-app`
-(researched PRDs) and `docs/roadmap.md`'s M0 platform track.
+(researched PRDs) and the roadmap's M0 platform track (issue #91).
 
 ## Index
 

@@ -433,7 +433,7 @@ relevant traces/logs."**
 Every drill-down page should make it easy to go back:
 
 ```
-Namespace: my-team  →  Service: payment-api  →  Tab: Server
+Namespace: my-team  →  Service: payment-api  →  Tab: Backend
 ```
 
 The user should always know where they are and be able to go back one
@@ -676,7 +676,7 @@ the simplest ones. This principle guides our design at every level.
 > — Google SRE Book
 
 This is why we show P95/P99 percentiles and latency heatmaps instead of
-averages. The heatmap on the Operations tab reveals distribution shape — bimodal
+averages. The heatmap on the Backend tab reveals distribution shape — bimodal
 latency (two clusters of response times) is invisible in a percentile line
 chart but obvious in a heatmap. This directly supports the SRE book's
 recommendation to "collect request counts bucketed by latencies (suitable

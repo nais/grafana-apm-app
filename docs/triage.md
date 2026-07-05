@@ -78,7 +78,7 @@ regression detection (per-version occurrence tracking) is #57 Phase 2.
 To be executed against a two-replica Grafana sharing one database
 (documents the #57 exit criterion; the local docker stack is single-replica):
 
-1. Open the same service's Frontend tab on replica A and replica B.
+1. Open the same service's Issues tab on replica A and replica B.
 2. Resolve an issue on A → within one refresh, B's default view hides it
    (its `GET /triage` reads the shared DB).
 3. Start a resolve on A and `kill -9` A's Grafana process mid-request.

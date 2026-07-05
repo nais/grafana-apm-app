@@ -2,7 +2,7 @@ import { getBackendSrv } from '@grafana/runtime';
 import { lastValueFrom } from 'rxjs';
 import pluginJson from '../plugin.json';
 
-// Cron/Naisjob monitoring (roadmap M7), built from kube-state-metrics. The
+// Cron/Naisjob monitoring (#74), built from kube-state-metrics. The
 // fetch/param helpers mirror client.ts (module-private there); kept local to
 // avoid widening client.ts's exported surface, matching analytics.ts.
 

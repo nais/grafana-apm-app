@@ -1,5 +1,15 @@
 # Information-architecture review (2026-07-03)
 
+> **Status: shipped.** This is the first IA review; every move below landed
+> (the dedicated **Issues** tab, VersionsPanel/SessionsPanel relocation, the
+> Console-Errors/Exception-Types cleanup, the vitals-first Frontend reorder,
+> the drawer reorder, and the URL-contract addendum). The proposed tab order
+> here (`Overview · Issues · Endpoints · Frontend · Runtime · …`) was later
+> **superseded** by [ia-review-2.md](ia-review-2.md), which merged Endpoints +
+> Runtime into a single **Backend** tab and added an **Alerts** tab. Kept as a
+> design record of how the Issues split was decided; the "Open questions"
+> below were subsequently resolved (see ia-review-2.md and url-contract.md).
+
 Placement inventory and move proposal for everything shipped through the
 M0–M6 pass, measured against docs/design-philosophy.md. One decision is
 already made: the unified Issues table gets a dedicated service-page tab
