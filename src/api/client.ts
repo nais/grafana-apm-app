@@ -626,6 +626,69 @@ export async function getIssues(
   return fetchResource<IssuesResponse>(`/services/${nsParam(namespace)}/${encodeURIComponent(service)}/issues`, params);
 }
 
+// ---- Server-issue occurrences (server-issue drawer, #84) ----
+
+/** One matched server-log line for an issue, extracted per log shape. */
+export interface IssueOccurrence {
+  /** Occurrence timestamp in epoch milliseconds. */
+  timeMs: number;
+  /** Kubernetes pod the line came from (server issues; may be empty). */
+  pod?: string;
+  /** Log level (explicit field or Loki's detected_level). */
+  level?: string;
+  message: string;
+  stacktrace?: string;
+  /** App version — populated for shape (a) only in Phase 1; blank otherwise. */
+  version?: string;
+  /** Exception type (semconv shape only). */
+  type?: string;
+}
+
+/** Aggregate blast radius across the returned occurrences (sessions ↔ pods). */
+export interface IssueOccurrenceStats {
+  total: number;
+  pods: number;
+  firstSeenMs?: number;
+  lastSeenMs?: number;
+  versions: string[];
+}
+
+export interface IssueOccurrencesResponse {
+  fingerprint: string;
+  /** Server-log shape the matched lines came from. */
+  shape?: 'otlp' | 'json' | 'plaintext';
+  occurrences: IssueOccurrence[];
+  stats: IssueOccurrenceStats;
+  /** A shape scan hit its line cap — more occurrences exist. */
+  truncated?: boolean;
+  /** Loki is not configured for the environment. */
+  unavailable?: boolean;
+}
+
+/**
+ * Fetch the server-log occurrences for one issue fingerprint (#84). This is the
+ * server-issue counterpart to the browser drawer's hash→Loki query: server
+ * issues have no Alloy hash, so the backend re-scans the log pipelines and
+ * filters by recomputed fingerprint.
+ */
+export async function getIssueOccurrences(
+  namespace: string,
+  service: string,
+  fingerprint: string,
+  from: number,
+  to: number,
+  environment?: string
+): Promise<IssueOccurrencesResponse> {
+  const params: Record<string, string> = { ...timeParams(from, to), fingerprint };
+  if (environment) {
+    params.environment = environment;
+  }
+  return fetchResource<IssueOccurrencesResponse>(
+    `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/issues/occurrences`,
+    params
+  );
+}
+
 // ---- Frontend versions (release health, #64) ----
 
 export interface VersionStat {

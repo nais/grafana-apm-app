@@ -21,6 +21,7 @@ jest.mock('@grafana/runtime', () => ({
 
 jest.mock('../../../../utils/datasources', () => ({
   usePluginLabelOverrides: () => ({}),
+  usePluginDatasources: () => ({ tracesUid: 'tempo-uid', logsUid: 'loki-uid' }),
 }));
 
 jest.mock('../replay/fetchReplay', () => ({

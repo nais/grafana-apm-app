@@ -243,6 +243,126 @@ func (c *DsQueryClient) LogQuery(ctx context.Context, dsUID, expr string, from, 
 	return out, nil
 }
 
+// LogEntryWithLabels is one raw log line plus its per-entry label set: the
+// stream labels merged with structured metadata (and any parser-stage fields),
+// exactly as the Loki datasource surfaces them in the log frame's `labels`
+// field. This is the recovery path for OTLP/semconv exception attributes
+// (exception_type / exception_message / exception_stacktrace / k8s_pod_name /
+// detected_level), which arrive as structured metadata rather than in the line
+// body.
+type LogEntryWithLabels struct {
+	// TimeMs is the entry timestamp in epoch milliseconds.
+	TimeMs int64
+	// Line is the raw log line body.
+	Line string
+	// Labels is the per-entry label map (stream labels + structured metadata +
+	// parser fields). Nil when the frame carried no labels column.
+	Labels map[string]string
+}
+
+// LogQueryWithLabels is LogQuery's structured-metadata-aware variant: alongside
+// the timestamp and line body it returns each entry's label map, parsed from
+// the log frame's `labels` column (dataplane format) or, failing that, from the
+// line field's frame-level schema labels (legacy streams). Server-issue
+// occurrence extraction needs the structured metadata (exception attributes,
+// pod name, detected level) that plain LogQuery drops.
+func (c *DsQueryClient) LogQueryWithLabels(ctx context.Context, dsUID, expr string, from, to time.Time, limit int) ([]LogEntryWithLabels, error) {
+	frames, err := c.execute(ctx, dsQueryRequest{
+		From: strconv.FormatInt(from.UnixMilli(), 10),
+		To:   strconv.FormatInt(to.UnixMilli(), 10),
+		Queries: []dsQueryTarget{{
+			RefID:      "A",
+			Datasource: dsQueryDsRef{UID: dsUID},
+			Expr:       expr,
+			QueryType:  "range",
+			Range:      true,
+			MaxLines:   limit,
+			Direction:  "backward",
+		}},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var out []LogEntryWithLabels
+	for _, frame := range frames {
+		timeIdx, lineIdx, labelsIdx := -1, -1, -1
+		for i, f := range frame.Schema.Fields {
+			switch f.Name {
+			case "Time", "time", "timestamp", "ts":
+				if timeIdx < 0 {
+					timeIdx = i
+				}
+			case "Line", "line", "body":
+				if lineIdx < 0 {
+					lineIdx = i
+				}
+			case "labels", "Labels":
+				if labelsIdx < 0 {
+					labelsIdx = i
+				}
+			}
+		}
+		if timeIdx < 0 || lineIdx < 0 || timeIdx >= len(frame.Data.Values) || lineIdx >= len(frame.Data.Values) {
+			continue
+		}
+		var times []float64
+		var lines []string
+		if err := json.Unmarshal(frame.Data.Values[timeIdx], &times); err != nil {
+			continue
+		}
+		if err := json.Unmarshal(frame.Data.Values[lineIdx], &lines); err != nil {
+			continue
+		}
+		// Per-row label maps live in the dedicated `labels` column. When it is
+		// absent (legacy per-stream frames), the labels ride on the line field's
+		// schema and apply to every row in the frame.
+		var rowLabels []map[string]string
+		if labelsIdx >= 0 && labelsIdx < len(frame.Data.Values) {
+			rowLabels = parseLabelsColumn(frame.Data.Values[labelsIdx])
+		}
+		frameLabels := frame.Schema.Fields[lineIdx].Labels
+		for i := 0; i < len(times) && i < len(lines); i++ {
+			lbls := frameLabels
+			if i < len(rowLabels) && rowLabels[i] != nil {
+				lbls = rowLabels[i]
+			}
+			out = append(out, LogEntryWithLabels{TimeMs: int64(times[i]), Line: lines[i], Labels: lbls})
+		}
+	}
+	return out, nil
+}
+
+// parseLabelsColumn decodes the log frame's `labels` column into per-row label
+// maps. The datasource emits it either as an array of JSON objects (the common
+// dataplane form) or, in some versions, as an array of JSON-encoded strings;
+// both are handled, and anything unparseable degrades to nil (message-only).
+func parseLabelsColumn(raw json.RawMessage) []map[string]string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var objs []map[string]string
+	if err := json.Unmarshal(raw, &objs); err == nil {
+		return objs
+	}
+	var strs []string
+	if err := json.Unmarshal(raw, &strs); err == nil {
+		out := make([]map[string]string, len(strs))
+		for i, s := range strs {
+			var m map[string]string
+			if err := json.Unmarshal([]byte(s), &m); err != nil {
+				// Leave this row nil (not an empty map) so LogQueryWithLabels
+				// falls back to the frame-level labels rather than clobbering
+				// them with an empty map (the documented degrade contract).
+				continue
+			}
+			out[i] = m
+		}
+		return out
+	}
+	return nil
+}
+
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s

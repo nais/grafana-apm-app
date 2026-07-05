@@ -222,7 +222,7 @@ describe('IssuesTable unified sources', () => {
     expect(screen.queryByText(/PSQLException/)).not.toBeInTheDocument();
   });
 
-  it('server row click deep-links to the Logs tab instead of opening the drawer', async () => {
+  it('server row click opens the drawer via issueId (same as browser, #84)', async () => {
     getIssues.mockResolvedValue(mixedIssues());
     renderTable();
 
@@ -231,10 +231,9 @@ describe('IssuesTable unified sources', () => {
 
     const search = screen.getByTestId('location-search').textContent ?? '';
     const params = new URLSearchParams(search);
-    expect(params.get('tab')).toBe('logs');
-    // logSearch carries the first 60 chars of the title
-    expect(params.get('logSearch')).toBe('PSQLException: connection refused to db-host:5432 while exec');
-    expect(params.get('issueId')).toBeNull();
+    // No longer redirects to the Logs tab — server issues open the drawer.
+    expect(params.get('tab')).toBeNull();
+    expect(params.get('issueId')).not.toBeNull();
   });
 
   it('browser row click opens the drawer via issueId', async () => {

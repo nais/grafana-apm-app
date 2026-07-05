@@ -390,6 +390,7 @@ func (a *App) routes() []appRoute {
 		{"/services/{namespace}/{service}/feedback", a.handleFeedback},
 		{"/services/{namespace}/{service}/exceptions/groups", a.handleExceptionGroups},
 		{"/services/{namespace}/{service}/issues", a.handleIssues},
+		{"/services/{namespace}/{service}/issues/occurrences", a.handleIssueOccurrences},
 		{"/services/{namespace}/{service}/triage", a.handleTriageStates},
 		{"/services/{namespace}/{service}/triage/{fingerprint}", a.handleTriageAction},
 		{"/services/{namespace}/{service}/triage/{fingerprint}/history", a.handleTriageHistory},
