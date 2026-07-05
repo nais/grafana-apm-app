@@ -311,6 +311,38 @@ func TestLogQueryWithLabelsFrameParsing(t *testing.T) {
 		}
 	})
 
+	t.Run("undecodable string-labels row falls back to frame-level labels", func(t *testing.T) {
+		// The labels column is an array of JSON strings; the second is garbage.
+		// The good row keeps its own labels; the garbage row must fall back to
+		// the frame-level labels rather than being clobbered with an empty map.
+		body := `{"results":{"A":{"frames":[{
+			"schema":{"fields":[
+				{"name":"labels"},
+				{"name":"Time"},
+				{"name":"Line","labels":{"exception_type":"Frame","k8s_pod_name":"frame-pod"}}
+			]},
+			"data":{"values":[
+				["{\"exception_type\":\"Row0\"}","not valid json"],
+				[1000,2000],
+				["a","b"]
+			]}
+		}]}}}`
+		out, err := dsTestClient(t, http.StatusOK, body).LogQueryWithLabels(context.Background(), "loki", "expr", from, to, 100)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(out) != 2 {
+			t.Fatalf("got %d entries, want 2: %+v", len(out), out)
+		}
+		if out[0].Labels["exception_type"] != "Row0" {
+			t.Errorf("out[0].Labels = %+v, want its own exception_type=Row0", out[0].Labels)
+		}
+		// The undecodable row must inherit the frame-level labels, not lose them.
+		if out[1].Labels["exception_type"] != "Frame" || out[1].Labels["k8s_pod_name"] != "frame-pod" {
+			t.Errorf("out[1].Labels = %+v, want frame-level fallback (exception_type=Frame, pod=frame-pod)", out[1].Labels)
+		}
+	})
+
 	t.Run("legacy frame-level labels apply to every row", func(t *testing.T) {
 		// No labels column; labels ride on the line field's schema.
 		body := `{"results":{"A":{"frames":[{

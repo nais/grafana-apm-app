@@ -234,3 +234,43 @@ func TestQueryIssueOccurrencesNoMatchIsEmpty(t *testing.T) {
 		t.Error("stats.versions should be non-nil")
 	}
 }
+
+// TestHandleIssueOccurrencesUnavailableSerializesEmptyVersions guards the
+// OpenAPI contract: when Loki is unconfigured the handler still emits
+// stats.versions as [] (a non-nil array), never null.
+func TestHandleIssueOccurrencesUnavailableSerializesEmptyVersions(t *testing.T) {
+	// Empty settings → LogsDataSource resolves to an empty UID → unavailable.
+	app := &App{otelCfg: otelconfig.Default(), settings: queries.PluginSettings{}}
+	mux := http.NewServeMux()
+	app.registerRoutes(mux)
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/services/myns/mysvc/issues/occurrences?fingerprint=v1:abc&from=0&to=3600", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `"versions":[]`) {
+		t.Errorf("body must serialize versions as [], got: %s", body)
+	}
+	if strings.Contains(body, `"versions":null`) {
+		t.Errorf("versions serialized as null (schema violation): %s", body)
+	}
+
+	var resp IssueOccurrencesResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !resp.Unavailable {
+		t.Error("expected unavailable=true")
+	}
+	if resp.Stats.Versions == nil {
+		t.Error("stats.versions must be a non-nil slice")
+	}
+	if resp.Occurrences == nil {
+		t.Error("occurrences must be a non-nil slice")
+	}
+}

@@ -66,6 +66,13 @@ type IssueOccurrenceStats struct {
 	Versions    []string `json:"versions"`
 }
 
+// emptyOccurrenceStats is the zero-value stats block with a non-nil versions
+// slice, so the JSON payload always carries versions as [] (the OpenAPI array
+// schema) rather than null in the empty/unavailable early-return paths.
+func emptyOccurrenceStats() IssueOccurrenceStats {
+	return IssueOccurrenceStats{Versions: []string{}}
+}
+
 // IssueOccurrencesResponse is the /issues/occurrences payload: the raw server
 // occurrences for one fingerprint plus their aggregate stats.
 type IssueOccurrencesResponse struct {
@@ -102,11 +109,18 @@ func (a *App) handleIssueOccurrences(w http.ResponseWriter, req *http.Request) {
 
 	lokiUID := a.settings.LogsDataSource.Resolve(env).UID
 	if lokiUID == "" {
-		writeJSON(w, IssueOccurrencesResponse{Fingerprint: fp, Occurrences: []IssueOccurrence{}, Unavailable: true})
+		// Explicit zero stats with a non-nil versions slice so the payload
+		// serializes versions as [] (matching the OpenAPI array schema), not null.
+		writeJSON(w, IssueOccurrencesResponse{
+			Fingerprint: fp,
+			Occurrences: []IssueOccurrence{},
+			Stats:       emptyOccurrenceStats(),
+			Unavailable: true,
+		})
 		return
 	}
 	if fp == "" {
-		writeJSON(w, IssueOccurrencesResponse{Fingerprint: fp, Occurrences: []IssueOccurrence{}, Stats: IssueOccurrenceStats{Versions: []string{}}})
+		writeJSON(w, IssueOccurrencesResponse{Fingerprint: fp, Occurrences: []IssueOccurrence{}, Stats: emptyOccurrenceStats()})
 		return
 	}
 

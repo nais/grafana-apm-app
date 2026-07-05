@@ -349,8 +349,13 @@ func parseLabelsColumn(raw json.RawMessage) []map[string]string {
 	if err := json.Unmarshal(raw, &strs); err == nil {
 		out := make([]map[string]string, len(strs))
 		for i, s := range strs {
-			m := map[string]string{}
-			_ = json.Unmarshal([]byte(s), &m)
+			var m map[string]string
+			if err := json.Unmarshal([]byte(s), &m); err != nil {
+				// Leave this row nil (not an empty map) so LogQueryWithLabels
+				// falls back to the frame-level labels rather than clobbering
+				// them with an empty map (the documented degrade contract).
+				continue
+			}
 			out[i] = m
 		}
 		return out
