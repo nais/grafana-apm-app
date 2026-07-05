@@ -9,12 +9,46 @@ on:
     branches:
       - master
       - main
-  # Required so the CI jobs (notably the required `publish-report` check) run on
-  # the merge queue's synthetic merge_group branch. Without this the queue waits
-  # forever for a check that never fires.
+  # Required so the CI jobs (notably the required `ci-ok` aggregation check) run
+  # on the merge queue's synthetic merge_group branch. Without this the queue
+  # waits forever for a check that never fires.
   merge_group:
 
 jobs:
+  commitlint:
+    name: Commitlint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # ratchet:actions/checkout@v6
+        with:
+          # Need the full range base..head to lint every commit in the PR.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Enable corepack
+        run: corepack enable
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # ratchet:actions/setup-node@v6
+        with:
+          # Pinned >= 22.12.0: @commitlint/cli declares engines.node ">=22.12.0";
+          # a bare '22' could resolve to an earlier 22.x patch and break install.
+          node-version: '22.12.0'
+          cache: 'pnpm'
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Lint PR commit messages
+        # Only runs on pull_request: the base/head SHAs below only exist for that
+        # event. On merge_group there is no PR range to lint, so the step is
+        # skipped and the job goes green — the commits were already linted on the
+        # PR before it entered the queue.
+        if: ${{ github.event_name == 'pull_request' }}
+        run: >
+          pnpm exec commitlint
+          --from "${{ github.event.pull_request.base.sha }}"
+          --to "${{ github.event.pull_request.head.sha }}"
+          --verbose
+
   frontend:
     name: Frontend (check, test, build)
     runs-on: ubuntu-latest
@@ -269,3 +303,53 @@ jobs:
         uses: grafana/plugin-actions/playwright-gh-pages/deploy-report-pages@a66a1c96cdbb176f9cccf10cf23593e250db7cce # ratchet:grafana/plugin-actions/playwright-gh-pages/deploy-report-pages@deploy-report-pages/v1.1.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  # Single aggregation gate for the merge queue. This is the ONLY status check
+  # the `main` ruleset should require (integration_id 15368 = GitHub Actions);
+  # it collapses the real CI signals into one green/red result that reports
+  # identically on `pull_request` and `merge_group`.
+  #
+  # `publish-report` is deliberately NOT a dependency: it is an always()/
+  # !cancelled() side-effect that deploys the e2e report and stays green
+  # regardless of the test outcome, so it is a poor merge gate.
+  ci-ok:
+    name: CI OK
+    # Run even when a needed job failed or was skipped, but not when the whole
+    # run was cancelled — that lets us inspect the aggregated results and turn
+    # them into a single pass/fail signal.
+    if: ${{ !cancelled() }}
+    needs:
+      - commitlint
+      - frontend
+      - backend
+      - package
+      - resolve-versions
+      - playwright-tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Aggregate CI results
+        env:
+          # Per-need results, printed for debuggability.
+          RESULT_COMMITLINT: ${{ needs.commitlint.result }}
+          RESULT_FRONTEND: ${{ needs.frontend.result }}
+          RESULT_BACKEND: ${{ needs.backend.result }}
+          RESULT_PACKAGE: ${{ needs.package.result }}
+          RESULT_RESOLVE_VERSIONS: ${{ needs.resolve-versions.result }}
+          RESULT_PLAYWRIGHT: ${{ needs.playwright-tests.result }}
+        run: |
+          echo "Needed job results:"
+          echo "  commitlint:       ${RESULT_COMMITLINT}"
+          echo "  frontend:         ${RESULT_FRONTEND}"
+          echo "  backend:          ${RESULT_BACKEND}"
+          echo "  package:          ${RESULT_PACKAGE}"
+          echo "  resolve-versions: ${RESULT_RESOLVE_VERSIONS}"
+          echo "  playwright-tests: ${RESULT_PLAYWRIGHT}"
+          # Fail if any needed job failed or was cancelled. `success` and
+          # `skipped` both pass, so the nothing-ran / queue case is green.
+          if ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}; then
+            echo "::error::One or more required CI jobs failed or were cancelled."
+            exit 1
+          fi
+          echo "All required CI jobs passed (success or skipped)."
