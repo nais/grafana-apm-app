@@ -44,6 +44,9 @@ jobs:
   # ---------------------------------------------------------------------------
   release-please:
     runs-on: ubuntu-latest
+    # Only on a push to main. A manual workflow_dispatch is a publish-only
+    # re-run, so this job is skipped there (no Release-PR side effects).
+    if: github.event_name == 'push'
     permissions:
       contents: write
       pull-requests: write
@@ -79,7 +82,13 @@ jobs:
   # ---------------------------------------------------------------------------
   publish:
     needs: release-please
-    if: needs.release-please.outputs.releases_created == 'true' || github.event_name == 'workflow_dispatch'
+    # !cancelled() lets this run on a manual dispatch even though release-please
+    # is skipped there (a needs: dependency being skipped would otherwise skip
+    # this job). The tag guard below still gates it: auto-publish only when a
+    # release was cut, manual publish only on workflow_dispatch.
+    if: |
+      !cancelled() &&
+      (needs.release-please.outputs.releases_created == 'true' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     permissions:
       contents: write # upload the release asset
@@ -93,7 +102,7 @@ jobs:
       - name: Checkout release tag
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # ratchet:actions/checkout@v6
         with:
-          ref: ${{ needs.release-please.outputs.tag_name || inputs.tag }}
+          ref: ${{ env.RELEASE_TAG }}
           persist-credentials: false
 
       - name: Enable corepack
@@ -205,5 +214,5 @@ jobs:
         run: gh release upload "$TAG" "$ARCHIVE" "$ARCHIVE.sha1" --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.release-please.outputs.tag_name || inputs.tag }}
+          TAG: ${{ env.RELEASE_TAG }}
           ARCHIVE: ${{ steps.metadata.outputs.archive }}
