@@ -14,7 +14,7 @@
 | M1 Identity + SDK | ✅ done | #62 fingerprints end-to-end; `@nais/apm` migrated to github.com/nais/apm, v0.1.0 publish-ready for GHPR (Hans: push + release); plugin `sdk/` frozen |
 | M2 Alerts + releases | ✅ done | deploy markers, alert templates, versions panel, attribution, Drilldown links |
 | M3 Triage | ✅ done | annotations event-log store, mutes, Regressed; nais deploy sync; new-exceptions template |
-| M4 Unified issues | ✅ done | browser+server issues, source badges, trace links. Deferred: #62 P2 frame splitting (blocked — gated on #60 prod source-map adoption), server-issue drawer parity (planned, not blocked — see docs/plans/server-issue-drawer-parity.md; needs a new occurrences endpoint + drawer, and the per-shape version-label survey first) |
+| M4 Unified issues | ✅ done | browser+server issues, source badges, trace links. Deferred: #62 P2 frame splitting (blocked — gated on #60 prod source-map adoption), server-issue drawer parity (planned, not blocked — #84; needs a new occurrences endpoint + drawer, and the per-shape version-label survey first) |
 | M5 Replay | ✅ done (code) | capture+playback+sessions shipped; ENABLING gated on team opt-in + personvernombud conversation (Hans driving) |
 | M6 Breadth | ✅ done | 2026-07-04 waves: Issues tab + all IA moves (P1–P10), #14 database tab (verified on mongodb/oracle/postgres), #35 overview health header + baseline deltas, feedback pipeline end-to-end, log patterns (pattern ingester live in prod), trace analytics (TraceQL metrics, Tempo 2.10.1), faceted issue search, global header time picker, server-issue shapes fixed, OTel pool discovery (pool_name), #30, #68 P0. Deferred to backlog: #68 P1 curation, #37 field selector, #36 topology remainder, #33/#32 alerting detail |
 | M7 Platform | ✅ done | SLO burn-rate + error budget, Pyroscope tab (gated), scorecards (#73), cron/Naisjob view (#74), #22 clustering, resource API docs (#75, drift-proof OpenAPI), in-plugin docs links. Deferred by design: mobile story, app-sdk/unified-storage re-eval (upstream watches — triggers in ADR-0001). QA: data-conformance harness (scripts/data-review.sh, PASS=152) fixed 3 findings; triage reads decoupled from org-wide volume + paginated per ADR-0001 mitigations |
@@ -76,7 +76,7 @@ Post-milestone audit wave, all green in `mise run all` (745 jest, 624 go):
   a Next.js client-init helper; audit-backed (docs/navikt-faro-sentry-audit.md:
   ~140 Faro apps, no shared wrapper, Next.js+Vite spread), design partners are
   the 14 Faro+Sentry dual-stack repos.
-- **Replay/snapshot privacy** — PRD docs/plans/replay-privacy-hardening.md;
+- **Replay/snapshot privacy** — tracked in #82 (full design preserved as a comment there);
   the three safe-by-default fixes (close the screenshotOnError ingest gate,
   transport-layer scrub pass, scrub Meta href) in progress; events-only "safe
   tier" and the rrweb fork bump are the larger follow-ups.
@@ -99,7 +99,7 @@ Post-milestone audit wave, all green in `mise run all` (745 jest, 624 go):
 - **ia-review remaining**: P4/P5 (above); open questions 1–6 in docs/ia-review.md
   still want Hans's answers where not implicitly settled by the M6 wave. Q2
   (server-issue drawer parity) is settled for v1: the Logs deep link ships now,
-  full parity is planned in docs/plans/server-issue-drawer-parity.md.
+  full parity is planned in #84.
 - **#70 remaining**: Go module splits, otelconfig drift-test → codegen,
   DataState sweep, RuntimeTab/ServerTab refresh unification.
 - ~~**Known noise**: Loki `detected_level` false-positives on logback bootstrap

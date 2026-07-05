@@ -33,7 +33,7 @@ the SDK in for frontend teams.
       fidelity (readable frontend stacks via `cdn.nav.no` source maps, log
       patterns, RED-per-operation, exception normalization).
 - [ ] Keep the plugin's fallbacks until the gaps land — they are load-bearing
-      (**#83**, `docs/plans/capability-detection-rollout.md`).
+      (**#83**).
 - [ ] Smoke-test real services across every tab on tenant data.
 
 ## Phase 2 — Pilot with design partners
