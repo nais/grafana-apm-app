@@ -4,7 +4,6 @@
     ".": {
       "release-type": "node",
       "package-name": "nais-apm-app",
-      "component": "",
       "include-v-in-tag": true,
       "bump-minor-pre-major": true,
       "changelog-sections": [
