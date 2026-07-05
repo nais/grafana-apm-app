@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Button,
@@ -24,18 +24,21 @@ import {
   getTriageStates,
   postTriageAction,
   getFeedback,
+  getSourcemapDoctor,
   IssueSource,
   TriageState,
   FeedbackEntry,
+  SourcemapDoctorResult,
 } from '../../../../api/client';
 import { otel } from '../../../../otelconfig';
 import { PLUGIN_BASE_URL } from '../../../../constants';
 import { sanitizeLabelValue } from '../../../../utils/sanitize';
-import { apmDocs } from '../../../../utils/docsLinks';
+import { apmDocs, frontendDocs } from '../../../../utils/docsLinks';
 import { usePluginLabelOverrides, usePluginDatasources } from '../../../../utils/datasources';
 import { useTimeRange } from '../../../../utils/timeRange';
 import { buildExceptionTracesExploreUrl } from '../../../../utils/explore';
 import { StackTraceView, isConsoleCaptureValue } from './StackTraceView';
+import { stackLooksMinified, firstScriptUrl } from '../frames';
 import { useIssueOccurrences, msToNs, ParsedException } from '../useIssueOccurrences';
 import {
   parseLogfmt,
@@ -131,6 +134,11 @@ export function ExceptionDrawer({
   const [replayProbe, setReplayProbe] = useState<ReplayProbeResult | null>(null);
   const [creatingAlert, setCreatingAlert] = useState(false);
   const [feedback, setFeedback] = useState<FeedbackEntry[]>([]);
+  // Minified-stack hint + source-map doctor (#60).
+  const [minifiedDismissed, setMinifiedDismissed] = useState(false);
+  const [diagnosing, setDiagnosing] = useState(false);
+  const [diagnosis, setDiagnosis] = useState<SourcemapDoctorResult | null>(null);
+  const [diagnosisError, setDiagnosisError] = useState<string | null>(null);
   // Server occurrences are picked by list index (no session identity).
   const [serverIndex, setServerIndex] = useState(0);
   const labelOverrides = usePluginLabelOverrides();
@@ -395,6 +403,36 @@ export function ExceptionDrawer({
         })
       : undefined;
 
+  // Minified-stack detection (#60): a heuristic over the rendered stack, plus
+  // the candidate bundle URL the source-map doctor can probe. Both memoized on
+  // the stack string so they don't recompute on every unrelated re-render.
+  const stacktrace = exception?.stacktrace;
+  const looksMinified = useMemo(() => (stacktrace ? stackLooksMinified(stacktrace) : false), [stacktrace]);
+  const scriptUrl = useMemo(() => (stacktrace ? firstScriptUrl(stacktrace) : undefined), [stacktrace]);
+
+  // Reset the doctor + dismissal when the shown stack changes.
+  useEffect(() => {
+    setMinifiedDismissed(false);
+    setDiagnosis(null);
+    setDiagnosisError(null);
+    setDiagnosing(false);
+  }, [stacktrace]);
+
+  const runDiagnosis = async () => {
+    if (!scriptUrl) {
+      return;
+    }
+    setDiagnosing(true);
+    setDiagnosisError(null);
+    try {
+      setDiagnosis(await getSourcemapDoctor(namespace, service, scriptUrl));
+    } catch (err) {
+      setDiagnosisError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDiagnosing(false);
+    }
+  };
+
   return (
     <Drawer
       title={exception?.type || 'Exception Details'}
@@ -470,6 +508,34 @@ export function ExceptionDrawer({
                     </Tooltip>
                   )}
                 </h4>
+                {looksMinified && !minifiedDismissed && (
+                  <Alert severity="info" title="This stack looks minified" onRemove={() => setMinifiedDismissed(true)}>
+                    <div className={styles.minifiedAlert}>
+                      <span>
+                        Source maps weren&rsquo;t resolved at ingest, so frames show mangled names and deep column
+                        offsets. Fixing the ingest config only affects <strong>new</strong> exceptions — already-stored
+                        stacks stay minified.
+                      </span>
+                      <div className={styles.minifiedActions}>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          icon="sync"
+                          disabled={diagnosing || !scriptUrl}
+                          onClick={runDiagnosis}
+                          tooltip={scriptUrl ? undefined : 'No cdn.nav.no bundle URL found in this stack'}
+                        >
+                          {diagnosing ? 'Running diagnosis…' : 'Run diagnosis'}
+                        </Button>
+                        <TextLink href={frontendDocs.sourcemaps()} external variant="bodySmall">
+                          About source maps
+                        </TextLink>
+                      </div>
+                      {diagnosisError && <span className={styles.minifiedError}>{diagnosisError}</span>}
+                      {diagnosis && <SourcemapChecklist result={diagnosis} />}
+                    </div>
+                  </Alert>
+                )}
                 <StackTraceView
                   stack={exception.stacktrace}
                   isConsoleCapture={isConsoleCaptureValue(exception.value)}
@@ -759,6 +825,34 @@ function MetaItem({ label, value, link, icon }: { label: string; value?: string;
           value
         )}
       </span>
+    </div>
+  );
+}
+
+/**
+ * Renders the source-map doctor's pass/fail checklist (#60). Pure presentation
+ * of the backend diagnosis — the plugin never resolves the stack itself.
+ */
+function SourcemapChecklist({ result }: { result: SourcemapDoctorResult }) {
+  const styles = useStyles2(getStyles);
+  const icon = (status: string) =>
+    status === 'pass' ? 'check-circle' : status === 'fail' ? 'exclamation-circle' : 'minus-circle';
+  const color = (status: string) => (status === 'pass' ? '#3ba55d' : status === 'fail' ? '#d1465c' : '#8c95a5');
+  return (
+    <div className={styles.checklist}>
+      <div className={styles.checklistSummary}>
+        {result.ok
+          ? 'Source map is published and fetchable — new exceptions on this build should resolve at ingest.'
+          : 'Source map is missing or unreachable — that is why this stack stayed minified.'}
+      </div>
+      {result.checks.map((check, idx) => (
+        <div key={idx} className={styles.checkRow}>
+          <Icon name={icon(check.status) as any} style={{ color: color(check.status) }} />
+          <span className={styles.checkName}>{check.name}</span>
+          {check.detail && <span className={styles.checkDetail}>{check.detail}</span>}
+        </div>
+      ))}
+      {result.sourceMapUrl && <div className={styles.checkDetail}>Map: {result.sourceMapUrl}</div>}
     </div>
   );
 }
@@ -1222,5 +1316,46 @@ const getStyles = (theme: GrafanaTheme2) => ({
   `,
   sectionDocsLink: css`
     margin-top: ${theme.spacing(0.5)};
+  `,
+  minifiedAlert: css`
+    display: flex;
+    flex-direction: column;
+    gap: ${theme.spacing(1)};
+    font-size: ${theme.typography.bodySmall.fontSize};
+  `,
+  minifiedActions: css`
+    display: flex;
+    align-items: center;
+    gap: ${theme.spacing(2)};
+  `,
+  minifiedError: css`
+    color: ${theme.colors.error.text};
+    font-size: ${theme.typography.bodySmall.fontSize};
+  `,
+  checklist: css`
+    display: flex;
+    flex-direction: column;
+    gap: ${theme.spacing(0.5)};
+    padding: ${theme.spacing(1)};
+    border: 1px solid ${theme.colors.border.weak};
+    border-radius: ${theme.shape.radius.default};
+    background: ${theme.colors.background.primary};
+  `,
+  checklistSummary: css`
+    font-weight: ${theme.typography.fontWeightMedium};
+    margin-bottom: ${theme.spacing(0.5)};
+  `,
+  checkRow: css`
+    display: flex;
+    align-items: center;
+    gap: ${theme.spacing(1)};
+  `,
+  checkName: css`
+    font-family: ${theme.typography.fontFamilyMonospace};
+    color: ${theme.colors.text.primary};
+  `,
+  checkDetail: css`
+    color: ${theme.colors.text.secondary};
+    word-break: break-all;
   `,
 });

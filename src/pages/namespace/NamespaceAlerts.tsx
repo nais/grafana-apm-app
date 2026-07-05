@@ -89,6 +89,9 @@ export function NamespaceAlerts({ rules, unavailable }: NamespaceAlertsProps) {
 function AlertRuleCard({ rule }: { rule: AlertRuleSummary }) {
   const styles = useStyles2(getStyles);
   const config = STATE_CONFIG[rule.state] ?? STATE_CONFIG.inactive;
+  const instances = rule.instances ?? [];
+  const currentValue = instances[0]?.value;
+  const instanceLabels = instances.map((inst) => formatInstanceLabels(inst.labels)).filter((l) => l.length > 0);
 
   return (
     <div className={styles.ruleCard} data-state={rule.state}>
@@ -107,12 +110,35 @@ function AlertRuleCard({ rule }: { rule: AlertRuleSummary }) {
             {rule.activeCount} instance{rule.activeCount !== 1 ? 's' : ''}
           </span>
         )}
+        {currentValue !== undefined && <span className={styles.activeCount}>· current value {currentValue}</span>}
         {rule.activeSince && (
           <span className={styles.activeSince}>· Active since {formatRelativeTime(rule.activeSince)}</span>
         )}
       </div>
+      {instanceLabels.length > 0 && (
+        <div className={styles.instanceLabels}>
+          {instanceLabels.map((label, i) => (
+            <span key={i} className={styles.instanceLabel} title={label}>
+              {label}
+            </span>
+          ))}
+          {rule.instancesTruncated && <span className={styles.activeSince}>…more</span>}
+        </div>
+      )}
     </div>
   );
+}
+
+/** Render an instance's label set as a compact `k="v"` list, dropping the
+ * alertname/internal labels that don't help disambiguate instances. */
+function formatInstanceLabels(labels?: Record<string, string>): string {
+  if (!labels) {
+    return '';
+  }
+  return Object.entries(labels)
+    .filter(([k]) => k !== 'alertname' && !k.startsWith('__'))
+    .map(([k, v]) => `${k}="${v}"`)
+    .join(', ');
 }
 
 function formatRelativeTime(isoString: string): string {
@@ -208,6 +234,20 @@ const getStyles = (theme: GrafanaTheme2) => ({
   activeSince: css`
     font-size: ${theme.typography.bodySmall.fontSize};
     color: ${theme.colors.text.disabled};
+  `,
+  instanceLabels: css`
+    display: flex;
+    flex-direction: column;
+    gap: ${theme.spacing(0.25)};
+  `,
+  instanceLabel: css`
+    font-size: ${theme.typography.bodySmall.fontSize};
+    font-family: ${theme.typography.fontFamilyMonospace};
+    color: ${theme.colors.text.secondary};
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   `,
   toggleButton: css`
     background: none;

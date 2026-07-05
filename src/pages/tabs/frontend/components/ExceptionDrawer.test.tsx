@@ -46,6 +46,23 @@ const exceptionLine =
   'timestamp=2026-07-03T10:00:00Z kind=exception type=TypeError value="boom" hash=abc123 ' +
   'stacktrace="at foo (bar.js:1:1)" session_id=sess-1 browser_name=Firefox browser_version=140 app_name=my-app';
 
+// Same shape as exceptionLine but with a minified frame (deep column offset on
+// a hashed cdn.nav.no bundle) — trips the #60 heuristic.
+const minifiedExceptionLine =
+  'timestamp=2026-07-03T10:00:00Z kind=exception type=TypeError value="boom" hash=abc123 ' +
+  'stacktrace="at n (https://cdn.nav.no/team/app/1.2.3/assets/index-Bq7Za1.js:1:99213)" ' +
+  'session_id=sess-1 browser_name=Firefox browser_version=140 app_name=my-app';
+
+function minifiedFetchImpl(options: any) {
+  const query: string = options?.params?.query ?? '';
+  if (query.includes('hash=')) {
+    return of({
+      data: { data: { result: [{ stream: {}, values: [['1751536800000000000', minifiedExceptionLine]] }] } },
+    });
+  }
+  return of({ data: { data: { result: [] } } });
+}
+
 function lokiFetchImpl(options: any) {
   const query: string = options?.params?.query ?? '';
   if (query.includes('hash=')) {
@@ -355,6 +372,28 @@ describe('server issues (#84)', () => {
     renderServerDrawer();
 
     expect(await screen.findByText(/No matching server-log occurrences/)).toBeInTheDocument();
+  });
+});
+
+describe('minified-stack hint (#60)', () => {
+  it('shows a dismissible info alert with a diagnosis button and source-maps link on a minified stack', async () => {
+    mockFetch.mockImplementation(minifiedFetchImpl);
+    renderDrawer();
+    await screen.findByText(/boom/);
+
+    expect(await screen.findByText('This stack looks minified')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Run diagnosis/ })).toBeInTheDocument();
+
+    const link = screen.getByRole('link', { name: /About source maps/ });
+    expect(link).toHaveAttribute('href', 'https://doc.nais.io/observability/frontend/how-to/sourcemaps/');
+  });
+
+  it('does not show the minified alert for a clean, source-mapped stack', async () => {
+    // Default lokiFetchImpl serves "at foo (bar.js:1:1)" — a clean frame.
+    renderDrawer();
+    await screen.findByText(/boom/);
+
+    expect(screen.queryByText('This stack looks minified')).not.toBeInTheDocument();
   });
 });
 

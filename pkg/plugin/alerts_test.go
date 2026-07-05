@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -549,6 +550,221 @@ func TestHandleServiceAlerts_RulerUnavailable(t *testing.T) {
 	}
 	if len(resp.Rules) != 0 {
 		t.Errorf("expected empty rules, got %d", len(resp.Rules))
+	}
+}
+
+func TestHandleServiceAlerts_FiringInstances(t *testing.T) {
+	// A firing rule with two active instances (per-endpoint labels + values),
+	// a pending rule, and an inactive rule. The response must carry the
+	// per-instance value/labels (#33), not just the active count.
+	groups := []queries.RuleGroup{
+		{
+			Name: "orders-alerts",
+			File: "dev/teamorders/orders-alerts/abc123",
+			Rules: []queries.Rule{
+				{
+					Type:   "alerting",
+					Name:   "OrdersHighErrorRate",
+					Query:  `sum(rate(calls_total{service_name="orders"}[5m])) > 0.05`,
+					State:  "firing",
+					Labels: map[string]string{"namespace": "teamorders", "severity": "critical"},
+					Alerts: []queries.Alert{
+						{
+							State:    "firing",
+							Value:    "0.12",
+							ActiveAt: "2026-04-25T10:05:00Z",
+							Labels:   map[string]string{"service_name": "orders", "endpoint": "/checkout"},
+						},
+						{
+							State:    "firing",
+							Value:    "0.08",
+							ActiveAt: "2026-04-25T10:00:00Z",
+							Labels:   map[string]string{"service_name": "orders", "endpoint": "/cart"},
+						},
+					},
+				},
+				{
+					Type:   "alerting",
+					Name:   "OrdersLatency",
+					Query:  `histogram_quantile(0.95, orders_latency) > 1`,
+					State:  "pending",
+					Labels: map[string]string{"namespace": "teamorders", "service": "orders"},
+					Alerts: []queries.Alert{
+						{State: "pending", Value: "1.4", ActiveAt: "2026-04-25T11:00:00Z", Labels: map[string]string{"service_name": "orders"}},
+					},
+				},
+				{
+					Type:   "alerting",
+					Name:   "OrdersDiskUsage",
+					Query:  `disk{service_name="orders"} > 0.9`,
+					State:  "inactive",
+					Labels: map[string]string{"namespace": "teamorders"},
+					Alerts: []queries.Alert{},
+				},
+			},
+		},
+	}
+
+	srv := mockRulerServer(t, groups)
+	defer srv.Close()
+	app := newTestApp(t, srv.URL, queries.Capabilities{})
+
+	req := httptest.NewRequest("GET", "/services/teamorders/orders/alerts", nil)
+	req.SetPathValue("namespace", "teamorders")
+	req.SetPathValue("service", "orders")
+	w := httptest.NewRecorder()
+
+	app.handleServiceAlerts(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp ServiceAlertsResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	byName := map[string]AlertRuleSummary{}
+	for _, r := range resp.Rules {
+		byName[r.Name] = r
+	}
+
+	firing, ok := byName["OrdersHighErrorRate"]
+	if !ok {
+		t.Fatal("OrdersHighErrorRate missing from response")
+	}
+	if firing.ActiveCount != 2 {
+		t.Errorf("firing activeCount = %d, want 2", firing.ActiveCount)
+	}
+	if len(firing.Instances) != 2 {
+		t.Fatalf("firing rule should carry 2 instances, got %d", len(firing.Instances))
+	}
+	if firing.InstancesTruncated {
+		t.Error("firing rule should not be truncated at 2 instances")
+	}
+	// Instances preserve value + labels + state from the ruler payload.
+	var checkout *AlertInstance
+	for i := range firing.Instances {
+		if firing.Instances[i].Labels["endpoint"] == "/checkout" {
+			checkout = &firing.Instances[i]
+		}
+	}
+	if checkout == nil {
+		t.Fatal("expected an instance with endpoint=/checkout")
+	}
+	if checkout.Value != "0.12" {
+		t.Errorf("checkout instance value = %q, want 0.12", checkout.Value)
+	}
+	if checkout.State != "firing" {
+		t.Errorf("checkout instance state = %q, want firing", checkout.State)
+	}
+
+	pending, ok := byName["OrdersLatency"]
+	if !ok {
+		t.Fatal("OrdersLatency missing from response")
+	}
+	if len(pending.Instances) != 1 || pending.Instances[0].Value != "1.4" {
+		t.Errorf("pending rule instances = %+v, want one with value 1.4", pending.Instances)
+	}
+
+	inactive, ok := byName["OrdersDiskUsage"]
+	if !ok {
+		t.Fatal("OrdersDiskUsage missing from response")
+	}
+	if len(inactive.Instances) != 0 {
+		t.Errorf("inactive rule should have no instances, got %d", len(inactive.Instances))
+	}
+}
+
+func TestHandleServiceAlerts_InstancesCapped(t *testing.T) {
+	// A rule with more active instances than the cap must truncate the list and
+	// flag it, while activeCount still reflects the full total.
+	total := alertInstanceCap + 5
+	alerts := make([]queries.Alert, 0, total)
+	for i := 0; i < total; i++ {
+		alerts = append(alerts, queries.Alert{
+			State:    "firing",
+			Value:    fmt.Sprintf("%d", i),
+			ActiveAt: "2026-04-25T10:00:00Z",
+			Labels:   map[string]string{"service_name": "orders", "shard": fmt.Sprintf("shard-%d", i)},
+		})
+	}
+	groups := []queries.RuleGroup{
+		{
+			Name: "orders-alerts",
+			File: "dev/teamorders/orders-alerts/abc123",
+			Rules: []queries.Rule{
+				{
+					Type:   "alerting",
+					Name:   "OrdersFanout",
+					Query:  `up{service_name="orders"} == 0`,
+					State:  "firing",
+					Labels: map[string]string{"namespace": "teamorders"},
+					Alerts: alerts,
+				},
+			},
+		},
+	}
+
+	srv := mockRulerServer(t, groups)
+	defer srv.Close()
+	app := newTestApp(t, srv.URL, queries.Capabilities{})
+
+	req := httptest.NewRequest("GET", "/services/teamorders/orders/alerts", nil)
+	req.SetPathValue("namespace", "teamorders")
+	req.SetPathValue("service", "orders")
+	w := httptest.NewRecorder()
+
+	app.handleServiceAlerts(w, req)
+
+	var resp ServiceAlertsResponse
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if len(resp.Rules) != 1 {
+		t.Fatalf("expected 1 rule, got %d", len(resp.Rules))
+	}
+	r := resp.Rules[0]
+	if r.ActiveCount != total {
+		t.Errorf("activeCount = %d, want %d (full total)", r.ActiveCount, total)
+	}
+	if len(r.Instances) != alertInstanceCap {
+		t.Errorf("instances = %d, want capped at %d", len(r.Instances), alertInstanceCap)
+	}
+	if !r.InstancesTruncated {
+		t.Error("expected instancesTruncated=true when instances exceed the cap")
+	}
+}
+
+func TestHandleServiceAlerts_InstancesUnavailable(t *testing.T) {
+	// The degraded path (ruler unreachable) still returns cleanly with no
+	// instances and the unavailable flag set.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/rules" {
+			http.Error(w, "boom", http.StatusInternalServerError)
+			return
+		}
+		resp := queries.PromResponse{Status: "success", Data: queries.PromData{ResultType: "vector", Result: []queries.PromResult{}}}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	app := newTestApp(t, srv.URL, queries.Capabilities{})
+	req := httptest.NewRequest("GET", "/services/teamorders/orders/alerts", nil)
+	req.SetPathValue("namespace", "teamorders")
+	req.SetPathValue("service", "orders")
+	w := httptest.NewRecorder()
+
+	app.handleServiceAlerts(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 (graceful degradation), got %d", w.Code)
+	}
+	var resp ServiceAlertsResponse
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if !resp.Unavailable {
+		t.Error("expected unavailable=true when the ruler errors")
+	}
+	if len(resp.Rules) != 0 {
+		t.Errorf("expected no rules, got %d", len(resp.Rules))
 	}
 }
 

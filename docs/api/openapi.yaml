@@ -198,6 +198,34 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/LogPatternsResponse" }
 
+  /services/{namespace}/{service}/sourcemap-doctor:
+    get:
+      tags: [experimental]
+      summary: Diagnose why a minified frontend stack's source map wasn't resolved.
+      description: >
+        Pure diagnostics for issue #60. Server-side, the plugin fetches the given
+        bundle from the allowlisted frontend CDN (cdn.nav.no only — SSRF guard),
+        then reports whether the bundle is reachable, advertises a
+        `//# sourceMappingURL=` comment, and whether the referenced `.map` is
+        fetchable. The plugin never resolves/symbolicates the stack itself; the
+        actual fix is an Alloy faro.receiver ingest-config change.
+      parameters:
+        - { $ref: "#/components/parameters/namespacePath" }
+        - { $ref: "#/components/parameters/servicePath" }
+        - name: url
+          in: query
+          required: true
+          schema: { type: string }
+          description: Absolute http(s) URL of the frame's JS bundle on cdn.nav.no.
+      responses:
+        "200":
+          description: Source-map diagnosis checklist.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SourcemapDoctorResult" }
+        "400":
+          description: Missing url, or url is not an absolute http(s) URL on cdn.nav.no.
+
   /services/{namespace}/{service}/traces/breakdown:
     get:
       tags: [experimental]
@@ -1123,6 +1151,22 @@ components:
               isNew: { type: boolean }
               filterLiteral: { type: string }
         note: { type: string }
+    SourcemapDoctorResult:
+      type: object
+      properties:
+        url: { type: string }
+        ok:
+          type: boolean
+          description: True when the bundle's source map is present and fetchable.
+        sourceMapUrl: { type: string }
+        checks:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string, enum: [script-fetchable, sourcemap-comment, sourcemap-fetchable] }
+              status: { type: string, enum: [pass, fail, skip] }
+              detail: { type: string }
     TraceBreakdownResponse:
       type: object
       properties:

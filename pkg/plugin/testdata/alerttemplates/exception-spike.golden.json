@@ -1,0 +1,97 @@
+{
+  "type": "grafana",
+  "name": "Exception spike – my-svc (v1:9f2ab31c04d7e655)",
+  "condition": "C",
+  "evaluateFor": "5m",
+  "queries": [
+    {
+      "refId": "A",
+      "queryType": "",
+      "relativeTimeRange": {
+        "from": 600,
+        "to": 0
+      },
+      "datasourceUid": "loki-prod-gcp",
+      "model": {
+        "expr": "sum(count_over_time({service_name=\"my-svc\", kind=\"exception\", k8s_cluster_name=\"prod-gcp\"} |= `hash=abc123` | logfmt | hash=\"abc123\" [5m]))",
+        "refId": "A"
+      }
+    },
+    {
+      "refId": "B",
+      "queryType": "",
+      "datasourceUid": "__expr__",
+      "model": {
+        "datasource": {
+          "type": "__expr__",
+          "uid": "__expr__"
+        },
+        "expression": "A",
+        "reducer": "last",
+        "refId": "B",
+        "type": "reduce"
+      }
+    },
+    {
+      "refId": "C",
+      "queryType": "",
+      "datasourceUid": "__expr__",
+      "model": {
+        "conditions": [
+          {
+            "evaluator": {
+              "params": [
+                10
+              ],
+              "type": "gt"
+            },
+            "operator": {
+              "type": "and"
+            },
+            "query": {
+              "params": [
+                "C"
+              ]
+            },
+            "reducer": {
+              "params": [],
+              "type": "last"
+            },
+            "type": "query"
+          }
+        ],
+        "datasource": {
+          "type": "__expr__",
+          "uid": "__expr__"
+        },
+        "expression": "B",
+        "refId": "C",
+        "type": "threshold"
+      }
+    }
+  ],
+  "annotations": [
+    {
+      "key": "summary",
+      "value": "Frontend exception v1:9f2ab31c04d7e655 in my-svc occurred more than 10 times in 5m"
+    },
+    {
+      "key": "nais_apm_url",
+      "value": "/a/nais-apm-app/services/team-a/my-svc?environment=prod-gcp\u0026issueId=v1%3A9f2ab31c04d7e655\u0026tab=issues"
+    }
+  ],
+  "labels": [
+    {
+      "key": "namespace",
+      "value": "team-a"
+    },
+    {
+      "key": "service",
+      "value": "my-svc"
+    },
+    {
+      "key": "source",
+      "value": "nais-apm"
+    }
+  ]
+}

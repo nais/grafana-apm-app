@@ -1,8 +1,9 @@
 import React from 'react';
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { AlertsTab } from './AlertsTab';
+import { AlertsTab, FiringStateCell } from './AlertsTab';
 import * as client from '../../api/client';
+import { AlertRuleSummary, ServiceAlertRule } from '../../api/client';
 
 jest.mock('../../api/client', () => ({
   ...jest.requireActual('../../api/client'),
@@ -35,7 +36,7 @@ beforeEach(() => {
 });
 
 describe('AlertsTab (#32/#33 home)', () => {
-  it('lists rules with a source badge and a "—" state seam for firing detail', async () => {
+  it('lists rules with a source badge and the derived firing state (#33)', async () => {
     getServiceAlerts.mockResolvedValue({
       rules: [
         {
@@ -48,6 +49,12 @@ describe('AlertsTab (#32/#33 home)', () => {
           activeCount: 1,
           groupName: 'orders-alerts',
           source: 'grafana',
+          firingState: {
+            state: 'firing',
+            activeCount: 1,
+            instances: [{ state: 'firing', value: '0.12' }],
+            value: '0.12',
+          },
         },
       ],
     });
@@ -57,11 +64,12 @@ describe('AlertsTab (#32/#33 home)', () => {
     await waitFor(() => expect(screen.getByText('OrdersHighErrorRate')).toBeInTheDocument());
     expect(screen.getByText('Orders erroring')).toBeInTheDocument();
     expect(screen.getByText('grafana')).toBeInTheDocument();
-    // firingState is unset in v1 → the state column renders a dash (the #32/#33 seam).
-    expect(screen.getByText('—')).toBeInTheDocument();
+    // The read-only firing state (#33) renders directly from the rule now.
+    expect(screen.getByText('firing')).toBeInTheDocument();
+    expect(screen.getByText(/current value 0\.12/)).toBeInTheDocument();
   });
 
-  it('renders firingState when the #32/#33 enrichment provides it', async () => {
+  it('renders a dash when a rule carries no firing state', async () => {
     getServiceAlerts.mockResolvedValue({
       rules: [
         {
@@ -74,7 +82,7 @@ describe('AlertsTab (#32/#33 home)', () => {
           activeCount: 1,
           groupName: 'orders-alerts',
           source: 'mimir',
-          firingState: { state: 'firing' },
+          // firingState omitted — defensive rendering falls back to a dash.
         },
       ],
     });
@@ -82,8 +90,7 @@ describe('AlertsTab (#32/#33 home)', () => {
     renderTab();
 
     await waitFor(() => expect(screen.getByText('OrdersHighErrorRate')).toBeInTheDocument());
-    expect(screen.getByText('firing')).toBeInTheDocument();
-    expect(screen.queryByText('—')).not.toBeInTheDocument();
+    expect(screen.getByText('—')).toBeInTheDocument();
   });
 
   it('shows the empty state but still offers create-alert templates', async () => {
@@ -122,5 +129,105 @@ describe('AlertsTab (#32/#33 home)', () => {
       )
     );
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith(expect.stringContaining('/alerting/new?defaults=')));
+  });
+});
+
+function summary(overrides: Partial<AlertRuleSummary> = {}): AlertRuleSummary {
+  return {
+    name: 'OrdersHighErrorRate',
+    state: 'firing',
+    severity: 'critical',
+    summary: 'Orders erroring',
+    description: '',
+    activeSince: '',
+    activeCount: 0,
+    groupName: 'orders-alerts',
+    source: 'mimir',
+    ...overrides,
+  };
+}
+
+describe('deriveFiringState (#33)', () => {
+  it('mirrors the rule state and lifts the first instance value', () => {
+    const fs = client.deriveFiringState(
+      summary({
+        state: 'firing',
+        activeSince: '2026-04-25T10:00:00Z',
+        activeCount: 2,
+        instances: [
+          { state: 'firing', value: '0.12', labels: { endpoint: '/checkout' } },
+          { state: 'firing', value: '0.08', labels: { endpoint: '/cart' } },
+        ],
+      })
+    );
+    expect(fs.state).toBe('firing');
+    expect(fs.value).toBe('0.12');
+    expect(fs.activeCount).toBe(2);
+    expect(fs.instances).toHaveLength(2);
+    expect(fs.activeSince).toBe('2026-04-25T10:00:00Z');
+  });
+
+  it('leaves value undefined and activeSince absent when there are no instances', () => {
+    const fs = client.deriveFiringState(summary({ state: 'inactive', activeCount: 0, activeSince: '' }));
+    expect(fs.value).toBeUndefined();
+    expect(fs.activeSince).toBeUndefined();
+    expect(fs.instances).toHaveLength(0);
+  });
+});
+
+describe('FiringStateCell (#33)', () => {
+  function cellFor(overrides: Partial<AlertRuleSummary>): ServiceAlertRule {
+    const s = summary(overrides);
+    return { ...s, firingState: client.deriveFiringState(s) };
+  }
+
+  it('renders the firing badge with current value, since, and instance labels', () => {
+    render(
+      <FiringStateCell
+        rule={cellFor({
+          state: 'firing',
+          activeCount: 2,
+          activeSince: new Date(Date.now() - 5 * 60_000).toISOString(),
+          instances: [
+            { state: 'firing', value: '0.12', labels: { endpoint: '/checkout', alertname: 'ignored' } },
+            { state: 'firing', value: '0.08', labels: { endpoint: '/cart' } },
+          ],
+        })}
+      />
+    );
+
+    expect(screen.getByText('firing')).toBeInTheDocument();
+    expect(screen.getByText(/current value 0\.12/)).toBeInTheDocument();
+    expect(screen.getByText(/since 5m ago/)).toBeInTheDocument();
+    const checkout = screen.getByText(/endpoint="\/checkout"/);
+    expect(checkout).toBeInTheDocument();
+    // The noisy alertname label is filtered out of the instance summary.
+    expect(checkout.textContent).not.toContain('alertname');
+    expect(screen.getByText(/endpoint="\/cart"/)).toBeInTheDocument();
+  });
+
+  it('shows a truncation hint when instances were capped', () => {
+    render(
+      <FiringStateCell
+        rule={cellFor({
+          state: 'firing',
+          activeCount: 25,
+          instances: [{ state: 'firing', value: '1', labels: { shard: 'a' } }],
+          instancesTruncated: true,
+        })}
+      />
+    );
+    expect(screen.getByText('…more')).toBeInTheDocument();
+  });
+
+  it('renders inactive rules as a plain badge with no instance detail', () => {
+    render(<FiringStateCell rule={cellFor({ state: 'inactive', activeCount: 0, instances: [] })} />);
+    expect(screen.getByText('inactive')).toBeInTheDocument();
+    expect(screen.queryByText(/current value/)).not.toBeInTheDocument();
+  });
+
+  it('renders a dash when there is no firing state at all', () => {
+    render(<FiringStateCell rule={{ ...summary(), firingState: undefined }} />);
+    expect(screen.getByText('—')).toBeInTheDocument();
   });
 });

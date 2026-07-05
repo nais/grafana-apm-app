@@ -74,6 +74,77 @@ export interface StackFrame {
 // is whatever sits inside the parens, or the rest of the line without them.
 const FRAME_RE = /^\s*at\s+(?:.*?\s+\()?(.*?)\)?$/;
 
+// --- Minified-frame detection (#60) -----------------------------------------
+//
+// Frontend source maps are resolved *server-side at ingest* (the Alloy
+// faro.receiver reads the .map and writes the resolved stack to Loki). When
+// that resolution didn't happen — misconfigured Alloy, missing/unpublished
+// .map, a build that never emitted one — the stored stack stays minified. We
+// can only *detect and explain* that here; the plugin never symbolicates.
+//
+// This is a deliberately loose heuristic that tolerates false positives: the
+// only consequence of a wrong guess is an extra dismissible info hint.
+
+/** Columns this deep almost always come from a single minified line. */
+const MINIFIED_COLUMN_THRESHOLD = 300;
+
+/** A hashed content-addressed bundle name, e.g. `vendor-Cq2ZL9.js`, `main.4f3a2b1c.js`. */
+const HASHED_BUNDLE_RE = /[-.][A-Za-z0-9_]{6,}\.(?:js|mjs|cjs)$/i;
+
+/** A 1–2 character identifier — the mangled function names a minifier emits. */
+const SHORT_FUNC_RE = /^[A-Za-z$_][\w$]?$/;
+
+/** Parse the trailing `:line:col` column number from a frame line, if present. */
+function frameColumn(line: string): number | null {
+  const m = line.match(/:(\d+):(\d+)\)?\s*$/);
+  return m ? parseInt(m[2], 10) : null;
+}
+
+/** The function name in `at fn (path…)`, or '' for `at path` / anonymous frames. */
+function frameFunctionName(line: string): string {
+  const m = line.match(/^\s*at\s+(.+?)\s+\(/);
+  return m ? m[1].trim() : '';
+}
+
+/**
+ * Whether a single stack line looks like it came from an unresolved minified
+ * bundle. Signals (any strong one is enough): a very deep column offset, or a
+ * hashed bundle filename paired with a mangled (1–2 char) function name or a
+ * moderately deep column. Non-frame lines never match.
+ */
+export function isLikelyMinifiedFrame(line: string): boolean {
+  const frame = parseStackFrame(line);
+  if (!frame.isFrame) {
+    return false;
+  }
+  const col = frameColumn(line);
+  if (col !== null && col > MINIFIED_COLUMN_THRESHOLD) {
+    return true;
+  }
+  const hashed = HASHED_BUNDLE_RE.test(frame.path);
+  if (!hashed) {
+    return false;
+  }
+  const fn = frameFunctionName(line);
+  const mangledFn = fn !== '' && fn !== '?' && SHORT_FUNC_RE.test(fn);
+  return mangledFn || (col !== null && col > 120);
+}
+
+/** Whether any frame in a rendered stack trace looks minified. */
+export function stackLooksMinified(stack: string): boolean {
+  return stack.split('\n').some(isLikelyMinifiedFrame);
+}
+
+/**
+ * The first http(s) script URL referenced by a stack trace (line/column
+ * suffix stripped) — the candidate the source-map doctor probes. Returns
+ * undefined for stacks with only webpack:// or bare source paths.
+ */
+export function firstScriptUrl(stack: string): string | undefined {
+  const m = stack.match(/https?:\/\/[^\s()]+?\.(?:js|mjs|cjs)/i);
+  return m ? m[0] : undefined;
+}
+
 /** Strip a trailing :line:col (or :line) suffix from a frame location. */
 function stripPosition(location: string): string {
   return location.replace(/(?::\d+)+$/, '');
