@@ -1,0 +1,194 @@
+name: Release Please
+
+# release-please maintains a rolling "Release PR" on main (bumping package.json +
+# regenerating CHANGELOG.md from Conventional Commits). Merging that PR creates the
+# vX.Y.Z tag AND the GitHub Release. The publish job then builds + signs the plugin
+# and attaches the signed zip to that same release.
+#
+# This replaces the old tag-triggered .github/workflows/release.yml flow (now a manual
+# workflow_dispatch escape hatch). See that file's header for the migration rationale.
+on:
+  push:
+    branches:
+      - main
+
+# release-please needs to write the Release PR and create tags/releases; the publish
+# job needs id-token/attestations for build provenance. Least-privilege is tightened
+# again per-job below.
+permissions:
+  contents: write
+  pull-requests: write
+
+# Serialize release passes on main so a Release-PR merge that lands while another push
+# to main is still mid-flight can never produce two concurrent publishes.
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job A — maintain the Release PR and, when it is merged, cut the tag + Release.
+  # On a normal feature merge this only updates the accumulating Release PR (next
+  # version + CHANGELOG) and does nothing else. On a Release-PR merge it sets
+  # releases_created=true and emits tag_name (e.g. v0.20.2) — and release-please
+  # itself creates the GitHub Release with the generated changelog notes.
+  # ---------------------------------------------------------------------------
+  release-please:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      releases_created: ${{ steps.release.outputs.releases_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - name: Run release-please
+        id: release
+        uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # ratchet:googleapis/release-please-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # ---------------------------------------------------------------------------
+  # Job B — build + sign the plugin and attach the signed zip to the release that
+  # release-please just created. Gated on releases_created so it only runs on a
+  # Release-PR merge, not on ordinary pushes to main.
+  #
+  # WHY THIS DOES NOT REUSE grafana/plugin-actions/build-plugin:
+  # That action ALWAYS creates its own GitHub Release (a draft, via
+  # softprops/action-gh-release) and has no input to disable it. It also derives
+  # the tag from $GITHUB_REF and fails a "Check package version" gate unless
+  # $GITHUB_REF is the vX.Y.Z tag. In this workflow $GITHUB_REF is refs/heads/main
+  # (we trigger on push:main so publish can run in the SAME run as release-please —
+  # avoiding the GITHUB_TOKEN-created-tag-doesn't-trigger-workflows gotcha), so
+  # build-plugin would both fail that gate AND, if it got past it, mint a SECOND
+  # release. So we reproduce its build+sign steps here (identical to ci.yml's
+  # "Package and validate" job + release.yml's signing secrets) and then
+  # `gh release upload` the artifact onto release-please's release. Net result:
+  # exactly ONE release per version — the release-please one — with the signed zip.
+  # ---------------------------------------------------------------------------
+  publish:
+    needs: release-please
+    if: needs.release-please.outputs.releases_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # upload the release asset
+      id-token: write # build provenance attestation (preserves release.yml's attestation: true)
+      attestations: write
+    env:
+      GRAFANA_ACCESS_POLICY_TOKEN: ${{ secrets.GRAFANA_ACCESS_POLICY_TOKEN }}
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+          persist-credentials: false
+
+      - name: Enable corepack
+        run: corepack enable
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # ratchet:actions/setup-node@v6
+        with:
+          # Pinned >= 22.12.0: @commitlint/cli (a devDependency installed below)
+          # declares engines.node ">=22.12.0"; a bare '22' could resolve to an
+          # earlier 22.x patch and break `pnpm install`.
+          node-version: '22.12.0'
+          cache: 'pnpm'
+      - name: Setup Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # ratchet:actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Belt-and-suspenders: release-please sets package.json version == the tag it
+      # created, so this always passes — but it guards against a hand-edited or
+      # drifted version ever shipping under the wrong tag.
+      - name: Verify package version matches release tag
+        run: |
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          TAG="${{ needs.release-please.outputs.tag_name }}"
+          EXPECTED="${TAG#v}"
+          if [ "$PKG_VERSION" != "$EXPECTED" ]; then
+            echo "::error::package.json version ($PKG_VERSION) does not match release tag $TAG (expected $EXPECTED)."
+            exit 1
+          fi
+          echo "package.json version $PKG_VERSION matches release tag $TAG"
+
+      - name: Build frontend
+        run: pnpm run build
+
+      - name: Build backend
+        uses: magefile/mage-action@a662bd8c29d8106879588cfff83b2faf6e6f59db # ratchet:magefile/mage-action@v4.0.0
+        with:
+          version: latest
+          args: buildAll
+
+      # Private signature — identical secrets to the retired release.yml
+      # (GRAFANA_ACCESS_POLICY_TOKEN + GRAFANA_PLUGIN_ROOT_URLS). Required: a
+      # released plugin MUST be signed to load in the target Grafana instances.
+      - name: Sign plugin
+        run: npx --yes @grafana/sign-plugin@latest --rootUrls "$GRAFANA_PLUGIN_ROOT_URLS"
+        env:
+          GRAFANA_PLUGIN_ROOT_URLS: ${{ secrets.GRAFANA_PLUGIN_ROOT_URLS }}
+
+      - name: Get plugin metadata
+        id: metadata
+        run: |
+          GRAFANA_PLUGIN_ID=$(jq -r .id dist/plugin.json)
+          GRAFANA_PLUGIN_VERSION=$(jq -r .info.version dist/plugin.json)
+          GRAFANA_PLUGIN_ARTIFACT="${GRAFANA_PLUGIN_ID}-${GRAFANA_PLUGIN_VERSION}.zip"
+          echo "plugin-id=${GRAFANA_PLUGIN_ID}" >> "$GITHUB_OUTPUT"
+          echo "plugin-version=${GRAFANA_PLUGIN_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "archive=${GRAFANA_PLUGIN_ARTIFACT}" >> "$GITHUB_OUTPUT"
+
+      - name: Package plugin
+        run: |
+          mv dist "${PLUGIN_ID}"
+          zip "${ARCHIVE}" "${PLUGIN_ID}" -r
+          sha1sum "${ARCHIVE}" | cut -d' ' -f1 > "${ARCHIVE}.sha1"
+        env:
+          ARCHIVE: ${{ steps.metadata.outputs.archive }}
+          PLUGIN_ID: ${{ steps.metadata.outputs.plugin-id }}
+
+      # Release-grade validation. ci.yml's "Package and validate" job only runs
+      # `-analyzer=metadatavalid`, which does NOT inspect README links — so the
+      # README-relative-link class (relative links are rejected by the Grafana
+      # plugin catalog; it broke an earlier submission) would slip through to a
+      # published release. The `brokenlinks` analyzer's `relative-link` rule is
+      # Error severity (fails the release), while its unreachable-link rule is
+      # only warning severity (a transient network blip won't block a release).
+      # Verified locally: a relative link -> exit 1; a clean README with only
+      # unreachable-link warnings -> exit 0. We run both analyzers (metadatavalid
+      # for parity with ci.yml, brokenlinks for the relative-link gate) BEFORE
+      # uploading the asset, so a bad README fails the job before publish.
+      - name: Validate plugin (release-grade)
+        run: |
+          for analyzer in metadatavalid brokenlinks; do
+            echo "::group::plugin-validator ${analyzer}"
+            docker run --pull=always \
+              -v "$PWD/${ARCHIVE}:/archive.zip" \
+              grafana/plugin-validator-cli -analyzer="${analyzer}" /archive.zip
+            echo "::endgroup::"
+          done
+        env:
+          ARCHIVE: ${{ steps.metadata.outputs.archive }}
+
+      # Preserve release.yml's attestation: true. build-plugin did this internally;
+      # here we attest the packaged zip directly.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # ratchet:actions/attest-build-provenance@v2
+        with:
+          subject-path: ${{ steps.metadata.outputs.archive }}
+
+      # Attach the signed zip to the release release-please already created. We
+      # NEVER create a release here, so there is exactly one release per tag.
+      # --clobber makes re-runs idempotent.
+      - name: Attach signed plugin to release
+        run: gh release upload "$TAG" "$ARCHIVE" "$ARCHIVE.sha1" --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+          ARCHIVE: ${{ steps.metadata.outputs.archive }}
