@@ -402,6 +402,7 @@ func (a *App) routes() []appRoute {
 		{"/services/{namespace}/{service}/runtime", a.handleRuntime},
 		{"/services/{namespace}/{service}/custom-metrics", a.handleCustomMetrics},
 		{"/services/{namespace}/{service}/database/queries", a.handleDatabaseQueries},
+		{"/services/{namespace}/{service}/database/nplusone", a.handleDatabaseNPlusOne},
 		{"/services/{namespace}/{service}/scorecard", a.handleScorecard},
 		{"/services/{namespace}/{service}/alerts", a.handleServiceAlerts},
 		{"/jobs", a.handleJobs},
