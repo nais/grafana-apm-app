@@ -558,6 +558,53 @@ paths:
                         p95Ms: { type: number }
                         traceId: { type: string }
 
+  /services/{namespace}/{service}/database/nplusone:
+    get:
+      tags: [experimental]
+      summary: On-demand N+1 query-pattern scan (Tempo, bounded + cached).
+      description: >-
+        Scans a bounded, cached sample of this service's traces for N+1 query
+        patterns — the same normalized db.statement repeated many times within a
+        single request. Statements are normalized server-side (literals stripped)
+        before return; raw literals are never exposed. On-demand only (a "Scan
+        for N+1" action, not continuous); the window is clamped and both the
+        candidate-trace count and spans-per-trace are limited to bound Tempo cost.
+      parameters:
+        - { $ref: "#/components/parameters/namespacePath" }
+        - { $ref: "#/components/parameters/servicePath" }
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+        - name: tracesUid
+          in: query
+          schema: { type: string, pattern: "^[a-zA-Z0-9_-]{1,64}$" }
+      responses:
+        "200":
+          description: N+1 findings.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mode: { type: string, enum: [traceql, unavailable] }
+                  scannedTraces: { type: integer }
+                  truncated: { type: boolean }
+                  windowSeconds: { type: integer }
+                  threshold: { type: integer }
+                  note: { type: string }
+                  findings:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        statement: { type: string }
+                        dbSystem: { type: string }
+                        table: { type: string }
+                        repeatCount: { type: integer }
+                        endpoint: { type: string }
+                        totalDbSpans: { type: integer }
+                        traceId: { type: string }
+                        remediation: { type: string }
+
   /services/{namespace}/{service}/scorecard:
     get:
       tags: [experimental]

@@ -103,6 +103,8 @@ func (a *App) handleDatabaseQueries(w http.ResponseWriter, req *http.Request) {
 
 // clampWindow returns a from no earlier than to-cap, so a wide selected range
 // only ever hits Tempo for the most-recent cap-sized slice.
+//
+//nolint:unparam // cap is a per-feature tunable window bound (top-queries and the N+1 scan both currently pass 1h).
 func clampWindow(from, to time.Time, cap time.Duration) time.Time {
 	if earliest := to.Add(-cap); from.Before(earliest) {
 		return earliest
@@ -289,11 +291,16 @@ func (a *App) searchDBSpans(ctx context.Context, headers http.Header, tracesUID,
 }
 
 // tempoSearchResponse is the subset of Tempo's /api/search JSON we consume.
+// RootServiceName/RootTraceName identify the request the trace belongs to; the
+// N+1 scan (dbnplusone.go) uses them to name the offending endpoint. Top-queries
+// ignores them.
 type tempoSearchResponse struct {
 	Traces []struct {
-		TraceID  string         `json:"traceID"`
-		SpanSet  *tempoSpanSet  `json:"spanSet"`
-		SpanSets []tempoSpanSet `json:"spanSets"`
+		TraceID         string         `json:"traceID"`
+		RootServiceName string         `json:"rootServiceName"`
+		RootTraceName   string         `json:"rootTraceName"`
+		SpanSet         *tempoSpanSet  `json:"spanSet"`
+		SpanSets        []tempoSpanSet `json:"spanSets"`
 	} `json:"traces"`
 }
 

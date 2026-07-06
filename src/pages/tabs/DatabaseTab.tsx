@@ -15,6 +15,7 @@ import { useSceneTimeSync } from '../../utils/useSceneTimeSync';
 import { QueryOperationsTable } from './database/QueryOperationsTable';
 import { ConnectionPoolSection } from './database/ConnectionPoolSection';
 import { TopQueriesSection } from './database/TopQueriesSection';
+import { NPlusOneSection } from './database/NPlusOneSection';
 
 interface DatabaseTabProps {
   service: string;
@@ -216,6 +217,16 @@ export function DatabaseTab({
 
         {hasDbSpans && ds.tracesUid && (caps?.tempo?.available ?? true) && (
           <TopQueriesSection
+            namespace={namespace}
+            service={service}
+            fromMs={fromMs}
+            toMs={toMs}
+            tracesUid={ds.tracesUid}
+          />
+        )}
+
+        {hasDbSpans && ds.tracesUid && (caps?.tempo?.available ?? true) && (
+          <NPlusOneSection
             namespace={namespace}
             service={service}
             fromMs={fromMs}
