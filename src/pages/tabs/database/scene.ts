@@ -72,17 +72,30 @@ export function buildDbTracesExploreUrl(tracesUid: string, service: string, name
  * fpinntektsmelding (postgresql, ~8.6 calls/s). Rate, duration P95,
  * and (zero-filled) error panels all return data for all three.
  *
- * Queries-per-request ratio (per Database-tab redesign PRD, issue #119):
- * database operations per inbound request. Numerator is the same outbound
- * CLIENT db-span rate the Rate panel sums; denominator is the inbound
- * SERVER-span rate for the service (covers HTTP *and* gRPC — a superset of
- * the PRD's http_server_request_count). Kept on the tab's existing
- * span-metrics source rather than the raw db_client_operation_/http_server_
- * metric families so the label conventions (service_name/namespace/env) stay
- * consistent with the RED panels. A `> 0` guard on the denominator drops the
- * series when the service has no inbound requests (batch jobs, pure Kafka
- * consumers) or its request rate is zero in-window, so the stat reads N/A
- * instead of dividing by zero. A high value flags an N+1 pattern.
+ * Queries-per-request-or-message ratio (per Database-tab redesign PRD, issue
+ * #119): database operations per inbound unit of work. Numerator is the same
+ * outbound CLIENT db-span rate the Rate panel sums; denominator is the inbound
+ * SERVER *or* CONSUMER span rate for the service — i.e. HTTP/gRPC requests *or*
+ * consumed Kafka messages. The original SERVER-only denominator read N/A for
+ * the many nais apps that are Kafka-driven rather than HTTP servers (verified
+ * 2026-07-06 against prod Mimir: spenn/tbd has an empty SERVER rate but a
+ * ~60/s CONSUMER rate and ~0.08/s db calls → a real ~0.0015 queries/message
+ * once consumers are counted). Kept on the tab's existing span-metrics source
+ * rather than the raw db_client_operation_/http_server_ metric families so the
+ * label conventions (service_name/namespace/env) stay consistent with the RED
+ * panels. A `> 0` guard on the denominator drops the series when the service
+ * has genuinely no inbound work at all (pure batch jobs, e.g.
+ * aareg-mottak-opptjeningsgrunnlag/arbeidsforhold: no SERVER and no CONSUMER
+ * spans, ~9/s db calls) rather than dividing by zero. A high value flags an
+ * N+1 pattern.
+ *
+ * The top row is a compact stat strip so it stays informative for all three
+ * app shapes (HTTP server, Kafka consumer, pure batch): the ratio sits
+ * alongside an always-present Query-rate stat plus Errors% and P95 companions.
+ * When the ratio has no denominator (batch jobs) it renders an explicit
+ * "no inbound requests or messages" no-value state instead of a lone bare N/A,
+ * and the neighbouring Query-rate stat still shows the raw db throughput — so
+ * the header never reads as broken.
  *
  * (The per-host `server_address` breakdown was removed in the #119 redesign:
  * "which database host served this" is a DBA/infra concern, not something an
@@ -140,9 +153,12 @@ export function buildDatabaseScene(params: BuildDatabaseSceneParams): EmbeddedSc
   // criteria the backend uses to classify "database" endpoints (see
   // EndpointGroups.database in api/client.ts).
   const dbFilter = `${svcFilter}, ${otel.labels.spanKind}="${otel.spanKinds.client}", ${otel.labels.dbSystem}=~".+"`;
-  // Inbound requests: SERVER-kind spans for this service (HTTP + gRPC). Used as
-  // the denominator of the queries-per-request ratio.
-  const serverFilter = `${svcFilter}, ${otel.labels.spanKind}="${otel.spanKinds.server}"`;
+  // Inbound work: SERVER-kind spans (HTTP + gRPC requests) *or* CONSUMER-kind
+  // spans (Kafka messages consumed). Used as the denominator of the
+  // queries-per-request-or-message ratio. Broadened from SERVER-only so
+  // Kafka-driven apps (the majority of nais workloads) get a real ratio
+  // instead of N/A.
+  const inboundFilter = `${svcFilter}, ${otel.labels.spanKind}=~"${otel.spanKinds.server}|${otel.spanKinds.consumer}"`;
   const panelDurationUnit = durationUnit === 's' ? 's' : 'ms';
 
   const rateQuery = new SceneQueryRunner({
@@ -192,10 +208,11 @@ export function buildDatabaseScene(params: BuildDatabaseSceneParams): EmbeddedSc
     ],
   });
 
-  // Queries-per-request ratio — the always-on N+1 smell (PRD #119 §4.1).
-  // db operations ÷ inbound requests. The `> 0` guard on the denominator makes
-  // the expression empty (→ stat reads N/A) for services with no inbound
-  // SERVER spans, rather than producing +Inf from a divide-by-zero.
+  // Queries-per-request-or-message ratio — the always-on N+1 smell (PRD #119
+  // §4.1). db operations ÷ inbound requests-or-messages. The `> 0` guard on the
+  // denominator makes the expression empty (→ stat shows its no-inbound state)
+  // for services with no inbound SERVER *or* CONSUMER spans, rather than
+  // producing +Inf from a divide-by-zero.
   const ratioQuery = new SceneQueryRunner({
     datasource: { uid: metricsUid, type: 'prometheus' },
     minInterval: '5m',
@@ -204,7 +221,50 @@ export function buildDatabaseScene(params: BuildDatabaseSceneParams): EmbeddedSc
         refId: 'A',
         expr:
           `sum(rate(${callsMetric}{${dbFilter}}[$__rate_interval])) ` +
-          `/ (sum(rate(${callsMetric}{${serverFilter}}[$__rate_interval])) > 0)`,
+          `/ (sum(rate(${callsMetric}{${inboundFilter}}[$__rate_interval])) > 0)`,
+      },
+    ],
+  });
+
+  // Companion header stats (always meaningful, even when the ratio is empty).
+  // Query rate: raw outbound db throughput — present for every db-emitting app,
+  // so batch jobs with no inbound work still get an informative header number.
+  const queryRateStatQuery = new SceneQueryRunner({
+    datasource: { uid: metricsUid, type: 'prometheus' },
+    minInterval: '5m',
+    queries: [
+      {
+        refId: 'A',
+        expr: `sum(rate(${callsMetric}{${dbFilter}}[$__rate_interval]))`,
+      },
+    ],
+  });
+
+  // Errors %: single-value mirror of the RED error panel. Same `or ... * 0`
+  // zero-fill so it reads 0% rather than an empty "No data" when there are no
+  // error samples in-window.
+  const errorRateStatQuery = new SceneQueryRunner({
+    datasource: { uid: metricsUid, type: 'prometheus' },
+    minInterval: '5m',
+    queries: [
+      {
+        refId: 'A',
+        expr:
+          `sum(rate(${callsMetric}{${dbFilter}, ${otel.labels.statusCode}="${otel.statusCodes.error}"}[$__rate_interval])) ` +
+          `/ sum(rate(${callsMetric}{${dbFilter}}[$__rate_interval])) * 100 ` +
+          `or sum(rate(${callsMetric}{${dbFilter}}[$__rate_interval])) * 0`,
+      },
+    ],
+  });
+
+  // P95: single-value mirror of the RED duration panel, in the tab's duration unit.
+  const p95StatQuery = new SceneQueryRunner({
+    datasource: { uid: metricsUid, type: 'prometheus' },
+    minInterval: '5m',
+    queries: [
+      {
+        refId: 'A',
+        expr: `histogram_quantile(0.95, sum by (${otel.labels.le}) (rate(${durationBucket}{${dbFilter}}[$__rate_interval])))`,
       },
     ],
   });
@@ -271,28 +331,77 @@ export function buildDatabaseScene(params: BuildDatabaseSceneParams): EmbeddedSc
           ? [
               new SceneFlexItem({
                 height: 120,
-                width: 300,
-                body: PanelBuilders.stat()
-                  .setTitle('Queries per request')
-                  .setDescription(
-                    'Database operations per inbound request (outbound db CLIENT spans ÷ inbound SERVER spans). ' +
-                      'A high value is the classic N+1 smell — many small queries where a single JOIN or batch-fetch ' +
-                      'would do; use "View DB traces" above to inspect the offending requests. Reads N/A for services ' +
-                      'with no inbound requests (e.g. batch jobs or pure Kafka consumers).'
-                  )
-                  .setData(ratioQuery)
-                  .setUnit('none')
-                  .setDecimals(1)
-                  .setNoValue('N/A')
-                  .setThresholds({
-                    mode: ThresholdsMode.Absolute,
-                    steps: [
-                      { value: null as unknown as number, color: 'green' },
-                      { value: 20, color: 'orange' },
-                      { value: 50, color: 'red' },
-                    ],
-                  })
-                  .build(),
+                body: new SceneFlexLayout({
+                  direction: 'row',
+                  children: [
+                    new SceneFlexItem({
+                      body: PanelBuilders.stat()
+                        .setTitle('Queries per request or message')
+                        .setDescription(
+                          'Database operations per inbound unit of work — outbound db CLIENT spans ÷ inbound ' +
+                            'SERVER (HTTP/gRPC request) or CONSUMER (Kafka message) spans. A high value is the ' +
+                            'classic N+1 smell — many small queries where a single JOIN or batch-fetch would do; ' +
+                            'use "View DB traces" above to inspect the offending requests. Shows "no inbound ' +
+                            'requests or messages" for pure batch jobs with no inbound spans in the window — read ' +
+                            'the Query rate stat beside it for their raw throughput.'
+                        )
+                        .setData(ratioQuery)
+                        .setUnit('none')
+                        .setDecimals(1)
+                        .setNoValue('no inbound requests or messages')
+                        .setThresholds({
+                          mode: ThresholdsMode.Absolute,
+                          steps: [
+                            { value: null as unknown as number, color: 'green' },
+                            { value: 20, color: 'orange' },
+                            { value: 50, color: 'red' },
+                          ],
+                        })
+                        .build(),
+                    }),
+                    new SceneFlexItem({
+                      body: PanelBuilders.stat()
+                        .setTitle('Query rate')
+                        .setDescription(
+                          'Total outbound database call rate (all db systems). Always populated for a ' +
+                            'db-emitting service, so the header stays meaningful even for batch jobs where the ' +
+                            'queries-per-request ratio is undefined.'
+                        )
+                        .setData(queryRateStatQuery)
+                        .setUnit('reqps')
+                        .setDecimals(2)
+                        .setNoValue('N/A')
+                        .build(),
+                    }),
+                    new SceneFlexItem({
+                      body: PanelBuilders.stat()
+                        .setTitle('Errors')
+                        .setDescription('Percentage of database calls resulting in an error status (all db systems).')
+                        .setData(errorRateStatQuery)
+                        .setUnit('percent')
+                        .setDecimals(2)
+                        .setNoValue('N/A')
+                        .setThresholds({
+                          mode: ThresholdsMode.Absolute,
+                          steps: [
+                            { value: null as unknown as number, color: 'green' },
+                            { value: 1, color: 'orange' },
+                            { value: 5, color: 'red' },
+                          ],
+                        })
+                        .build(),
+                    }),
+                    new SceneFlexItem({
+                      body: PanelBuilders.stat()
+                        .setTitle('Duration (P95)')
+                        .setDescription('P95 database call latency across all db systems.')
+                        .setData(p95StatQuery)
+                        .setUnit(panelDurationUnit)
+                        .setNoValue('N/A')
+                        .build(),
+                    }),
+                  ],
+                }),
               }),
               new SceneFlexItem({
                 body: new SceneFlexLayout({
