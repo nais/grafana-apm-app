@@ -94,10 +94,12 @@ describe('buildDatabaseScene', () => {
     );
   });
 
-  it('omits the RED row and host table when hasDbSpans is false', () => {
+  it('omits the RED row and queries-per-request stat when hasDbSpans is false', () => {
     const scene = buildDatabaseScene({ ...defaultParams, hasDbSpans: false, hasDbPool: true });
     const serialized = JSON.stringify(scene!.state.body);
     expect(serialized).not.toContain('traces_spanmetrics_calls_total');
+    expect(serialized).not.toContain('Queries per request');
+    expect(serialized).not.toContain('SPAN_KIND_SERVER');
     expect(serialized).toContain('db_client_connections_wait_time_milliseconds_bucket');
   });
 
@@ -107,10 +109,37 @@ describe('buildDatabaseScene', () => {
     expect(serialized).toContain('traces_spanmetrics_calls_total');
   });
 
-  it('builds a per-host breakdown table grouped by db_system and server_address', () => {
+  it('does not build a per-host breakdown (removed in the #119 redesign)', () => {
     const scene = buildDatabaseScene(defaultParams);
     const serialized = JSON.stringify(scene!.state.body);
-    expect(serialized).toContain('sum by (db_system, server_address)');
+    expect(serialized).not.toContain('server_address');
+    expect(serialized).not.toContain('Per-host breakdown');
+  });
+
+  it('adds a queries-per-request ratio: db CLIENT spans divided by inbound SERVER spans', () => {
+    const scene = buildDatabaseScene(defaultParams);
+    const serialized = JSON.stringify(scene!.state.body);
+    expect(serialized).toContain('Queries per request');
+    // Denominator selects inbound SERVER spans (HTTP + gRPC).
+    expect(serialized).toContain('SPAN_KIND_SERVER');
+    // Numerator is the same CLIENT db-span rate the Rate panel sums.
+    expect(serialized).toMatch(
+      /sum\(rate\(traces_spanmetrics_calls_total\{[^}]*SPAN_KIND_CLIENT[^}]*\}\[\$__rate_interval\]\)\)/
+    );
+  });
+
+  it('guards the ratio against divide-by-zero so non-HTTP services read N/A instead of +Inf', () => {
+    const scene = buildDatabaseScene(defaultParams);
+    const serialized = JSON.stringify(scene!.state.body);
+    // `sum(db) / (sum(inbound) > 0)` — the `> 0` filter drops the series when a
+    // service has no inbound SERVER spans (batch jobs, pure Kafka consumers) or
+    // a zero request rate in-window, leaving the stat empty (rendered as N/A)
+    // rather than dividing by zero.
+    expect(serialized).toMatch(
+      /\/ \(sum\(rate\(traces_spanmetrics_calls_total\{[^}]*SPAN_KIND_SERVER[^}]*\}\[\$__rate_interval\]\)\) > 0\)/
+    );
+    // The stat surfaces the empty result as an explicit N/A rather than "No data".
+    expect(serialized).toContain('N/A');
   });
 
   it('omits the connection-acquisition panels when hasDbPool is false (the default)', () => {

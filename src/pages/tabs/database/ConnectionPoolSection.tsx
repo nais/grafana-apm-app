@@ -10,8 +10,38 @@ interface ConnectionPoolSectionProps {
 }
 
 const POOL_HEALTH_NOTE =
-  'Point-in-time pool gauges (active/idle/max/pending/timeouts), averaged over the selected time range. ' +
-  'See the "Connection Acquisition" charts above for wait-time and create-time distributions.';
+  'Pool-configuration signals, averaged over the selected time range. Saturation (active ÷ max) shows how close the ' +
+  'pool runs to its ceiling; Pending is threads blocked waiting for a connection; Timeouts/s is connection-acquisition ' +
+  'exhaustion. These map directly to your pool config (maximumPoolSize / connectionTimeout). See the "Connection ' +
+  'Acquisition" charts above for wait-time and create-time distributions.';
+
+/**
+ * Derives the pool-contention signals from the snapshot and turns them into
+ * short, pool-config-framed remediation lines. Empty when every pool is
+ * comfortably below its limits — the section then renders just the table.
+ */
+function contentionAdvice(pools: DBPoolRuntime['pools']): string[] {
+  const advice: string[] = [];
+  if (pools.some((p) => p.timeoutRate > 0)) {
+    advice.push(
+      'Connection-acquisition timeouts are firing — the pool is exhausted. Raise maximumPoolSize, or shorten how ' +
+        'long connections are held (smaller transactions, faster queries).'
+    );
+  }
+  if (pools.some((p) => p.pending > 0)) {
+    advice.push(
+      'Threads are queued waiting for a connection (Pending > 0). The pool is a bottleneck under load — raise ' +
+        'maximumPoolSize or reduce connection hold time.'
+    );
+  }
+  if (pools.some((p) => p.utilization > 90)) {
+    advice.push(
+      'A pool is running above 90% saturation (active ÷ max). It has little headroom for traffic spikes — consider a ' +
+        'larger maximumPoolSize.'
+    );
+  }
+  return advice;
+}
 
 /**
  * Connection pool health — elevated from RuntimeTab's DBPoolCard (issue #14).
@@ -27,6 +57,8 @@ export function ConnectionPoolSection({ dbPool }: ConnectionPoolSectionProps) {
   if (!dbPool.pools || dbPool.pools.length === 0) {
     return null;
   }
+
+  const advice = contentionAdvice(dbPool.pools);
 
   return (
     <div className={styles.section}>
@@ -45,9 +77,18 @@ export function ConnectionPoolSection({ dbPool }: ConnectionPoolSectionProps) {
             <th scope="col">Active</th>
             <th scope="col">Idle</th>
             <th scope="col">Max</th>
-            <th scope="col">Pending</th>
-            <th scope="col">Utilization</th>
-            <th scope="col">Timeouts/s</th>
+            <th scope="col" title="Threads waiting for a connection (db_client_connections_pending_requests)">
+              Pending
+            </th>
+            <th scope="col" title="Active ÷ max connections — how close the pool runs to its ceiling">
+              Saturation
+            </th>
+            <th
+              scope="col"
+              title="Connection-acquisition timeouts per second (db_client_connections_timeouts_total) — pool exhaustion"
+            >
+              Timeouts/s
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -73,6 +114,16 @@ export function ConnectionPoolSection({ dbPool }: ConnectionPoolSectionProps) {
           ))}
         </tbody>
       </table>
+      {advice.length > 0 && (
+        <div className={styles.advice} role="note" aria-label="Connection pool configuration advice">
+          <Icon name="exclamation-triangle" size="sm" />
+          <ul className={styles.adviceList}>
+            {advice.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
@@ -121,6 +172,29 @@ const getStyles = (theme: GrafanaTheme2) => ({
     &:hover {
       opacity: 1;
     }
+  `,
+  advice: css`
+    display: flex;
+    gap: ${theme.spacing(1)};
+    margin-top: ${theme.spacing(1)};
+    padding: ${theme.spacing(1)} ${theme.spacing(1.5)};
+    border-radius: ${theme.shape.radius.default};
+    background: ${theme.colors.warning.transparent};
+    border: 1px solid ${theme.colors.warning.borderTransparent};
+    color: ${theme.colors.text.primary};
+    font-size: ${theme.typography.bodySmall.fontSize};
+    svg {
+      color: ${theme.colors.warning.text};
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+  `,
+  adviceList: css`
+    margin: 0;
+    padding-left: ${theme.spacing(2)};
+    display: flex;
+    flex-direction: column;
+    gap: ${theme.spacing(0.5)};
   `,
   warnCell: css`
     text-align: right;

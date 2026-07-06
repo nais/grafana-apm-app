@@ -106,6 +106,7 @@ func TestQueryDBPoolRuntime(t *testing.T) {
 				usageQ(dp, dp.StateIdle): {poolResult(dp.PoolNameLabel, "UniversalConnectionPool(42)-pod-a", "6")},
 				dp.OtelDBMax:             {poolResult(dp.PoolNameLabel, "UniversalConnectionPool(42)-pod-a", "20")},
 				dp.OtelDBPending:         {poolResult(dp.PoolNameLabel, "UniversalConnectionPool(42)-pod-a", "1")},
+				dp.OtelDBTimeout:         {poolResult(dp.PoolNameLabel, "UniversalConnectionPool(42)-pod-a", "0.02")},
 			},
 			assert: func(t *testing.T, pools map[string]queries.DBPool) {
 				if len(pools) != 1 {
@@ -117,6 +118,10 @@ func TestQueryDBPoolRuntime(t *testing.T) {
 				}
 				if p.Active != 4 || p.Idle != 6 || p.Max != 20 || p.Pending != 1 {
 					t.Errorf("active/idle/max/pending = %v/%v/%v/%v, want 4/6/20/1", p.Active, p.Idle, p.Max, p.Pending)
+				}
+				// db_client_connections_timeouts_total → TimeoutRate (pool exhaustion).
+				if p.TimeoutRate != 0.02 {
+					t.Errorf("timeoutRate = %v, want 0.02", p.TimeoutRate)
 				}
 				if p.Utilization != 20 {
 					t.Errorf("utilization = %v, want 20", p.Utilization)

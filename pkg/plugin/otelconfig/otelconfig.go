@@ -244,6 +244,7 @@ type DBPoolMetrics struct {
 	OtelDBIdle    string // db_client_connections_idle_min — gauge (legacy, unused)
 	OtelDBMax     string // db_client_connections_max — gauge
 	OtelDBPending string // db_client_connections_pending_requests — gauge
+	OtelDBTimeout string // db_client_connections_timeouts_total — counter (pool exhaustion)
 
 	PoolLabel     string // "pool" — pool name on hikaricp_* gauges
 	PoolNameLabel string // "pool_name" — pool name on db_client_connections_* gauges
@@ -506,6 +507,7 @@ func Default() Config {
 				OtelDBIdle:    "db_client_connections_idle_min",
 				OtelDBMax:     "db_client_connections_max",
 				OtelDBPending: "db_client_connections_pending_requests",
+				OtelDBTimeout: "db_client_connections_timeouts_total",
 				PoolLabel:     "pool",
 				PoolNameLabel: "pool_name",
 				StateLabel:    "state",

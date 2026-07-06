@@ -7,7 +7,7 @@ import {
   EmbeddedScene,
   behaviors,
 } from '@grafana/scenes';
-import { DashboardCursorSync } from '@grafana/schema';
+import { DashboardCursorSync, ThresholdsMode } from '@grafana/schema';
 import { otel } from '../../../otelconfig';
 import { sanitizeLabelValue, escapeQueryString } from '../../../utils/sanitize';
 import { buildExploreUrl } from '../../../utils/explore';
@@ -28,8 +28,8 @@ export interface BuildDatabaseSceneParams {
   deploymentEnvLabel?: string;
   /** Whether the backend's /endpoints response has database operations for this
    * service (EndpointGroups.database non-empty). Gates the span-metrics-backed
-   * rows (RED + per-host) so a pool-only service doesn't render three empty
-   * panels. Defaults to true. */
+   * overview rows (queries-per-request ratio + RED) so a pool-only service
+   * doesn't render empty panels. Defaults to true. */
   hasDbSpans?: boolean;
   /** Whether RuntimeResponse.dbPool was detected for this service (RuntimeTab's
    * DBPoolRuntime). Gates the connection-acquisition-time panels — see notes
@@ -54,8 +54,9 @@ export function buildDbTracesExploreUrl(tracesUid: string, service: string, name
 }
 
 /**
- * Builds the Database tab's RED time-series panels (Rate / Errors / P95
- * Duration, broken down by db.system) plus a per-host breakdown table.
+ * Builds the Database tab's overview panels — a queries-per-request ratio
+ * (the always-on N+1 smell) plus the RED time-series (Rate / Errors / P95
+ * Duration, broken down by db.system).
  *
  * Data source: the same auto-detected span-metrics calls/duration metrics
  * used everywhere else in the plugin (see utils/capabilities.ts), filtered
@@ -69,13 +70,23 @@ export function buildDbTracesExploreUrl(tracesUid: string, service: string, name
  * major db systems: pdl/pdl-api (mongodb, ~112 calls/s), pensjon-person/
  * pensjon-representasjon (oracle, ~2 calls/s), teamforeldrepenger/
  * fpinntektsmelding (postgresql, ~8.6 calls/s). Rate, duration P95,
- * per-host, and (zero-filled) error panels all return data for all three.
+ * and (zero-filled) error panels all return data for all three.
  *
- * Per-host breakdown relies on the `server_address` label, which spanmetrics
- * pipelines populate from the client span's `server.address` attribute (used
- * elsewhere for dependency host resolution — see servicemap.go). Not every
- * database client library populates this attribute, so the panel may be
- * empty for some services; that's a genuine "no data" rather than a query bug.
+ * Queries-per-request ratio (per Database-tab redesign PRD, issue #119):
+ * database operations per inbound request. Numerator is the same outbound
+ * CLIENT db-span rate the Rate panel sums; denominator is the inbound
+ * SERVER-span rate for the service (covers HTTP *and* gRPC — a superset of
+ * the PRD's http_server_request_count). Kept on the tab's existing
+ * span-metrics source rather than the raw db_client_operation_/http_server_
+ * metric families so the label conventions (service_name/namespace/env) stay
+ * consistent with the RED panels. A `> 0` guard on the denominator drops the
+ * series when the service has no inbound requests (batch jobs, pure Kafka
+ * consumers) or its request rate is zero in-window, so the stat reads N/A
+ * instead of dividing by zero. A high value flags an N+1 pattern.
+ *
+ * (The per-host `server_address` breakdown was removed in the #119 redesign:
+ * "which database host served this" is a DBA/infra concern, not something an
+ * application developer acts on in their own code or config.)
  *
  * Connection acquisition time (`hasDbPool` gated): verified directly against
  * production Mimir (2026-07-04) that `db_client_connections_wait_time_milliseconds_bucket`
@@ -129,6 +140,9 @@ export function buildDatabaseScene(params: BuildDatabaseSceneParams): EmbeddedSc
   // criteria the backend uses to classify "database" endpoints (see
   // EndpointGroups.database in api/client.ts).
   const dbFilter = `${svcFilter}, ${otel.labels.spanKind}="${otel.spanKinds.client}", ${otel.labels.dbSystem}=~".+"`;
+  // Inbound requests: SERVER-kind spans for this service (HTTP + gRPC). Used as
+  // the denominator of the queries-per-request ratio.
+  const serverFilter = `${svcFilter}, ${otel.labels.spanKind}="${otel.spanKinds.server}"`;
   const panelDurationUnit = durationUnit === 's' ? 's' : 'ms';
 
   const rateQuery = new SceneQueryRunner({
@@ -178,14 +192,19 @@ export function buildDatabaseScene(params: BuildDatabaseSceneParams): EmbeddedSc
     ],
   });
 
-  const hostQuery = new SceneQueryRunner({
+  // Queries-per-request ratio — the always-on N+1 smell (PRD #119 §4.1).
+  // db operations ÷ inbound requests. The `> 0` guard on the denominator makes
+  // the expression empty (→ stat reads N/A) for services with no inbound
+  // SERVER spans, rather than producing +Inf from a divide-by-zero.
+  const ratioQuery = new SceneQueryRunner({
     datasource: { uid: metricsUid, type: 'prometheus' },
+    minInterval: '5m',
     queries: [
       {
         refId: 'A',
-        instant: true,
-        format: 'table',
-        expr: `sum by (${otel.labels.dbSystem}, ${otel.labels.serverAddress}) (rate(${callsMetric}{${dbFilter}}[$__rate_interval]))`,
+        expr:
+          `sum(rate(${callsMetric}{${dbFilter}}[$__rate_interval])) ` +
+          `/ (sum(rate(${callsMetric}{${serverFilter}}[$__rate_interval])) > 0)`,
       },
     ],
   });
@@ -251,6 +270,31 @@ export function buildDatabaseScene(params: BuildDatabaseSceneParams): EmbeddedSc
         ...(hasDbSpans
           ? [
               new SceneFlexItem({
+                height: 120,
+                width: 300,
+                body: PanelBuilders.stat()
+                  .setTitle('Queries per request')
+                  .setDescription(
+                    'Database operations per inbound request (outbound db CLIENT spans ÷ inbound SERVER spans). ' +
+                      'A high value is the classic N+1 smell — many small queries where a single JOIN or batch-fetch ' +
+                      'would do; use "View DB traces" above to inspect the offending requests. Reads N/A for services ' +
+                      'with no inbound requests (e.g. batch jobs or pure Kafka consumers).'
+                  )
+                  .setData(ratioQuery)
+                  .setUnit('none')
+                  .setDecimals(1)
+                  .setNoValue('N/A')
+                  .setThresholds({
+                    mode: ThresholdsMode.Absolute,
+                    steps: [
+                      { value: null as unknown as number, color: 'green' },
+                      { value: 20, color: 'orange' },
+                      { value: 50, color: 'red' },
+                    ],
+                  })
+                  .build(),
+              }),
+              new SceneFlexItem({
                 body: new SceneFlexLayout({
                   direction: 'row',
                   children: [
@@ -285,16 +329,6 @@ export function buildDatabaseScene(params: BuildDatabaseSceneParams): EmbeddedSc
                     }),
                   ],
                 }),
-              }),
-              new SceneFlexItem({
-                height: 250,
-                body: PanelBuilders.table()
-                  .setTitle('Per-host breakdown')
-                  .setDescription(
-                    'Call rate by db.system and server.address. Empty when the database client does not populate the server.address attribute.'
-                  )
-                  .setData(hostQuery)
-                  .build(),
               }),
             ]
           : []),

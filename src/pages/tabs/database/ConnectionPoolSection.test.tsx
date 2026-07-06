@@ -37,6 +37,60 @@ describe('ConnectionPoolSection', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  // --- Pool-contention signals (PRD #119 §4.4) ---
+
+  it('surfaces pool-config advice when contention signals fire (pending / timeouts)', () => {
+    // HikariPool-2 in the fixture has pending 1.2 and timeoutRate 0.05.
+    render(<ConnectionPoolSection dbPool={dbPool} />);
+    const note = screen.getByRole('note', { name: 'Connection pool configuration advice' });
+    expect(note).toBeInTheDocument();
+    expect(note.textContent).toMatch(/timeouts/i);
+    expect(note.textContent).toMatch(/waiting for a connection/i);
+    expect(note.textContent).toMatch(/maximumPoolSize/);
+  });
+
+  it('flags high saturation (> 90%) as a pool-config signal', () => {
+    const saturated: DBPoolRuntime = {
+      status: 'detected',
+      pools: [
+        {
+          name: 'HikariPool-1',
+          type: 'hikari',
+          active: 19,
+          idle: 1,
+          max: 20,
+          pending: 0,
+          timeoutRate: 0,
+          utilization: 95,
+        },
+      ],
+    };
+    render(<ConnectionPoolSection dbPool={saturated} />);
+    expect(screen.getByRole('note', { name: 'Connection pool configuration advice' }).textContent).toMatch(
+      /saturation/i
+    );
+  });
+
+  it('renders no advice note when every pool is healthy', () => {
+    const healthy: DBPoolRuntime = {
+      status: 'detected',
+      pools: [
+        {
+          name: 'HikariPool-1',
+          type: 'hikari',
+          active: 2,
+          idle: 8,
+          max: 10,
+          pending: 0,
+          timeoutRate: 0,
+          utilization: 20,
+        },
+      ],
+    };
+    render(<ConnectionPoolSection dbPool={healthy} />);
+    expect(screen.queryByRole('note', { name: 'Connection pool configuration advice' })).not.toBeInTheDocument();
+  });
+
   // --- Accessibility (WCAG 1.3.1 / 1.4.1) ---
 
   it('names the table and gives the colour-coded utilization bar a text equivalent', () => {
