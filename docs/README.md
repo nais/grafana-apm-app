@@ -31,6 +31,7 @@ Contracts and reference material — keep these current with the product.
 | Document | Contents |
 |----------|----------|
 | [adr/0001-state-in-grafana-shared-db.md](adr/0001-state-in-grafana-shared-db.md) | Why plugin state lives in Grafana's shared DB (annotations) rather than a plugin-owned store — audit, revisit triggers, escalation ladder |
+| [adr/0002-backend-stack-traces-via-otel.md](adr/0002-backend-stack-traces-via-otel.md) | Why backend stack traces come from OpenTelemetry (shape A) or JSON stdout (shape B), not from merging plaintext traces in the log pipeline (fluentbit/fluentd) |
 
 ## Design records
 
