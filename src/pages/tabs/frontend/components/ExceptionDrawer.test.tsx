@@ -308,6 +308,9 @@ describe('server issues (#84)', () => {
         stacktrace: 'at Foo.bar(Foo.java:10)',
         version: '1.4.2',
         type: 'ConnectException',
+        traceId: 'abc123def456trace',
+        spanId: 'span-9',
+        attributes: { k8s_container_name: 'main', logger: 'com.example.Db' },
       },
       {
         timeMs: 1751536700000,
@@ -361,6 +364,60 @@ describe('server issues (#84)', () => {
     expect(screen.getAllByText('2 pods').length).toBeGreaterThan(0);
     // Feedback is a browser-only fetch — never called for server issues.
     expect(getFeedback).not.toHaveBeenCalled();
+  });
+
+  it('deep-links the occurrence to its exact trace (footer + context)', async () => {
+    getIssueOccurrences.mockResolvedValue(serverResponse);
+    renderServerDrawer();
+    await screen.findByText(/^2 occurrences$/);
+
+    // Footer "View this trace" link points at the Tempo datasource with the
+    // occurrence's trace ID as a traceql query.
+    const traceLink = screen.getByRole('link', { name: /View this trace/ });
+    const href = traceLink.getAttribute('href')!;
+    const left = JSON.parse(new URL(href, 'http://grafana.local').searchParams.get('left')!);
+    expect(left.datasource).toBe('tempo-uid');
+    expect(left.queries[0].queryType).toBe('traceql');
+    expect(left.queries[0].query).toBe('abc123def456trace');
+
+    // The same trace is linked from the occurrence-context meta list.
+    fireEvent.click(screen.getByRole('button', { name: /Occurrence context/ }));
+    expect(await screen.findByText(/Trace:/)).toBeInTheDocument();
+  });
+
+  it('renders the structured-metadata attributes in the occurrence context', async () => {
+    getIssueOccurrences.mockResolvedValue(serverResponse);
+    renderServerDrawer();
+    await screen.findByText(/^2 occurrences$/);
+
+    fireEvent.click(screen.getByRole('button', { name: /Occurrence context/ }));
+    expect(await screen.findByText(/k8s_container_name:/)).toBeInTheDocument();
+    expect(screen.getByText('main')).toBeInTheDocument();
+    expect(screen.getByText(/logger:/)).toBeInTheDocument();
+    expect(screen.getByText('com.example.Db')).toBeInTheDocument();
+  });
+
+  it('shows the limited-detail hint for json/plaintext shapes, linking the backend-exceptions guide', async () => {
+    getIssueOccurrences.mockResolvedValue({
+      fingerprint: 'v1:server1',
+      shape: 'json',
+      occurrences: [{ timeMs: 1751536800000, pod: 'app-abc', level: 'warn', message: 'Failed to fetch decorator' }],
+      stats: { total: 1, pods: 1, versions: [] },
+    });
+    renderServerDrawer();
+    await screen.findByText(/^1 occurrence$/);
+
+    expect(screen.getByText('Limited detail')).toBeInTheDocument();
+    const link = screen.getByRole('link', { name: /Backend exceptions as issues/ });
+    expect(link).toHaveAttribute('href', 'https://doc.nais.io/observability/apm/how-to/backend-exceptions-as-issues/');
+  });
+
+  it('does not show the limited-detail hint for the otlp (semconv) shape', async () => {
+    getIssueOccurrences.mockResolvedValue(serverResponse);
+    renderServerDrawer();
+    await screen.findByText(/^2 occurrences$/);
+
+    expect(screen.queryByText('Limited detail')).not.toBeInTheDocument();
   });
 
   it('surfaces an empty-result message when no occurrences match', async () => {

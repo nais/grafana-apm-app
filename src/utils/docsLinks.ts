@@ -49,6 +49,7 @@ export const apmDocs = {
   collectUserFeedback: () => docsUrl(`${APM}/how-to/collect-user-feedback`),
   databaseQueries: () => docsUrl(`${APM}/how-to/database-queries`),
   logPatterns: () => docsUrl(`${APM}/how-to/log-patterns`),
+  backendExceptions: () => docsUrl(`${APM}/how-to/backend-exceptions-as-issues`),
   // Reference
   apmClientApi: () => docsUrl(`${APM}/reference/apm-client-api`),
   issuesModel: () => docsUrl(`${APM}/reference/issues-model`),

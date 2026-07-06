@@ -40,6 +40,9 @@ describe('apmDocs builders', () => {
     expect(apmDocs.collectUserFeedback()).toBe('https://doc.nais.io/observability/apm/how-to/collect-user-feedback/');
     expect(apmDocs.databaseQueries()).toBe('https://doc.nais.io/observability/apm/how-to/database-queries/');
     expect(apmDocs.logPatterns()).toBe('https://doc.nais.io/observability/apm/how-to/log-patterns/');
+    expect(apmDocs.backendExceptions()).toBe(
+      'https://doc.nais.io/observability/apm/how-to/backend-exceptions-as-issues/'
+    );
     expect(apmDocs.apmClientApi()).toBe('https://doc.nais.io/observability/apm/reference/apm-client-api/');
     expect(apmDocs.issuesModel()).toBe('https://doc.nais.io/observability/apm/reference/issues-model/');
     expect(apmDocs.urlContract()).toBe('https://doc.nais.io/observability/apm/reference/url-contract/');

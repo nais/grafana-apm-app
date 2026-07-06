@@ -36,7 +36,7 @@ import { sanitizeLabelValue } from '../../../../utils/sanitize';
 import { apmDocs, frontendDocs } from '../../../../utils/docsLinks';
 import { usePluginLabelOverrides, usePluginDatasources } from '../../../../utils/datasources';
 import { useTimeRange } from '../../../../utils/timeRange';
-import { buildExceptionTracesExploreUrl } from '../../../../utils/explore';
+import { buildExceptionTracesExploreUrl, buildTraceExploreUrl } from '../../../../utils/explore';
 import { StackTraceView, isConsoleCaptureValue } from './StackTraceView';
 import { stackLooksMinified, firstScriptUrl } from '../frames';
 import { useIssueOccurrences, msToNs, ParsedException } from '../useIssueOccurrences';
@@ -156,7 +156,7 @@ export function ExceptionDrawer({
 
   // The two data paths (browser hash→Loki, server occurrences endpoint) are
   // abstracted behind this one hook; both resolve to occurrences + stats (#84).
-  const { loading, error, occurrences, stats } = useIssueOccurrences({
+  const { loading, error, occurrences, stats, shape } = useIssueOccurrences({
     source,
     hashes,
     issueId,
@@ -402,6 +402,17 @@ export function ExceptionDrawer({
           to: 'now',
         })
       : undefined;
+  // Deep-link to the *exact* trace this occurrence correlates to (#84 follow-up):
+  // the thin log line lacks spans / http / db / timing — the trace carries them.
+  // The selected time range is guaranteed to contain the occurrence, so it's the
+  // safe lookup window for the trace ID.
+  const occurrenceTraceUrl =
+    isServer && ds.tracesUid && exception?.traceId
+      ? buildTraceExploreUrl(ds.tracesUid, exception.traceId, { from: String(fromMs), to: String(toMs) })
+      : undefined;
+  // Shape (b)/(c) lines were logged as a message, not a throwable — no stack or
+  // type. Surface a non-alarming hint pointing at the backend-exceptions guide.
+  const showThinShapeHint = isServer && (shape === 'json' || shape === 'plaintext');
 
   // Minified-stack detection (#60): a heuristic over the rendered stack, plus
   // the candidate bundle URL the source-map doctor can probe. Both memoized on
@@ -493,6 +504,20 @@ export function ExceptionDrawer({
               </div>
             )}
 
+            {showThinShapeHint && (
+              <Alert severity="info" title="Limited detail">
+                <div className={styles.thinShapeHint}>
+                  <span>
+                    This was logged as a message, not an exception, so there is no stack trace or type. Log with the
+                    throwable to get full stack traces.
+                  </span>
+                  <TextLink href={apmDocs.backendExceptions()} external variant="bodySmall">
+                    Backend exceptions as issues
+                  </TextLink>
+                </div>
+              </Alert>
+            )}
+
             {exception.stacktrace && (
               <div className={styles.section}>
                 <h4 className={styles.sectionTitle}>
@@ -579,6 +604,16 @@ export function ExceptionDrawer({
                             <MetaItem label="Pod" value={exception.pod} icon="cube" />
                           )}
                           <MetaItem label="Timestamp" value={exception.timestamp} icon="clock-nine" />
+                          <MetaItem
+                            label="Trace"
+                            value={exception.traceId ? `${exception.traceId.slice(0, 16)}…` : undefined}
+                            link={occurrenceTraceUrl}
+                            icon="gf-traces"
+                          />
+                          {exception.attributes &&
+                            Object.entries(exception.attributes)
+                              .sort(([a], [b]) => a.localeCompare(b))
+                              .map(([k, v]) => <MetaItem key={k} label={k} value={v} icon="brackets-curly" />)}
                         </>
                       ) : (
                         <>
@@ -751,6 +786,19 @@ export function ExceptionDrawer({
                   <a href={serverLogsUrl} target="_blank" rel="noopener noreferrer" className={styles.footerLink}>
                     <Icon name="file-alt" /> View Raw Loki Log
                   </a>
+                  {occurrenceTraceUrl && (
+                    <>
+                      <span className={styles.footerDivider}>|</span>
+                      <a
+                        href={occurrenceTraceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={styles.footerLink}
+                      >
+                        <Icon name="gf-traces" /> View this trace
+                      </a>
+                    </>
+                  )}
                   {serverTracesUrl && (
                     <>
                       <span className={styles.footerDivider}>|</span>
@@ -1321,6 +1369,12 @@ const getStyles = (theme: GrafanaTheme2) => ({
     display: flex;
     flex-direction: column;
     gap: ${theme.spacing(1)};
+    font-size: ${theme.typography.bodySmall.fontSize};
+  `,
+  thinShapeHint: css`
+    display: flex;
+    flex-direction: column;
+    gap: ${theme.spacing(0.5)};
     font-size: ${theme.typography.bodySmall.fontSize};
   `,
   minifiedActions: css`
