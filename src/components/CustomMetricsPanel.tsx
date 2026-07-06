@@ -1,14 +1,24 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Badge, Icon, LinkButton, useStyles2 } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
+import {
+  EmbeddedScene,
+  PanelBuilders,
+  SceneFlexItem,
+  SceneFlexLayout,
+  SceneQueryRunner,
+  SceneTimeRange,
+} from '@grafana/scenes';
 import { CustomMetric, getCustomMetrics } from '../api/client';
 import { useFetch } from '../utils/useFetch';
 import { useTimeRange } from '../utils/timeRange';
+import { useSceneTimeSync } from '../utils/useSceneTimeSync';
 import { usePluginDatasources } from '../utils/datasources';
 import { buildMimirExploreUrl } from '../utils/explore';
 import { escapeQueryString } from '../utils/sanitize';
 import { otel } from '../otelconfig';
+import { customMetricExploreQuery, customMetricPanels } from './customMetricQueries';
 import { DataState } from './DataState';
 
 interface CustomMetricsPanelProps {
@@ -26,12 +36,15 @@ const TYPE_BADGE_COLOR: Record<string, BadgeColor> = {
 };
 
 /**
- * Zero-config custom-metric discovery (#68 Phase 0): lists a service's
- * non-platform metric families straight from Mimir — type/help/unit from the
- * metadata API (suffix heuristics as fallback), series counts as the
+ * Zero-config custom-metric discovery + auto-charting (#68 Phase 0/1): lists a
+ * service's non-platform metric families straight from Mimir — type/help/unit
+ * from the metadata API (suffix heuristics as fallback), series counts as the
  * cardinality guard — each row deep-linking to Explore with an auto-generated
- * PromQL query by metric type. Auto-charted Scenes panels are the Phase 0
- * follow-up; this section renders nothing when no custom metrics exist.
+ * PromQL query by metric type. When expanded, the non-high-cardinality families
+ * are also rendered as type-aware Scenes panels (counter→rate, histogram→p95,
+ * summary/timer→throughput+avg, gauge→pod-aggregated avg). High-cardinality
+ * families (series > 100) stay Explore-link only. Renders nothing when no
+ * custom metrics exist.
  *
  * Collapsible, default-collapsed, with the discovered-metric count in its
  * own header (IA review P9): the Overview budget is RED-first, so this
@@ -59,6 +72,9 @@ export function CustomMetricsPanel({ namespace, service, environment }: CustomMe
   }
 
   const filter = runtimeFilter(service, namespace);
+  // Auto-chart the low-cardinality families; high-cardinality ones stay
+  // Explore-link only (the series > 100 guard is the auto-chart cutoff).
+  const chartable = metrics.filter((m) => !m.highCardinality);
   // Errors are actionable feedback, not "the panel" — surface them even
   // while collapsed instead of silently hiding a failed fetch.
   const showBody = !collapsed || !!error;
@@ -77,6 +93,9 @@ export function CustomMetricsPanel({ namespace, service, environment }: CustomMe
           empty={false}
           loadingText="Discovering custom metrics…"
         >
+          {!collapsed && chartable.length > 0 && (
+            <AutoCharts metrics={chartable} filter={filter} metricsUid={metricsUid} from={from} to={to} />
+          )}
           <table className={styles.table}>
             <thead>
               <tr>
@@ -91,7 +110,7 @@ export function CustomMetricsPanel({ namespace, service, environment }: CustomMe
                 <MetricRow
                   key={m.name}
                   metric={m}
-                  exploreUrl={buildMimirExploreUrl(metricsUid, exploreQuery(m, filter), { from, to })}
+                  exploreUrl={buildMimirExploreUrl(metricsUid, customMetricExploreQuery(m, filter), { from, to })}
                 />
               ))}
             </tbody>
@@ -140,16 +159,57 @@ function runtimeFilter(service: string, namespace: string): string {
   return f;
 }
 
-/** Auto-generated PromQL by chart hint: counter→rate, histogram→p95, else gauge (#68). */
-function exploreQuery(metric: CustomMetric, filter: string): string {
-  switch (metric.chart) {
-    case 'rate':
-      return `sum(rate(${metric.name}{${filter}}[$__rate_interval]))`;
-    case 'p95':
-      return `histogram_quantile(0.95, sum by (le) (rate(${metric.name}_bucket{${filter}}[5m])))`;
-    default:
-      return `sum(${metric.name}{${filter}})`;
-  }
+/**
+ * Type-aware auto-charts for the low-cardinality families (#68 Phase 1). Each
+ * family expands to one or more timeseries panels (summaries/timers → two:
+ * throughput and avg) driven by the shared per-type PromQL. A wrapping flex
+ * grid keeps the panels compact so the section stays scannable when expanded.
+ */
+function AutoCharts({
+  metrics,
+  filter,
+  metricsUid,
+  from,
+  to,
+}: {
+  metrics: CustomMetric[];
+  filter: string;
+  metricsUid: string;
+  from: string;
+  to: string;
+}) {
+  const { fromMs, toMs } = useTimeRange();
+  const scene = useMemo(() => {
+    const items = metrics.flatMap((metric) =>
+      customMetricPanels(metric, filter).map((spec) => {
+        const runner = new SceneQueryRunner({
+          datasource: { uid: metricsUid, type: 'prometheus' },
+          queries: spec.queries.map((q) => ({ refId: q.refId, expr: q.expr, legendFormat: q.legendFormat })),
+        });
+        let builder = PanelBuilders.timeseries().setTitle(spec.title).setData(runner);
+        if (metric.help) {
+          builder = builder.setDescription(metric.help);
+        }
+        if (spec.unit) {
+          builder = builder.setUnit(spec.unit);
+        }
+        return new SceneFlexItem({ minWidth: '320px', height: 200, body: builder.build() });
+      })
+    );
+
+    return new EmbeddedScene({
+      $timeRange: new SceneTimeRange({ from, to }),
+      body: new SceneFlexLayout({ direction: 'row', wrap: 'wrap', children: items }),
+    });
+    // metricsUid/from/to/filter are the only inputs; metrics identity changes
+    // with the fetch, which is the intended rebuild trigger.
+  }, [metrics, filter, metricsUid, from, to]);
+
+  // Header refresh re-resolves fromMs/toMs while the raw strings stay put —
+  // re-query the live scene instead of rebuilding it.
+  useSceneTimeSync(scene, fromMs, toMs);
+
+  return <scene.Component model={scene} />;
 }
 
 const getStyles = (theme: GrafanaTheme2) => ({
