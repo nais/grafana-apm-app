@@ -14,6 +14,8 @@ import { apmDocs } from '../../utils/docsLinks';
 import { useSceneTimeSync } from '../../utils/useSceneTimeSync';
 import { QueryOperationsTable } from './database/QueryOperationsTable';
 import { ConnectionPoolSection } from './database/ConnectionPoolSection';
+import { TopQueriesSection } from './database/TopQueriesSection';
+import { NPlusOneSection } from './database/NPlusOneSection';
 
 interface DatabaseTabProps {
   service: string;
@@ -202,9 +204,8 @@ export function DatabaseTab({
           <div className={styles.section}>
             <h4 className={styles.sectionTitle}>Query Operations</h4>
             <p className={styles.sectionSubtitle}>
-              Rate, error rate, and latency percentiles per database operation for the selected time range. Query text (
-              <code>db.statement</code>) is not aggregated here — use &quot;View DB traces&quot; to inspect individual
-              queries.
+              Rate, error rate, and latency percentiles per database operation for the selected time range. For the
+              actual statements each operation runs, see &quot;Top queries&quot; below.
             </p>
             <QueryOperationsTable
               operations={dbOperations}
@@ -212,6 +213,26 @@ export function DatabaseTab({
               onViewTraces={onViewDbTraces}
             />
           </div>
+        )}
+
+        {hasDbSpans && ds.tracesUid && (caps?.tempo?.available ?? true) && (
+          <TopQueriesSection
+            namespace={namespace}
+            service={service}
+            fromMs={fromMs}
+            toMs={toMs}
+            tracesUid={ds.tracesUid}
+          />
+        )}
+
+        {hasDbSpans && ds.tracesUid && (caps?.tempo?.available ?? true) && (
+          <NPlusOneSection
+            namespace={namespace}
+            service={service}
+            fromMs={fromMs}
+            toMs={toMs}
+            tracesUid={ds.tracesUid}
+          />
         )}
 
         {hasDbPool && dbPool && (

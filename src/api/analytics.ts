@@ -103,3 +103,112 @@ export async function getTraceBreakdown(
     }
   );
 }
+
+// ---- Top database queries (issue #119 Phase 2) ----
+
+export type TopQueriesMode = 'traceql' | 'unavailable';
+
+export interface TopQuery {
+  /** Normalized statement fingerprint — never a raw literal (PII-safe). */
+  statement: string;
+  dbSystem: string;
+  /** db.sql.table when the driver populates it; often empty. */
+  table?: string;
+  count: number;
+  totalTimeMs: number;
+  avgTimeMs: number;
+  p95Ms: number;
+  /** Representative trace containing this query (for the drill-down link). */
+  traceId?: string;
+}
+
+export interface TopQueriesResponse {
+  mode: TopQueriesMode;
+  queries: TopQuery[];
+  /** Number of DB spans the aggregation sampled. */
+  sampled: number;
+  /** True when the trace-scan limit was hit (results are a bounded sample). */
+  truncated: boolean;
+  /** Effective (possibly clamped) window queried, in seconds. */
+  windowSeconds: number;
+  note?: string;
+}
+
+/**
+ * Top normalized DB statements for a service, aggregated from a bounded,
+ * cached Tempo trace search on the backend. On-demand only (load on section
+ * open) — the backend owns the Tempo cost bounds and the cache.
+ */
+export async function getTopQueries(
+  namespace: string,
+  service: string,
+  from: number,
+  to: number,
+  tracesUid: string
+): Promise<TopQueriesResponse> {
+  return fetchResource<TopQueriesResponse>(
+    `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/database/queries`,
+    {
+      ...timeParams(from, to),
+      tracesUid,
+    }
+  );
+}
+
+// ---- N+1 query-pattern scan (issue #119 Phase 3) ----
+
+export type NPlusOneMode = 'traceql' | 'unavailable';
+
+export interface NPlusOneFinding {
+  /** Normalized statement fingerprint — never a raw literal (PII-safe). */
+  statement: string;
+  dbSystem: string;
+  /** db.sql.table when the driver populates it; often empty. */
+  table?: string;
+  /** How many times this normalized statement ran in the one request. */
+  repeatCount: number;
+  /** Root span / route the request entered through. */
+  endpoint: string;
+  /** DB spans observed in the trace (a bounded sample). */
+  totalDbSpans: number;
+  /** The offending trace, for the drill-down link. */
+  traceId: string;
+  /** Per-system remediation hint (JOIN/batch, MGET/pipeline, $in, …). */
+  remediation: string;
+}
+
+export interface NPlusOneResponse {
+  mode: NPlusOneMode;
+  findings: NPlusOneFinding[];
+  /** Candidate traces the scan inspected. */
+  scannedTraces: number;
+  /** True when the candidate-trace scan limit was hit. */
+  truncated: boolean;
+  /** Effective (possibly clamped) window scanned, in seconds. */
+  windowSeconds: number;
+  /** Per-trace repeat count that qualifies a finding. */
+  threshold: number;
+  note?: string;
+}
+
+/**
+ * On-demand N+1 query-pattern scan for a service, from a bounded, cached Tempo
+ * trace search on the backend. Triggered explicitly (a "Scan for N+1" action),
+ * never continuously — the backend owns the Tempo cost bounds, normalization,
+ * and the cache.
+ */
+export async function scanNPlusOne(
+  namespace: string,
+  service: string,
+  from: number,
+  to: number,
+  tracesUid: string
+): Promise<NPlusOneResponse> {
+  return fetchResource<NPlusOneResponse>(
+    `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/database/nplusone`,
+    {
+      ...timeParams(from, to),
+      tracesUid,
+    }
+  );
+}
