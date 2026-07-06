@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.22.0](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.21.0...nais-apm-app-v0.22.0) (2026-07-06)
+
+
+### Features
+
+* **database:** Phase 2 — Top queries (normalized, Tempo-sourced) ([#119](https://github.com/nais/grafana-apm-app/issues/119)) ([#124](https://github.com/nais/grafana-apm-app/issues/124)) ([a6c427d](https://github.com/nais/grafana-apm-app/commit/a6c427d2d10e53802ab99fef75da5688d4b248d5))
+* **issues:** richer context for backend log occurrences ([#118](https://github.com/nais/grafana-apm-app/issues/118)) ([b77673b](https://github.com/nais/grafana-apm-app/commit/b77673bf6c8c4e0438fc7fd81b13e731ac0f100d))
+
 ## [0.21.0](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.20.2...nais-apm-app-v0.21.0) (2026-07-05)
 
 
