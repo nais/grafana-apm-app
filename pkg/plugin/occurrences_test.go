@@ -93,6 +93,11 @@ func TestQueryIssueOccurrencesSemconvShape(t *testing.T) {
 				"exception_type": "NullPointerException", "exception_message": "value is null",
 				"exception_stacktrace": "at Foo.bar(Foo.java:10)", "k8s_pod_name": "app-a",
 				"detected_level": "error", "service_version": "1.2.3",
+				// Trace correlation + extra structured-metadata context.
+				"trace_id": "abc123def456", "span_id": "span-9",
+				"k8s_container_name": "main", "logger": "com.example.Foo",
+				// Internal Loki label — must never leak into Attributes.
+				"__error__": "somefailure",
 			}},
 			{TimeMs: 3000, Labels: map[string]string{
 				"exception_type": "NullPointerException", "exception_message": "value is null",
@@ -128,6 +133,20 @@ func TestQueryIssueOccurrencesSemconvShape(t *testing.T) {
 	}
 	if o.Pod != "app-a" || o.Level != "error" || o.Version != "1.2.3" {
 		t.Errorf("pod/level/version = %q/%q/%q", o.Pod, o.Level, o.Version)
+	}
+	if o.TraceID != "abc123def456" || o.SpanID != "span-9" {
+		t.Errorf("trace/span = %q/%q, want abc123def456/span-9", o.TraceID, o.SpanID)
+	}
+	// Attributes carry the extra structured-metadata context, minus everything
+	// already modeled (pod/level/type/message/stacktrace/version/trace_id) and
+	// Loki's internal __*__ labels.
+	if o.Attributes["k8s_container_name"] != "main" || o.Attributes["logger"] != "com.example.Foo" {
+		t.Errorf("attributes missing extra context: %+v", o.Attributes)
+	}
+	for _, banned := range []string{"k8s_pod_name", "detected_level", "exception_type", "exception_message", "exception_stacktrace", "service_version", "trace_id", "span_id", "__error__"} {
+		if _, ok := o.Attributes[banned]; ok {
+			t.Errorf("attributes must not include modeled/internal key %q: %+v", banned, o.Attributes)
+		}
 	}
 	if resp.Stats.Total != 2 || resp.Stats.Pods != 2 {
 		t.Errorf("stats = %+v, want total=2 pods=2", resp.Stats)
@@ -183,12 +202,49 @@ func TestQueryIssueOccurrencesJSONShape(t *testing.T) {
 	}
 }
 
+// TestQueryIssueOccurrencesJSONTraceAndAttributes covers the richer-context
+// path for thin shape (b) lines: trace_id read from the JSON body (no structured
+// metadata), plus app-added scalar fields surfaced as Attributes while modeled
+// body fields (message/level/stack_trace) are excluded.
+func TestQueryIssueOccurrencesJSONTraceAndAttributes(t *testing.T) {
+	wantFP := fingerprint.Compute(fingerprint.Event{Value: "Failed to fetch decorator"}).Value
+
+	app, ds := occTestApp(t, map[string][]occLine{
+		keyJSON: {
+			{TimeMs: 5000, Line: `{"level":"warn","message":"Failed to fetch decorator","traceId":"body-trace-1","http_route":"/api/decorator","http_status":502,"logger":"decorator"}`,
+				Labels: map[string]string{"k8s_pod_name": "svc-1", "detected_level": "warn", "k8s_node_name": "node-7"}},
+		},
+	})
+
+	resp := app.queryIssueOccurrences(context.Background(), ds, "loki", "my-app", "", wantFP, time.Unix(0, 0), time.Unix(3600, 0))
+
+	if len(resp.Occurrences) != 1 {
+		t.Fatalf("got %d occurrences, want 1: %+v", len(resp.Occurrences), resp.Occurrences)
+	}
+	o := resp.Occurrences[0]
+	if o.TraceID != "body-trace-1" {
+		t.Errorf("traceId = %q, want body-trace-1 (from JSON body)", o.TraceID)
+	}
+	// Structured metadata + scalar body fields both surface as attributes.
+	if o.Attributes["k8s_node_name"] != "node-7" {
+		t.Errorf("attributes missing structured-metadata field: %+v", o.Attributes)
+	}
+	if o.Attributes["http_route"] != "/api/decorator" || o.Attributes["http_status"] != "502" || o.Attributes["logger"] != "decorator" {
+		t.Errorf("attributes missing app-added body fields: %+v", o.Attributes)
+	}
+	for _, banned := range []string{"message", "level", "traceId"} {
+		if _, ok := o.Attributes[banned]; ok {
+			t.Errorf("attributes must not include modeled body key %q: %+v", banned, o.Attributes)
+		}
+	}
+}
+
 func TestQueryIssueOccurrencesPlainShapeFiltersNoise(t *testing.T) {
 	wantFP := fingerprint.Compute(fingerprint.Event{Value: "panic: runtime error"}).Value
 
 	app, ds := occTestApp(t, map[string][]occLine{
 		keyPlain: {
-			{TimeMs: 8000, Line: "panic: runtime error", Labels: map[string]string{"k8s_pod_name": "p1", "detected_level": "error"}},
+			{TimeMs: 8000, Line: "panic: runtime error", Labels: map[string]string{"k8s_pod_name": "p1", "detected_level": "error", "trace_id": "plain-trace-1"}},
 			// logback bootstrap noise — must be dropped even before fingerprinting.
 			{TimeMs: 8500, Line: "12:00:00,000 |-INFO in ch.qos.logback.classic.LoggerContext - hello", Labels: map[string]string{"k8s_pod_name": "p1"}},
 			// Different message.
@@ -207,6 +263,9 @@ func TestQueryIssueOccurrencesPlainShapeFiltersNoise(t *testing.T) {
 	o := resp.Occurrences[0]
 	if o.Message != "panic: runtime error" || o.Pod != "p1" || o.Level != "error" {
 		t.Errorf("plain extraction wrong: %+v", o)
+	}
+	if o.TraceID != "plain-trace-1" {
+		t.Errorf("traceId = %q, want plain-trace-1 (best-effort from labels)", o.TraceID)
 	}
 	if o.Stacktrace != "" {
 		t.Errorf("plain occurrence should have no stacktrace, got %q", o.Stacktrace)

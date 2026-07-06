@@ -694,6 +694,16 @@ export interface IssueOccurrence {
   version?: string;
   /** Exception type (semconv shape only). */
   type?: string;
+  /** Distributed-trace correlation ID — deep-links this line to its full trace. */
+  traceId?: string;
+  /** Span ID within the correlated trace (best-effort). */
+  spanId?: string;
+  /**
+   * Remaining structured-metadata / body fields the line carries (k8s attrs,
+   * logger, http.route/status, app-added fields) minus the modeled ones above.
+   * Absent when the line adds no extra context.
+   */
+  attributes?: Record<string, string>;
 }
 
 /** Aggregate blast radius across the returned occurrences (sessions ↔ pods). */

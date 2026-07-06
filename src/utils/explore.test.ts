@@ -7,6 +7,7 @@ import {
   buildMetricsDrilldownUrl,
   buildTracesDrilldownUrl,
   buildExceptionTracesExploreUrl,
+  buildTraceExploreUrl,
 } from './explore';
 
 /** Parse the `left` param from a Grafana Explore URL */
@@ -50,6 +51,23 @@ describe('buildExploreUrl', () => {
     });
     const left = parseLeft(url);
     expect(left.range.from).toBe('now-6h');
+  });
+});
+
+describe('buildTraceExploreUrl', () => {
+  it('opens a single trace by ID via a traceql query on the Tempo datasource', () => {
+    const url = buildTraceExploreUrl('tempo-uid', 'abc123def456');
+    const left = parseLeft(url);
+    expect(left.datasource).toBe('tempo-uid');
+    expect(left.queries[0].queryType).toBe('traceql');
+    expect(left.queries[0].query).toBe('abc123def456');
+  });
+
+  it('uses the provided lookup window when both bounds are given', () => {
+    const url = buildTraceExploreUrl('tempo-uid', 'abc123', { from: '1700000000000', to: '1700003600000' });
+    const left = parseLeft(url);
+    expect(left.range.from).toBe('1700000000000');
+    expect(left.range.to).toBe('1700003600000');
   });
 });
 

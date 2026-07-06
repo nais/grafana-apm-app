@@ -40,6 +40,11 @@ export interface ParsedException {
   // Server-issue fields (#84):
   pod?: string;
   level?: string;
+  /** Distributed-trace correlation ID — deep-links the line to its full trace. */
+  traceId?: string;
+  spanId?: string;
+  /** Remaining structured-metadata / body fields the line carries (server issues). */
+  attributes?: Record<string, string>;
 }
 
 /**
@@ -82,6 +87,8 @@ export interface UseIssueOccurrencesResult {
   occurrences: ParsedException[];
   stats: AggregatedStats | null;
   truncated?: boolean;
+  /** Server-log shape the matched lines came from (server issues only). */
+  shape?: 'otlp' | 'json' | 'plaintext';
 }
 
 /**
@@ -103,6 +110,7 @@ export function useIssueOccurrences(opts: UseIssueOccurrencesOptions): UseIssueO
   const [occurrences, setOccurrences] = useState<ParsedException[]>([]);
   const [stats, setStats] = useState<AggregatedStats | null>(null);
   const [truncated, setTruncated] = useState<boolean | undefined>(undefined);
+  const [shape, setShape] = useState<'otlp' | 'json' | 'plaintext' | undefined>(undefined);
 
   // Stable key so the browser effect doesn't refire on array identity.
   const hashesKey = hashes.map(sanitizeLabelValue).join('|');
@@ -139,8 +147,12 @@ export function useIssueOccurrences(opts: UseIssueOccurrencesOptions): UseIssueO
           appVersion: o.version,
           pod: o.pod,
           level: o.level,
+          traceId: o.traceId,
+          spanId: o.spanId,
+          attributes: o.attributes,
         }));
         setOccurrences(occ);
+        setShape(res.shape);
         setStats({
           uniqueUsers: 0,
           uniqueSessions: res.stats.pods,
@@ -317,5 +329,5 @@ export function useIssueOccurrences(opts: UseIssueOccurrencesOptions): UseIssueO
     fl.serviceName,
   ]);
 
-  return { loading, error, source, occurrences, stats, truncated };
+  return { loading, error, source, occurrences, stats, truncated, shape };
 }

@@ -46,6 +46,25 @@ export function buildExceptionTracesExploreUrl(
   });
 }
 
+/**
+ * Explore URL that opens one specific trace by its ID in Tempo. Grafana's Tempo
+ * datasource resolves a bare trace ID passed as a `traceql` query to a single
+ * trace lookup — the same contract the exemplar "View trace" links use
+ * (`query: '${__value.raw}', queryType: 'traceql'`). This is the jump from a
+ * thin backend log line to the full trace (spans, http/db attributes, timing).
+ */
+export function buildTraceExploreUrl(
+  tempoUid: string,
+  traceId: string,
+  options?: { from?: string; to?: string }
+): string {
+  return buildExploreUrl({
+    datasourceUid: tempoUid,
+    queries: [{ refId: 'A', queryType: 'traceql', query: escapeQueryString(traceId) }],
+    range: options?.from && options?.to ? { from: options.from, to: options.to } : undefined,
+  });
+}
+
 export function buildTempoExploreUrl(
   tempoUid: string,
   serviceName: string,
