@@ -213,6 +213,23 @@ export function buildDatabaseScene(params: BuildDatabaseSceneParams): EmbeddedSc
   // denominator makes the expression empty (→ stat shows its no-inbound state)
   // for services with no inbound SERVER *or* CONSUMER spans, rather than
   // producing +Inf from a divide-by-zero.
+  //
+  // KNOWN LIMITATION — inflated ratio for scheduler/timer-driven apps.
+  // The denominator only counts inbound SERVER (HTTP/gRPC) and CONSUMER (Kafka)
+  // spans. Work kicked off by an in-process scheduler or timer roots at a
+  // SPAN_KIND_INTERNAL span, which is in *neither* the numerator nor the
+  // denominator. If such an app also happens to serve a trickle of inbound
+  // traffic, its db-client rate is divided by that tiny inbound rate and the
+  // ratio balloons into a false "severe N+1". Live example (prod Mimir,
+  // 2026-07-06): fpinntektsmelding runs ~8.9 db calls/s but only ~0.0037
+  // inbound/s → ~2400, which is a scheduling artifact, not an N+1. The `> 0`
+  // guard only rejects an *exactly-empty* denominator; a tiny-but-nonzero one
+  // passes straight through. For these apps the always-present Query-rate
+  // companion stat below is the honest signal, not the ratio. Flooring the
+  // denominator (require inbound ≥ a small threshold before showing the ratio)
+  // or a relative guard (gate on inbound being a meaningful fraction of the db
+  // rate) is a deliberate future refinement — tracked in
+  // https://github.com/nais/grafana-apm-app/issues/132.
   const ratioQuery = new SceneQueryRunner({
     datasource: { uid: metricsUid, type: 'prometheus' },
     minInterval: '5m',
