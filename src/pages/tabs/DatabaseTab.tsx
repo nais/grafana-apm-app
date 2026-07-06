@@ -147,8 +147,8 @@ export function DatabaseTab({
   // Follow header refreshes of relative ranges without rebuilding the scene.
   useSceneTimeSync(scene, fromMs, toMs);
   const sceneKey = `${ds.metricsUid}|${callsMetric}|${durationBucket}|${environment ?? ''}|${hasDbSpans}|${hasDbPool}`;
-  // RED row + host table ≈ 490px, acquisition row ≈ 210px.
-  const sceneMinHeight = (hasDbSpans ? 490 : 0) + (hasDbPool ? 210 : 0);
+  // Queries-per-request stat (120) + RED row (220) ≈ 360px; acquisition row ≈ 210px.
+  const sceneMinHeight = (hasDbSpans ? 360 : 0) + (hasDbPool ? 210 : 0);
 
   const onViewDbTraces = onViewTraces
     ? (spanName: string, status?: string) => onViewTraces(spanName, status, otel.spanKinds.client)

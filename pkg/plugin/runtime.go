@@ -549,6 +549,7 @@ func (a *App) queryDBPoolRuntime(
 		// names need the sum.
 		{"otMax", fmt.Sprintf(`sum by (%s) (max_over_time(%s{%s}%s))`, rt.PoolNameLabel, rt.OtelDBMax, svcFilter, lookback)},
 		{"otPending", fmt.Sprintf(`sum by (%s) (avg_over_time(%s{%s}%s))`, rt.PoolNameLabel, rt.OtelDBPending, svcFilter, lookback)},
+		{"otTimeout", fmt.Sprintf(`sum by (%s) (rate(%s{%s}%s))`, rt.PoolNameLabel, rt.OtelDBTimeout, svcFilter, lookback)},
 	}
 
 	var wg sync.WaitGroup
@@ -624,6 +625,9 @@ func (a *App) queryDBPoolRuntime(
 	}
 	for _, r := range resultMap["otPending"] {
 		getOtelPool(r.Metric[rt.PoolNameLabel]).Pending = roundTo(safeFloat(r.Value.Float()), 1)
+	}
+	for _, r := range resultMap["otTimeout"] {
+		getOtelPool(r.Metric[rt.PoolNameLabel]).TimeoutRate = roundTo(safeFloat(r.Value.Float()), 4)
 	}
 	for name, p := range otelMap {
 		if _, ok := poolMap[name]; !ok {
