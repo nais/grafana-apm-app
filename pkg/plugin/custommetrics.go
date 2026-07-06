@@ -25,12 +25,32 @@ const highCardinalityThreshold = 100
 // fan-out (2 queries per family, up to 50 families → peak 16 in flight).
 const customMetricEnrichConcurrency = 8
 
-// Chart hints derived from the metric type: counter→rate, histogram→p95,
-// everything else→gauge.
+// Chart hints derived from the metric type. The frontend maps each to a
+// type-aware auto-chart (#68 Phase 1):
+//   - rate    → sum(rate(X[$__rate_interval]))                       (counter)
+//   - p95     → histogram_quantile(0.95, …_bucket…)                  (histogram)
+//   - summary → throughput rate(_count) + avg rate(_sum)/rate(_count) (summary/timer)
+//   - gauge   → avg(X) aggregated across pods                         (gauge)
 const (
-	chartRate  = "rate"
-	chartP95   = "p95"
-	chartGauge = "gauge"
+	chartRate    = "rate"
+	chartP95     = "p95"
+	chartSummary = "summary"
+	chartGauge   = "gauge"
+)
+
+// familyKind classifies a collapsed metric family by its component shape.
+// It drives type inference when Mimir has no metadata (the common case on the
+// real fleet, where the metadata API returns {} for app metrics).
+type familyKind int
+
+const (
+	// familyScalar is a single-series family (counter or gauge).
+	familyScalar familyKind = iota
+	// familyHistogram has a _bucket series (classic or native/OTel histogram).
+	familyHistogram
+	// familySummary is a Micrometer summary/timer: _count+_sum siblings (and
+	// optionally a quantile base series and _max), but no _bucket.
+	familySummary
 )
 
 // CustomMetric is one discovered non-platform metric family.
@@ -120,7 +140,7 @@ func (a *App) queryCustomMetrics(ctx context.Context, namespace, service, enviro
 		return resp
 	}
 
-	families := collapseHistogramFamilies(names)
+	families := collapseFamilies(names)
 	sort.Slice(families, func(i, j int) bool { return families[i].name < families[j].name })
 	if len(families) > maxCustomMetricFamilies {
 		families = families[:maxCustomMetricFamilies]
@@ -146,18 +166,31 @@ func (a *App) queryCustomMetrics(ctx context.Context, namespace, service, enviro
 }
 
 // metricFamily is a discovered family: the logical name plus the series name
-// to count (differs for classic histograms, where _bucket series dominate).
+// to count (differs for histograms/summaries, whose component series dominate).
 type metricFamily struct {
-	name        string // logical family name (histogram base name)
-	seriesName  string // series to count for the cardinality guard
-	isHistogram bool
+	name       string     // logical family name (histogram/summary base name)
+	seriesName string     // series to count for the cardinality guard
+	kind       familyKind // scalar, histogram, or summary
 }
 
-// collapseHistogramFamilies folds classic-histogram component series
-// (X_bucket, X_sum, X_count) into a single family X when X_bucket exists.
-// A lone X_count/X_sum without X_bucket is kept as-is — it may be a real
-// counter/gauge, and guessing summary semantics here would misle the UI.
-func collapseHistogramFamilies(names map[string]bool) []metricFamily {
+// componentSuffixes are the classic-histogram/summary sidecar series that fold
+// into their base family. _max is included so Micrometer timers (which emit
+// X_max alongside X_count/X_sum) don't leave a stray gauge row (#68 Phase 1).
+var componentSuffixes = []string{"_bucket", "_sum", "_count", "_max"}
+
+// collapseFamilies folds multi-series metric families into a single logical
+// family so the UI charts them by type rather than per component series:
+//
+//   - Histograms (a _bucket series exists) collapse X_bucket/X_sum/X_count/X_max
+//     into X, typed histogram → histogram_quantile.
+//   - Micrometer summaries/timers (X_count+X_sum siblings, no _bucket) collapse
+//     X_count/X_sum/X_max — and the bare quantile series X{quantile=…} when
+//     present — into X, typed summary → throughput+avg (never quantile: there
+//     are no buckets to quantile over). This is the real-fleet shape that
+//     Phase 0 split into 3–4 mistyped gauge rows.
+//   - Everything else stays a single-series scalar family (counter or gauge),
+//     resolved later by naming heuristics.
+func collapseFamilies(names map[string]bool) []metricFamily {
 	// Base names with a _bucket series are histograms.
 	histograms := make(map[string]bool)
 	for name := range names {
@@ -165,27 +198,48 @@ func collapseHistogramFamilies(names map[string]bool) []metricFamily {
 			histograms[base] = true
 		}
 	}
+	// Base names with both _count and _sum siblings but no _bucket are
+	// summaries/timers (Micrometer's percentile-less shape).
+	summaries := make(map[string]bool)
+	for name := range names {
+		if base, ok := strings.CutSuffix(name, "_count"); ok && base != "" && !histograms[base] {
+			if names[base+"_sum"] {
+				summaries[base] = true
+			}
+		}
+	}
 
 	families := make([]metricFamily, 0, len(names))
 	seen := make(map[string]bool, len(names))
+	add := func(name, seriesName string, kind familyKind) {
+		if !seen[name] {
+			seen[name] = true
+			families = append(families, metricFamily{name: name, seriesName: seriesName, kind: kind})
+		}
+	}
+
 	for name := range names {
+		// Fold a component series (X_count, X_sum, X_max, X_bucket) into its base.
 		base := name
-		for _, suffix := range []string{"_bucket", "_sum", "_count"} {
-			if b, ok := strings.CutSuffix(name, suffix); ok && histograms[b] {
+		for _, suffix := range componentSuffixes {
+			if b, ok := strings.CutSuffix(name, suffix); ok && (histograms[b] || summaries[b]) {
 				base = b
 				break
 			}
 		}
-		if histograms[base] {
-			if !seen[base] {
-				seen[base] = true
-				families = append(families, metricFamily{name: base, seriesName: base + "_bucket", isHistogram: true})
-			}
-			continue
+		// The bare base series (Micrometer's X{quantile=…}) folds too.
+		if histograms[name] || summaries[name] {
+			base = name
 		}
-		if !seen[name] {
-			seen[name] = true
-			families = append(families, metricFamily{name: name, seriesName: name})
+
+		switch {
+		case histograms[base]:
+			add(base, base+"_bucket", familyHistogram)
+		case summaries[base]:
+			// _count is one series per label set — the right cardinality proxy.
+			add(base, base+"_count", familySummary)
+		default:
+			add(name, name, familyScalar)
 		}
 	}
 	return families
@@ -245,16 +299,44 @@ func (a *App) enrichCustomMetric(
 	return m
 }
 
-// guessMetricType applies OpenMetrics naming-convention heuristics when
-// metadata is absent: _bucket family→histogram, _total→counter, else gauge.
+// guessMetricType infers a metric type when Mimir has no metadata — the common
+// case, since the metadata API returns {} for essentially all app metrics, so
+// this heuristic path (not the metadata branch) is what actually types the
+// real fleet.
+//
+//   - Histogram/summary families are typed from their collapsed component shape.
+//   - Scalars are typed by name: monotonic-counter conventions → counter,
+//     else gauge. This fixes _total-less Micrometer counters (e.g.
+//     frontend_call_counter), which Phase 0 mistyped as gauges and charted raw
+//     instead of as a rate.
 func guessMetricType(fam metricFamily) string {
-	if fam.isHistogram {
+	switch fam.kind {
+	case familyHistogram:
 		return "histogram"
+	case familySummary:
+		return "summary"
 	}
-	if strings.HasSuffix(fam.name, "_total") {
+	if isCounterName(fam.name) {
 		return "counter"
 	}
 	return "gauge"
+}
+
+// counterSuffixes are monotonic-counter naming conventions. _total is the
+// canonical OpenMetrics suffix; _count/_counter cover the _total-less
+// Micrometer/OTel counters that land in Mimir without it (a standalone X_count
+// here is not a summary component — those were already collapsed away).
+var counterSuffixes = []string{"_total", "_count", "_counter"}
+
+// isCounterName reports whether a scalar metric name follows a counter
+// convention, so it charts as a rate rather than a raw value.
+func isCounterName(name string) bool {
+	for _, suffix := range counterSuffixes {
+		if strings.HasSuffix(name, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 // guessMetricUnit derives a unit from conventional name suffixes/segments.
@@ -275,6 +357,8 @@ func chartForType(metricType string) string {
 		return chartRate
 	case "histogram":
 		return chartP95
+	case "summary":
+		return chartSummary
 	default:
 		return chartGauge
 	}

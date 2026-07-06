@@ -1268,8 +1268,8 @@ export interface CustomMetric {
   series: number;
   /** Families over the series threshold are listed but not auto-charted. */
   highCardinality: boolean;
-  /** Auto-chart hint derived from the metric type. */
-  chart: 'rate' | 'p95' | 'gauge';
+  /** Auto-chart hint derived from the metric type (#68 Phase 1). */
+  chart: 'rate' | 'p95' | 'summary' | 'gauge';
 }
 
 export interface CustomMetricsResponse {

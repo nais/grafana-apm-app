@@ -200,7 +200,124 @@ func TestHandleCustomMetrics(t *testing.T) {
 			t.Errorf("_bytes unit heuristic failed: %+v", m)
 		}
 	})
+}
 
+// TestHandleCustomMetricsTypeInference covers the Phase 1 heuristic fixes:
+// _total-less counters, summary/timer collapse, and _max folding (#68).
+func TestHandleCustomMetricsTypeInference(t *testing.T) {
+	t.Run("types _total-less monotonic counters as counters (rate)", func(t *testing.T) {
+		// frontend_call_counter is the real-fleet shape Phase 0 mistyped as a
+		// gauge (charted raw) — the _counter/_count conventions fix it.
+		srv, _ := customMetricsMockServer(t, map[string][]queries.PromResult{
+			"group by (__name__)": nameResults(
+				"frontend_call_counter",
+				"cache_evictions_count",
+				"active_sessions",
+			),
+			"count({__name__=": countResult(4),
+		}, nil)
+		defer srv.Close()
+
+		app := newTestApp(t, srv.URL, defaultCaps())
+		resp := getCustomMetrics(t, app)
+
+		byName := map[string]CustomMetric{}
+		for _, m := range resp.Metrics {
+			byName[m.Name] = m
+		}
+		if m := byName["frontend_call_counter"]; m.Type != "counter" || m.Chart != "rate" {
+			t.Errorf("_counter should be a counter charted as rate: %+v", m)
+		}
+		if m := byName["cache_evictions_count"]; m.Type != "counter" || m.Chart != "rate" {
+			t.Errorf("standalone _count should be a counter charted as rate: %+v", m)
+		}
+		if m := byName["active_sessions"]; m.Type != "gauge" || m.Chart != "gauge" {
+			t.Errorf("plain scalar should stay a gauge: %+v", m)
+		}
+	})
+
+	t.Run("collapses Micrometer summaries/timers into one summary family", func(t *testing.T) {
+		// A Micrometer timer with percentiles: a quantile base series plus
+		// _count/_sum/_max sidecars and NO _bucket. Phase 0 split this into 3–4
+		// mistyped gauge rows; Phase 1 collapses it into one summary family.
+		srv, _ := customMetricsMockServer(t, map[string][]queries.PromResult{
+			"group by (__name__)": nameResults(
+				"http_server_requests_seconds",
+				"http_server_requests_seconds_count",
+				"http_server_requests_seconds_sum",
+				"http_server_requests_seconds_max",
+			),
+			"count({__name__=": countResult(8),
+		}, nil)
+		defer srv.Close()
+
+		app := newTestApp(t, srv.URL, defaultCaps())
+		resp := getCustomMetrics(t, app)
+
+		if len(resp.Metrics) != 1 {
+			t.Fatalf("expected 1 collapsed summary family, got %d: %+v", len(resp.Metrics), resp.Metrics)
+		}
+		m := resp.Metrics[0]
+		if m.Name != "http_server_requests_seconds" {
+			t.Errorf("unexpected family name: %+v", m)
+		}
+		if m.Type != "summary" || m.Chart != "summary" {
+			t.Errorf("timer should be a summary charted as throughput+avg: %+v", m)
+		}
+		// _seconds still yields a unit; the cardinality proxy is the _count series.
+		if m.Unit != "seconds" {
+			t.Errorf("expected seconds unit: %+v", m)
+		}
+	})
+
+	t.Run("collapses _max into the histogram family (no stray gauge row)", func(t *testing.T) {
+		// A Micrometer timer configured with a histogram emits _bucket AND _max.
+		// _max must fold into the histogram, not leak as a separate gauge.
+		srv, _ := customMetricsMockServer(t, map[string][]queries.PromResult{
+			"group by (__name__)": nameResults(
+				"batch_duration_seconds_bucket",
+				"batch_duration_seconds_sum",
+				"batch_duration_seconds_count",
+				"batch_duration_seconds_max",
+			),
+			"count({__name__=": countResult(40),
+		}, nil)
+		defer srv.Close()
+
+		app := newTestApp(t, srv.URL, defaultCaps())
+		resp := getCustomMetrics(t, app)
+
+		if len(resp.Metrics) != 1 {
+			t.Fatalf("expected 1 histogram family (_max folded), got %d: %+v", len(resp.Metrics), resp.Metrics)
+		}
+		if m := resp.Metrics[0]; m.Name != "batch_duration_seconds" || m.Type != "histogram" || m.Chart != "p95" {
+			t.Errorf("_max should fold into the histogram family: %+v", m)
+		}
+	})
+
+	t.Run("keeps a bare summary (no quantile series) collapsed", func(t *testing.T) {
+		// Percentile-less Micrometer timers emit only _count/_sum/_max — the
+		// bare base series never appears. Still one summary family.
+		srv, _ := customMetricsMockServer(t, map[string][]queries.PromResult{
+			"group by (__name__)": nameResults(
+				"db_query_latency_seconds_count",
+				"db_query_latency_seconds_sum",
+				"db_query_latency_seconds_max",
+			),
+			"count({__name__=": countResult(6),
+		}, nil)
+		defer srv.Close()
+
+		app := newTestApp(t, srv.URL, defaultCaps())
+		resp := getCustomMetrics(t, app)
+
+		if len(resp.Metrics) != 1 {
+			t.Fatalf("expected 1 summary family, got %d: %+v", len(resp.Metrics), resp.Metrics)
+		}
+		if m := resp.Metrics[0]; m.Name != "db_query_latency_seconds" || m.Type != "summary" {
+			t.Errorf("percentile-less timer should collapse to a summary family: %+v", m)
+		}
+	})
 }
 func TestHandleCustomMetricsGuards(t *testing.T) {
 

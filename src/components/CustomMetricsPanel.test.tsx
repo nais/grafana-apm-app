@@ -2,11 +2,35 @@ import React from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { CustomMetricsPanel } from './CustomMetricsPanel';
+import { SceneQueryRunner } from '@grafana/scenes';
 import * as client from '../api/client';
 
 jest.mock('../api/client', () => ({
   ...jest.requireActual('../api/client'),
   getCustomMetrics: jest.fn(),
+}));
+
+// The auto-charts render an EmbeddedScene; stub @grafana/scenes so the table
+// assertions here stay focused (the per-type query PromQL is covered in
+// customMetricQueries.test.ts).
+jest.mock('@grafana/scenes', () => ({
+  EmbeddedScene: jest.fn().mockImplementation((cfg) => ({ ...cfg, Component: () => null })),
+  SceneFlexLayout: jest.fn().mockImplementation((cfg) => cfg),
+  SceneFlexItem: jest.fn().mockImplementation((cfg) => cfg),
+  SceneQueryRunner: jest.fn().mockImplementation((cfg) => cfg),
+  SceneTimeRange: jest.fn().mockImplementation((cfg) => cfg),
+  PanelBuilders: {
+    timeseries: () => {
+      const b: any = {
+        setTitle: () => b,
+        setDescription: () => b,
+        setData: () => b,
+        setUnit: () => b,
+        build: () => ({}),
+      };
+      return b;
+    },
+  },
 }));
 
 /** Extract the PromQL expr from an Explore href's JSON-encoded `left` param. */
@@ -101,8 +125,28 @@ describe('CustomMetricsPanel', () => {
       'sum(rate(orders_processed_total{app="app", namespace="team"}[$__rate_interval]))'
     );
     expect(exprFromHref(links[1].getAttribute('href'))).toBe(
-      'histogram_quantile(0.95, sum by (le) (rate(batch_duration_seconds_bucket{app="app", namespace="team"}[5m])))'
+      'histogram_quantile(0.95, sum by (le) (rate(batch_duration_seconds_bucket{app="app", namespace="team"}[$__rate_interval])))'
     );
+  });
+
+  it('auto-charts the low-cardinality families with type-aware queries when expanded', async () => {
+    const runner = SceneQueryRunner as unknown as jest.Mock;
+    runner.mockClear();
+    getCustomMetrics.mockResolvedValue({ metrics: [COUNTER, HISTOGRAM, CHATTY_GAUGE], truncated: false });
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText('Custom metrics (3)')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Custom metrics (3)'));
+    await waitFor(() => expect(screen.getByText('orders_processed_total')).toBeInTheDocument());
+
+    const exprs = runner.mock.calls.flatMap((c) => (c[0].queries as Array<{ expr: string }>).map((q) => q.expr));
+    // Counter → rate, histogram → p95.
+    expect(exprs).toContain('sum(rate(orders_processed_total{app="app", namespace="team"}[$__rate_interval]))');
+    expect(exprs).toContain(
+      'histogram_quantile(0.95, sum by (le) (rate(batch_duration_seconds_bucket{app="app", namespace="team"}[$__rate_interval])))'
+    );
+    // The high-cardinality gauge is NOT auto-charted (Explore-link only).
+    expect(exprs.some((e) => e.includes('queue_depth'))).toBe(false);
   });
 
   it('renders nothing when no custom metrics are discovered', async () => {
@@ -121,9 +165,9 @@ describe('CustomMetricsPanel', () => {
     fireEvent.click(screen.getByText('Custom metrics (1)'));
     await waitFor(() => expect(screen.getByText('queue_depth')).toBeInTheDocument());
     expect(screen.getByText(/high cardinality — not auto-charted/)).toBeInTheDocument();
-    // Gauge chart still deep-links to Explore with a sum query.
+    // Gauge chart deep-links to Explore with a pod-aggregated avg query.
     const link = screen.getByRole('link', { name: /open in explore/i });
-    expect(exprFromHref(link.getAttribute('href'))).toBe('sum(queue_depth{app="app", namespace="team"})');
+    expect(exprFromHref(link.getAttribute('href'))).toBe('avg(queue_depth{app="app", namespace="team"})');
   });
 
   it('notes truncation when the family cap was hit', async () => {
