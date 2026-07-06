@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -37,6 +38,28 @@ const detectedLevelLabel = "detected_level"
 // configured backend-log version label to survey yet).
 const serverVersionLabel = "service_version"
 
+// traceIDLabel / spanIDLabel are the OTLP trace-correlation identifiers. On the
+// Loki OTLP endpoint they arrive as structured metadata (trace_id / span_id);
+// json and plaintext apps that emit correlation IDs commonly log the same field
+// names, so they are read best-effort across all three shapes. A populated
+// trace_id is what lets the drawer deep-link a thin log line to its full trace —
+// the spans / http / db / timing context the log line itself lacks.
+const (
+	traceIDLabel = "trace_id"
+	spanIDLabel  = "span_id"
+)
+
+// jsonBodyExclude are JSON-body fields already modeled on IssueOccurrence (or
+// pure noise) and therefore kept out of the free-form Attributes bag. Trace/span
+// aliases are excluded here because they are surfaced as TraceID/SpanID.
+var jsonBodyExclude = map[string]bool{
+	jsonMessageLabel: true, jsonMsgLabel: true, "level": true,
+	"stack_trace": true, "stack": true, "stacktrace": true, "exception": true,
+	"trace_id": true, "traceId": true, "traceID": true, "traceid": true,
+	"span_id": true, "spanId": true, "spanID": true, "spanid": true,
+	"timestamp": true, "time": true, "ts": true, "@timestamp": true,
+}
+
 // occurrenceCap bounds the per-shape line scan. Matches the drawer's browser
 // side (100 lines aggregated for impact); enough to characterize an issue
 // without pulling unbounded log volume.
@@ -53,6 +76,16 @@ type IssueOccurrence struct {
 	Stacktrace string `json:"stacktrace,omitempty"`
 	Version    string `json:"version,omitempty"`
 	Type       string `json:"type,omitempty"`
+	// TraceID / SpanID correlate this line to its distributed trace when the app
+	// logs them (always for OTLP logs; best-effort for json/plaintext). The
+	// drawer uses TraceID to deep-link the exact trace.
+	TraceID string `json:"traceId,omitempty"`
+	SpanID  string `json:"spanId,omitempty"`
+	// Attributes are the remaining structured-metadata / body fields the line
+	// carries (k8s container/node, logger, http.route/status, app-added fields)
+	// minus everything already modeled above. This is the extra context that
+	// makes thin shape (b)/(c) occurrences useful. Nil when the line adds nothing.
+	Attributes map[string]string `json:"attributes,omitempty"`
 }
 
 // IssueOccurrenceStats is the aggregate blast radius across the returned
@@ -76,7 +109,7 @@ func emptyOccurrenceStats() IssueOccurrenceStats {
 // IssueOccurrencesResponse is the /issues/occurrences payload: the raw server
 // occurrences for one fingerprint plus their aggregate stats.
 type IssueOccurrencesResponse struct {
-	Fingerprint string               `json:"fingerprint"`
+	Fingerprint string `json:"fingerprint"`
 	// Shape is the server-log shape the matched lines came from: "otlp"
 	// (semconv structured metadata), "json" (parsed body), or "plaintext".
 	Shape       string               `json:"shape,omitempty"`
@@ -189,18 +222,39 @@ func (a *App) queryIssueOccurrences(ctx context.Context, ds *queries.DsQueryClie
 		}
 	}
 
+	// Fields already modeled on IssueOccurrence — plus stream-identity labels
+	// implied by the drawer context (service / env / kind) — are excluded from
+	// the free-form Attributes bag so it carries only the extra context the line
+	// adds (k8s attrs, logger, http fields, app-added structured fields).
+	attrExclude := map[string]bool{
+		podLabel:                       true,
+		detectedLevelLabel:             true,
+		semconvTypeLabel:               true,
+		semconvMessageLabel:            true,
+		semconvStacktraceLabel:         true,
+		serverVersionLabel:             true,
+		traceIDLabel:                   true,
+		spanIDLabel:                    true,
+		jsonMessageLabel:               true,
+		jsonMsgLabel:                   true,
+		"level":                        true,
+		a.otelCfg.Labels.ServiceName:   true,
+		a.otelCfg.Labels.DeploymentEnv: true,
+		a.otelCfg.FaroLoki.Kind:        true,
+	}
+
 	// Shape (a) — OTLP/semconv structured metadata.
-	for _, l := range semExtract(semLines, wantFP) {
+	for _, l := range semExtract(semLines, wantFP, attrExclude) {
 		resp.Occurrences = append(resp.Occurrences, l)
 		setShape("otlp")
 	}
 	// Shape (b) — JSON body.
-	for _, l := range jsonExtract(jsonLines, wantFP) {
+	for _, l := range jsonExtract(jsonLines, wantFP, attrExclude) {
 		resp.Occurrences = append(resp.Occurrences, l)
 		setShape("json")
 	}
 	// Shape (c) — unstructured plain text.
-	for _, l := range plainExtract(plaLines, wantFP) {
+	for _, l := range plainExtract(plaLines, wantFP, attrExclude) {
 		resp.Occurrences = append(resp.Occurrences, l)
 		setShape("plaintext")
 	}
@@ -216,8 +270,9 @@ func (a *App) queryIssueOccurrences(ctx context.Context, ds *queries.DsQueryClie
 }
 
 // semExtract keeps the semconv lines whose (type, message) fingerprint matches,
-// reading stacktrace / pod / level / version from structured metadata.
-func semExtract(lines []queries.LogEntryWithLabels, wantFP string) []IssueOccurrence {
+// reading stacktrace / pod / level / version / trace correlation and the
+// remaining structured-metadata fields from the label set.
+func semExtract(lines []queries.LogEntryWithLabels, wantFP string, attrExclude map[string]bool) []IssueOccurrence {
 	out := make([]IssueOccurrence, 0, len(lines))
 	for _, l := range lines {
 		exType := l.Labels[semconvTypeLabel]
@@ -236,6 +291,9 @@ func semExtract(lines []queries.LogEntryWithLabels, wantFP string) []IssueOccurr
 			Stacktrace: l.Labels[semconvStacktraceLabel],
 			Version:    l.Labels[serverVersionLabel],
 			Type:       exType,
+			TraceID:    l.Labels[traceIDLabel],
+			SpanID:     l.Labels[spanIDLabel],
+			Attributes: occurrenceAttributes(l.Labels, attrExclude),
 		})
 	}
 	return out
@@ -244,7 +302,7 @@ func semExtract(lines []queries.LogEntryWithLabels, wantFP string) []IssueOccurr
 // jsonExtract parses each JSON body for its message (message|msg) and optional
 // stack trace (stack_trace|stack), matching on the message-only fingerprint —
 // the same key queryServerExceptionGroups grouped shape (b) under.
-func jsonExtract(lines []queries.LogEntryWithLabels, wantFP string) []IssueOccurrence {
+func jsonExtract(lines []queries.LogEntryWithLabels, wantFP string, attrExclude map[string]bool) []IssueOccurrence {
 	out := make([]IssueOccurrence, 0, len(lines))
 	for _, l := range lines {
 		body := map[string]json.RawMessage{}
@@ -269,12 +327,29 @@ func jsonExtract(lines []queries.LogEntryWithLabels, wantFP string) []IssueOccur
 		if level == "" {
 			level = l.Labels[detectedLevelLabel]
 		}
+		// Trace correlation: prefer structured metadata, fall back to a body
+		// field (many apps log trace_id / traceId inline in the JSON).
+		traceID := l.Labels[traceIDLabel]
+		if traceID == "" {
+			traceID = jsonFirstStr(body, "trace_id", "traceId", "traceID", "traceid")
+		}
+		spanID := l.Labels[spanIDLabel]
+		if spanID == "" {
+			spanID = jsonFirstStr(body, "span_id", "spanId", "spanID", "spanid")
+		}
+		// Context = structured-metadata fields (k8s attrs, logger) merged with the
+		// app's own scalar JSON fields (http.route/status, business context).
+		attrs := occurrenceAttributes(l.Labels, attrExclude)
+		attrs = mergeJSONAttributes(attrs, body)
 		out = append(out, IssueOccurrence{
 			TimeMs:     l.TimeMs,
 			Pod:        l.Labels[podLabel],
 			Level:      level,
 			Message:    msg,
 			Stacktrace: stack,
+			TraceID:    traceID,
+			SpanID:     spanID,
+			Attributes: attrs,
 		})
 	}
 	return out
@@ -282,7 +357,7 @@ func jsonExtract(lines []queries.LogEntryWithLabels, wantFP string) []IssueOccur
 
 // plainExtract keeps unstructured lines whose message-only fingerprint matches,
 // dropping the framework bootstrap noise the grouping path also filters out.
-func plainExtract(lines []queries.LogEntryWithLabels, wantFP string) []IssueOccurrence {
+func plainExtract(lines []queries.LogEntryWithLabels, wantFP string, attrExclude map[string]bool) []IssueOccurrence {
 	out := make([]IssueOccurrence, 0, len(lines))
 	for _, l := range lines {
 		msg := trimSpaceLimited(l.Line)
@@ -293,13 +368,91 @@ func plainExtract(lines []queries.LogEntryWithLabels, wantFP string) []IssueOccu
 			continue
 		}
 		out = append(out, IssueOccurrence{
-			TimeMs:  l.TimeMs,
-			Pod:     l.Labels[podLabel],
-			Level:   l.Labels[detectedLevelLabel],
-			Message: msg,
+			TimeMs:     l.TimeMs,
+			Pod:        l.Labels[podLabel],
+			Level:      l.Labels[detectedLevelLabel],
+			Message:    msg,
+			TraceID:    l.Labels[traceIDLabel],
+			SpanID:     l.Labels[spanIDLabel],
+			Attributes: occurrenceAttributes(l.Labels, attrExclude),
 		})
 	}
 	return out
+}
+
+// occurrenceAttributes folds a line's label set into the free-form Attributes
+// bag, dropping empty values, the modeled/identity keys in exclude, and Loki's
+// internal __*__ labels. Returns nil (not an empty map) when nothing remains so
+// the JSON omits the field and the drawer renders no empty section.
+func occurrenceAttributes(labels map[string]string, exclude map[string]bool) map[string]string {
+	if len(labels) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(labels))
+	for k, v := range labels {
+		if v == "" || exclude[k] || strings.HasPrefix(k, "__") {
+			continue
+		}
+		out[k] = v
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// mergeJSONAttributes adds the app's own scalar JSON body fields (http.route,
+// status, logger, business context) into attrs, skipping fields already modeled
+// (jsonBodyExclude) and non-scalar values (nested objects/arrays are too noisy
+// for the context list). attrs may be nil; a map is allocated only if something
+// is added.
+func mergeJSONAttributes(attrs map[string]string, body map[string]json.RawMessage) map[string]string {
+	for k, raw := range body {
+		if jsonBodyExclude[k] {
+			continue
+		}
+		v, ok := jsonScalarStr(raw)
+		if !ok {
+			continue
+		}
+		if attrs == nil {
+			attrs = make(map[string]string)
+		}
+		attrs[k] = v
+	}
+	return attrs
+}
+
+// jsonFirstStr returns the first non-empty string value among the given keys.
+func jsonFirstStr(body map[string]json.RawMessage, keys ...string) string {
+	for _, k := range keys {
+		if v := jsonStr(body, k); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// jsonScalarStr renders a scalar JSON value (string, number, bool) as a string.
+// Objects, arrays, null, and empty values yield ok=false so they are skipped.
+func jsonScalarStr(raw json.RawMessage) (string, bool) {
+	s := strings.TrimSpace(string(raw))
+	if s == "" || s == "null" {
+		return "", false
+	}
+	var str string
+	if err := json.Unmarshal(raw, &str); err == nil {
+		if str == "" {
+			return "", false
+		}
+		return str, true
+	}
+	// Non-string scalar (number/bool): keep the raw token. Objects/arrays and
+	// malformed strings are dropped.
+	if s[0] == '{' || s[0] == '[' || s[0] == '"' {
+		return "", false
+	}
+	return s, true
 }
 
 // jsonStr reads a string-valued JSON field, tolerating that the value may be a
