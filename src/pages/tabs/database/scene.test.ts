@@ -100,6 +100,7 @@ describe('buildDatabaseScene', () => {
     expect(serialized).not.toContain('traces_spanmetrics_calls_total');
     expect(serialized).not.toContain('Queries per request');
     expect(serialized).not.toContain('SPAN_KIND_SERVER');
+    expect(serialized).not.toContain('SPAN_KIND_CONSUMER');
     expect(serialized).toContain('db_client_connections_wait_time_milliseconds_bucket');
   });
 
@@ -116,30 +117,56 @@ describe('buildDatabaseScene', () => {
     expect(serialized).not.toContain('Per-host breakdown');
   });
 
-  it('adds a queries-per-request ratio: db CLIENT spans divided by inbound SERVER spans', () => {
+  it('adds a queries-per-request-or-message ratio: db CLIENT spans divided by inbound SERVER or CONSUMER spans', () => {
     const scene = buildDatabaseScene(defaultParams);
     const serialized = JSON.stringify(scene!.state.body);
-    expect(serialized).toContain('Queries per request');
-    // Denominator selects inbound SERVER spans (HTTP + gRPC).
-    expect(serialized).toContain('SPAN_KIND_SERVER');
+    expect(serialized).toContain('Queries per request or message');
+    // Denominator selects inbound work: SERVER spans (HTTP/gRPC) OR CONSUMER
+    // spans (Kafka messages), via a regex match — so Kafka-driven apps get a
+    // real ratio instead of N/A.
+    expect(serialized).toContain('span_kind=~\\"SPAN_KIND_SERVER|SPAN_KIND_CONSUMER\\"');
     // Numerator is the same CLIENT db-span rate the Rate panel sums.
     expect(serialized).toMatch(
       /sum\(rate\(traces_spanmetrics_calls_total\{[^}]*SPAN_KIND_CLIENT[^}]*\}\[\$__rate_interval\]\)\)/
     );
   });
 
-  it('guards the ratio against divide-by-zero so non-HTTP services read N/A instead of +Inf', () => {
+  it('guards the ratio against divide-by-zero so no-inbound (batch) services get a no-value state instead of +Inf', () => {
     const scene = buildDatabaseScene(defaultParams);
     const serialized = JSON.stringify(scene!.state.body);
     // `sum(db) / (sum(inbound) > 0)` — the `> 0` filter drops the series when a
-    // service has no inbound SERVER spans (batch jobs, pure Kafka consumers) or
-    // a zero request rate in-window, leaving the stat empty (rendered as N/A)
-    // rather than dividing by zero.
+    // service has genuinely no inbound SERVER *or* CONSUMER spans (pure batch
+    // jobs) or a zero rate in-window, leaving the stat empty rather than
+    // dividing by zero.
     expect(serialized).toMatch(
-      /\/ \(sum\(rate\(traces_spanmetrics_calls_total\{[^}]*SPAN_KIND_SERVER[^}]*\}\[\$__rate_interval\]\)\) > 0\)/
+      /\/ \(sum\(rate\(traces_spanmetrics_calls_total\{[^}]*SPAN_KIND_SERVER\|SPAN_KIND_CONSUMER[^}]*\}\[\$__rate_interval\]\)\) > 0\)/
     );
-    // The stat surfaces the empty result as an explicit N/A rather than "No data".
-    expect(serialized).toContain('N/A');
+    // The empty result renders an explanatory no-inbound message, not a bare N/A.
+    expect(serialized).toContain('no inbound requests or messages');
+  });
+
+  it('shows a Query-rate companion stat (raw db throughput) so no-inbound batch jobs still have a meaningful header', () => {
+    const scene = buildDatabaseScene(defaultParams);
+    const serialized = JSON.stringify(scene!.state.body);
+    expect(serialized).toContain('Query rate');
+    // A bare summed db call rate — always populated for a db-emitting service,
+    // independent of any inbound denominator.
+    expect(serialized).toMatch(
+      /sum\(rate\(traces_spanmetrics_calls_total\{[^}]*SPAN_KIND_CLIENT[^}]*db_system[^}]*\}\[\$__rate_interval\]\)\)/
+    );
+  });
+
+  it('shows Errors% and P95 companion stats mirroring the RED panels as single values', () => {
+    const scene = buildDatabaseScene(defaultParams);
+    const serialized = JSON.stringify(scene!.state.body);
+    // Errors% single value keeps the `or ... * 0` zero-fill so it reads 0%, not empty.
+    expect(serialized).toMatch(
+      /\* 100 or sum\(rate\(traces_spanmetrics_calls_total\{[^}]*\}\[\$__rate_interval\]\)\) \* 0/
+    );
+    // P95 single value (no db_system grouping — a single header number).
+    expect(serialized).toMatch(
+      /histogram_quantile\(0\.95, sum by \(le\) \(rate\(traces_spanmetrics_duration_milliseconds_bucket\{[^}]*\}\[\$__rate_interval\]\)\)\)/
+    );
   });
 
   it('omits the connection-acquisition panels when hasDbPool is false (the default)', () => {
