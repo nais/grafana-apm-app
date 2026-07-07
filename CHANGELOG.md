@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.1](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.22.0...nais-apm-app-v0.22.1) (2026-07-07)
+
+
+### Documentation
+
+* **adr:** backend stack traces via OpenTelemetry, not log-pipeline merging ([#129](https://github.com/nais/grafana-apm-app/issues/129)) ([e1c20dd](https://github.com/nais/grafana-apm-app/commit/e1c20ddc1bd0c80272f66005caee883a2deb980f))
+
 ## [0.22.0](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.21.0...nais-apm-app-v0.22.0) (2026-07-06)
 
 
