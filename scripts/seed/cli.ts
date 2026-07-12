@@ -15,7 +15,16 @@ import { generateScenario } from './generator.ts';
 
 function arg(name: string): string | undefined {
   const index = process.argv.indexOf(`--${name}`);
-  return index >= 0 ? process.argv[index + 1] : undefined;
+  if (index < 0) {
+    return undefined;
+  }
+  const value = process.argv[index + 1];
+  // A following flag means the value is missing (`--seed --base 1` would
+  // otherwise silently become Number('--base') = NaN).
+  if (value === undefined || value.startsWith('--')) {
+    throw new Error(`missing value for --${name}`);
+  }
+  return value;
 }
 
 async function main(): Promise<void> {

@@ -87,12 +87,20 @@ describe('mulberry32', () => {
   it('produces a stable sequence in [0, 1)', () => {
     const rng = mulberry32(1);
     const sequence = [rng(), rng(), rng()];
-    expect(sequence).toEqual([...sequence].map((v) => v)); // self-consistency
     const again = mulberry32(1);
     expect([again(), again(), again()]).toEqual(sequence);
     for (const v of sequence) {
       expect(v).toBeGreaterThanOrEqual(0);
       expect(v).toBeLessThan(1);
     }
+  });
+});
+
+describe('input validation', () => {
+  it('rejects sub-minute, non-finite, and non-positive inputs', () => {
+    expect(() => generateScenario({ baseTimeMs: NaN })).toThrow(RangeError);
+    expect(() => generateScenario({ baseTimeMs: BASE, durationMinutes: 0.5 })).toThrow(RangeError);
+    expect(() => generateScenario({ baseTimeMs: BASE, durationMinutes: NaN })).toThrow(RangeError);
+    expect(() => generateScenario({ baseTimeMs: BASE, sessionsPerApp: 0 })).toThrow(RangeError);
   });
 });

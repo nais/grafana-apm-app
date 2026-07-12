@@ -186,9 +186,21 @@ const PII_CANARIES = [
 // --- Generator ---------------------------------------------------------------
 
 export function generateScenario(options: SeedOptions): FaroPayload[] {
+  if (!Number.isFinite(options.baseTimeMs)) {
+    throw new RangeError(`baseTimeMs must be a finite epoch-ms value, got ${options.baseTimeMs}`);
+  }
   const seed = options.seed ?? 42;
-  const durationMs = (options.durationMinutes ?? 30) * 60_000;
+  // Sessions need headroom inside the window (session offsets go up to ~60s),
+  // so anything shorter than a minute — or non-finite — is a caller error.
+  const durationMinutes = options.durationMinutes ?? 30;
+  if (!Number.isFinite(durationMinutes) || durationMinutes < 1) {
+    throw new RangeError(`durationMinutes must be >= 1, got ${durationMinutes}`);
+  }
+  const durationMs = durationMinutes * 60_000;
   const sessionsPerApp = options.sessionsPerApp ?? 4;
+  if (!Number.isInteger(sessionsPerApp) || sessionsPerApp < 1) {
+    throw new RangeError(`sessionsPerApp must be a positive integer, got ${sessionsPerApp}`);
+  }
   const startMs = options.baseTimeMs - durationMs;
   const rng = mulberry32(seed);
 
