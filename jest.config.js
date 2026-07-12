@@ -2,7 +2,11 @@
 // generally used by snapshots, but can affect specific tests
 process.env.TZ = 'UTC';
 
+const scaffoldConfig = require('./.config/jest.config');
+
 module.exports = {
   // Jest configuration provided by Grafana scaffolding
-  ...require('./.config/jest.config'),
+  ...scaffoldConfig,
+  // The scaffold only matches src/**; also run the seed-generator tests (#90).
+  testMatch: [...scaffoldConfig.testMatch, '<rootDir>/scripts/seed/**/*.test.{ts,tsx}'],
 };

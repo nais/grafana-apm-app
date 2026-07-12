@@ -9,6 +9,16 @@
     // (process, Buffer, __dirname, require, …) the way 5.x did, so list the
     // ambient type packages the code relies on explicitly. Packages pulled in
     // via imports (react, lodash, …) load regardless of this list.
-    "types": ["node", "jest"]
-  }
+    "types": ["node", "jest"],
+    // scripts/seed/cli.ts imports './generator.ts' with an explicit extension
+    // so it runs under `node --experimental-strip-types` without a build step.
+    "allowImportingTsExtensions": true,
+    // The scaffold pins rootDir to src; widen it so scripts/seed typechecks.
+    // Inconsequential for output — this config is only used with noEmit.
+    "rootDir": "."
+  },
+  // The scaffold include only covers ../src (+ its types); add the seed
+  // generator (#90) so `tsc --noEmit` typechecks it too. Paths are relative
+  // to this file.
+  "include": ["src", ".config/types", "scripts/seed"]
 }
