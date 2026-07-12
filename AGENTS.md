@@ -57,7 +57,7 @@ docker compose -f docker-compose.demo.yaml up  # With OTel Demo traffic
 
 ## Constraints
 
-- **Do not push** — git credential helper (`osxkeychain`) is unavailable in agent sessions. Stage and commit freely; the user will push.
+- **Push feature branches only** — never push to `main` directly; all changes land via PR. If the git credential helper is unavailable in your session (pushes fail with an auth error), stage and commit freely and let the user push — do not retry or fiddle with credentials.
 - **Never amend pushed commits** — if a commit has been pushed to `origin`, do not `git commit --amend` it. Create a new fixup commit instead. Always check `git log --oneline origin/main..HEAD` before amending.
 - **Never force push** — do not use `git push --force` or `--force-with-lease`. Always create forward-only history.
 - **Never move tags** — do not delete or move existing git tags unless the user explicitly asks. If a tag was already pushed, it is immutable. Create the next version instead.
