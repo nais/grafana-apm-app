@@ -99,4 +99,33 @@ describe('ScorecardBadge', () => {
     expect(screen.getAllByRole('img', { name: 'Enabled' })).toHaveLength(4);
     expect(screen.getAllByRole('img', { name: 'Not enabled' })).toHaveLength(2);
   });
+
+  it('renders a not-applicable check as N/A, excluded from the score', async () => {
+    // A pure JVM backend: browserTelemetry is N/A and the backend reports 4/5.
+    const response: ScorecardResponse = {
+      ...baseResponse,
+      readiness: {
+        score: 4,
+        total: 5,
+        checks: baseResponse.readiness.checks.map((check) =>
+          check.key === 'browserTelemetry'
+            ? { ...check, notApplicable: true, hint: 'Not applicable — java backend with no browser frontend.' }
+            : check
+        ),
+      },
+    };
+    mockGetScorecard.mockResolvedValue(response);
+    render(<ScorecardBadge namespace="team-a" service="my-app" />);
+
+    const badge = await screen.findByTestId('scorecard-badge');
+    expect(badge).toHaveTextContent('4/5 observability checks');
+
+    fireEvent.click(badge);
+    await screen.findByTestId('scorecard-details');
+    expect(screen.getByRole('img', { name: 'Not applicable' })).toBeInTheDocument();
+    expect(screen.getByText('N/A')).toBeInTheDocument();
+    expect(screen.getByText(/java backend with no browser frontend/)).toBeInTheDocument();
+    // The N/A check no longer counts as "Not enabled".
+    expect(screen.getAllByRole('img', { name: 'Not enabled' })).toHaveLength(1);
+  });
 });

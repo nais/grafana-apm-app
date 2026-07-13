@@ -50,13 +50,18 @@ type ScorecardCheck struct {
 	Key   string `json:"key"`
 	Label string `json:"label"`
 	OK    bool   `json:"ok"`
-	// Hint says how to enable the capability (one sentence, nais-flavored).
+	// Hint says how to enable the capability (one sentence, nais-flavored) —
+	// or, for a not-applicable check, why it does not apply.
 	Hint string `json:"hint"`
+	// NotApplicable marks a check that does not apply to this service (e.g.
+	// browser telemetry for a pure JVM backend). Not counted in Score/Total.
+	NotApplicable bool `json:"notApplicable,omitempty"`
 }
 
 // ScorecardReadiness is the computed observability readiness score.
 type ScorecardReadiness struct {
-	// Score is the number of passing checks; the fraction is Score/Total.
+	// Score is the number of passing APPLICABLE checks; the fraction is
+	// Score/Total. Not-applicable checks are excluded from both.
 	Score  int              `json:"score"`
 	Total  int              `json:"total"`
 	Checks []ScorecardCheck `json:"checks"`
@@ -172,17 +177,85 @@ func (a *App) computeReadiness(ctx context.Context, headers http.Header, namespa
 	}()
 	go func() { defer wg.Done(); checks[2].OK = a.checkLokiLogs(ctx, headers, token, service, env, now) }()
 	go func() { defer wg.Done(); checks[3].OK = a.checkRuntimeMetrics(ctx, namespace, service, env, now) }()
-	go func() { defer wg.Done(); checks[4].OK = a.checkBrowserTelemetry(ctx, service, env, now) }()
+	go func() {
+		defer wg.Done()
+		checks[4].OK = a.checkBrowserTelemetry(ctx, service, env, now)
+		// A pure backend has no frontend to instrument: when no Faro data
+		// exists AND every SDK language the service reports is backend-only
+		// (JVM, Go, .NET, …), "missing browser telemetry" is not an actionable
+		// gap — mark the check not applicable instead of failing it. Node.js
+		// deliberately stays applicable: Node services are frequently SSR
+		// frontends/BFFs where Faro is expected.
+		if !checks[4].OK {
+			if langs := a.serviceSDKLanguages(ctx, namespace, service, env, now); len(langs) > 0 && allBackendOnlyLanguages(langs) {
+				checks[4].NotApplicable = true
+				checks[4].Hint = fmt.Sprintf(
+					"Not applicable — %s backend with no browser frontend. If this service gets a frontend, instrument it with @nais/apm.",
+					strings.Join(langs, "/"))
+			}
+		}
+	}()
 	go func() { defer wg.Done(); checks[5].OK = a.checkAlertRules(ctx, headers, token, service) }()
 	wg.Wait()
 
-	score := 0
+	score, total := 0, 0
 	for _, c := range checks {
+		if c.NotApplicable {
+			continue
+		}
+		total++
 		if c.OK {
 			score++
 		}
 	}
-	return ScorecardReadiness{Score: score, Total: len(checks), Checks: checks}
+	return ScorecardReadiness{Score: score, Total: total, Checks: checks}
+}
+
+// backendOnlySDKLanguages are telemetry.sdk.language values that cannot serve
+// a browser frontend from the same service. nodejs is intentionally absent
+// (SSR/BFF ambiguity); webjs is the Faro browser SDK itself.
+var backendOnlySDKLanguages = map[string]bool{
+	"java": true, "go": true, "dotnet": true, "python": true,
+	"rust": true, "php": true, "ruby": true, "erlang": true,
+	"elixir": true, "cpp": true, "swift": true,
+}
+
+func allBackendOnlyLanguages(langs []string) bool {
+	for _, l := range langs {
+		if !backendOnlySDKLanguages[l] {
+			return false
+		}
+	}
+	return true
+}
+
+// serviceSDKLanguages returns the distinct telemetry.sdk.language values the
+// service reports on its span metrics (empty when unknown/unavailable) —
+// the same label the service inventory uses for framework derivation.
+func (a *App) serviceSDKLanguages(ctx context.Context, namespace, service, env string, at time.Time) []string {
+	client := a.prom(ctx)
+	if client == nil {
+		return nil
+	}
+	filter := a.otelCfg.ServiceFilter(service, namespace)
+	if m := envMatcher(a.otelCfg.Labels.DeploymentEnv, env); m != "" {
+		filter += ", " + m
+	}
+	ctx, cancel := context.WithTimeout(ctx, scorecardProbeTimeout)
+	defer cancel()
+	results, err := client.InstantQuery(ctx, fmt.Sprintf(
+		`group by (%s) (%s{%s})`, a.otelCfg.Labels.SDKLanguage, a.callsMetric(ctx), filter), at)
+	if err != nil {
+		log.DefaultLogger.Debug("Scorecard SDK-language probe failed", "error", err)
+		return nil
+	}
+	langs := make([]string, 0, len(results))
+	for _, r := range results {
+		if lang := r.Metric[a.otelCfg.Labels.SDKLanguage]; lang != "" {
+			langs = append(langs, lang)
+		}
+	}
+	return langs
 }
 
 // promSelectorNonEmpty runs count(<selector>) as an instant query and reports
