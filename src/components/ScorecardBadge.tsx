@@ -61,11 +61,12 @@ function ScorecardDetails({ data }: { data: ScorecardResponse }) {
             >
               <Icon name={check.notApplicable ? 'minus-circle' : check.ok ? 'check-circle' : 'circle'} size="sm" />
             </span>
-            <span>
+            {/* div, not span: the hint below is block-level and a div inside a span is invalid HTML */}
+            <div>
               {check.label}
               {check.notApplicable && <span className={styles.naTag}>N/A</span>}
               {!check.ok && <div className={styles.hint}>{check.hint}</div>}
-            </span>
+            </div>
           </li>
         ))}
       </ul>
