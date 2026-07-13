@@ -51,16 +51,19 @@ function ScorecardDetails({ data }: { data: ScorecardResponse }) {
       <div className={styles.sectionTitle}>Observability readiness</div>
       <ul className={styles.checkList}>
         {data.readiness.checks.map((check) => (
-          <li key={check.key} className={styles.check}>
+          <li key={check.key} className={cx(styles.check, check.notApplicable && styles.checkNotApplicable)}>
             <span
-              className={check.ok ? styles.checkIconOk : styles.checkIconMissing}
+              className={
+                check.notApplicable ? styles.checkIconNA : check.ok ? styles.checkIconOk : styles.checkIconMissing
+              }
               role="img"
-              aria-label={check.ok ? 'Enabled' : 'Not enabled'}
+              aria-label={check.notApplicable ? 'Not applicable' : check.ok ? 'Enabled' : 'Not enabled'}
             >
-              <Icon name={check.ok ? 'check-circle' : 'circle'} size="sm" />
+              <Icon name={check.notApplicable ? 'minus-circle' : check.ok ? 'check-circle' : 'circle'} size="sm" />
             </span>
             <span>
               {check.label}
+              {check.notApplicable && <span className={styles.naTag}>N/A</span>}
               {!check.ok && <div className={styles.hint}>{check.hint}</div>}
             </span>
           </li>
@@ -169,6 +172,17 @@ const getStyles = (theme: GrafanaTheme2) => ({
     color: ${theme.colors.success.text};
   `,
   checkIconMissing: css`
+    color: ${theme.colors.text.disabled};
+  `,
+  checkIconNA: css`
+    color: ${theme.colors.text.disabled};
+  `,
+  checkNotApplicable: css`
+    color: ${theme.colors.text.secondary};
+  `,
+  naTag: css`
+    margin-left: ${theme.spacing(0.5)};
+    font-size: ${theme.typography.bodySmall.fontSize};
     color: ${theme.colors.text.disabled};
   `,
   hint: css`

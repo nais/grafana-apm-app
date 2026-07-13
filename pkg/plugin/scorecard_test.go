@@ -22,6 +22,7 @@ type scorecardFixture struct {
 	runtime      bool
 	browser      bool
 	alertRule    bool
+	sdkLanguage  string                    // telemetry_sdk_language answered by the language probe ("" → no series)
 	naisResponse func(query string) string // nil → console unconfigured
 }
 
@@ -38,6 +39,15 @@ func newScorecardApp(t *testing.T, fx scorecardFixture) *App {
 			return
 		}
 		query := r.URL.Query().Get("query")
+		// The SDK-language probe also mentions the calls metric, so match it first.
+		if strings.Contains(query, "telemetry_sdk_language") {
+			result := `[]`
+			if fx.sdkLanguage != "" {
+				result = `[{"metric":{"telemetry_sdk_language":"` + fx.sdkLanguage + `"},"value":[1700000000,"1"]}]`
+			}
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":` + result + `}}`))
+			return
+		}
 		hit := false
 		switch {
 		case strings.Contains(query, "calls_total"):
@@ -139,31 +149,64 @@ func TestScorecardReadinessScore(t *testing.T) {
 		name      string
 		fx        scorecardFixture
 		wantScore int
+		wantTotal int
 		wantOK    map[string]bool
+		wantNA    map[string]bool
 	}{
 		{
 			name:      "nothing instrumented",
 			fx:        scorecardFixture{},
 			wantScore: 0,
+			wantTotal: 6,
 		},
 		{
 			name:      "fully instrumented",
 			fx:        scorecardFixture{spanMetrics: true, traces: true, logs: true, runtime: true, browser: true, alertRule: true},
 			wantScore: 6,
+			wantTotal: 6,
 		},
 		{
-			name:      "backend service without frontend or alerts",
+			name:      "backend service, unknown language: Faro stays actionable",
 			fx:        scorecardFixture{spanMetrics: true, traces: true, logs: true, runtime: true},
 			wantScore: 4,
+			wantTotal: 6,
 			wantOK: map[string]bool{
 				"spanMetrics": true, "traces": true, "logs": true,
 				"runtimeMetrics": true, "browserTelemetry": false, "alertRules": false,
 			},
 		},
 		{
+			name:      "pure JVM backend: Faro not applicable, excluded from score",
+			fx:        scorecardFixture{spanMetrics: true, traces: true, logs: true, runtime: true, sdkLanguage: "java"},
+			wantScore: 4,
+			wantTotal: 5,
+			wantOK: map[string]bool{
+				"spanMetrics": true, "traces": true, "logs": true,
+				"runtimeMetrics": true, "browserTelemetry": false, "alertRules": false,
+			},
+			wantNA: map[string]bool{"browserTelemetry": true},
+		},
+		{
+			name:      "node service: Faro stays applicable (SSR/BFF ambiguity)",
+			fx:        scorecardFixture{spanMetrics: true, sdkLanguage: "nodejs"},
+			wantScore: 1,
+			wantTotal: 6,
+			wantOK:    map[string]bool{"browserTelemetry": false},
+			wantNA:    map[string]bool{"browserTelemetry": false},
+		},
+		{
+			name:      "JVM service WITH faro data: check passes and stays applicable",
+			fx:        scorecardFixture{browser: true, sdkLanguage: "java"},
+			wantScore: 1,
+			wantTotal: 6,
+			wantOK:    map[string]bool{"browserTelemetry": true},
+			wantNA:    map[string]bool{"browserTelemetry": false},
+		},
+		{
 			name:      "alert rule via grafana-managed rules",
 			fx:        scorecardFixture{alertRule: true},
 			wantScore: 1,
+			wantTotal: 6,
 			wantOK:    map[string]bool{"alertRules": true},
 		},
 	}
@@ -173,8 +216,8 @@ func TestScorecardReadinessScore(t *testing.T) {
 			app := newScorecardApp(t, tc.fx)
 			resp := getScorecard(t, app)
 
-			if resp.Readiness.Total != 6 {
-				t.Fatalf("total = %d, want 6", resp.Readiness.Total)
+			if resp.Readiness.Total != tc.wantTotal {
+				t.Fatalf("total = %d, want %d", resp.Readiness.Total, tc.wantTotal)
 			}
 			if resp.Readiness.Score != tc.wantScore {
 				t.Errorf("score = %d, want %d (checks: %+v)", resp.Readiness.Score, tc.wantScore, resp.Readiness.Checks)
@@ -189,6 +232,11 @@ func TestScorecardReadinessScore(t *testing.T) {
 			for key, want := range tc.wantOK {
 				if byKey[key].OK != want {
 					t.Errorf("check %q ok = %v, want %v", key, byKey[key].OK, want)
+				}
+			}
+			for key, want := range tc.wantNA {
+				if byKey[key].NotApplicable != want {
+					t.Errorf("check %q notApplicable = %v, want %v", key, byKey[key].NotApplicable, want)
 				}
 			}
 		})

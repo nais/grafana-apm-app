@@ -24,12 +24,14 @@ export interface ScorecardCheck {
   key: string;
   label: string;
   ok: boolean;
-  /** How to enable the capability (one sentence, nais-flavored). */
+  /** How to enable the capability — or, for a not-applicable check, why it doesn't apply. */
   hint: string;
+  /** Check doesn't apply to this service (e.g. Faro for a pure JVM backend); excluded from score/total. */
+  notApplicable?: boolean;
 }
 
 export interface ScorecardReadiness {
-  /** Number of passing checks; the fraction is score/total. */
+  /** Number of passing APPLICABLE checks; the fraction is score/total. N/A checks excluded from both. */
   score: number;
   total: number;
   checks: ScorecardCheck[];
