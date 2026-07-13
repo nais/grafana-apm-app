@@ -13,6 +13,10 @@ NPM_CONFIG_USERCONFIG = "/dev/null"
 NPM_CONFIG_LOGLEVEL = "error"
 XDG_CONFIG_HOME = "/tmp"
 PNPM_HOME = "/tmp/pnpm"
+# XDG_CONFIG_HOME=/tmp (the npm/pnpm sandbox above) hides gh's credentials at
+# ~/.config/gh, breaking every gh invocation inside this repo. Point gh back
+# at the real config explicitly.
+GH_CONFIG_DIR = "{{env.HOME}}/.config/gh"
 
 # --- Top-level tasks ---
 

@@ -17,6 +17,7 @@
     "lint": "eslint --cache .",
     "lint:fix": "pnpm run lint -- --fix && prettier --write --list-different .",
     "e2e": "playwright test",
+    "seed": "node --experimental-strip-types scripts/seed/cli.ts",
     "server": "docker compose up --build",
     "sign": "npx --yes @grafana/sign-plugin@latest --rootUrls https://grafana.nav.cloud.nais.io/,https://grafana.dev-nais.cloud.nais.io/,https://monitoring.nais.io",
     "validate": "bash scripts/validate-plugin.sh"
