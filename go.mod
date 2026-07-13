@@ -4,8 +4,8 @@ go 1.26.4
 
 require (
 	github.com/grafana/grafana-plugin-sdk-go v0.292.2
-	golang.org/x/sync v0.21.0
-	golang.org/x/text v0.38.0
+	golang.org/x/sync v0.22.0
+	golang.org/x/text v0.40.0
 )
 
 require (
