@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.23.0](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.22.1...nais-apm-app-v0.23.0) (2026-08-03)
+
+
+### Features
+
+* **seed:** deterministic synthetic Faro telemetry generator ([#135](https://github.com/nais/grafana-apm-app/issues/135)) ([dcf3c97](https://github.com/nais/grafana-apm-app/commit/dcf3c97c6472ccc62db13929b4395bdae5a98961))
+
+
+### Bug Fixes
+
+* **build:** migrate TypeScript config for version 7 ([#155](https://github.com/nais/grafana-apm-app/issues/155)) ([fa27c8d](https://github.com/nais/grafana-apm-app/commit/fa27c8dfdd98695571f966f99186f81e7b1304ff))
+* **grafana:** support Grafana 13 local development ([#152](https://github.com/nais/grafana-apm-app/issues/152)) ([dbd7dc3](https://github.com/nais/grafana-apm-app/commit/dbd7dc32df12074d9f1e5f485c544fbfaaac3a93))
+* **scorecard:** mark browser telemetry not-applicable for pure backends ([#142](https://github.com/nais/grafana-apm-app/issues/142)) ([60db992](https://github.com/nais/grafana-apm-app/commit/60db992580c621ce1a3160f743e9c08efdf338c5))
+
 ## [0.22.1](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.22.0...nais-apm-app-v0.22.1) (2026-07-07)
 
 
