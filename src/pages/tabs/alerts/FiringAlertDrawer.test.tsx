@@ -135,7 +135,7 @@ describe('FiringAlertDrawer (#32)', () => {
       { time: activeAtMs + 60_000, text: 'after', tags: ['nais-apm:deploy', 'version:1.2.4'] },
     ]);
 
-    renderDrawer(
+    const { rerender } = renderDrawer(
       <FiringAlertDrawer
         rule={rule({ activeSince: new Date(activeAtMs).toISOString() })}
         ruleName="OrdersHighErrorRate"
@@ -149,5 +149,18 @@ describe('FiringAlertDrawer (#32)', () => {
     // The deploy AFTER activeAt must be excluded — only 1.2.3 qualifies.
     expect(screen.getByText('1.2.3')).toBeInTheDocument();
     expect(screen.queryByText('1.2.4')).not.toBeInTheDocument();
+
+    rerender(
+      <MemoryRouter>
+        <FiringAlertDrawer
+          rule={rule({ activeSince: undefined })}
+          ruleName="OrdersHighErrorRate"
+          namespace="teamorders"
+          service="orders"
+          onClose={jest.fn()}
+        />
+      </MemoryRouter>
+    );
+    expect(screen.queryByText('1.2.3')).not.toBeInTheDocument();
   });
 });

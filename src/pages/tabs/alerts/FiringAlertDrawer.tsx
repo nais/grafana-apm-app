@@ -56,17 +56,17 @@ export function FiringAlertDrawer({
   // Best-effort: the last deploy annotation before the alert started firing —
   // an alert firing shortly after a deploy is the single most useful
   // correlation (#64 deploy-annotation contract, reused via its tag scheme).
-  const [lastDeploy, setLastDeploy] = useState<{ version: string; timeMs: number } | null>(null);
+  const deployKey = Number.isFinite(activeAtMs) ? `${service}:${environment ?? ''}:${activeAtMs}` : null;
+  const [lastDeploy, setLastDeploy] = useState<{ key: string; version: string; timeMs: number } | null>(null);
   useEffect(() => {
-    if (!Number.isFinite(activeAtMs)) {
-      setLastDeploy(null);
+    if (!deployKey) {
       return;
     }
     let cancelled = false;
     fetchLastDeployBefore(service, environment, activeAtMs)
       .then((deploy) => {
         if (!cancelled) {
-          setLastDeploy(deploy);
+          setLastDeploy(deploy ? { key: deployKey, ...deploy } : null);
         }
       })
       .catch(() => {
@@ -75,7 +75,8 @@ export function FiringAlertDrawer({
     return () => {
       cancelled = true;
     };
-  }, [service, environment, activeAtMs]);
+  }, [service, environment, activeAtMs, deployKey]);
+  const deployBeforeFiring = lastDeploy?.key === deployKey ? lastDeploy : null;
 
   // Related-Issue link — only when an instance's labels confidently resolve to
   // an issue identity, never a guessed one (#32).
@@ -232,12 +233,12 @@ export function FiringAlertDrawer({
             <section className={styles.section}>
               <h4 className={styles.sectionTitle}>Context</h4>
               <div className={styles.contextList}>
-                {lastDeploy && (
+                {deployBeforeFiring && (
                   <div className={styles.contextItem}>
                     <Icon name="rocket" size="sm" />
                     <span>
-                      Last deploy before firing: <strong>{lastDeploy.version}</strong> (
-                      {formatDuration(new Date(lastDeploy.timeMs).toISOString())} before)
+                      Last deploy before firing: <strong>{deployBeforeFiring.version}</strong> (
+                      {formatDuration(new Date(deployBeforeFiring.timeMs).toISOString())} before)
                     </span>
                   </div>
                 )}

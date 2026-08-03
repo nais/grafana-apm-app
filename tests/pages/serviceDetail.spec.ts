@@ -147,6 +147,8 @@ test.describe('Service Detail', () => {
           // Filter/search toolbars that these tabs mount even with no data.
           page.getByPlaceholder(/Search/i).first(),
           page.getByText(/No .*(found|data|measurements)/i).first(),
+          page.getByText('No data').first(),
+          page.getByText('No callers or dependencies detected').first(),
         ]);
       }
     }
