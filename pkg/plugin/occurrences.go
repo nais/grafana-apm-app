@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 
@@ -83,11 +84,13 @@ var anchorPlaceholders = regexp.MustCompile(`<(?:url|email|uuid|ts|ip|hex|num)>`
 // (e.g. a title that is a single placeholder), in which case the scan runs
 // unanchored exactly as before.
 func literalAnchor(template string) string {
-	best := ""
+	best, bestLen := "", 0
 	for _, seg := range anchorPlaceholders.Split(template, -1) {
 		seg = strings.TrimSpace(seg)
-		if len([]rune(seg)) >= minAnchorLen && len(seg) > len(best) {
-			best = seg
+		// Both the threshold and the longest-segment tie-break count runes, so
+		// non-ASCII text (æ/ø/å are two bytes each) can't skew the pick.
+		if n := utf8.RuneCountInString(seg); n >= minAnchorLen && n > bestLen {
+			best, bestLen = seg, n
 		}
 	}
 	return best

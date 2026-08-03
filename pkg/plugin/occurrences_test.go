@@ -326,6 +326,9 @@ func TestLiteralAnchor(t *testing.T) {
 		{"<url>", ""},
 		{"a <num> b", ""}, // both literal runs shorter than minAnchorLen
 		{"got <num> of <num> expected results from server", "expected results from server"},
+		// Longest is decided by rune count, not bytes: "æøåæø" is 5 runes but
+		// 10 bytes — a byte-length tie-break would wrongly prefer it.
+		{"æøåæø <num> abcdef", "abcdef"},
 		{"", ""},
 	}
 	for _, c := range cases {
