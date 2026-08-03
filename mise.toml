@@ -121,7 +121,7 @@ fi
 [tasks.deploy]
 description = "Build and reload the plugin in Grafana only"
 depends = ["build"]
-run = "docker compose up -d --no-deps grafana"
+run = "docker compose up -d --no-deps --force-recreate grafana"
 
 [tasks."deploy:up"]
 description = "Build and start the full local stack (Grafana + Mimir + Tempo + Loki)"
@@ -168,6 +168,14 @@ run = ["docker compose up -d", "pnpm run dev"]
 description = "Start only Grafana and frontend watch for external datasources"
 depends = ["build"]
 run = ["docker compose up -d --no-deps grafana", "pnpm run dev"]
+
+[tasks."dev:debug"]
+description = "Start the full stack with Delve debugging and frontend watch mode"
+depends = ["build"]
+run = [
+  "DEVELOPMENT=true docker compose -f docker-compose.yaml -f docker-compose.debug.yaml up -d",
+  "pnpm run dev",
+]
 
 [tasks.clean]
 description = "Remove build artifacts"

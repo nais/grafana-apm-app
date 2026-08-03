@@ -140,6 +140,14 @@ Open `http://localhost:3000/a/nais-apm-app/services`.
 `mise run dev` builds the plugin once, starts the full local stack, and watches
 frontend changes. Use `mise run deploy` after changing Go code.
 
+For Delve debugging, use the explicit debug task. It starts Grafana as root,
+enables `SYS_PTRACE`, and exposes port 2345; do not use it outside local
+development.
+
+```bash
+mise run dev:debug
+```
+
 If your Grafana provisioning uses external datasources, start only Grafana:
 
 ```bash
@@ -177,6 +185,7 @@ The project uses [mise](https://mise.jdx.dev/) as task runner:
 | `mise run build`             | Production frontend and backend build          |
 | `mise run dev`               | Full stack with frontend watch mode            |
 | `mise run dev:grafana`       | Grafana only with frontend watch mode          |
+| `mise run dev:debug`         | Full stack with Delve and frontend watch mode  |
 | `mise run deploy`            | Build and reload the plugin in Grafana only    |
 | `mise run deploy:up`         | Build and start the full stack                 |
 | `mise run deploy:up:grafana` | Build and start Grafana only                   |

@@ -3,7 +3,12 @@ import { defineConfig, devices } from '@playwright/test';
 import { dirname } from 'node:path';
 
 const pluginE2eAuth = `${dirname(require.resolve('@grafana/plugin-e2e'))}/auth`;
-const workers = process.env.PLAYWRIGHT_WORKERS ? Number.parseInt(process.env.PLAYWRIGHT_WORKERS, 10) : undefined;
+const configuredWorkers = process.env.PLAYWRIGHT_WORKERS;
+const workers = configuredWorkers === undefined ? undefined : Number(configuredWorkers);
+
+if (workers !== undefined && (!Number.isInteger(workers) || workers < 1)) {
+  throw new Error('PLAYWRIGHT_WORKERS must be a positive integer');
+}
 
 /**
  * Read environment variables from file.
