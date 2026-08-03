@@ -106,6 +106,8 @@ interface ExceptionDrawerProps {
   resolving?: boolean;
   /** Group title from the fingerprint pipeline (falls back to parsed value). */
   title?: string;
+  /** Exception type from the issue group — narrows the server occurrence scan. */
+  issueType?: string;
   service: string;
   namespace: string;
   environment?: string;
@@ -120,6 +122,7 @@ export function ExceptionDrawer({
   source = 'browser',
   resolving = false,
   title,
+  issueType,
   service,
   namespace,
   environment,
@@ -160,6 +163,8 @@ export function ExceptionDrawer({
     source,
     hashes,
     issueId,
+    title,
+    issueType,
     service,
     namespace,
     environment,

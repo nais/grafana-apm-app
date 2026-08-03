@@ -70,6 +70,13 @@ export interface UseIssueOccurrencesOptions {
   hashes: string[];
   /** Fingerprint (server issues, and the join key for browser feedback). */
   issueId: string;
+  /**
+   * Group title — forwarded to the server occurrences endpoint so it can
+   * anchor its capped Loki scan to matching lines (recall on noisy services).
+   */
+  title?: string;
+  /** Exception type from the issue group, when it carries one. */
+  issueType?: string;
   service: string;
   namespace: string;
   environment?: string;
@@ -99,7 +106,20 @@ export interface UseIssueOccurrencesResult {
  * `{ occurrences, stats }` shape so the drawer renders one way.
  */
 export function useIssueOccurrences(opts: UseIssueOccurrencesOptions): UseIssueOccurrencesResult {
-  const { source, hashes, issueId, service, namespace, environment, logsUid, fromMs, toMs, resolving } = opts;
+  const {
+    source,
+    hashes,
+    issueId,
+    title,
+    issueType,
+    service,
+    namespace,
+    environment,
+    logsUid,
+    fromMs,
+    toMs,
+    resolving,
+  } = opts;
   const labelOverrides = usePluginLabelOverrides();
   const fl = otel.faroLoki;
   const clusterLabel = labelOverrides.deploymentEnvLabel || otel.labels.deploymentEnv;
@@ -127,7 +147,10 @@ export function useIssueOccurrences(opts: UseIssueOccurrencesOptions): UseIssueO
     let cancelled = false;
     setLoading(true);
     setError(null);
-    getIssueOccurrences(namespace, service, issueId, fromMs, toMs, environment || undefined)
+    getIssueOccurrences(namespace, service, issueId, fromMs, toMs, environment || undefined, {
+      title,
+      type: issueType,
+    })
       .then((res) => {
         if (cancelled) {
           return;
@@ -178,7 +201,7 @@ export function useIssueOccurrences(opts: UseIssueOccurrencesOptions): UseIssueO
     return () => {
       cancelled = true;
     };
-  }, [source, issueId, namespace, service, environment, fromMs, toMs]);
+  }, [source, issueId, title, issueType, namespace, service, environment, fromMs, toMs]);
 
   // ---- Browser path: direct Loki query by Alloy hash ----
   useEffect(() => {

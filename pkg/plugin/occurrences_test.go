@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -27,6 +28,22 @@ type occLine struct {
 // `labels` column so LogQueryWithLabels can recover structured metadata.
 func occTestApp(t *testing.T, logs map[string][]occLine) (*App, *queries.DsQueryClient) {
 	t.Helper()
+	return occTestAppConditional(t, logs, nil, nil)
+}
+
+// occTestAppRecording is occTestApp plus expr capture: every query expression
+// the backend sends is appended to *exprs.
+func occTestAppRecording(t *testing.T, logs map[string][]occLine, exprs *[]string) (*App, *queries.DsQueryClient) {
+	t.Helper()
+	return occTestAppConditional(t, logs, exprs, nil)
+}
+
+// occTestAppConditional is the configurable core: logs are served for an expr
+// only when serve(expr) allows it (nil = always), and exprs are recorded into
+// *exprs when non-nil.
+func occTestAppConditional(t *testing.T, logs map[string][]occLine, exprs *[]string, serve func(expr string) bool) (*App, *queries.DsQueryClient) {
+	t.Helper()
+	var mu sync.Mutex // the three shape queries arrive concurrently
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Queries []struct {
@@ -39,6 +56,11 @@ func occTestApp(t *testing.T, logs map[string][]occLine) (*App, *queries.DsQuery
 			return
 		}
 		expr := req.Queries[0].Expr
+		if exprs != nil {
+			mu.Lock()
+			*exprs = append(*exprs, expr)
+			mu.Unlock()
+		}
 		type frame struct {
 			Schema struct {
 				Fields []map[string]any `json:"fields"`
@@ -52,7 +74,7 @@ func occTestApp(t *testing.T, logs map[string][]occLine) (*App, *queries.DsQuery
 		}
 		res := result{}
 		for key, lines := range logs {
-			if !strings.Contains(expr, key) {
+			if !strings.Contains(expr, key) || (serve != nil && !serve(expr)) {
 				continue
 			}
 			labelsCol := make([]map[string]string, len(lines))
@@ -112,7 +134,7 @@ func TestQueryIssueOccurrencesSemconvShape(t *testing.T) {
 		},
 	})
 
-	resp := app.queryIssueOccurrences(context.Background(), ds, "loki", "my-app", "", wantFP, time.Unix(0, 0), time.Unix(3600, 0))
+	resp := app.queryIssueOccurrences(context.Background(), ds, "loki", "my-app", "", wantFP, "", "", time.Unix(0, 0), time.Unix(3600, 0))
 
 	if resp.Shape != "otlp" {
 		t.Errorf("shape = %q, want otlp", resp.Shape)
@@ -176,7 +198,7 @@ func TestQueryIssueOccurrencesJSONShape(t *testing.T) {
 		},
 	})
 
-	resp := app.queryIssueOccurrences(context.Background(), ds, "loki", "my-app", "", wantFP, time.Unix(0, 0), time.Unix(3600, 0))
+	resp := app.queryIssueOccurrences(context.Background(), ds, "loki", "my-app", "", wantFP, "", "", time.Unix(0, 0), time.Unix(3600, 0))
 
 	if resp.Shape != "json" {
 		t.Errorf("shape = %q, want json", resp.Shape)
@@ -216,7 +238,7 @@ func TestQueryIssueOccurrencesJSONTraceAndAttributes(t *testing.T) {
 		},
 	})
 
-	resp := app.queryIssueOccurrences(context.Background(), ds, "loki", "my-app", "", wantFP, time.Unix(0, 0), time.Unix(3600, 0))
+	resp := app.queryIssueOccurrences(context.Background(), ds, "loki", "my-app", "", wantFP, "", "", time.Unix(0, 0), time.Unix(3600, 0))
 
 	if len(resp.Occurrences) != 1 {
 		t.Fatalf("got %d occurrences, want 1: %+v", len(resp.Occurrences), resp.Occurrences)
@@ -252,7 +274,7 @@ func TestQueryIssueOccurrencesPlainShapeFiltersNoise(t *testing.T) {
 		},
 	})
 
-	resp := app.queryIssueOccurrences(context.Background(), ds, "loki", "my-app", "", wantFP, time.Unix(0, 0), time.Unix(3600, 0))
+	resp := app.queryIssueOccurrences(context.Background(), ds, "loki", "my-app", "", wantFP, "", "", time.Unix(0, 0), time.Unix(3600, 0))
 
 	if resp.Shape != "plaintext" {
 		t.Errorf("shape = %q, want plaintext", resp.Shape)
@@ -278,7 +300,7 @@ func TestQueryIssueOccurrencesNoMatchIsEmpty(t *testing.T) {
 			{TimeMs: 1000, Labels: map[string]string{"exception_type": "Foo", "exception_message": "bar"}},
 		},
 	})
-	resp := app.queryIssueOccurrences(context.Background(), ds, "loki", "my-app", "", "v1:doesnotexist", time.Unix(0, 0), time.Unix(3600, 0))
+	resp := app.queryIssueOccurrences(context.Background(), ds, "loki", "my-app", "", "v1:doesnotexist", "", "", time.Unix(0, 0), time.Unix(3600, 0))
 	if len(resp.Occurrences) != 0 {
 		t.Errorf("want no occurrences, got %+v", resp.Occurrences)
 	}
@@ -291,6 +313,106 @@ func TestQueryIssueOccurrencesNoMatchIsEmpty(t *testing.T) {
 	// Versions is always a non-nil slice so the JSON payload is [] not null.
 	if resp.Stats.Versions == nil {
 		t.Error("stats.versions should be non-nil")
+	}
+}
+
+func TestLiteralAnchor(t *testing.T) {
+	cases := []struct {
+		template string
+		want     string
+	}{
+		{"Auth error", "Auth error"},
+		{"Proxy request failed for <url>", "Proxy request failed for"},
+		{"<url>", ""},
+		{"a <num> b", ""}, // both literal runs shorter than minAnchorLen
+		{"got <num> of <num> expected results from server", "expected results from server"},
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := literalAnchor(c.template); got != c.want {
+			t.Errorf("literalAnchor(%q) = %q, want %q", c.template, got, c.want)
+		}
+	}
+}
+
+func TestMessageTemplate(t *testing.T) {
+	if got := messageTemplate("TypeError: foo bar", "TypeError"); got != "foo bar" {
+		t.Errorf("type prefix not stripped: %q", got)
+	}
+	if got := messageTemplate("Auth error", ""); got != "Auth error" {
+		t.Errorf("untyped title changed: %q", got)
+	}
+	// A message that merely CONTAINS the type mid-string keeps its full text.
+	if got := messageTemplate("wrapped TypeError: x", "TypeError"); got != "wrapped TypeError: x" {
+		t.Errorf("non-prefix type stripped: %q", got)
+	}
+}
+
+// TestQueryIssueOccurrencesAnchoredQueries proves the title/type hints reach
+// the LogQL pipelines: shape (a) narrows via label filters on the structured
+// metadata, shapes (b)/(c) via a substring line filter — and matching lines
+// still extract normally through the anchored pass (no fallback needed).
+func TestQueryIssueOccurrencesAnchoredQueries(t *testing.T) {
+	wantFP := fingerprint.Compute(fingerprint.Event{Type: "AuthError", Value: "Auth error"}).Value
+
+	var exprs []string
+	app, ds := occTestAppRecording(t, map[string][]occLine{
+		keySemconv: {
+			{TimeMs: 2000, Labels: map[string]string{
+				"exception_type": "AuthError", "exception_message": "Auth error", "k8s_pod_name": "p1",
+			}},
+		},
+	}, &exprs)
+
+	resp := app.queryIssueOccurrences(context.Background(), ds, "loki", "my-app", "", wantFP,
+		"AuthError: Auth error", "AuthError", time.Unix(0, 0), time.Unix(3600, 0))
+
+	if len(resp.Occurrences) != 1 {
+		t.Fatalf("got %d occurrences, want 1: %+v", len(resp.Occurrences), resp.Occurrences)
+	}
+	joined := strings.Join(exprs, "\n")
+	if !strings.Contains(joined, `exception_type="AuthError"`) {
+		t.Errorf("semconv pipeline missing type filter:\n%s", joined)
+	}
+	if !strings.Contains(joined, `exception_message=~"(?s).*Auth error.*"`) {
+		t.Errorf("semconv pipeline missing message anchor:\n%s", joined)
+	}
+	if !strings.Contains(joined, `|= "Auth error"`) {
+		t.Errorf("json/plain pipelines missing line anchor:\n%s", joined)
+	}
+	// The anchored pass matched, so no unanchored fallback: 3 shape queries.
+	if len(exprs) != 3 {
+		t.Errorf("expected 3 queries (no fallback), got %d:\n%s", len(exprs), joined)
+	}
+}
+
+// TestQueryIssueOccurrencesAnchorFallback: when the anchored scan matches
+// nothing (here: Loki finds no line containing the anchor), the unanchored
+// scan reruns so recall is never worse than before the anchor existed.
+func TestQueryIssueOccurrencesAnchorFallback(t *testing.T) {
+	wantFP := fingerprint.Compute(fingerprint.Event{Value: "db connection failed"}).Value
+
+	lines := map[string][]occLine{
+		keyJSON: {
+			{TimeMs: 5000, Line: `{"level":"error","message":"db connection failed"}`,
+				Labels: map[string]string{"k8s_pod_name": "svc-1"}},
+		},
+	}
+	var exprs []string
+	app, ds := occTestAppConditional(t, lines, &exprs, func(expr string) bool {
+		// Anchored queries return nothing — simulates an anchor defeated by
+		// whitespace collapse or JSON escaping in the raw line.
+		return !strings.Contains(expr, `|= "`) && !strings.Contains(expr, "exception_message=~")
+	})
+
+	resp := app.queryIssueOccurrences(context.Background(), ds, "loki", "my-app", "", wantFP,
+		"db connection failed", "", time.Unix(0, 0), time.Unix(3600, 0))
+
+	if len(resp.Occurrences) != 1 {
+		t.Fatalf("fallback did not recover the occurrence: %+v", resp.Occurrences)
+	}
+	if len(exprs) != 6 {
+		t.Errorf("expected 6 queries (anchored + unanchored fallback), got %d", len(exprs))
 	}
 }
 

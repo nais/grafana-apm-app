@@ -739,11 +739,28 @@ export async function getIssueOccurrences(
   fingerprint: string,
   from: number,
   to: number,
-  environment?: string
+  environment?: string,
+  hints?: {
+    /**
+     * The group title (fingerprint-normalized template) — lets the backend
+     * anchor its capped line scan to lines that can actually match, instead of
+     * blindly sampling the newest error lines (which on a chatty service often
+     * misses the clicked issue entirely).
+     */
+    title?: string;
+    /** Exception type, when the issue carries one (shape (a) narrowing). */
+    type?: string;
+  }
 ): Promise<IssueOccurrencesResponse> {
   const params: Record<string, string> = { ...timeParams(from, to), fingerprint };
   if (environment) {
     params.environment = environment;
+  }
+  if (hints?.title) {
+    params.title = hints.title;
+  }
+  if (hints?.type) {
+    params.type = hints.type;
   }
   return fetchResource<IssueOccurrencesResponse>(
     `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/issues/occurrences`,
