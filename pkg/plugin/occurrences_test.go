@@ -346,6 +346,44 @@ func TestMessageTemplate(t *testing.T) {
 	if got := messageTemplate("wrapped TypeError: x", "TypeError"); got != "wrapped TypeError: x" {
 		t.Errorf("non-prefix type stripped: %q", got)
 	}
+	// Type-only group: the title IS the type, occurrences have an empty
+	// message — no anchor must be derived from the type text.
+	if got := messageTemplate("SomeException", "SomeException"); got != "" {
+		t.Errorf("type-only title must yield no message template, got %q", got)
+	}
+}
+
+// TestQueryIssueOccurrencesTypeOnlyGroup: a type-only group (empty message)
+// narrows by the exception_type label filter alone; deriving a message anchor
+// from the type text would exclude every real occurrence.
+func TestQueryIssueOccurrencesTypeOnlyGroup(t *testing.T) {
+	wantFP := fingerprint.Compute(fingerprint.Event{Type: "OutOfMemoryError"}).Value
+
+	var exprs []string
+	app, ds := occTestAppRecording(t, map[string][]occLine{
+		keySemconv: {
+			{TimeMs: 2000, Labels: map[string]string{
+				"exception_type": "OutOfMemoryError", "k8s_pod_name": "p1",
+			}},
+		},
+	}, &exprs)
+
+	resp := app.queryIssueOccurrences(context.Background(), ds, "loki", "my-app", "", wantFP,
+		"OutOfMemoryError", "OutOfMemoryError", time.Unix(0, 0), time.Unix(3600, 0))
+
+	if len(resp.Occurrences) != 1 {
+		t.Fatalf("got %d occurrences, want 1: %+v", len(resp.Occurrences), resp.Occurrences)
+	}
+	joined := strings.Join(exprs, "\n")
+	if !strings.Contains(joined, `exception_type="OutOfMemoryError"`) {
+		t.Errorf("semconv pipeline missing type filter:\n%s", joined)
+	}
+	if strings.Contains(joined, "exception_message=~") || strings.Contains(joined, `|= "`) {
+		t.Errorf("type-only group must not derive a message anchor:\n%s", joined)
+	}
+	if len(exprs) != 3 {
+		t.Errorf("expected 3 queries (type filter matched, no fallback), got %d:\n%s", len(exprs), joined)
+	}
 }
 
 // TestQueryIssueOccurrencesAnchoredQueries proves the title/type hints reach

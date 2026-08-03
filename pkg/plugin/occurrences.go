@@ -101,6 +101,13 @@ func messageTemplate(title, exType string) string {
 		if rest, ok := strings.CutPrefix(title, exType+": "); ok {
 			return rest
 		}
+		if title == exType {
+			// Type-only group (no message): its occurrences carry an EMPTY
+			// exception_message, so a message anchor derived from the type text
+			// would exclude every real occurrence (and force the fallback pass
+			// on every load). The exception_type label filter alone narrows.
+			return ""
+		}
 	}
 	return title
 }
