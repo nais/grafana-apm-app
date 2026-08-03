@@ -22,5 +22,6 @@
     "transpileOnly": true
   },
   "include": ["../src", "./types"],
-  "extends": "@grafana/tsconfig"
+  // Playwright resolves tsconfig inheritance as a filesystem path during E2E setup.
+  "extends": "../node_modules/@grafana/tsconfig/tsconfig.json"
 }
