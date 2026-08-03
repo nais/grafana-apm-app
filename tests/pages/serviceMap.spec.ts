@@ -25,6 +25,7 @@ test.describe('Service Map', () => {
         // The rendered ServiceGraph draws into an svg/canvas node-graph.
         page.locator('svg'),
         page.locator('canvas'),
+        page.getByRole('application'),
       ],
       { message: 'Service Map page did not render any meaningful content' }
     );

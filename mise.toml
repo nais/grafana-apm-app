@@ -116,16 +116,22 @@ if [ "$(go env GOOS)" != "linux" ]; then
 fi
 """
 
-# --- Local deployment tasks ---
+# --- Local stack tasks ---
 
 [tasks.deploy]
-description = "Build and (re)deploy to local Grafana"
+description = "Build and reload the plugin in Grafana only"
 depends = ["build"]
-run = "docker compose restart grafana"
+run = "docker compose up -d --no-deps --force-recreate grafana"
 
 [tasks."deploy:up"]
-description = "Start the full local stack (Grafana + Mimir + Tempo + Loki)"
+description = "Build and start the full local stack (Grafana + Mimir + Tempo + Loki)"
+depends = ["build"]
 run = "docker compose up -d"
+
+[tasks."deploy:up:grafana"]
+description = "Build and start only Grafana for externally provisioned datasources"
+depends = ["build"]
+run = "docker compose up -d --no-deps grafana"
 
 [tasks."deploy:down"]
 description = "Stop and remove the local stack"
@@ -140,21 +146,36 @@ description = "Tail Grafana container logs"
 run = "docker compose logs -f grafana"
 
 [tasks."deploy:status"]
-description = "Show running containers and Grafana health"
+description = "Show running containers and Grafana health on GRAFANA_PORT (default: 3000)"
 run = [
   "docker compose ps",
-  "curl -sf http://localhost:3000/api/health | python3 -m json.tool || echo 'Grafana not reachable'",
+  'curl -sf "http://localhost:${GRAFANA_PORT:-3000}/api/health" | python3 -m json.tool || echo "Grafana not reachable"',
 ]
 
 [tasks."deploy:demo"]
-description = "Start stack with OTel Demo traffic generator"
+description = "Build and start the stack with OTel Demo traffic generator"
+depends = ["build"]
 run = "docker compose -f docker-compose.yaml -f docker-compose.demo.yaml up -d"
 
 # --- Utility tasks ---
 
 [tasks.dev]
-description = "Start dev stack and frontend watch"
+description = "Start the full stack and frontend watch mode"
+depends = ["build"]
 run = ["docker compose up -d", "pnpm run dev"]
+
+[tasks."dev:grafana"]
+description = "Start only Grafana and frontend watch for external datasources"
+depends = ["build"]
+run = ["docker compose up -d --no-deps grafana", "pnpm run dev"]
+
+[tasks."dev:debug"]
+description = "Start the full stack with Delve debugging and frontend watch mode"
+depends = ["build"]
+run = [
+  "DEVELOPMENT=true docker compose -f docker-compose.yaml -f docker-compose.debug.yaml up -d",
+  "pnpm run dev",
+]
 
 [tasks.clean]
 description = "Remove build artifacts"
@@ -167,24 +188,27 @@ run = "bash scripts/release.sh {{arg(i=0, name='bump', default='patch')}}"
 # --- E2E tasks ---
 
 [tasks.e2e]
-description = "Run Playwright e2e tests (requires local stack running)"
+description = "Run Playwright E2E tests against GRAFANA_PORT (default: 3000)"
 run = """
-# Ensure Grafana is reachable
-if ! curl -sf http://localhost:3000/api/health >/dev/null 2>&1; then
-  echo "❌ Grafana not reachable at localhost:3000"
-  echo "   Start the stack first: mise run deploy:up"
+port="${GRAFANA_PORT:-3000}"
+url="${GRAFANA_URL:-http://127.0.0.1:${port}}"
+if ! curl -sf "${url}/api/health" >/dev/null 2>&1; then
+  echo "Grafana not reachable at ${url}"
+  echo "Start it first: mise run deploy:up:grafana"
   exit 1
 fi
-pnpm run e2e
+GRAFANA_URL="${url}" pnpm run e2e
 """
 
 [tasks."e2e:ui"]
-description = "Run Playwright e2e tests with interactive UI"
+description = "Run interactive Playwright E2E tests against GRAFANA_PORT"
 run = """
-if ! curl -sf http://localhost:3000/api/health >/dev/null 2>&1; then
-  echo "❌ Grafana not reachable at localhost:3000"
-  echo "   Start the stack first: mise run deploy:up"
+port="${GRAFANA_PORT:-3000}"
+url="${GRAFANA_URL:-http://127.0.0.1:${port}}"
+if ! curl -sf "${url}/api/health" >/dev/null 2>&1; then
+  echo "Grafana not reachable at ${url}"
+  echo "Start it first: mise run deploy:up:grafana"
   exit 1
 fi
-pnpm exec playwright test --ui
+GRAFANA_URL="${url}" pnpm exec playwright test --ui
 """

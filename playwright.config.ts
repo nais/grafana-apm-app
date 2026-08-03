@@ -3,6 +3,12 @@ import { defineConfig, devices } from '@playwright/test';
 import { dirname } from 'node:path';
 
 const pluginE2eAuth = `${dirname(require.resolve('@grafana/plugin-e2e'))}/auth`;
+const configuredWorkers = process.env.PLAYWRIGHT_WORKERS;
+const workers = configuredWorkers === undefined ? undefined : Number(configuredWorkers);
+
+if (workers !== undefined && (!Number.isInteger(workers) || workers < 1)) {
+  throw new Error('PLAYWRIGHT_WORKERS must be a positive integer');
+}
 
 /**
  * Read environment variables from file.
@@ -21,6 +27,8 @@ export default defineConfig<PluginOptions>({
   forbidOnly: !!process.env.CI,
   /* Retry on CI only */
   retries: process.env.CI ? 2 : 0,
+  /* Limit concurrent browsers when local Docker resources are constrained. */
+  workers,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   reporter: 'html',
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */

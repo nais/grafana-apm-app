@@ -46,7 +46,7 @@
     {
       "type": "page",
       "name": "Services",
-      "path": "/a/%PLUGIN_ID%/services",
+      "path": "/a/nais-apm-app/services",
       "addToNav": true,
       "defaultNav": true,
       "role": "Viewer"
@@ -54,7 +54,7 @@
     {
       "type": "page",
       "name": "Jobs",
-      "path": "/a/%PLUGIN_ID%/jobs",
+      "path": "/a/nais-apm-app/jobs",
       "icon": "calendar-alt",
       "addToNav": true,
       "role": "Viewer"
@@ -62,7 +62,7 @@
     {
       "type": "page",
       "name": "My Apps",
-      "path": "/a/%PLUGIN_ID%/favorites",
+      "path": "/a/nais-apm-app/favorites",
       "icon": "favorite",
       "addToNav": true,
       "role": "Viewer"
@@ -70,7 +70,7 @@
     {
       "type": "page",
       "name": "Ops Status",
-      "path": "/a/%PLUGIN_ID%/ops",
+      "path": "/a/nais-apm-app/ops",
       "icon": "monitor",
       "addToNav": true,
       "role": "Viewer"
@@ -78,7 +78,7 @@
     {
       "type": "page",
       "name": "Service Map",
-      "path": "/a/%PLUGIN_ID%/service-map",
+      "path": "/a/nais-apm-app/service-map",
       "icon": "sitemap",
       "addToNav": true,
       "role": "Viewer"
@@ -86,7 +86,7 @@
     {
       "type": "page",
       "name": "Dependencies",
-      "path": "/a/%PLUGIN_ID%/dependencies",
+      "path": "/a/nais-apm-app/dependencies",
       "addToNav": true,
       "role": "Viewer"
     },
@@ -94,13 +94,13 @@
       "type": "page",
       "icon": "cog",
       "name": "Configuration",
-      "path": "/plugins/%PLUGIN_ID%",
+      "path": "/plugins/nais-apm-app",
       "role": "Admin",
       "addToNav": true
     }
   ],
   "dependencies": {
-    "grafanaDependency": ">=12.0.0",
+    "grafanaDependency": ">=13.0.0",
     "plugins": []
   },
   "iam": {

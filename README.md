@@ -62,7 +62,7 @@ expected metrics and labels.
 
 ## Prerequisites
 
-- **Grafana** >= 12.0.0
+- **Grafana** >= 13.0.0
 - **Mimir** (or Prometheus) with span-derived metrics
 - **Tempo** for distributed traces
 - **Loki** for logs _(optional — needed for log correlation, Faro frontend data, issues/triage, and log patterns)_
@@ -132,11 +132,40 @@ troubleshooting, see [docs/configuration.md](https://github.com/nais/grafana-apm
 git clone https://github.com/nais/grafana-apm-app.git
 cd grafana-apm-app
 pnpm install
-docker compose up          # Grafana + Mimir + Tempo + Loki + OTel Collector
-pnpm run dev               # Frontend watch mode (separate terminal)
+mise run dev
 ```
 
 Open `http://localhost:3000/a/nais-apm-app/services`.
+
+`mise run dev` builds the plugin once, starts the full local stack, and watches
+frontend changes. Use `mise run deploy` after changing Go code.
+
+For Delve debugging, use the explicit debug task. It starts Grafana as root,
+enables `SYS_PTRACE`, and exposes port 2345; do not use it outside local
+development.
+
+```bash
+mise run dev:debug
+```
+
+If your Grafana provisioning uses external datasources, start only Grafana:
+
+```bash
+mise run dev:grafana
+```
+
+Override the Grafana port when 3000 is already in use:
+
+```bash
+GRAFANA_PORT=3001 mise run dev:grafana
+```
+
+Run local E2E tests against the selected port. Use one worker when Docker
+memory is constrained:
+
+```bash
+GRAFANA_PORT=3001 PLAYWRIGHT_WORKERS=1 mise run e2e
+```
 
 For a demo with realistic traffic from the [OpenTelemetry Demo](https://opentelemetry.io/docs/demo/) microservices:
 
@@ -148,15 +177,20 @@ docker compose -f docker-compose.demo.yaml up
 
 The project uses [mise](https://mise.jdx.dev/) as task runner:
 
-| Command           | Description                                    |
-| ----------------- | ---------------------------------------------- |
-| `mise run all`    | Full check + test + build pipeline             |
-| `mise run check`  | Lint + typecheck + format (frontend & backend) |
-| `mise run test`   | All tests (Jest + Go with race detector)       |
-| `mise run build`  | Production build (frontend + backend)          |
-| `mise run dev`    | Docker stack + frontend watch mode             |
-| `mise run deploy` | Build all + restart Grafana                    |
-| `mise run clean`  | Remove dist/ and coverage/                     |
+| Command                      | Description                                    |
+| ---------------------------- | ---------------------------------------------- |
+| `mise run all`               | Full check, test, and build pipeline           |
+| `mise run check`             | Lint, typecheck, format, secrets, and metadata |
+| `mise run test`              | Jest and Go tests with race detection          |
+| `mise run build`             | Production frontend and backend build          |
+| `mise run dev`               | Full stack with frontend watch mode            |
+| `mise run dev:grafana`       | Grafana only with frontend watch mode          |
+| `mise run dev:debug`         | Full stack with Delve and frontend watch mode  |
+| `mise run deploy`            | Build and reload the plugin in Grafana only    |
+| `mise run deploy:up`         | Build and start the full stack                 |
+| `mise run deploy:up:grafana` | Build and start Grafana only                   |
+| `mise run e2e`               | E2E against `GRAFANA_PORT` or `GRAFANA_URL`    |
+| `mise run clean`             | Remove build artifacts and coverage            |
 
 ## Architecture
 
