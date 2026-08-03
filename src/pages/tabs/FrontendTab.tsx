@@ -58,6 +58,7 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
     drawerLoading,
     source: drawerSource,
     selectedGroupTitle,
+    selectedIssueType,
     selectedIssueId,
     selectedHash,
     selectedSessionId,
@@ -127,6 +128,7 @@ export function FrontendTab({ service, namespace, environment }: FrontendTabProp
           source={drawerSource}
           resolving={drawerLoading}
           title={selectedGroupTitle}
+          issueType={selectedIssueType}
           service={service}
           namespace={namespace}
           environment={environment}

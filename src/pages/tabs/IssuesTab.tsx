@@ -36,6 +36,7 @@ export function IssuesTab({ service, namespace, environment }: IssuesTabProps) {
     drawerLoading,
     source: drawerSource,
     selectedGroupTitle,
+    selectedIssueType,
     selectedIssueId,
     selectedHash,
     selectedSessionId,
@@ -75,6 +76,7 @@ export function IssuesTab({ service, namespace, environment }: IssuesTabProps) {
           source={drawerSource}
           resolving={drawerLoading}
           title={selectedGroupTitle}
+          issueType={selectedIssueType}
           service={service}
           namespace={namespace}
           environment={environment}

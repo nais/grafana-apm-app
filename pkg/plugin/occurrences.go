@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 
@@ -64,6 +67,53 @@ var jsonBodyExclude = map[string]bool{
 // side (100 lines aggregated for impact); enough to characterize an issue
 // without pulling unbounded log volume.
 const occurrenceCap = 100
+
+// minAnchorLen is the minimum length (in runes) for a literal anchor derived
+// from a group title. Shorter fragments ("at ", "in") match almost every
+// line and would only cost Loki regex work without narrowing anything.
+const minAnchorLen = 4
+
+// anchorPlaceholders matches the dynamic-token placeholders fingerprint
+// normalization substitutes into group titles (fingerprint.Normalize). The
+// literal text BETWEEN placeholders is what raw log lines still contain.
+var anchorPlaceholders = regexp.MustCompile(`<(?:url|email|uuid|ts|ip|hex|num)>`)
+
+// literalAnchor extracts the longest placeholder-free run from a
+// fingerprint-normalized message template — a substring every raw occurrence
+// of the issue must still contain. Returns "" when no usable run exists
+// (e.g. a title that is a single placeholder), in which case the scan runs
+// unanchored exactly as before.
+func literalAnchor(template string) string {
+	best, bestLen := "", 0
+	for _, seg := range anchorPlaceholders.Split(template, -1) {
+		seg = strings.TrimSpace(seg)
+		// Both the threshold and the longest-segment tie-break count runes, so
+		// non-ASCII text (æ/ø/å are two bytes each) can't skew the pick.
+		if n := utf8.RuneCountInString(seg); n >= minAnchorLen && n > bestLen {
+			best, bestLen = seg, n
+		}
+	}
+	return best
+}
+
+// messageTemplate strips the "Type: " prefix buildTitle prepends, so anchors
+// come from the message part only — raw lines carry the type in a separate
+// field (or not at all), never concatenated into the message.
+func messageTemplate(title, exType string) string {
+	if exType != "" {
+		if rest, ok := strings.CutPrefix(title, exType+": "); ok {
+			return rest
+		}
+		if title == exType {
+			// Type-only group (no message): its occurrences carry an EMPTY
+			// exception_message, so a message anchor derived from the type text
+			// would exclude every real occurrence (and force the fallback pass
+			// on every load). The exception_type label filter alone narrows.
+			return ""
+		}
+	}
+	return title
+}
 
 // IssueOccurrence is one matched server-log line for an issue, extracted per
 // log shape. It mirrors the fields the ExceptionDrawer renders for a browser
@@ -139,6 +189,13 @@ func (a *App) handleIssueOccurrences(w http.ResponseWriter, req *http.Request) {
 	// the sanitizer unchanged; a malformed value sanitizes to "" and matches
 	// nothing (empty occurrence list), never interpolated anywhere unsafe.
 	fp := queries.MustSanitizeLabel(req.URL.Query().Get("fingerprint"))
+	// Optional narrowing hints from the issue row the drawer was opened from
+	// (#84 follow-up): the group title (fingerprint-normalized template) and
+	// exception type. Free text — never interpolated into LogQL directly, only
+	// via strconv.Quote'd literals (see occurrencePipelines). Absent on old
+	// clients; the scan then runs unanchored as before.
+	title := req.URL.Query().Get("title")
+	exType := req.URL.Query().Get("type")
 
 	lokiUID := a.settings.LogsDataSource.Resolve(env).UID
 	if lokiUID == "" {
@@ -158,30 +215,72 @@ func (a *App) handleIssueOccurrences(w http.ResponseWriter, req *http.Request) {
 	}
 
 	orgID := req.Header.Get("X-Grafana-Org-Id")
-	ck := cacheKey("issue-occurrences", orgID, namespace, service, env, fp, roundedUnix(from), roundedUnix(to))
+	ck := cacheKey("issue-occurrences", orgID, namespace, service, env, fp, title, exType, roundedUnix(from), roundedUnix(to))
 	dsClient := queries.NewDsQueryClient(a.grafanaURL, a.resolveServiceToken(ctx)).WithAuthHeaders(req.Header)
 	a.writeCached(w, ck, "querying issue occurrences failed", func() (any, error) {
-		return a.queryIssueOccurrences(ctx, dsClient, lokiUID, service, env, fp, from, to), nil
+		return a.queryIssueOccurrences(ctx, dsClient, lokiUID, service, env, fp, title, exType, from, to), nil
 	})
 }
 
 // queryIssueOccurrences re-scans the three server-log shapes and returns the
-// lines whose recomputed fingerprint equals wantFP. It reuses the exact shape
+// lines whose recomputed fingerprint equals wantFP.
+//
+// The list side counts issues with metric queries that see EVERY line in
+// range, but this side fetches raw lines capped at occurrenceCap per shape —
+// on a chatty service the cap sample can easily contain zero lines of the
+// requested issue, which surfaced as "no occurrences found in range" for an
+// issue the list had just shown. When the drawer supplies the group title /
+// type, the scan is therefore anchored: a literal fragment of the normalized
+// title narrows the Loki queries to lines that can actually match, making the
+// cap budget count only relevant lines. The Go-side fingerprint check stays
+// authoritative; if an anchored scan matches nothing (whitespace collapse or
+// JSON escaping can defeat a literal anchor), it falls back to the unanchored
+// scan, so recall is never worse than before.
+func (a *App) queryIssueOccurrences(ctx context.Context, ds *queries.DsQueryClient, lokiUID, service, env, wantFP, title, exType string, from, to time.Time) IssueOccurrencesResponse {
+	sel := a.serverLogSelector(service, env)
+	anchor := literalAnchor(messageTemplate(title, exType))
+	resp := a.scanOccurrences(ctx, ds, lokiUID, sel, wantFP, exType, anchor, from, to)
+	if len(resp.Occurrences) == 0 && (anchor != "" || exType != "") {
+		resp = a.scanOccurrences(ctx, ds, lokiUID, sel, wantFP, "", "", from, to)
+	}
+	return resp
+}
+
+// scanOccurrences runs one pass over the three server-log shapes, optionally
+// narrowed by an exception type and a literal message anchor, and folds the
+// fingerprint-matching lines into the response. It reuses the exact shape
 // selectors/pipelines from queryServerExceptionGroups — with LogQueryWithLabels
 // in place of the metric count queries — so a line lands in the same shape (and
 // therefore the same fingerprint) it was originally aggregated under.
-func (a *App) queryIssueOccurrences(ctx context.Context, ds *queries.DsQueryClient, lokiUID, service, env, wantFP string, from, to time.Time) IssueOccurrencesResponse {
+func (a *App) scanOccurrences(ctx context.Context, ds *queries.DsQueryClient, lokiUID, sel, wantFP, exType, anchor string, from, to time.Time) IssueOccurrencesResponse {
 	logger := log.DefaultLogger.With("handler", "issue-occurrences")
-	sel := a.serverLogSelector(service, env)
 
 	// The same three pipelines queryServerExceptionGroups counts over, minus
 	// the count_over_time wrapper (raw log queries here). exception_type="" on
 	// (b)/(c) keeps a line answerable by exactly one shape, so recomputed
 	// fingerprints never cross shapes.
+	//
+	// Anchoring (all narrowing values go through strconv.Quote — Loki string
+	// literals share Go escaping — so client-supplied text can never break out
+	// of the query): shape (a) carries the message in structured metadata, so
+	// it narrows via label filters; shapes (b)/(c) carry it in the line body,
+	// so they narrow via a substring line filter right after the selector
+	// (cheapest position). (?s) lets the regex cross newlines in multi-line
+	// messages.
 	semconvPipeline := sel + " | " + semconvTypeLabel + ` != ""`
-	jsonPipeline := sel + " | " + semconvTypeLabel + `="" | json | level=~"` + errorLevelRe + `" or ` +
+	if exType != "" {
+		semconvPipeline += " | " + semconvTypeLabel + "=" + strconv.Quote(exType)
+	}
+	if anchor != "" {
+		semconvPipeline += " | " + semconvMessageLabel + "=~" + strconv.Quote("(?s).*"+regexp.QuoteMeta(anchor)+".*")
+	}
+	lineAnchor := ""
+	if anchor != "" {
+		lineAnchor = " |= " + strconv.Quote(anchor)
+	}
+	jsonPipeline := sel + lineAnchor + " | " + semconvTypeLabel + `="" | json | level=~"` + errorLevelRe + `" or ` +
 		detectedLevelLabel + `=~"` + errorLevelRe + `" | ` + jsonMessageLabel + ` != "" or ` + jsonMsgLabel + ` != ""`
-	plainPipeline := sel + ` | ` + detectedLevelLabel + `=~"` + errorLevelRe + `" | ` + semconvTypeLabel +
+	plainPipeline := sel + lineAnchor + ` | ` + detectedLevelLabel + `=~"` + errorLevelRe + `" | ` + semconvTypeLabel +
 		`="" | json | drop __error__, __error_details__ | ` + jsonMessageLabel + `="" | ` + jsonMsgLabel + `=""`
 
 	var (

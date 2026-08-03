@@ -279,7 +279,7 @@ describe('user feedback section (M6)', () => {
 });
 
 describe('server issues (#84)', () => {
-  function renderServerDrawer() {
+  function renderServerDrawer(extraProps: Partial<React.ComponentProps<typeof ExceptionDrawer>> = {}) {
     return render(
       <MemoryRouter initialEntries={['/?issueId=v1:server1']}>
         <ExceptionDrawer
@@ -291,6 +291,7 @@ describe('server issues (#84)', () => {
           selectedSessionId=""
           onSessionChange={jest.fn()}
           onClose={jest.fn()}
+          {...extraProps}
         />
       </MemoryRouter>
     );
@@ -335,11 +336,30 @@ describe('server issues (#84)', () => {
       'v1:server1',
       expect.any(Number),
       expect.any(Number),
-      undefined
+      undefined,
+      // Narrowing hints: this drawer is rendered without title/type props, so
+      // both are undefined — the backend then runs the unanchored scan.
+      { title: undefined, type: undefined }
     );
     // Server path must not touch the browser hash→Loki query.
     const hashCalls = mockFetch.mock.calls.filter(([opts]: [any]) => (opts?.params?.query ?? '').includes('hash='));
     expect(hashCalls).toHaveLength(0);
+  });
+
+  it('forwards the group title and type as scan-narrowing hints', async () => {
+    getIssueOccurrences.mockResolvedValue(serverResponse);
+    renderServerDrawer({ title: 'ConnectException: connection refused', issueType: 'ConnectException' });
+
+    await screen.findByText(/^2 occurrences$/);
+    expect(getIssueOccurrences).toHaveBeenCalledWith(
+      'ns',
+      'my-app',
+      'v1:server1',
+      expect.any(Number),
+      expect.any(Number),
+      undefined,
+      { title: 'ConnectException: connection refused', type: 'ConnectException' }
+    );
   });
 
   it('shows the stack trace and a pod-based impact strip (not sessions)', async () => {

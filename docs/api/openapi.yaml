@@ -342,6 +342,22 @@ paths:
           required: true
           schema: { type: string }
           description: The versioned issue fingerprint (e.g. v1:9f2ab31c04d7e655).
+        - name: title
+          in: query
+          required: false
+          schema: { type: string }
+          description: >
+            Optional narrowing hint — the group title (fingerprint-normalized
+            template). Lets the backend anchor its capped line scan to lines
+            that can match the fingerprint; without it, chatty services can
+            fill the scan cap with unrelated errors and return no occurrences.
+            The fingerprint check stays authoritative, and an anchored scan
+            that matches nothing falls back to the unanchored scan.
+        - name: type
+          in: query
+          required: false
+          schema: { type: string }
+          description: Optional narrowing hint — the group's exception type.
       responses:
         "200":
           description: Issue occurrences.

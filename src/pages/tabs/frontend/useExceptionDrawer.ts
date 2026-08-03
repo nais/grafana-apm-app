@@ -25,6 +25,8 @@ export interface ExceptionDrawerState {
   source?: IssueSource;
   /** Group title — falls back to the drawer's own parsed value. */
   selectedGroupTitle?: string;
+  /** Exception type of the resolved issue group (server-scan narrowing). */
+  selectedIssueType?: string;
   selectedIssueId: string;
   selectedHash: string;
   selectedSessionId: string;
@@ -96,6 +98,7 @@ export function useExceptionDrawerState(
     drawerLoading,
     source,
     selectedGroupTitle: selectedIssue?.title,
+    selectedIssueType: selectedIssue?.types?.[0],
     selectedIssueId,
     selectedHash,
     selectedSessionId,
