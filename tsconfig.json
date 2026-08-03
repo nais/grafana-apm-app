@@ -1,7 +1,10 @@
 {
-  "extends": "@grafana/tsconfig",
+  "extends": "./.config/tsconfig.json",
   "compilerOptions": {
-    "declaration": false,
+    // TypeScript 6.0 deprecates `baseUrl` (set by the scaffolded .config/tsconfig.json)
+    // ahead of its removal in 7.0. Silence TS5101 here — the sanctioned extension point —
+    // until the create-plugin scaffold drops baseUrl in favour of `paths`.
+    "ignoreDeprecations": "6.0",
     // TypeScript 6.0 no longer auto-includes @types/node's ambient globals
     // (process, Buffer, __dirname, require, …) the way 5.x did, so list the
     // ambient type packages the code relies on explicitly. Packages pulled in
@@ -12,11 +15,7 @@
     "allowImportingTsExtensions": true,
     // The scaffold pins rootDir to src; widen it so scripts/seed typechecks.
     // Inconsequential for output — this config is only used with noEmit.
-    "rootDir": ".",
-    "resolveJsonModule": true,
-    "paths": {
-      "*": ["./src/*"]
-    }
+    "rootDir": "."
   },
   // The scaffold include only covers ../src (+ its types); add the seed
   // generator (#90) so `tsc --noEmit` typechecks it too. Paths are relative
