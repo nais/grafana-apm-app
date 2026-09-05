@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -119,9 +120,12 @@ func pruneFixture(t *testing.T, anns []grafanaAnnotation) (*mockAnnotationsAPI, 
 	grafana := mock.server(t)
 	t.Cleanup(grafana.Close)
 	app := &App{grafanaURL: grafana.URL, healthClient: &http.Client{Timeout: 5 * time.Second}}
-	deleted, err := app.pruneDeployAnnotations(context.Background())
+	deleted, failed, err := app.pruneDeployAnnotations(context.Background())
 	if err != nil {
 		t.Fatalf("prune: %v", err)
+	}
+	if failed != 0 {
+		t.Fatalf("prune reported %d failed deletes", failed)
 	}
 	return mock, deleted
 }
@@ -269,6 +273,28 @@ func TestPrunableDeploysSkipsUnidentifiableMarkers(t *testing.T) {
 	}, cutoff, keep)
 	if len(ids) != 1 || ids[0] != 10 {
 		t.Errorf("prunable ids = %v, want [10]", ids)
+	}
+}
+
+func TestPruneBackoffDelaysRetryAfterFailure(t *testing.T) {
+	now := time.Now()
+	// The sweep runs when time.Since(lastPrune) >= deployPruneEvery. After a
+	// failure it must not run again on the next 60s tick, but must not wait a
+	// full day either.
+	lastPrune := nextPruneAnchor(now, errors.New("grafana down"))
+	if due := now.Sub(lastPrune); due >= deployPruneEvery {
+		t.Errorf("a failed sweep re-runs immediately (%s elapsed, interval %s)", due, deployPruneEvery)
+	}
+	nextTick := now.Add(naisSyncInterval)
+	if nextTick.Sub(lastPrune) >= deployPruneEvery {
+		t.Errorf("a failed sweep re-runs on the very next tick — no backoff")
+	}
+	afterBackoff := now.Add(deployPruneRetry)
+	if afterBackoff.Sub(lastPrune) < deployPruneEvery {
+		t.Errorf("a failed sweep never retries after %s", deployPruneRetry)
+	}
+	if got := nextPruneAnchor(now, nil); !got.Equal(now) {
+		t.Errorf("successful sweep anchor = %v, want now (%v)", got, now)
 	}
 }
 

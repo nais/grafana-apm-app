@@ -45,6 +45,7 @@ const (
 	deployRetention    = 90 * 24 * time.Hour
 	deployPruneEvery   = 24 * time.Hour
 	deployPruneJitter  = time.Hour
+	deployPruneRetry   = 15 * time.Minute
 	deployPruneTimeout = 5 * time.Minute
 	deployPruneLimit   = 1000
 	// maxDeployPrunePages bounds one sweep to 20k markers; a larger backlog
@@ -87,18 +88,14 @@ func (a *App) startNaisDeploySync(naisToken string) {
 				continue
 			}
 			ctx, cancel = context.WithTimeout(context.Background(), deployPruneTimeout)
-			deleted, err := a.pruneDeployAnnotations(ctx)
+			deleted, failed, err := a.pruneDeployAnnotations(ctx)
 			cancel()
+			logger.Info("Deploy annotation prune sweep finished",
+				"deleted", deleted, "failed", failed, "retention", deployRetention.String())
 			if err != nil {
-				// Leave lastPrune alone so a failed sweep retries on the next
-				// tick instead of standing down for a day.
-				logger.Warn("Deploy annotation prune failed", "deleted", deleted, "error", err)
-				continue
+				logger.Warn("Deploy annotation prune failed", "error", err)
 			}
-			lastPrune = time.Now()
-			if deleted > 0 {
-				logger.Info("Pruned old deploy annotations", "deleted", deleted, "retention", deployRetention.String())
-			}
+			lastPrune = nextPruneAnchor(time.Now(), err)
 		}
 	}()
 }
@@ -340,16 +337,29 @@ func prunableDeploys(anns []grafanaAnnotation, cutoffMs int64, keep map[string]b
 	return ids
 }
 
+// nextPruneAnchor is the lastPrune timestamp to carry forward after a sweep:
+// success schedules the next one a full interval out, failure backs off to
+// deployPruneRetry rather than retrying the org-wide tag query every tick —
+// a Grafana outage, a 403, or a deadline on a large install would otherwise
+// hammer it once a minute forever.
+func nextPruneAnchor(now time.Time, err error) time.Time {
+	if err != nil {
+		return now.Add(-deployPruneEvery + deployPruneRetry)
+	}
+	return now
+}
+
 // pruneDeployAnnotations sweeps the org's deploy markers newest-first and
 // deletes the ones outside the retention window that are not the newest for
-// their service/env. Returns the number deleted.
-func (a *App) pruneDeployAnnotations(ctx context.Context) (int, error) {
+// their namespace/service/env. Returns the number deleted and the number of
+// deletes that failed (those are retried by the next sweep).
+func (a *App) pruneDeployAnnotations(ctx context.Context) (int, int, error) {
 	store := a.triageStore(ctx) // same annotations HTTP plumbing
 	now := time.Now()
 	cutoff := now.Add(-deployRetention).UnixMilli()
 	to := now.UnixMilli()
 	keep := make(map[string]bool)
-	deleted := 0
+	deleted, failed := 0, 0
 
 	for page := 0; page < maxDeployPrunePages; page++ {
 		q := url.Values{}
@@ -364,33 +374,39 @@ func (a *App) pruneDeployAnnotations(ctx context.Context) (int, error) {
 
 		resp, err := store.do(ctx, http.MethodGet, "/api/annotations?"+q.Encode(), nil)
 		if err != nil {
-			return deleted, fmt.Errorf("listing deploy annotations: %w", err)
+			return deleted, failed, fmt.Errorf("listing deploy annotations: %w", err)
 		}
 		raw, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
 		_ = resp.Body.Close()
 		if err != nil {
-			return deleted, fmt.Errorf("reading deploy annotations: %w", err)
+			return deleted, failed, fmt.Errorf("reading deploy annotations: %w", err)
 		}
 		if resp.StatusCode != http.StatusOK {
-			return deleted, fmt.Errorf("annotations API returned %d: %s", resp.StatusCode, truncateStr(string(raw)))
+			return deleted, failed, fmt.Errorf("annotations API returned %d: %s", resp.StatusCode, truncateStr(string(raw)))
 		}
 		var anns []grafanaAnnotation
 		if err := json.Unmarshal(raw, &anns); err != nil {
-			return deleted, fmt.Errorf("unmarshaling deploy annotations: %w", err)
+			return deleted, failed, fmt.Errorf("unmarshaling deploy annotations: %w", err)
 		}
 
 		for _, id := range prunableDeploys(anns, cutoff, keep) {
 			// One failed delete must not abandon the sweep: the rest of the
 			// backlog is still prunable and the next sweep retries this one.
+			// Only the first failure is logged — a broken token would other-
+			// wise produce a warning per marker — and the caller logs the
+			// count.
 			if err := store.deleteAnnotation(ctx, id); err != nil {
-				log.DefaultLogger.Warn("Deploy annotation delete failed", "id", id, "error", err)
+				failed++
+				if failed == 1 {
+					log.DefaultLogger.Warn("Deploy annotation delete failed", "id", id, "error", err)
+				}
 				continue
 			}
 			deleted++
 		}
 
 		if len(anns) < deployPruneLimit {
-			return deleted, nil
+			return deleted, failed, nil
 		}
 		// Full page: step the window strictly below the oldest marker seen
 		// (results are newest-first). Strict, so a marker kept as the newest
@@ -399,11 +415,11 @@ func (a *App) pruneDeployAnnotations(ctx context.Context) (int, error) {
 		// keeps one marker too many.
 		oldest := anns[len(anns)-1].Time
 		if oldest <= 1 || oldest > to {
-			return deleted, nil
+			return deleted, failed, nil
 		}
 		to = oldest - 1
 	}
-	return deleted, nil
+	return deleted, failed, nil
 }
 
 func (s *annotationTriageStore) deleteAnnotation(ctx context.Context, id int64) error {

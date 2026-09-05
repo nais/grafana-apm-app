@@ -1,12 +1,14 @@
 package plugin
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -67,7 +69,7 @@ func (m *mockAnnotationsAPI) server(t *testing.T) *httptest.Server {
 				limit = 100
 			}
 			var out []grafanaAnnotation
-			for i := len(m.anns) - 1; i >= 0 && len(out) < limit; i-- { // newest first
+			for i := len(m.anns) - 1; i >= 0; i-- {
 				if m.anns[i].Time < from || m.anns[i].Time > to {
 					continue
 				}
@@ -85,6 +87,12 @@ func (m *mockAnnotationsAPI) server(t *testing.T) *httptest.Server {
 				if all {
 					out = append(out, m.anns[i])
 				}
+			}
+			// Grafana sorts by epoch descending; do the same rather than
+			// leaning on fixtures happening to be inserted in time order.
+			slices.SortStableFunc(out, func(a, b grafanaAnnotation) int { return cmp.Compare(b.Time, a.Time) })
+			if len(out) > limit {
+				out = out[:limit]
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(out)
