@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.25.0](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.24.0...nais-apm-app-v0.25.0) (2026-09-05)
+
+
+### Features
+
+* **alerts:** new issues → Slack via a copy-pasteable PrometheusRule ([#177](https://github.com/nais/grafana-apm-app/issues/177)) ([257c88c](https://github.com/nais/grafana-apm-app/commit/257c88cfaa7e34b8d447a0e99d9b1ed134544e02))
+* **scorecard:** make every failing readiness check one click to fix ([#176](https://github.com/nais/grafana-apm-app/issues/176)) ([7abe3ad](https://github.com/nais/grafana-apm-app/commit/7abe3ad4db8cd0540f2f8cf97b0c09b6e0cad11d))
+
+
+### Bug Fixes
+
+* **build:** drop tsconfig baseUrl ahead of the TypeScript 7 bump ([#179](https://github.com/nais/grafana-apm-app/issues/179)) ([a6399fc](https://github.com/nais/grafana-apm-app/commit/a6399fc045519cb992cd6ceb751c01c5c8ebffc5))
+* **deps:** pin transitive dependencies flagged by Dependabot ([#178](https://github.com/nais/grafana-apm-app/issues/178)) ([8cfbc1f](https://github.com/nais/grafana-apm-app/commit/8cfbc1f34881815ca30423c831160215c58639aa))
+
 ## [0.24.0](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.23.1...nais-apm-app-v0.24.0) (2026-09-05)
 
 
