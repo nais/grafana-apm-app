@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.24.0](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.23.1...nais-apm-app-v0.24.0) (2026-09-05)
+
+
+### Features
+
+* **naissync:** prune stale deploy annotations ([#173](https://github.com/nais/grafana-apm-app/issues/173)) ([dba7c66](https://github.com/nais/grafana-apm-app/commit/dba7c66c526daed24e5d4ea2697eb1c0890a5e47)), closes [#128](https://github.com/nais/grafana-apm-app/issues/128)
+
+
+### Bug Fixes
+
+* **issues:** collapse stdout copy of an OTLP-exported exception ([#171](https://github.com/nais/grafana-apm-app/issues/171)) ([1c3bab0](https://github.com/nais/grafana-apm-app/commit/1c3bab0068b39ed8056368def5619ad93ca876eb))
+
 ## [0.23.1](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.23.0...nais-apm-app-v0.23.1) (2026-09-05)
 
 
