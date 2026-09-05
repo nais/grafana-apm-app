@@ -3,6 +3,8 @@ package plugin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -11,10 +13,12 @@ import (
 	"time"
 )
 
-// mockAnnotationsAPI serves GET/POST /api/annotations backed by an in-memory
-// slice, mimicking Grafana: reads are newest-first and AND-match all tags.
+// mockAnnotationsAPI serves GET/POST/DELETE /api/annotations backed by an
+// in-memory slice, mimicking Grafana: reads are newest-first, AND-match all
+// tags and honour the from/to/limit window. Entries are stored oldest-first.
 type mockAnnotationsAPI struct {
-	anns []grafanaAnnotation
+	anns   []grafanaAnnotation
+	nextID int64
 }
 
 func (m *mockAnnotationsAPI) server(t *testing.T) *httptest.Server {
@@ -28,17 +32,41 @@ func (m *mockAnnotationsAPI) server(t *testing.T) *httptest.Server {
 				Tags []string `json:"tags"`
 			}
 			_ = json.NewDecoder(r.Body).Decode(&body)
-			m.anns = append(m.anns, grafanaAnnotation{Time: body.Time, Text: body.Text, Tags: body.Tags})
+			m.nextID++
+			m.anns = append(m.anns, grafanaAnnotation{ID: m.nextID, Time: body.Time, Text: body.Text, Tags: body.Tags})
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"id":1}`))
+			_, _ = fmt.Fprintf(w, `{"id":%d}`, m.nextID)
+		case http.MethodDelete:
+			id, _ := strconv.ParseInt(strings.TrimPrefix(r.URL.Path, "/api/annotations/"), 10, 64)
+			for i, ann := range m.anns {
+				if ann.ID == id {
+					m.anns = append(m.anns[:i], m.anns[i+1:]...)
+					_, _ = w.Write([]byte(`{"message":"deleted"}`))
+					return
+				}
+			}
+			http.Error(w, "not found", http.StatusNotFound)
 		case http.MethodGet:
 			if strings.HasPrefix(r.URL.Path, "/api/admin") {
 				http.Error(w, "forbidden", http.StatusForbidden)
 				return
 			}
-			want := r.URL.Query()["tags"]
+			q := r.URL.Query()
+			want := q["tags"]
+			from, _ := strconv.ParseInt(q.Get("from"), 10, 64)
+			to, err := strconv.ParseInt(q.Get("to"), 10, 64)
+			if err != nil {
+				to = math.MaxInt64
+			}
+			limit, err := strconv.Atoi(q.Get("limit"))
+			if err != nil || limit <= 0 {
+				limit = 100
+			}
 			var out []grafanaAnnotation
-			for i := len(m.anns) - 1; i >= 0; i-- { // newest first
+			for i := len(m.anns) - 1; i >= 0 && len(out) < limit; i-- { // newest first
+				if m.anns[i].Time < from || m.anns[i].Time > to {
+					continue
+				}
 				tags := make(map[string]bool, len(m.anns[i].Tags))
 				for _, tg := range m.anns[i].Tags {
 					tags[tg] = true

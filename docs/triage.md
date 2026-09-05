@@ -64,6 +64,16 @@ The backend checks `/api/admin/settings` on the first triage write of each
 plugin process and logs a warning when retention is bounded (silent when the
 service account lacks admin scope).
 
+### Deploy-marker pruning
+
+`[annotations.api]` retention is org-wide, so keep-all also keeps every deploy
+marker forever — and those churn (one per deploy of every service) where triage
+events are sparse. The nais deploy sync therefore prunes them itself, once a
+day: `nais-apm:deploy` markers older than 90 days are deleted **except** the
+newest per service and environment, which regression detection anchors on.
+Markers inside the window are untouched (dashboard overlays, release health),
+and triage annotations are never deleted.
+
 ## Regression semantics (naive Phase 1)
 
 An issue whose folded state is `resolved` but which still has occurrences in
