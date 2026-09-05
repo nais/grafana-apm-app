@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.23.1](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.23.0...nais-apm-app-v0.23.1) (2026-09-05)
+
+
+### Bug Fixes
+
+* **issues:** anchor the server-occurrence scan so drawer details match the list ([#157](https://github.com/nais/grafana-apm-app/issues/157)) ([0bade9b](https://github.com/nais/grafana-apm-app/commit/0bade9b7cd886489955439a32f8c820a080a0b99))
+* **test:** dedupe react-router so grafana-ui links see the test Router ([#169](https://github.com/nais/grafana-apm-app/issues/169)) ([6c8eb0f](https://github.com/nais/grafana-apm-app/commit/6c8eb0fc9512d91aee07973d6be5ade294301a81))
+
 ## [0.23.0](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.22.1...nais-apm-app-v0.23.0) (2026-08-03)
 
 
