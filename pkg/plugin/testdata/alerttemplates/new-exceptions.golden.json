@@ -77,7 +77,7 @@
     },
     {
       "key": "nais_apm_url",
-      "value": "/a/nais-apm-app/services/team-a/my-svc?environment=prod-gcp\u0026exceptionHash=%7B%7B+%24labels.hash+%7D%7D\u0026tab=issues"
+      "value": "/a/nais-apm-app/services/team-a/my-svc?environment=prod-gcp\u0026exceptionHash={{ $labels.hash }}\u0026tab=issues"
     }
   ],
   "labels": [

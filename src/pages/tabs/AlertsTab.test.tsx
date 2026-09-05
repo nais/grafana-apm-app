@@ -9,6 +9,7 @@ jest.mock('../../api/client', () => ({
   ...jest.requireActual('../../api/client'),
   getServiceAlerts: jest.fn(),
   getAlertTemplate: jest.fn(),
+  getNewExceptionsPrometheusRule: jest.fn(),
 }));
 
 const mockPush = jest.fn();
@@ -20,6 +21,14 @@ jest.mock('@grafana/runtime', () => ({
 
 const getServiceAlerts = client.getServiceAlerts as jest.Mock;
 const getAlertTemplate = client.getAlertTemplate as jest.Mock;
+const getNewExceptionsPrometheusRule = client.getNewExceptionsPrometheusRule as jest.Mock;
+
+const PROMETHEUS_RULE = [
+  'apiVersion: monitoring.coreos.com/v1',
+  'kind: PrometheusRule',
+  'metadata:',
+  '  name: "nais-apm-new-exceptions-orders"',
+].join('\n');
 
 function renderTab(initialEntries: string[] = ['/']) {
   return render(
@@ -33,6 +42,7 @@ beforeEach(() => {
   mockPush.mockReset();
   getServiceAlerts.mockReset().mockResolvedValue({ rules: [] });
   getAlertTemplate.mockReset().mockResolvedValue({ url: '/alerting/new?defaults=%7B%7D', defaults: {} });
+  getNewExceptionsPrometheusRule.mockReset().mockResolvedValue(PROMETHEUS_RULE);
 });
 
 describe('AlertsTab (#32/#33 home)', () => {
@@ -198,6 +208,60 @@ describe('AlertsTab (#32/#33 home)', () => {
       )
     );
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith(expect.stringContaining('/alerting/new?defaults=')));
+  });
+
+  // #123 Phase 1: the self-serve "new issue -> Slack" path. This section is
+  // deliberately NOT under the "Under construction" banner - it needs nothing
+  // provisioned per team, unlike the Grafana-folder/contact-point work.
+  it('renders the new-issues PrometheusRule with a copy button', async () => {
+    renderTab();
+
+    await waitFor(() => expect(screen.getByText(/New issues in your Slack channel/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/kind: PrometheusRule/)).toBeInTheDocument());
+
+    expect(getNewExceptionsPrometheusRule).toHaveBeenCalledWith({
+      namespace: 'teamorders',
+      service: 'orders',
+      environment: 'prod-gcp',
+    });
+    expect(screen.getByRole('button', { name: /Copy manifest/ })).toBeInTheDocument();
+    // Faro-only: the recording rule filters session_id!="", so a backend-only
+    // app gets a rule that never fires. Say so in THIS section (the web-vitals
+    // card carries the same sentence), and give the check for it.
+    const section = screen.getByText(/New issues in your Slack channel/).closest('section')!;
+    expect(within(section).getByText(/Requires frontend \(Faro\) telemetry/)).toBeInTheDocument();
+    expect(within(section).getByText(/count\(loki:apm:exception_sessions:count1m/)).toBeInTheDocument();
+  });
+
+  // The manifest is fetched, so there is a window before it resolves. Showing
+  // the error text in that window tells the user the feature is broken when it
+  // is merely loading.
+  it('shows a loading placeholder, not the error text, while the manifest is in flight', async () => {
+    let resolveRule: (yaml: string) => void = () => {};
+    getNewExceptionsPrometheusRule.mockReturnValue(
+      new Promise<string>((resolve) => {
+        resolveRule = resolve;
+      })
+    );
+
+    renderTab();
+
+    await waitFor(() => expect(screen.getByText(/Preparing the PrometheusRule/)).toBeInTheDocument());
+    expect(screen.queryByText(/Could not render the PrometheusRule/)).not.toBeInTheDocument();
+
+    resolveRule(PROMETHEUS_RULE);
+    await waitFor(() => expect(screen.getByText(/kind: PrometheusRule/)).toBeInTheDocument());
+    expect(screen.queryByText(/Preparing the PrometheusRule/)).not.toBeInTheDocument();
+  });
+
+  it('shows a message instead of an empty code block when the manifest cannot be rendered', async () => {
+    getNewExceptionsPrometheusRule.mockRejectedValue(new Error('boom'));
+    renderTab();
+
+    await waitFor(() =>
+      expect(screen.getByText(/Could not render the PrometheusRule for this service/)).toBeInTheDocument()
+    );
+    expect(screen.queryByRole('button', { name: /Copy manifest/ })).not.toBeInTheDocument();
   });
 });
 

@@ -37,6 +37,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"net/url"
@@ -45,6 +46,7 @@ import (
 	"strings"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend/useragent"
+	"github.com/grafana/grafana-plugin-sdk-go/config"
 
 	"github.com/nais/grafana-otel-plugin/pkg/plugin/queries"
 )
@@ -184,6 +186,13 @@ type alertTemplateResponse struct {
 	Defaults ruleFormDefaults `json:"defaults"`
 }
 
+// alertTemplateKinds is the set the switch below handles, used only to tell a
+// known kind that cannot render a PrometheusRule (400) from a typo (404).
+var alertTemplateKinds = map[string]bool{
+	"error-rate": true, "exception-spike": true, "web-vitals": true,
+	"new-exceptions": true, "slo-burn-rate": true,
+}
+
 func (a *App) handleAlertTemplate(w http.ResponseWriter, req *http.Request) {
 	if !requireGET(w, req) {
 		return
@@ -198,6 +207,25 @@ func (a *App) handleAlertTemplate(w http.ResponseWriter, req *http.Request) {
 	env := parseEnvironment(req)
 	fingerprint := queries.MustSanitizeLabel(q.Get("fingerprint"))
 	hashes := parseAlertHashes(q.Get("hash"))
+
+	// `?format=prometheusrule` renders the same detection as a copy-pasteable
+	// PrometheusRule manifest instead of a Grafana rule-form prefill (#123
+	// Phase 1). Only new-exceptions has a Mimir-side equivalent today — it is
+	// the one detection backed by a shipped recording rule.
+	if q.Get("format") == "prometheusrule" {
+		switch kind := req.PathValue("kind"); {
+		case kind == "new-exceptions":
+			w.Header().Set("Content-Type", "application/yaml")
+			_, _ = io.WriteString(w, a.newExceptionsPrometheusRule(req.Context(), namespace, service, env))
+		case alertTemplateKinds[kind]:
+			http.Error(w, `{"error":"format=prometheusrule is only available for new-exceptions"}`, http.StatusBadRequest)
+		default:
+			// An unknown kind is a 404 regardless of ?format — the format
+			// param must not turn a typo'd kind into a different error.
+			http.Error(w, `{"error":"unknown alert template kind"}`, http.StatusNotFound)
+		}
+		return
+	}
 
 	var defaults ruleFormDefaults
 
@@ -443,6 +471,171 @@ sum by (%[1]s) (count_over_time(%[2]s | logfmt | %[1]s!="" | keep %[1]s [7d] off
 	}
 }
 
+// The Mimir recording rule the Loki ruler already ships for APM
+// (nais/helm-charts features/loki/values.yaml, group `apm-exception-sessions`):
+// distinct sessions per exception hash, per minute.
+//
+// The three label names are deliberately CONSTANTS and not the operator-tunable
+// a.otelCfg.Labels values: they are baked into the recording rule's
+// `count by(service_namespace,service_name,hash)` in helm-charts, so an
+// otelCfg override would silently produce a selector matching no series at all
+// — a rule that never fires and never errors. If helm-charts ever renames them,
+// these change with it.
+const (
+	newExceptionSessionsMetric = "loki:apm:exception_sessions:count1m"
+	recordedServiceNameLabel   = "service_name"
+	recordedNamespaceLabel     = "service_namespace"
+	recordedHashLabel          = "hash"
+
+	// namespacePlaceholder goes in BOTH the manifest metadata and the PromQL
+	// selector when the caller has no namespace: dropping the selector matcher
+	// instead would fire the rule on every team's identically-named service.
+	namespacePlaceholder = "REPLACE-WITH-YOUR-NAMESPACE"
+
+	// grafanaURLPlaceholder is the fallback when Grafana did not tell the
+	// plugin its external URL (GF_APP_URL / the plugin config's app URL). A
+	// host-relative link is useless in Slack, so emit something obviously
+	// broken rather than something subtly broken.
+	grafanaURLPlaceholder = "https://REPLACE-WITH-YOUR-GRAFANA"
+)
+
+// newExceptionsPrometheusRule renders the same "not seen in the previous 7
+// days" detection as newExceptionsDefaults, but as a PrometheusRule manifest a
+// team can commit next to their app (#123 Phase 1) — so a new issue reaches
+// their Slack channel through the alerting they already run, with no Slack
+// credential in this plugin.
+//
+// FARO/BROWSER-ONLY, same as the Grafana variant. The recording rule filters
+// `session_id!=""`, which only frontend (Faro) exceptions carry — a backend-only
+// app gets a syntactically valid rule that can never fire. The manifest says so
+// in its header comment, and the UI labels the section.
+//
+// Reading the recording rule does NOT buy a longer baseline: Loki retention
+// (90d) is longer than Mimir's (30d), so the 7d lookback is comfortably covered
+// either way. What it buys is that a PrometheusRule can live in the team's repo
+// and route through the alerting they already run.
+//
+// The `sum by (...)` on both sides is load-bearing, not cosmetic: the ruler
+// attaches its own external labels (cluster, etc.) to the recorded series, and
+// `unless` only matches series with identical label sets.
+//
+// Same stateless caveats as the Grafana variant: an exception last seen just
+// beyond the lookback re-fires as new, and a regression on a *resolved* issue
+// does not fire at all (that needs triage state — #57 Phase 2).
+func (a *App) newExceptionsPrometheusRule(ctx context.Context, namespace, service, env string) string {
+	// The manifest always names a namespace, in the metadata AND in the
+	// selector, so replacing the placeholder once fixes both.
+	ns := namespace
+	if ns == "" {
+		ns = namespacePlaceholder
+	}
+
+	sel := fmt.Sprintf(`%s="%s", %s="%s"`, recordedNamespaceLabel, ns, recordedServiceNameLabel, service)
+	by := fmt.Sprintf("%s, %s, %s", recordedNamespaceLabel, recordedServiceNameLabel, recordedHashLabel)
+	hashAction := "{{ $labels." + recordedHashLabel + " }}"
+
+	return fmt.Sprintf(`# Alerts when a frontend exception appears in %[1]q that was not seen in the
+# previous 7 days, and routes it to your team's existing alert receiver.
+#
+# REQUIRES FRONTEND (FARO) TELEMETRY. The recording rule this reads only counts
+# exceptions carrying a session_id, which is a browser concept — a backend-only
+# app gets a rule that never fires. Check that the series exists in your tenant
+# before relying on this alert:
+#
+#   count(%[3]s{%[6]s})
+#
+# The environment is implied by WHERE you apply this: the recording rule is
+# per-cluster, so apply it in the cluster you want watched.
+#
+# Generated by the nais APM plugin — https://github.com/nais/grafana-apm-app
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: %[2]q
+  namespace: %[4]q
+  labels:
+    team: %[4]q
+    app: %[1]q
+spec:
+  groups:
+    - name: nais-apm-new-exceptions
+      # 7d range vector — evaluate at the same 5m the Grafana variant ships.
+      interval: 5m
+      rules:
+        - alert: NewException
+          expr: |
+            sum by (%[5]s) (
+              sum_over_time(%[3]s{%[6]s}[30m])
+            )
+            unless on (%[5]s)
+            sum by (%[5]s) (
+              count_over_time(%[3]s{%[6]s}[7d] offset 30m)
+            )
+          for: 5m
+          labels:
+            namespace: %[4]q
+            severity: warning
+          annotations:
+            summary: %[7]q
+            message: %[8]q
+            consequence: %[9]q
+            action: %[10]q
+            dashboard_url: %[11]q
+`,
+		service,
+		k8sName("nais-apm-new-exceptions-"+service),
+		newExceptionSessionsMetric,
+		ns,
+		by,
+		sel,
+		// summary is the grouped header — one line for the whole notification,
+		// so it must NOT template a per-instance label (it would show one
+		// arbitrary hash and imply the others do not exist).
+		fmt.Sprintf("New frontend exception in %s not seen in the previous 7 days", service),
+		// message renders per result, so the hash belongs here.
+		fmt.Sprintf("Exception %s in %s was not seen in the previous 7 days", hashAction, service),
+		"Users are hitting an error this service has not produced before — most likely a regression from a recent deploy.",
+		"Open the issue in APM (dashboard_url), triage it, and resolve or ignore it so it stops alerting.",
+		grafanaAbsoluteURL(ctx)+serviceDeepLink(namespace, service, env, "issues", "", hashAction),
+	)
+}
+
+// grafanaAbsoluteURL returns Grafana's external base URL with no trailing
+// slash. serviceDeepLink is host-relative, which is right for the four in-app
+// callers (Grafana's own alert annotations render in the UI) but dead in a
+// Slack message, so the manifest prefixes it with this.
+//
+// config.GrafanaConfigFromContext covers both sources: the app URL Grafana passes in
+// the plugin context, falling back to the GF_APP_URL env var.
+func grafanaAbsoluteURL(ctx context.Context) string {
+	appURL, err := config.GrafanaConfigFromContext(ctx).AppURL()
+	if err != nil || appURL == "" {
+		return grafanaURLPlaceholder
+	}
+	return strings.TrimRight(appURL, "/")
+}
+
+// k8sName coerces a generated name into a DNS-1123 subdomain so `kubectl apply`
+// does not reject the manifest. Service names are already DNS-safe in practice
+// (they are k8s workload names), but the label sanitizer allows spaces, dots,
+// colons and uppercase, so a hand-built URL could produce an invalid name.
+func k8sName(s string) string {
+	s = strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-':
+			return r
+		case r >= 'A' && r <= 'Z':
+			return r + ('a' - 'A')
+		default:
+			return '-'
+		}
+	}, s)
+	if len(s) > 253 {
+		s = s[:253]
+	}
+	return strings.Trim(s, "-")
+}
+
 // sloBurnRateDefaults builds one Google-SRE multi-window multi-burn-rate rule
 // on the RED error ratio from span metrics. `window` selects the tier:
 //   - "fast": 14.4x burn over a 1h(long)/5m(short) window pair → page
@@ -642,10 +835,23 @@ func serviceDeepLink(namespace, service, env, tab, fingerprint, hash string) str
 		params.Set("exceptionHash", hash)
 	}
 	if enc := params.Encode(); enc != "" {
-		link += "?" + enc
+		link += "?" + unescapeAlertTemplateAction.Replace(enc)
 	}
 	return link
 }
+
+// unescapeAlertTemplateAction restores a Go-template action that url.Values
+// percent-escaped. Callers pass `{{ $labels.hash }}` as a param value so the
+// alerting engine expands it per firing instance — but `%7B%7B+%24labels...`
+// is not a template action, so it would ship to Slack verbatim and open a
+// drawer for a hash that does not exist. Only the action delimiters (with the
+// `+` Encode wrote for the spaces inside them) and `$` are unescaped; every
+// other character stays properly encoded.
+var unescapeAlertTemplateAction = strings.NewReplacer(
+	"%7B%7B+", "{{ ",
+	"+%7D%7D", " }}",
+	"%24", "$",
+)
 
 // parseAlertHashes splits a comma-separated hash list, dropping anything that
 // is not purely alphanumeric (hashes are hex; this also makes them safe in

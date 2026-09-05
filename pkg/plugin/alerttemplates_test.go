@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -11,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/grafana/grafana-plugin-sdk-go/config"
 
 	"github.com/nais/grafana-otel-plugin/pkg/plugin/queries"
 )
@@ -52,6 +55,12 @@ func serveAlertTemplate(t *testing.T, app *App, target string) *httptest.Respons
 	mux := http.NewServeMux()
 	app.registerRoutes(mux)
 	req := httptest.NewRequest(http.MethodGet, target, nil)
+	// Grafana passes its external app URL to the plugin in the request
+	// context; the PrometheusRule manifest needs it to emit a link that is
+	// clickable outside the Grafana UI (Slack).
+	req = req.WithContext(config.WithGrafanaConfig(req.Context(), config.NewGrafanaCfg(map[string]string{
+		config.AppURL: "https://grafana.example.test",
+	})))
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	return w
@@ -690,4 +699,201 @@ func thresholdParam(t *testing.T, q alertQuery) float64 {
 	}
 	v, _ := params[0].(float64)
 	return v
+}
+
+// TestNewExceptionsPrometheusRuleGolden pins the PrometheusRule manifest
+// (#123 Phase 1) the way TestAlertTemplateGolden pins the Grafana rule form.
+// The manifest is copy-pasted by hand into a team's repo, so the snapshot
+// covers the literal bytes: any drift in the PromQL, the labels teams route
+// on, or the annotation set is a reviewable diff instead of a rule that
+// silently stops matching.
+func TestNewExceptionsPrometheusRuleGolden(t *testing.T) {
+	cases := []struct {
+		name string
+		url  string
+	}{
+		{
+			name: "new-exceptions.prometheusrule",
+			url:  "/alert-templates/new-exceptions?namespace=team-a&service=my-svc&environment=prod-gcp&format=prometheusrule",
+		},
+		{
+			// No namespace: the manifest still has to name one, so it must
+			// emit a placeholder and drop the service_namespace matcher.
+			name: "new-exceptions.prometheusrule.no-namespace",
+			url:  "/alert-templates/new-exceptions?service=my-svc&format=prometheusrule",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			app := newAlertTemplateApp(t)
+			w := serveAlertTemplate(t, app, tc.url)
+			if w.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+			}
+			if ct := w.Header().Get("Content-Type"); ct != "application/yaml" {
+				t.Errorf("Content-Type = %q, want application/yaml", ct)
+			}
+			got := w.Body.Bytes()
+
+			golden := filepath.Join("testdata", "alerttemplates", tc.name+".golden.yaml")
+			if *updateGolden {
+				if err := os.MkdirAll(filepath.Dir(golden), 0o755); err != nil {
+					t.Fatalf("mkdir golden dir: %v", err)
+				}
+				if err := os.WriteFile(golden, got, 0o644); err != nil {
+					t.Fatalf("write golden: %v", err)
+				}
+				return
+			}
+			want, err := os.ReadFile(golden)
+			if err != nil {
+				t.Fatalf("read golden (%s) — run `go test ./pkg/plugin -run TestNewExceptionsPrometheusRuleGolden -update`: %v", golden, err)
+			}
+			if string(got) != string(want) {
+				t.Errorf("PrometheusRule drifted from golden %s.\n--- got ---\n%s\n--- want ---\n%s", golden, got, want)
+			}
+		})
+	}
+}
+
+// TestNewExceptionsPrometheusRuleContract asserts the invariants a reviewer
+// cannot eyeball out of a snapshot: it reads the shipped recording rule (not a
+// raw Loki stream), the deep link is ABSOLUTE and lands in an annotation nais's
+// Slack template actually renders, the per-instance hash is in `message` (not
+// the grouped `summary`), and the routing labels are present.
+func TestNewExceptionsPrometheusRuleContract(t *testing.T) {
+	app := newAlertTemplateApp(t)
+	w := serveAlertTemplate(t, app,
+		"/alert-templates/new-exceptions?namespace=team-a&service=my-svc&environment=prod-gcp&format=prometheusrule")
+	body := w.Body.String()
+
+	for _, want := range []string{
+		"kind: PrometheusRule",
+		newExceptionSessionsMetric,
+		"unless on (service_namespace, service_name, hash)",
+		"[7d] offset 30m",
+		"interval: 5m",
+		`namespace: "team-a"`,
+		`team: "team-a"`,
+		"severity: warning",
+		"REQUIRES FRONTEND (FARO) TELEMETRY",
+		// The one-shot check a team runs before trusting the rule.
+		`count(loki:apm:exception_sessions:count1m{service_namespace="team-a", service_name="my-svc"})`,
+		// The link must template per firing instance, not ship %7B%7B...
+		"exceptionHash={{ $labels.hash }}",
+		// ...and it must be absolute, or it is not clickable from Slack.
+		`dashboard_url: "https://grafana.example.test/a/nais-apm-app/`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("manifest missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "%7B") {
+		t.Errorf("manifest contains a percent-escaped template action:\n%s", body)
+	}
+	// nais's Slack template renders summary/consequence/action/message/
+	// runbook_url/dashboard_url — nais_apm_url would simply not be shown.
+	if strings.Contains(body, "nais_apm_url") {
+		t.Errorf("manifest uses nais_apm_url, which nais's Slack template does not render:\n%s", body)
+	}
+
+	// summary is the grouped header: templating a per-instance label there
+	// shows one arbitrary hash for the whole group. It belongs in message.
+	summaryLine, messageLine := annotationLine(t, body, "summary"), annotationLine(t, body, "message")
+	if strings.Contains(summaryLine, "$labels") {
+		t.Errorf("summary templates a per-instance label: %s", summaryLine)
+	}
+	if !strings.Contains(messageLine, "{{ $labels.hash }}") {
+		t.Errorf("message does not template the per-instance hash: %s", messageLine)
+	}
+	// environment is not in the expr (the recording rule has no such label),
+	// so naming it in the text would claim a filter that does not exist.
+	if strings.Contains(summaryLine, "prod-gcp") || strings.Contains(messageLine, "prod-gcp") {
+		t.Errorf("annotation names an environment the expression does not filter on:\n%s\n%s", summaryLine, messageLine)
+	}
+}
+
+// TestNewExceptionsPrometheusRuleNoNamespace: with no namespace the manifest
+// must place the SAME placeholder in the metadata and in the PromQL selector.
+// Dropping the selector matcher instead would make the rule fire on every
+// team's identically-named service.
+func TestNewExceptionsPrometheusRuleNoNamespace(t *testing.T) {
+	app := newAlertTemplateApp(t)
+	w := serveAlertTemplate(t, app, "/alert-templates/new-exceptions?service=my-svc&format=prometheusrule")
+	body := w.Body.String()
+
+	if !strings.Contains(body, `service_namespace="`+namespacePlaceholder+`"`) {
+		t.Errorf("selector has no service_namespace matcher — the rule would match every namespace:\n%s", body)
+	}
+	if !strings.Contains(body, `namespace: "`+namespacePlaceholder+`"`) {
+		t.Errorf("routing label is not the placeholder:\n%s", body)
+	}
+}
+
+// TestGrafanaAbsoluteURLFallback: with no app URL configured the manifest must
+// carry an obviously-broken placeholder rather than a host-relative path that
+// looks fine in review and is dead in Slack.
+func TestGrafanaAbsoluteURLFallback(t *testing.T) {
+	if got := grafanaAbsoluteURL(context.Background()); got != grafanaURLPlaceholder {
+		t.Errorf("grafanaAbsoluteURL with no config = %q, want %q", got, grafanaURLPlaceholder)
+	}
+	ctx := config.WithGrafanaConfig(context.Background(), config.NewGrafanaCfg(map[string]string{
+		config.AppURL: "https://grafana.example.test/",
+	}))
+	if got := grafanaAbsoluteURL(ctx); got != "https://grafana.example.test" {
+		t.Errorf("grafanaAbsoluteURL = %q, want the app URL without a trailing slash", got)
+	}
+}
+
+func TestK8sName(t *testing.T) {
+	for in, want := range map[string]string{
+		"nais-apm-new-exceptions-my-svc":  "nais-apm-new-exceptions-my-svc",
+		"nais-apm-new-exceptions-My Svc":  "nais-apm-new-exceptions-my-svc",
+		"nais-apm-new-exceptions-a.b:c/d": "nais-apm-new-exceptions-a-b-c-d",
+		"nais-apm-new-exceptions-":        "nais-apm-new-exceptions",
+	} {
+		if got := k8sName(in); got != want {
+			t.Errorf("k8sName(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if got := k8sName("x" + strings.Repeat("y", 300)); len(got) != 253 {
+		t.Errorf("k8sName did not truncate to 253: len=%d", len(got))
+	}
+}
+
+// annotationLine returns the single manifest line for an annotation key.
+func annotationLine(t *testing.T, manifest, key string) string {
+	t.Helper()
+	for _, line := range strings.Split(manifest, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), key+":") {
+			return line
+		}
+	}
+	t.Fatalf("annotation %q not found in manifest:\n%s", key, manifest)
+	return ""
+}
+
+// TestPrometheusRuleFormatRejectsOtherKinds: only new-exceptions has a Mimir
+// recording rule behind it, so a KNOWN kind must 400 rather than silently fall
+// through to the Grafana rule-form JSON under a YAML-looking request — while an
+// UNKNOWN kind still 404s, exactly as it does without the format param.
+func TestPrometheusRuleFormatRejectsOtherKinds(t *testing.T) {
+	for _, tc := range []struct {
+		kind string
+		want int
+	}{
+		{"error-rate", http.StatusBadRequest},
+		{"slo-burn-rate", http.StatusBadRequest},
+		{"not-a-kind", http.StatusNotFound},
+	} {
+		t.Run(tc.kind, func(t *testing.T) {
+			app := newAlertTemplateApp(t)
+			w := serveAlertTemplate(t, app,
+				"/alert-templates/"+tc.kind+"?namespace=team-a&service=my-svc&format=prometheusrule")
+			if w.Code != tc.want {
+				t.Fatalf("expected %d, got %d: %s", tc.want, w.Code, w.Body.String())
+			}
+		})
+	}
 }
