@@ -70,7 +70,8 @@ service account lacks admin scope).
 marker forever — and those churn (one per deploy of every service) where triage
 events are sparse. The nais deploy sync therefore prunes them itself, once a
 day: `nais-apm:deploy` markers older than 90 days are deleted **except** the
-newest per service and environment, which regression detection anchors on.
+newest per namespace, service and environment, which regression detection
+anchors on.
 Markers inside the window are untouched (dashboard overlays, release health),
 and triage annotations are never deleted.
 

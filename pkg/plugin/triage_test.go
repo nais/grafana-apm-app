@@ -53,10 +53,14 @@ func (m *mockAnnotationsAPI) server(t *testing.T) *httptest.Server {
 			}
 			q := r.URL.Query()
 			want := q["tags"]
+			// Grafana's annotation store applies the time window only when
+			// BOTH bounds are positive (`if query.From > 0 && query.To > 0`);
+			// a zero `from` silently drops `to` as well. Mimic that, or a
+			// caller passing from=0 looks like it pages when it does not.
 			from, _ := strconv.ParseInt(q.Get("from"), 10, 64)
-			to, err := strconv.ParseInt(q.Get("to"), 10, 64)
-			if err != nil {
-				to = math.MaxInt64
+			to, _ := strconv.ParseInt(q.Get("to"), 10, 64)
+			if from <= 0 || to <= 0 {
+				from, to = math.MinInt64, math.MaxInt64
 			}
 			limit, err := strconv.Atoi(q.Get("limit"))
 			if err != nil || limit <= 0 {

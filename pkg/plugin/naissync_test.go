@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -91,13 +91,24 @@ func TestNaisSyncSurfacesGraphQLErrors(t *testing.T) {
 	}
 }
 
-// deployMarker builds a nais-apm:deploy annotation aged daysAgo days.
+// deployMarker builds a nais-apm:deploy annotation aged daysAgo days, in the
+// default team-a namespace.
 func deployMarker(id int64, service, env string, daysAgo int) grafanaAnnotation {
+	return deployMarkerAt(id, "team-a", service, env, time.Now().AddDate(0, 0, -daysAgo).UnixMilli())
+}
+
+func deployMarkerAt(id int64, namespace, service, env string, timeMs int64) grafanaAnnotation {
 	return grafanaAnnotation{
 		ID:   id,
-		Time: time.Now().AddDate(0, 0, -daysAgo).UnixMilli(),
+		Time: timeMs,
 		Text: "Deployed " + service,
-		Tags: []string{deployAnnotationTag, "service:" + service, "env:" + env, "version:v" + strconv.FormatInt(id, 10)},
+		Tags: []string{
+			deployAnnotationTag,
+			"service:" + service,
+			"namespace:" + namespace,
+			"env:" + env,
+			"version:v" + strconv.FormatInt(id, 10),
+		},
 	}
 }
 
@@ -120,7 +131,7 @@ func remainingIDs(mock *mockAnnotationsAPI) []int64 {
 	for _, ann := range mock.anns {
 		ids = append(ids, ann.ID)
 	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	slices.Sort(ids)
 	return ids
 }
 
@@ -200,16 +211,84 @@ func TestPruneDeploysNeverTouchesTriageAnnotations(t *testing.T) {
 	}
 }
 
+func TestPruneDeploysKeepsAnAnchorPerNamespace(t *testing.T) {
+	// Two teams shipping an app of the same name into the same environment:
+	// each namespace must keep its own anchor.
+	old := time.Now().AddDate(0, 0, -400).UnixMilli()
+	mock, deleted := pruneFixture(t, []grafanaAnnotation{
+		deployMarkerAt(1, "team-a", "backend", "prod", old),
+		deployMarkerAt(2, "team-b", "backend", "prod", old+1000),
+		deployMarkerAt(3, "team-a", "backend", "prod", old+2000),
+		deployMarkerAt(4, "team-b", "backend", "prod", old+3000),
+	})
+	if deleted != 2 {
+		t.Errorf("deleted = %d, want 2 (one stale marker per namespace)", deleted)
+	}
+	got := remainingIDs(mock)
+	if len(got) != 2 || got[0] != 3 || got[1] != 4 {
+		t.Errorf("remaining = %v, want each namespace's newest marker [3 4]", got)
+	}
+}
+
+func TestPruneDeploysPagesPastTheFirstPage(t *testing.T) {
+	// A full page of in-window markers must not stall the sweep: the stale
+	// tail lives entirely below the first page's window.
+	old := time.Now().AddDate(0, 0, -200).UnixMilli()
+	recent := time.Now().AddDate(0, 0, -1).UnixMilli()
+	var anns []grafanaAnnotation
+	var id int64
+	for i := 0; i < 600; i++ { // oldest first: stale tail
+		id++
+		anns = append(anns, deployMarkerAt(id, "team-a", "app-a", "prod", old+int64(i)*60_000))
+	}
+	for i := 0; i < deployPruneLimit+200; i++ { // a full page of in-window markers
+		id++
+		anns = append(anns, deployMarkerAt(id, "team-a", "app-a", "prod", recent+int64(i)*60_000))
+	}
+	mock, deleted := pruneFixture(t, anns)
+	if deleted != 600 {
+		t.Fatalf("deleted = %d, want 600 — the stale tail sits below page one", deleted)
+	}
+	if len(mock.anns) != deployPruneLimit+200 {
+		t.Errorf("remaining = %d, want the %d in-window markers", len(mock.anns), deployPruneLimit+200)
+	}
+}
+
 func TestPrunableDeploysSkipsUnidentifiableMarkers(t *testing.T) {
-	keep := map[string]bool{"app-a/prod": true} // already anchored
+	anchored, _ := deployPruneKey([]string{"service:app-a", "namespace:team-a", "env:prod"})
+	keep := map[string]bool{anchored: true}
 	old := time.Now().AddDate(0, 0, -400).UnixMilli()
 	cutoff := time.Now().Add(-deployRetention).UnixMilli()
+	full := []string{deployAnnotationTag, "service:app-a", "namespace:team-a", "env:prod"}
 	ids := prunableDeploys([]grafanaAnnotation{
-		{ID: 0, Time: old, Tags: []string{deployAnnotationTag, "service:app-a", "env:prod"}}, // no id
-		{ID: 7, Time: old, Tags: []string{"service:app-a", "env:prod"}},                      // not a deploy marker
-		{ID: 8, Time: old, Tags: []string{deployAnnotationTag, "service:app-a", "env:prod"}}, // prunable
+		{ID: 0, Time: old, Tags: full},                                            // no id
+		{ID: 7, Time: old, Tags: []string{"service:app-a", "namespace:team-a"}},   // not a deploy marker
+		{ID: 8, Time: old, Tags: []string{deployAnnotationTag, "service:app-a"}},  // no namespace
+		{ID: 9, Time: old, Tags: []string{deployAnnotationTag, "namespace:team"}}, // no service
+		{ID: 10, Time: old, Tags: full},                                           // prunable
 	}, cutoff, keep)
-	if len(ids) != 1 || ids[0] != 8 {
-		t.Errorf("prunable ids = %v, want [8]", ids)
+	if len(ids) != 1 || ids[0] != 10 {
+		t.Errorf("prunable ids = %v, want [10]", ids)
+	}
+}
+
+func TestPrunableDeploysTiebreaksEqualTimestampsByID(t *testing.T) {
+	// The HA sync writes same-epoch duplicates by design, and Grafana orders
+	// by epoch alone — so replicas can see the twins in either order. Both
+	// must anchor on the same one, or they delete each other's.
+	old := time.Now().AddDate(0, 0, -400).UnixMilli()
+	twins := []grafanaAnnotation{
+		deployMarkerAt(11, "team-a", "app-a", "prod", old),
+		deployMarkerAt(12, "team-a", "app-a", "prod", old),
+		deployMarkerAt(13, "team-a", "app-a", "prod", old),
+	}
+	cutoff := time.Now().Add(-deployRetention).UnixMilli()
+	forward := prunableDeploys(twins, cutoff, map[string]bool{})
+	reversed := prunableDeploys([]grafanaAnnotation{twins[2], twins[0], twins[1]}, cutoff, map[string]bool{})
+	if len(forward) != 2 || forward[0] != 12 || forward[1] != 13 {
+		t.Fatalf("prunable ids = %v, want the two higher ids [12 13]", forward)
+	}
+	if !slices.Equal(forward, reversed) {
+		t.Errorf("delete set depends on arrival order: %v vs %v", forward, reversed)
 	}
 }
