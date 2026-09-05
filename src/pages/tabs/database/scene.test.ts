@@ -1,9 +1,4 @@
-import {
-  buildDatabaseScene,
-  buildDbTracesExploreUrl,
-  BuildDatabaseSceneParams,
-  INBOUND_FLOOR_RPS,
-} from './scene';
+import { buildDatabaseScene, buildDbTracesExploreUrl, BuildDatabaseSceneParams, INBOUND_FLOOR_RPS } from './scene';
 
 const defaultParams: BuildDatabaseSceneParams = {
   service: 'checkout',
