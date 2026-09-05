@@ -12,6 +12,15 @@ import { otel } from '../../../otelconfig';
 import { sanitizeLabelValue, escapeQueryString } from '../../../utils/sanitize';
 import { buildExploreUrl } from '../../../utils/explore';
 
+/**
+ * Minimum inbound (SERVER|CONSUMER) span rate, in calls/s, for the
+ * queries-per-request-or-message ratio to be rendered at all — see the
+ * `KNOWN LIMITATION` block above `ratioQuery` for the reasoning and the live
+ * evidence behind the value. Exported so the tests and the panel's own
+ * description text quote the same number as the query does.
+ */
+export const INBOUND_FLOOR_RPS = 0.1;
+
 export interface BuildDatabaseSceneParams {
   service: string;
   namespace: string;
@@ -83,9 +92,9 @@ export function buildDbTracesExploreUrl(tracesUid: string, service: string, name
  * once consumers are counted). Kept on the tab's existing span-metrics source
  * rather than the raw db_client_operation_/http_server_ metric families so the
  * label conventions (service_name/namespace/env) stay consistent with the RED
- * panels. An absolute floor on the denominator (#132) drops the series unless
- * the inbound rate clears 0.1/s — covering both services with genuinely no
- * inbound work (pure batch jobs, e.g.
+ * panels. An absolute floor on the denominator (#132, INBOUND_FLOOR_RPS) drops
+ * the series unless the inbound rate is above it — covering both services with
+ * genuinely no inbound work (pure batch jobs, e.g.
  * aareg-mottak-opptjeningsgrunnlag/arbeidsforhold: no SERVER and no CONSUMER
  * spans, ~9/s db calls) and scheduler-driven ones whose trickle of inbound
  * traffic would otherwise inflate the ratio. A high value flags an N+1 pattern.
@@ -214,9 +223,9 @@ export function buildDatabaseScene(params: BuildDatabaseSceneParams): EmbeddedSc
   // §4.1). db operations ÷ inbound requests-or-messages.
   //
   // The denominator carries an absolute floor (issue #132, option 1): the
-  // inbound rate only counts as a usable denominator at or above
-  // INBOUND_FLOOR_RPS calls/s. Below that the expression is empty and the stat
-  // falls back to its no-value state. The floor subsumes the old `> 0`
+  // inbound rate only counts as a usable denominator strictly above
+  // INBOUND_FLOOR_RPS calls/s. At or below it the expression is empty and the
+  // stat falls back to its no-value state. The floor subsumes the old `> 0`
   // divide-by-zero guard.
   //
   // Why a floor: the denominator only counts inbound SERVER (HTTP/gRPC) and
@@ -226,23 +235,38 @@ export function buildDatabaseScene(params: BuildDatabaseSceneParams): EmbeddedSc
   // its db-client rate is divided by that tiny inbound rate and the ratio
   // balloons into a false "severe N+1" — and the `> 0` guard only rejected an
   // *exactly-empty* denominator, so a tiny-but-nonzero one passed straight
-  // through. Live evidence (prod Mimir, 2026-07-06) against the 0.1/s floor:
+  // through. Live evidence (prod Mimir, 5m rate, 2026-07-06) against the
+  // current 0.1/s floor — ratios recomputed from the rounded rates shown, so
+  // they differ slightly from the unrounded ones quoted in #132:
   //
-  //   pdl-api            60.8 db/s ÷ 34.6 inbound/s = 1.76   → shown (genuine)
-  //   spenn              0.07 db/s ÷ 62 inbound/s   = 0.0011 → shown (Kafka)
-  //   syfosmregister     0.56 db/s ÷ 0.058 inbound/s = 10.1  → no-value
-  //   fpinntektsmelding  9.1 db/s ÷ 0.004 inbound/s = ~2180  → no-value
+  //   pdl-api            60.8 db/s ÷ 34.6 inbound/s  = 1.76   → shown (genuine)
+  //   spenn              0.07 db/s ÷ 62 inbound/s    = 0.0011 → shown (Kafka)
+  //   syfosmregister     0.56 db/s ÷ 0.058 inbound/s = 9.7    → no value
+  //   fpinntektsmelding  9.1 db/s ÷ 0.004 inbound/s  = 2275   → no value
   //
   // The rejected alternative was a relative guard (`inbound > db_rate / N`,
   // #132 option 2): it is algebraically a ceiling on the displayed ratio, so it
   // hides genuine severe N+1s at healthy inbound rates and leaves the 20/50
   // threshold bands below unreachable — exactly the signal this stat exists for.
   //
-  // KNOWN LIMITATION — the floor is absolute, so an app whose *whole* traffic
-  // profile sits below 0.1 inbound/s (a genuinely low-volume HTTP service, not
-  // just a scheduler-driven one) loses the ratio too. For it, as for batch jobs,
-  // the always-present Query-rate companion stat below is the honest signal.
-  const INBOUND_FLOOR_RPS = 0.1;
+  // KNOWN LIMITATION — the floor removes the two known-bad samples, not the
+  // class of error behind them:
+  //  - A scheduler-driven app that clears the floor still lies: 0.2 inbound/s
+  //    against 20 db/s renders a red 100 that is a scheduling artifact, not an
+  //    N+1. Fixing the class means counting SPAN_KIND_INTERNAL root spans in the
+  //    denominator (the work the ratio actually misses) or #132 option 3
+  //    (cap-and-annotate). Worth doing when a false red is actually reported.
+  //  - syfosmregister sits only ~1.7x below the floor, so one traffic uptick
+  //    puts its inflated ratio back on screen.
+  //  - The stat reduces with Grafana's default lastNotNull, so a service
+  //    oscillating around the floor shows the last ratio that *did* clear it
+  //    (i.e. a stale value), not the no-value state — that state only appears
+  //    when the whole window is below the floor.
+  //  - The floor is absolute, so an app whose *whole* traffic profile is below
+  //    it (a genuinely low-volume HTTP service, not just a scheduler-driven one)
+  //    loses the ratio too.
+  // In every one of those cases the always-present Query-rate companion stat
+  // below is the honest signal.
   const ratioQuery = new SceneQueryRunner({
     datasource: { uid: metricsUid, type: 'prometheus' },
     minInterval: '5m',
@@ -372,10 +396,10 @@ export function buildDatabaseScene(params: BuildDatabaseSceneParams): EmbeddedSc
                             'SERVER (HTTP/gRPC request) or CONSUMER (Kafka message) spans. A high value is the ' +
                             'classic N+1 smell — many small queries where a single JOIN or batch-fetch would do; ' +
                             'use "View DB traces" above to inspect the offending requests. Shows "too little ' +
-                            'inbound traffic to compare" below 0.1 inbound requests or messages per second — a ' +
-                            'denominator that small turns scheduler- or timer-driven db work into a false N+1 ' +
-                            '(and covers batch jobs with no inbound spans at all) — read the Query rate stat ' +
-                            'beside it for their raw throughput.'
+                            `inbound traffic to compare" at or below ${INBOUND_FLOOR_RPS} inbound requests or ` +
+                            'messages per second — a denominator that small turns scheduler- or timer-driven db ' +
+                            'work into a false N+1 (and covers batch jobs with no inbound spans at all) — read ' +
+                            'the Query rate stat beside it for their raw throughput.'
                         )
                         .setData(ratioQuery)
                         .setUnit('none')

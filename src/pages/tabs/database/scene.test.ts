@@ -1,4 +1,9 @@
-import { buildDatabaseScene, buildDbTracesExploreUrl, BuildDatabaseSceneParams } from './scene';
+import {
+  buildDatabaseScene,
+  buildDbTracesExploreUrl,
+  BuildDatabaseSceneParams,
+  INBOUND_FLOOR_RPS,
+} from './scene';
 
 const defaultParams: BuildDatabaseSceneParams = {
   service: 'checkout',
@@ -134,34 +139,45 @@ describe('buildDatabaseScene', () => {
   it('floors the ratio denominator so batch and scheduler-driven services get a no-value state instead of an inflated or +Inf ratio', () => {
     const scene = buildDatabaseScene(defaultParams);
     const serialized = JSON.stringify(scene!.state.body);
-    // `sum(db) / (sum(inbound) > 0.1)` — the floor drops the series unless the
-    // inbound rate clears 0.1/s. That covers both a genuinely absent denominator
-    // (pure batch jobs — 0 never clears the floor, so no divide-by-zero) and a
-    // trickle-inbound one that would balloon the ratio into a false N+1 (#132).
+    // `sum(db) / (sum(inbound) > INBOUND_FLOOR_RPS)` — the floor drops the series
+    // unless the inbound rate clears it. That covers both a genuinely absent
+    // denominator (pure batch jobs — 0 never clears the floor, so no
+    // divide-by-zero) and a trickle-inbound one that would balloon the ratio into
+    // a false N+1 (#132).
     expect(serialized).toMatch(
-      /\/ \(sum\(rate\(traces_spanmetrics_calls_total\{[^}]*SPAN_KIND_SERVER\|SPAN_KIND_CONSUMER[^}]*\}\[\$__rate_interval\]\)\) > 0\.1\)/
+      new RegExp(
+        `/ \\(sum\\(rate\\(traces_spanmetrics_calls_total\\{[^}]*SPAN_KIND_SERVER\\|SPAN_KIND_CONSUMER[^}]*\\}\\[\\$__rate_interval\\]\\)\\) > ${INBOUND_FLOOR_RPS}\\)`
+      )
     );
     // The empty result renders an explanatory message, not a bare N/A.
     expect(serialized).toContain('too little inbound traffic to compare');
   });
 
+  it('quotes the same floor in the panel description as the query enforces', () => {
+    const scene = buildDatabaseScene(defaultParams);
+    const serialized = JSON.stringify(scene!.state.body);
+    // Guards against the UI text silently desyncing from the constant.
+    expect(serialized).toContain(`at or below ${INBOUND_FLOOR_RPS} inbound requests or messages per second`);
+  });
+
   it('picks an inbound floor that classifies the issue #132 live-evidence services correctly', () => {
     const scene = buildDatabaseScene(defaultParams);
     const serialized = JSON.stringify(scene!.state.body);
-    const guard = serialized.match(/SPAN_KIND_SERVER\|SPAN_KIND_CONSUMER[\s\S]*?\)\) > (\d+(?:\.\d+)?)\)/);
-    expect(guard).not.toBeNull();
-    const floor = Number(guard![1]);
+    // The query must enforce the exported constant, and the classification below
+    // is then run against that same constant.
+    expect(serialized).toContain(`[$__rate_interval])) > ${INBOUND_FLOOR_RPS})`);
+    const floor = INBOUND_FLOOR_RPS;
 
     // Prod Mimir, 5m rate, 2026-07-06 (issue #132). `shown` is the guard itself:
     // the stat renders iff the inbound rate clears the floor — independent of
     // how large the resulting ratio is, so a genuine severe N+1 on a healthy
     // service still renders (and still hits the 20/50 threshold bands).
     const evidence = [
-      { app: 'pdl-api', inbound: 34.6, shown: true }, // genuine 1.76 q/req
-      { app: 'spenn', inbound: 62, shown: true }, // Kafka-driven, 0.0011 q/msg
-      { app: 'severe-n-plus-one', inbound: 5, shown: true }, // 150 db/s ÷ 5/s = 30 q/req, must stay visible
-      { app: 'syfosmregister', inbound: 0.058, shown: false }, // inflated ~10.1
-      { app: 'fpinntektsmelding', inbound: 0.004, shown: false }, // artifact ~2180
+      { app: 'pdl-api', inbound: 34.6, shown: true }, // 60.8 db/s ÷ 34.6 = 1.76 q/req, genuine
+      { app: 'spenn', inbound: 62, shown: true }, // 0.07 db/s ÷ 62 = 0.0011 q/msg, Kafka
+      { app: 'severe-n-plus-one', inbound: 1, shown: true }, // 30 db/s ÷ 1 = 30 q/req: modest but real traffic, must stay visible
+      { app: 'syfosmregister', inbound: 0.058, shown: false }, // 0.56 db/s ÷ 0.058 = 9.7, inflated
+      { app: 'fpinntektsmelding', inbound: 0.004, shown: false }, // 9.1 db/s ÷ 0.004 = 2275, artifact
       { app: 'aareg-mottak-opptjeningsgrunnlag', inbound: 0, shown: false }, // batch job
     ];
     for (const { app, inbound, shown } of evidence) {
