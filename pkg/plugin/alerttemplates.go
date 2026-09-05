@@ -44,7 +44,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/grafana/grafana-plugin-sdk-go/backend"
+	"github.com/grafana/grafana-plugin-sdk-go/backend/useragent"
 
 	"github.com/nais/grafana-otel-plugin/pkg/plugin/queries"
 )
@@ -132,7 +132,7 @@ func selectRuleFormValuesSchema(grafanaMajor int) ruleFormValuesSchema {
 // backend call (e.g. "12.4.0"); it is "0.0.0" when unknown, yielding 0 here —
 // which the version guard treats as "assume the current supported shape".
 func grafanaMajorVersion(ctx context.Context) int {
-	version := backend.UserAgentFromContext(ctx).GrafanaVersion()
+	version := useragent.FromContext(ctx).GrafanaVersion()
 	major, _, _ := strings.Cut(version, ".")
 	n, err := strconv.Atoi(major)
 	if err != nil {
