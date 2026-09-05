@@ -2,13 +2,14 @@ import React, { useCallback, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { getAppEvents, locationService } from '@grafana/runtime';
 import { AppEvents, GrafanaTheme2 } from '@grafana/data';
-import { Badge, Button, Icon, LoadingPlaceholder, TextLink, useStyles2 } from '@grafana/ui';
+import { Badge, Button, ClipboardButton, Icon, LoadingPlaceholder, TextLink, useStyles2 } from '@grafana/ui';
 import { css } from '@emotion/css';
 import {
   AlertTemplateKind,
   ServiceAlertRule,
   buildAlertRuleUrl,
   getAlertTemplate,
+  getNewExceptionsPrometheusRule,
   getServiceAlerts,
 } from '../../api/client';
 import { apmDocs } from '../../utils/docsLinks';
@@ -90,6 +91,19 @@ export function AlertsTab({ service, namespace, environment }: AlertsTabProps) {
 
   const { data, loading, error } = useFetch(() => getServiceAlerts(namespace, service), [namespace, service]);
   const rules = data?.rules ?? [];
+
+  // #123 Phase 1: the one alert path that does NOT need per-team Grafana
+  // folders/contact points to be sorted out first — a PrometheusRule the team
+  // commits, delivered by the alerting they already run. Rendering it is pure
+  // string formatting on the backend, so it fetches with the tab.
+  const {
+    data: prometheusRule,
+    loading: prometheusRuleLoading,
+    error: prometheusRuleError,
+  } = useFetch(
+    () => getNewExceptionsPrometheusRule({ namespace, service, environment }),
+    [namespace, service, environment]
+  );
 
   // The #32 firing-alert detail drawer is opened purely from the URL
   // (docs/url-contract.md): `firingAlert=<ruleName>` is shareable and resolves
@@ -211,6 +225,40 @@ export function AlertsTab({ service, namespace, environment }: AlertsTabProps) {
             About alert templates
           </TextLink>
         </div>
+      </section>
+
+      <section className={styles.panel}>
+        <div className={styles.sectionHeader}>
+          <h3 className={styles.sectionTitle}>New issues in your Slack channel</h3>
+          <span className={styles.sectionSubtitle}>
+            Commit this PrometheusRule next to your app and the alerting you already run delivers every new exception
+            type to your team&apos;s channel. Apply it in the cluster you want watched — the environment comes from
+            where it lands. Requires frontend (Faro) telemetry.
+          </span>
+        </div>
+
+        {prometheusRuleLoading ? (
+          <LoadingPlaceholder text="Preparing the PrometheusRule…" />
+        ) : prometheusRuleError || !prometheusRule ? (
+          <div className={styles.message}>Could not render the PrometheusRule for this service.</div>
+        ) : (
+          <>
+            <div className={styles.yamlActions}>
+              <ClipboardButton size="sm" variant="secondary" icon="copy" getText={() => prometheusRule}>
+                Copy manifest
+              </ClipboardButton>
+            </div>
+            <pre className={styles.yaml}>{prometheusRule}</pre>
+            {/* The rule only sees exceptions carrying a session_id, so a
+                backend-only app gets one that never fires — and a rule that
+                never fires looks identical to a healthy service. Give the
+                one-shot check rather than building a probe for it. */}
+            <div className={styles.yamlHint}>
+              Before relying on it, confirm the series exists in your tenant:{' '}
+              <code>{`count(loki:apm:exception_sessions:count1m{service_name="${service}"})`}</code>
+            </div>
+          </>
+        )}
       </section>
 
       {firingAlert && (
@@ -510,5 +558,27 @@ const getStyles = (theme: GrafanaTheme2) => ({
   `,
   docs: css`
     margin-top: ${theme.spacing(1.5)};
+  `,
+  yamlHint: css`
+    margin-top: ${theme.spacing(1)};
+    font-size: ${theme.typography.bodySmall.fontSize};
+    color: ${theme.colors.text.secondary};
+  `,
+  yamlActions: css`
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: ${theme.spacing(1)};
+  `,
+  yaml: css`
+    margin: 0;
+    padding: ${theme.spacing(1.5)};
+    background: ${theme.colors.background.secondary};
+    border: 1px solid ${theme.colors.border.weak};
+    border-radius: ${theme.shape.radius.default};
+    font-family: ${theme.typography.fontFamilyMonospace};
+    font-size: ${theme.typography.bodySmall.fontSize};
+    line-height: 1.5;
+    overflow-x: auto;
+    white-space: pre;
   `,
 });

@@ -479,6 +479,34 @@ export async function getAlertTemplate(
   return fetchResource<AlertTemplateResponse>(`/alert-templates/${kind}`, params);
 }
 
+/**
+ * The `new-exceptions` detection rendered as a PrometheusRule manifest the team
+ * commits next to their app (#123 Phase 1) — so a new issue reaches their Slack
+ * channel through the alerting they already run. Returns raw YAML, not JSON;
+ * `responseType: 'text'` stops backendSrv from trying to parse it.
+ */
+export async function getNewExceptionsPrometheusRule(opts: {
+  namespace?: string;
+  service: string;
+  environment?: string;
+}): Promise<string> {
+  const params: Record<string, string> = { service: opts.service, format: 'prometheusrule' };
+  if (opts.namespace) {
+    params.namespace = opts.namespace;
+  }
+  if (opts.environment) {
+    params.environment = opts.environment;
+  }
+  const response = await lastValueFrom(
+    getBackendSrv().fetch<string>({
+      url: `${BASE_URL}/alert-templates/new-exceptions?${new URLSearchParams(params).toString()}`,
+      method: 'GET',
+      responseType: 'text',
+    })
+  );
+  return response.data;
+}
+
 // ---- Service alerts (rules mentioning a service, #32/#33 home) ----
 
 /**

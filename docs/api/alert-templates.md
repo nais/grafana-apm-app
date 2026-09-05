@@ -34,6 +34,44 @@ Any other kind → `404 {"error":"unknown alert template kind"}`.
 | `hash` | `exception-spike` | CSV, each must match `^[a-zA-Z0-9]+$` | Exception hash(es); missing/invalid → `400 {"error":"missing or invalid hash"}`. |
 | `window` | `slo-burn-rate` | `fast` (default) or `slow`; else `400 {"error":"window must be fast or slow"}` | Burn-rate window pair. |
 | `slo` | `slo-burn-rate` | float in `[0.5, 0.999999]`, default `0.999` | SLO target. |
+| `format` | `new-exceptions` | `prometheusrule`; another known kind → `400`, unknown kind → `404` | Render a PrometheusRule manifest instead of the Grafana rule form (see below). |
+
+### `format=prometheusrule` — the manifest variant
+
+`GET /alert-templates/new-exceptions?service=…&format=prometheusrule` returns
+`application/yaml`: a copy-pasteable `monitoring.coreos.com/v1 PrometheusRule`
+a team commits next to their app, so a new issue reaches their Slack channel
+through the alerting they already run — the plugin holds no Slack credential.
+
+It is the same "not seen in the previous 7 days" detection as the Grafana
+variant, translated from LogQL to PromQL over the shipped Mimir recording rule
+`loki:apm:exception_sessions:count1m` (labels `service_namespace`,
+`service_name`, `hash`). Those three label names are **constants** in the
+backend, not `otelConfig` values: they are fixed by the recording rule in
+helm-charts, so an override would silently select no series.
+
+Labels `namespace` + `severity: warning` for routing. Annotations are the ones
+nais's default Slack template renders: `summary` (grouped header — no
+per-instance templating), `message` (rendered per result, carries
+`{{ $labels.hash }}`), `consequence`, `action`, and `dashboard_url`.
+
+`dashboard_url` is an **absolute** URL — a host-relative path is not clickable
+from Slack. The base comes from Grafana's app URL (plugin context, falling back
+to `GF_APP_URL`); when neither is set the manifest emits
+`https://REPLACE-WITH-YOUR-GRAFANA` so the gap is visible rather than subtle.
+The other four (in-Grafana) callers of `serviceDeepLink` keep the relative form.
+
+**Faro/browser-only.** The recording rule filters `session_id!=""`, so a
+backend-only app gets a rule that never fires. The manifest header carries a
+`count(...)` query to verify the series exists in the tenant first.
+
+The recording rule is per-cluster, so `environment` does not appear in the
+expression or the annotation text — the environment watched is the cluster the
+manifest is applied in.
+
+Only `new-exceptions` supports it: another known kind returns
+`400 {"error":"format=prometheusrule is only available for new-exceptions"}`,
+and an unknown kind still returns `404` as it does without the param.
 
 ### Response — `alertTemplateResponse`
 
