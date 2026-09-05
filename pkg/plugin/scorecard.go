@@ -159,7 +159,7 @@ func (a *App) computeReadiness(ctx context.Context, headers http.Header, namespa
 		{Key: "traces", Label: "Traces in Tempo",
 			Hint: "Export OTLP traces to the collector — nais auto-instrumentation does this out of the box."},
 		{Key: "logs", Label: "Logs in Loki",
-			Hint: "Ship logs to Loki with spec.observability.logging.destinations: [loki] in your nais manifest."},
+			Hint: "Ship logs to Loki by adding an `- id: loki` entry under spec.observability.logging.destinations in your nais manifest."},
 		{Key: "runtimeMetrics", Label: "Runtime metrics",
 			Hint: "Runtime metrics (JVM/Node.js/Go/process) arrive with the OTel agent — enable auto-instrumentation for your runtime."},
 		{Key: "browserTelemetry", Label: "Browser telemetry (Faro)",
