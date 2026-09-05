@@ -234,6 +234,173 @@ func TestQueryServerExceptionGroupsMsgFieldShape(t *testing.T) {
 	}
 }
 
+// One JVM exception as it reaches Loki twice when OTEL_LOGS_EXPORTER=otlp is
+// enabled while stdout logging keeps running (#117).
+const (
+	otlpExceptionType    = "java.lang.NullPointerException"
+	otlpExceptionMessage = `Cannot invoke "Order.getId()" because "order" is null`
+	// The stdout copy under logback's plain-text %msg%n%ex layout — shape (c).
+	// The printed exception ("<Type>: <message>") sits above the frames.
+	// This, not a message-only JSON row, is the layout the fold actually sees:
+	// logstash-logback-encoder puts the exception in stack_trace, which shape
+	// (b) does not group on.
+	stdoutStackLine = `2026-08-24 10:12:03.221 ERROR 1 --- [http-nio-8080-exec-3] n.n.o.OrderService : Uventet feil ved behandling av ordre
+` + otlpExceptionType + `: ` + otlpExceptionMessage + `
+	at no.nav.ordre.OrderService.handle(OrderService.java:42)`
+	// A JSON layout that inlines the printed exception in the body — shape (b),
+	// which does fold because the identity string reaches the message field.
+	stdoutJSONBody = `Uventet feil ved behandling av ordre: ` + otlpExceptionType + `: ` + otlpExceptionMessage
+)
+
+func TestQueryServerExceptionGroupsDedupesOTLPAndStdoutCopies(t *testing.T) {
+	// Both copies present → one issue, the rich shape (a) one. The stdout copy
+	// counted higher (30 vs 12); the survivor must still report the OTLP count
+	// — the fold is a dedupe, so it neither sums (42) nor maxes (30).
+	semCounts := []queries.PromResult{
+		{Metric: map[string]string{"exception_type": otlpExceptionType, "exception_message": otlpExceptionMessage}, Value: queries.NewPromValue(0, "12")},
+	}
+	plainCount := []queries.PromResult{
+		{Metric: map[string]string{}, Value: queries.NewPromValue(0, "30")},
+	}
+	app, ds := exceptionsTestApp(t,
+		map[string][]queries.PromResult{
+			"sum by (exception_type, exception_message) (": semCounts,
+			"sum(count_over_time(":                         plainCount,
+		}, nil,
+		map[string][]string{"drop __error__": {stdoutStackLine, stdoutStackLine}})
+
+	issues, ok := app.queryServerExceptionGroups(context.Background(), ds, "loki-uid", "my-app", "", time.Unix(0, 0), time.Unix(3600, 0))
+
+	if !ok {
+		t.Fatal("expected server side to be available")
+	}
+	if len(issues) != 1 {
+		t.Fatalf("expected the stdout copy to collapse into the OTLP issue, got %d: %+v", len(issues), issues)
+	}
+	g := issues[0]
+	if g.Title != otlpExceptionType+": "+otlpExceptionMessage {
+		t.Errorf("title = %q, want the shape (a) title to survive", g.Title)
+	}
+	if len(g.Types) != 1 || g.Types[0] != otlpExceptionType {
+		t.Errorf("types = %v, want the semconv exception type", g.Types)
+	}
+	if g.Tier != int(fingerprint.TierTypeMessage) {
+		t.Errorf("tier = %d, want %d", g.Tier, fingerprint.TierTypeMessage)
+	}
+	if g.Count != 12 {
+		t.Errorf("count = %v, want the untouched OTLP count 12", g.Count)
+	}
+}
+
+func TestQueryServerExceptionGroupsDedupeUnionsPods(t *testing.T) {
+	// Partial OTLP rollout: the exporter is on for one pod, the other two only
+	// log to stdout. The surviving issue must report all three pods, not one.
+	semCounts := []queries.PromResult{
+		{Metric: map[string]string{"exception_type": otlpExceptionType, "exception_message": otlpExceptionMessage}, Value: queries.NewPromValue(0, "12")},
+	}
+	semPods := []queries.PromResult{
+		{Metric: map[string]string{"exception_type": otlpExceptionType, "exception_message": otlpExceptionMessage, "k8s_pod_name": "app-a"}, Value: queries.NewPromValue(0, "12")},
+	}
+	jsonCounts := []queries.PromResult{
+		{Metric: map[string]string{"message": stdoutJSONBody}, Value: queries.NewPromValue(0, "20")},
+	}
+	jsonPods := []queries.PromResult{
+		{Metric: map[string]string{"message": stdoutJSONBody, "k8s_pod_name": "app-b"}, Value: queries.NewPromValue(0, "11")},
+		{Metric: map[string]string{"message": stdoutJSONBody, "k8s_pod_name": "app-c"}, Value: queries.NewPromValue(0, "9")},
+	}
+	app, ds := exceptionsTestApp(t, map[string][]queries.PromResult{
+		"sum by (exception_type, exception_message) (":             semCounts,
+		"sum by (exception_type, exception_message, k8s_pod_name)": semPods,
+		"sum by (message, msg) (":                                  jsonCounts,
+		"sum by (message, msg, k8s_pod_name)":                      jsonPods,
+	}, nil)
+
+	issues, ok := app.queryServerExceptionGroups(context.Background(), ds, "loki-uid", "my-app", "", time.Unix(0, 0), time.Unix(3600, 0))
+
+	if !ok {
+		t.Fatal("expected server side to be available")
+	}
+	if len(issues) != 1 {
+		t.Fatalf("expected one issue after the fold, got %d: %+v", len(issues), issues)
+	}
+	if issues[0].Impact == nil || issues[0].Impact.Pods != 3 {
+		t.Errorf("impact = %+v, want 3 pods (OTLP pod plus the two stdout-only pods)", issues[0].Impact)
+	}
+	if issues[0].Count != 12 {
+		t.Errorf("count = %v, want the untouched OTLP count 12", issues[0].Count)
+	}
+}
+
+func TestQueryServerExceptionGroupsKeepsStdoutOnlyIssue(t *testing.T) {
+	// A service that never enabled the OTLP logs exporter has no shape (a)
+	// counterpart — its stdout issue must still surface.
+	jsonCounts := []queries.PromResult{
+		{Metric: map[string]string{"message": stdoutJSONBody}, Value: queries.NewPromValue(0, "11")},
+	}
+	app, ds := exceptionsTestApp(t, map[string][]queries.PromResult{
+		"sum by (message, msg) (": jsonCounts,
+	}, nil)
+
+	issues, ok := app.queryServerExceptionGroups(context.Background(), ds, "loki-uid", "my-app", "", time.Unix(0, 0), time.Unix(3600, 0))
+
+	if !ok {
+		t.Fatal("expected server side to be available")
+	}
+	if len(issues) != 1 {
+		t.Fatalf("expected the stdout-only issue to survive, got %d: %+v", len(issues), issues)
+	}
+	if issues[0].Count != 11 {
+		t.Errorf("count = %v, want 11", issues[0].Count)
+	}
+	if issues[0].Tier != int(fingerprint.TierMessage) {
+		t.Errorf("tier = %d, want %d", issues[0].Tier, fingerprint.TierMessage)
+	}
+}
+
+func TestQueryServerExceptionGroupsDoesNotCollapseDistinctErrors(t *testing.T) {
+	// Two ways a message-only match would over-collapse distinct errors, both
+	// blocked by requiring the full "<Type>: <message>" identity in the body:
+	//   - a generic message ("Read timed out") shared with an unrelated
+	//     integration's stdout line;
+	//   - a message whose fingerprint.Normalize residue ("connection to <ip>
+	//     refused") is identical across two different hosts.
+	semCounts := []queries.PromResult{
+		{Metric: map[string]string{"exception_type": "org.postgresql.util.PSQLException", "exception_message": "connection to 10.0.0.1 refused"}, Value: queries.NewPromValue(0, "40")},
+		{Metric: map[string]string{"exception_type": "java.net.SocketTimeoutException", "exception_message": "Read timed out"}, Value: queries.NewPromValue(0, "5")},
+	}
+	jsonCounts := []queries.PromResult{
+		{Metric: map[string]string{"message": "Kall mot Aareg feilet: Read timed out"}, Value: queries.NewPromValue(0, "7")},
+		{Metric: map[string]string{"message": "connection to 10.0.0.2 refused"}, Value: queries.NewPromValue(0, "3")},
+	}
+	app, ds := exceptionsTestApp(t, map[string][]queries.PromResult{
+		"sum by (exception_type, exception_message) (": semCounts,
+		"sum by (message, msg) (":                      jsonCounts,
+	}, nil)
+
+	issues, ok := app.queryServerExceptionGroups(context.Background(), ds, "loki-uid", "my-app", "", time.Unix(0, 0), time.Unix(3600, 0))
+
+	if !ok {
+		t.Fatal("expected server side to be available")
+	}
+	if len(issues) != 4 {
+		t.Fatalf("expected 4 distinct issues, got %d: %+v", len(issues), issues)
+	}
+	counts := map[string]float64{}
+	for _, g := range issues {
+		counts[g.Title] = g.Count
+	}
+	for title, want := range map[string]float64{
+		"org.postgresql.util.PSQLException: connection to <ip> refused": 40,
+		"java.net.SocketTimeoutException: Read timed out":               5,
+		"Kall mot Aareg feilet: Read timed out":                         7,
+		"connection to <ip> refused":                                    3,
+	} {
+		if counts[title] != want {
+			t.Errorf("issue %q count = %v, want %v (all issues: %+v)", title, counts[title], want, counts)
+		}
+	}
+}
+
 // Real error line shapes sampled from NAV production Loki (2026-07-04),
 // scrubbed of ids. navno-search-frontend logs unstructured plain text —
 // neither shape (a) nor (b) can title it; only the shape (c) sample can.

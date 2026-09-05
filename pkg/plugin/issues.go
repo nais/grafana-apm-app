@@ -471,7 +471,12 @@ func (a *App) serverLogSelector(service, env string) string {
 //	    are filtered out of this shape (addPlainTextGroups).
 //
 // The exception_type="" guard on (b)/(c) keeps a line countable by exactly
-// one shape, so counts never double up across shapes.
+// one shape, so counts never double up across shapes. When the *same*
+// exception is logged twice — OTLP export plus untouched stdout logging — the
+// two copies land in different shapes and fingerprint differently;
+// dedupeOTLPStdout collapses the stdout copy onto the shape (a) group when the
+// stdout body prints the exception (plain-text %ex layouts, and JSON layouts
+// that inline it in the body — see that function for what does not fold yet).
 //
 // Rows merge into groups by the shared fingerprint exactly like the browser
 // side. MemberHashes stays empty for server issues: they have no Alloy hash;
@@ -552,6 +557,11 @@ func (a *App) queryServerExceptionGroups(ctx context.Context, ds *queries.DsQuer
 
 	groups := make(map[string]*Issue)
 	seenType := make(map[string]map[string]bool) // fingerprint -> type set
+	// Raw per-row texts feeding the dedupe pass below: the OTLP identity string
+	// for shape (a) rows, the log body for type-less rows. Collected per row
+	// (not per group) because one group merges rows that differ by a uuid or
+	// id, and only the copy carrying the *same* dynamic tokens matches.
+	var typedRows, plainRows []shapeRow
 	add := func(exType, msg string, count float64) {
 		if msg == "" && exType == "" {
 			return // an empty event fingerprints to a meaningless catch-all group
@@ -575,6 +585,13 @@ func (a *App) queryServerExceptionGroups(ctx context.Context, ds *queries.DsQuer
 		if exType != "" && !seenType[fp.Value][exType] {
 			seenType[fp.Value][exType] = true
 			g.Types = append(g.Types, exType)
+		}
+		if exType != "" {
+			if ident := otlpIdentity(exType, msg); ident != "" {
+				typedRows = append(typedRows, shapeRow{fp: fp.Value, text: ident})
+			}
+		} else if body := strings.TrimSpace(msg); body != "" {
+			plainRows = append(plainRows, shapeRow{fp: fp.Value, text: body})
 		}
 	}
 	// jsonRowMessage picks the populated body field: logback/pino emit
@@ -623,6 +640,8 @@ func (a *App) queryServerExceptionGroups(ctx context.Context, ds *queries.DsQuer
 		}
 	}
 
+	dedupeOTLPStdout(groups, podsByFP, typedRows, plainRows)
+
 	out := make([]Issue, 0, len(groups))
 	for _, g := range groups {
 		sort.Strings(g.Types)
@@ -630,6 +649,85 @@ func (a *App) queryServerExceptionGroups(ctx context.Context, ds *queries.DsQuer
 		out = append(out, *g)
 	}
 	return out, true
+}
+
+// shapeRow is one aggregation row's raw text tagged with the fingerprint of
+// the group it landed in, used only by dedupeOTLPStdout.
+type shapeRow struct {
+	fp   string
+	text string
+}
+
+// otlpIdentity is the string a JVM logger prints for an exception —
+// "<fully.qualified.Type>: <message>", the first line of a %ex stack dump and
+// the head of an inlined stack_trace. Empty when either half is missing: a
+// bare type would match any line mentioning the class, which is not evidence
+// of the same occurrence.
+func otlpIdentity(exType, msg string) string {
+	t, m := strings.TrimSpace(exType), strings.TrimSpace(msg)
+	if t == "" || m == "" {
+		return ""
+	}
+	return t + ": " + m
+}
+
+// dedupeOTLPStdout collapses the stdout copy of an exception into its OTLP
+// copy (#117). A JVM service with OTEL_LOGS_EXPORTER=otlp keeps logging to
+// stdout, so the same exception reaches Loki twice: once as shape (a) with
+// semconv exception_* metadata, once as a type-less shape (b)/(c) line. The
+// two fingerprint differently and surface as two issues.
+//
+// A type-less row folds only when its raw body contains the full OTLP
+// identity string ("<Type>: <message>") of a shape (a) row — the printed form
+// of the exception, so the match is evidence that this line *is* the same
+// exception, not merely a line sharing a generic message ("Read timed out",
+// "connection refused") with an unrelated integration. Matching is on raw
+// trimmed text, not fingerprint.Normalize output: normalization erases the
+// dynamic tokens that separate distinct outages (<ip>, <num>) and truncates
+// at 256 chars, at different offsets on each side, which makes long messages
+// unfoldable. The most specific (longest) identity wins, fingerprint-ordered
+// on ties, so the outcome never depends on map iteration order.
+//
+// The fold is a dedupe, not a merge: the surviving group keeps the OTLP count
+// untouched (the stdout copy counts the same physical exceptions, and the
+// occurrence drawer can only re-query the OTLP lines anyway). Pod sets are
+// unioned, because a partial OTLP rollout can have the OTLP copy on one pod
+// and the stdout copy on the others.
+//
+// Scope: with logstash-logback-encoder — the standard NAIS JVM JSON layout —
+// the exception lands in stack_trace, not in the message field shape (b)
+// groups on, so those rows do not fold yet; that needs stack_trace-aware
+// grouping. Plain-text layouts (%msg%n%ex, shape c) and JSON layouts that
+// inline the exception in the body do fold.
+//
+// ponytail: O(typed × plain) raw-text scan per service; both sides are small
+// because a query that returns enough series to matter hits Loki's series
+// limit and errors out first. Index by type token if it ever shows up hot.
+func dedupeOTLPStdout(groups map[string]*Issue, podsByFP map[string]map[string]bool, typedRows, plainRows []shapeRow) {
+	folds := make(map[string]string) // plain fingerprint -> typed fingerprint
+	bestLen := make(map[string]int)
+	for _, p := range plainRows {
+		for _, t := range typedRows {
+			if p.fp == t.fp || !strings.Contains(p.text, t.text) {
+				continue
+			}
+			if l := len(t.text); l > bestLen[p.fp] || (l == bestLen[p.fp] && t.fp < folds[p.fp]) {
+				folds[p.fp], bestLen[p.fp] = t.fp, l
+			}
+		}
+	}
+	for plainFP, typedFP := range folds {
+		if groups[typedFP] == nil || groups[plainFP] == nil {
+			continue
+		}
+		for pod := range podsByFP[plainFP] {
+			if podsByFP[typedFP] == nil {
+				podsByFP[typedFP] = make(map[string]bool)
+			}
+			podsByFP[typedFP][pod] = true
+		}
+		delete(groups, plainFP)
+	}
 }
 
 // trimSpaceLimited trims whitespace and caps a raw sampled log line before
