@@ -2,13 +2,17 @@ package plugin
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
@@ -28,6 +32,25 @@ import (
 const (
 	naisSyncInterval = 60 * time.Second
 	naisSyncPageSize = 50
+)
+
+// Deploy-marker pruning (#128). [annotations.api] retention is org-wide and
+// must stay at keep-all so the triage event log survives (triage.go), which
+// leaves deploy markers — one per deploy of every service, synced forever — as
+// the growth driver of the shared annotations table (ADR-0001). Prune them
+// here instead: keep the recent window (dashboard overlays, release health)
+// plus the newest marker per namespace/service/env, which is all regression
+// detection (#123) needs. Triage annotations are never touched.
+const (
+	deployRetention    = 90 * 24 * time.Hour
+	deployPruneEvery   = 24 * time.Hour
+	deployPruneJitter  = time.Hour
+	deployPruneRetry   = 15 * time.Minute
+	deployPruneTimeout = 5 * time.Minute
+	deployPruneLimit   = 1000
+	// maxDeployPrunePages bounds one sweep to 20k markers; a larger backlog
+	// drains over the following daily sweeps.
+	maxDeployPrunePages = 20
 )
 
 type naisDeployment struct {
@@ -51,12 +74,28 @@ func (a *App) startNaisDeploySync(naisToken string) {
 	go func() {
 		ticker := time.NewTicker(naisSyncInterval)
 		defer ticker.Stop()
+		// Stagger the first sweep: a fleet-wide restart would otherwise fire
+		// every replica's sweep at the same tick.
+		lastPrune := time.Now().Add(-deployPruneEvery + rand.N(deployPruneJitter))
 		for range ticker.C {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			if err := a.syncNaisDeployments(ctx, naisToken); err != nil {
 				logger.Warn("Deploy sync failed", "error", err)
 			}
 			cancel()
+
+			if time.Since(lastPrune) < deployPruneEvery {
+				continue
+			}
+			ctx, cancel = context.WithTimeout(context.Background(), deployPruneTimeout)
+			deleted, failed, err := a.pruneDeployAnnotations(ctx)
+			cancel()
+			logger.Info("Deploy annotation prune sweep finished",
+				"deleted", deleted, "failed", failed, "retention", deployRetention.String())
+			if err != nil {
+				logger.Warn("Deploy annotation prune failed", "error", err)
+			}
+			lastPrune = nextPruneAnchor(time.Now(), err)
 		}
 	}()
 }
@@ -186,7 +225,7 @@ func (a *App) syncOneDeployment(ctx context.Context, store *annotationTriageStor
 	q := url.Values{}
 	q.Add("tags", "deploy-id:"+d.ID)
 	q.Set("limit", "1")
-	q.Set("from", "0")
+	q.Set("from", "1")
 	q.Set("to", strconv.FormatInt(time.Now().UnixMilli(), 10))
 	resp, err := store.do(ctx, http.MethodGet, "/api/annotations?"+q.Encode(), nil)
 	if err != nil {
@@ -228,6 +267,171 @@ func (a *App) syncOneDeployment(ctx context.Context, store *annotationTriageStor
 	if wresp.StatusCode != http.StatusOK {
 		raw, _ := io.ReadAll(io.LimitReader(wresp.Body, 256))
 		return fmt.Errorf("annotations API returned %d: %s", wresp.StatusCode, string(raw))
+	}
+	return nil
+}
+
+// deployPruneKey is the identity a deploy marker is retained for: the service
+// in its team's namespace, per environment. The namespace is part of the key
+// because two teams may ship an app of the same name into the same
+// environment — collapsing those would delete one team's only anchor.
+// A marker missing either tag has no identity to anchor and is not prunable
+// (ok=false); the "\x00" separator cannot appear in a Grafana tag, so no two
+// distinct triples can produce the same key.
+func deployPruneKey(tags []string) (string, bool) {
+	service, namespace, env := "", "", ""
+	for _, t := range tags {
+		switch {
+		case strings.HasPrefix(t, "service:"):
+			service = strings.TrimPrefix(t, "service:")
+		case strings.HasPrefix(t, "namespace:"):
+			namespace = strings.TrimPrefix(t, "namespace:")
+		case strings.HasPrefix(t, "env:"):
+			env = strings.TrimPrefix(t, "env:")
+		}
+	}
+	if service == "" || namespace == "" {
+		return "", false
+	}
+	return namespace + "\x00" + service + "\x00" + env, true
+}
+
+// prunableDeploys walks one page of deploy markers newest-first and returns
+// the IDs safe to delete: older than cutoffMs and not the newest marker for
+// their namespace/service/env. keep carries the keys already anchored by a
+// newer marker across pages, so callers must pass the same map every page.
+//
+// Anything that is not a deploy marker — or that also carries the triage tag,
+// or that has no anchorable identity — is skipped: this is a delete path, and
+// the triage event log is not ours.
+//
+// The page is re-sorted by (time desc, id asc) first. Grafana orders by epoch
+// alone, so same-millisecond markers — which the HA sync writes by design when
+// replicas race — come back in an arbitrary order; without the id tiebreak two
+// replicas can anchor on different twins and delete each other's.
+func prunableDeploys(anns []grafanaAnnotation, cutoffMs int64, keep map[string]bool) []int64 {
+	ordered := slices.Clone(anns)
+	slices.SortStableFunc(ordered, func(a, b grafanaAnnotation) int {
+		if a.Time != b.Time {
+			return cmp.Compare(b.Time, a.Time)
+		}
+		return cmp.Compare(a.ID, b.ID)
+	})
+
+	var ids []int64
+	for _, ann := range ordered {
+		if !hasTag(ann.Tags, deployAnnotationTag) || hasTag(ann.Tags, triageTag) || ann.ID == 0 {
+			continue
+		}
+		key, ok := deployPruneKey(ann.Tags)
+		if !ok {
+			continue
+		}
+		anchored := keep[key]
+		keep[key] = true
+		if ann.Time >= cutoffMs || !anchored {
+			continue // inside the retention window, or the newest for its key
+		}
+		ids = append(ids, ann.ID)
+	}
+	return ids
+}
+
+// nextPruneAnchor is the lastPrune timestamp to carry forward after a sweep:
+// success schedules the next one a full interval out, failure backs off to
+// deployPruneRetry rather than retrying the org-wide tag query every tick —
+// a Grafana outage, a 403, or a deadline on a large install would otherwise
+// hammer it once a minute forever.
+func nextPruneAnchor(now time.Time, err error) time.Time {
+	if err != nil {
+		return now.Add(-deployPruneEvery + deployPruneRetry)
+	}
+	return now
+}
+
+// pruneDeployAnnotations sweeps the org's deploy markers newest-first and
+// deletes the ones outside the retention window that are not the newest for
+// their namespace/service/env. Returns the number deleted and the number of
+// deletes that failed (those are retried by the next sweep).
+func (a *App) pruneDeployAnnotations(ctx context.Context) (int, int, error) {
+	store := a.triageStore(ctx) // same annotations HTTP plumbing
+	now := time.Now()
+	cutoff := now.Add(-deployRetention).UnixMilli()
+	to := now.UnixMilli()
+	keep := make(map[string]bool)
+	deleted, failed := 0, 0
+
+	for page := 0; page < maxDeployPrunePages; page++ {
+		q := url.Values{}
+		q.Add("tags", deployAnnotationTag)
+		q.Set("limit", strconv.Itoa(deployPruneLimit))
+		// from must be > 0: Grafana's store applies the time window only when
+		// both bounds are positive (`if query.From > 0 && query.To > 0`), so
+		// from=0 would drop `to` as well and every page would return the same
+		// newest rows — the sweep would never reach the old tail.
+		q.Set("from", "1")
+		q.Set("to", strconv.FormatInt(to, 10))
+
+		resp, err := store.do(ctx, http.MethodGet, "/api/annotations?"+q.Encode(), nil)
+		if err != nil {
+			return deleted, failed, fmt.Errorf("listing deploy annotations: %w", err)
+		}
+		raw, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
+		_ = resp.Body.Close()
+		if err != nil {
+			return deleted, failed, fmt.Errorf("reading deploy annotations: %w", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			return deleted, failed, fmt.Errorf("annotations API returned %d: %s", resp.StatusCode, truncateStr(string(raw)))
+		}
+		var anns []grafanaAnnotation
+		if err := json.Unmarshal(raw, &anns); err != nil {
+			return deleted, failed, fmt.Errorf("unmarshaling deploy annotations: %w", err)
+		}
+
+		for _, id := range prunableDeploys(anns, cutoff, keep) {
+			// One failed delete must not abandon the sweep: the rest of the
+			// backlog is still prunable and the next sweep retries this one.
+			// Only the first failure is logged — a broken token would other-
+			// wise produce a warning per marker — and the caller logs the
+			// count.
+			if err := store.deleteAnnotation(ctx, id); err != nil {
+				failed++
+				if failed == 1 {
+					log.DefaultLogger.Warn("Deploy annotation delete failed", "id", id, "error", err)
+				}
+				continue
+			}
+			deleted++
+		}
+
+		if len(anns) < deployPruneLimit {
+			return deleted, failed, nil
+		}
+		// Full page: step the window strictly below the oldest marker seen
+		// (results are newest-first). Strict, so a marker kept as the newest
+		// for its key is never re-offered on the next page — the cost is
+		// skipping markers sharing that exact millisecond, which only ever
+		// keeps one marker too many.
+		oldest := anns[len(anns)-1].Time
+		if oldest <= 1 || oldest > to {
+			return deleted, failed, nil
+		}
+		to = oldest - 1
+	}
+	return deleted, failed, nil
+}
+
+func (s *annotationTriageStore) deleteAnnotation(ctx context.Context, id int64) error {
+	resp, err := s.do(ctx, http.MethodDelete, "/api/annotations/"+strconv.FormatInt(id, 10), nil)
+	if err != nil {
+		return fmt.Errorf("deleting annotation %d: %w", id, err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+	// Already gone (another replica pruned it) is success.
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNotFound {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+		return fmt.Errorf("annotations API returned %d deleting %d: %s", resp.StatusCode, id, string(raw))
 	}
 	return nil
 }

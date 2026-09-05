@@ -1,20 +1,26 @@
 package plugin
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
+	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 )
 
-// mockAnnotationsAPI serves GET/POST /api/annotations backed by an in-memory
-// slice, mimicking Grafana: reads are newest-first and AND-match all tags.
+// mockAnnotationsAPI serves GET/POST/DELETE /api/annotations backed by an
+// in-memory slice, mimicking Grafana: reads are newest-first, AND-match all
+// tags and honour the from/to/limit window. Entries are stored oldest-first.
 type mockAnnotationsAPI struct {
-	anns []grafanaAnnotation
+	anns   []grafanaAnnotation
+	nextID int64
 }
 
 func (m *mockAnnotationsAPI) server(t *testing.T) *httptest.Server {
@@ -28,17 +34,45 @@ func (m *mockAnnotationsAPI) server(t *testing.T) *httptest.Server {
 				Tags []string `json:"tags"`
 			}
 			_ = json.NewDecoder(r.Body).Decode(&body)
-			m.anns = append(m.anns, grafanaAnnotation{Time: body.Time, Text: body.Text, Tags: body.Tags})
+			m.nextID++
+			m.anns = append(m.anns, grafanaAnnotation{ID: m.nextID, Time: body.Time, Text: body.Text, Tags: body.Tags})
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"id":1}`))
+			_, _ = fmt.Fprintf(w, `{"id":%d}`, m.nextID)
+		case http.MethodDelete:
+			id, _ := strconv.ParseInt(strings.TrimPrefix(r.URL.Path, "/api/annotations/"), 10, 64)
+			for i, ann := range m.anns {
+				if ann.ID == id {
+					m.anns = append(m.anns[:i], m.anns[i+1:]...)
+					_, _ = w.Write([]byte(`{"message":"deleted"}`))
+					return
+				}
+			}
+			http.Error(w, "not found", http.StatusNotFound)
 		case http.MethodGet:
 			if strings.HasPrefix(r.URL.Path, "/api/admin") {
 				http.Error(w, "forbidden", http.StatusForbidden)
 				return
 			}
-			want := r.URL.Query()["tags"]
+			q := r.URL.Query()
+			want := q["tags"]
+			// Grafana's annotation store applies the time window only when
+			// BOTH bounds are positive (`if query.From > 0 && query.To > 0`);
+			// a zero `from` silently drops `to` as well. Mimic that, or a
+			// caller passing from=0 looks like it pages when it does not.
+			from, _ := strconv.ParseInt(q.Get("from"), 10, 64)
+			to, _ := strconv.ParseInt(q.Get("to"), 10, 64)
+			if from <= 0 || to <= 0 {
+				from, to = math.MinInt64, math.MaxInt64
+			}
+			limit, err := strconv.Atoi(q.Get("limit"))
+			if err != nil || limit <= 0 {
+				limit = 100
+			}
 			var out []grafanaAnnotation
-			for i := len(m.anns) - 1; i >= 0; i-- { // newest first
+			for i := len(m.anns) - 1; i >= 0; i-- {
+				if m.anns[i].Time < from || m.anns[i].Time > to {
+					continue
+				}
 				tags := make(map[string]bool, len(m.anns[i].Tags))
 				for _, tg := range m.anns[i].Tags {
 					tags[tg] = true
@@ -53,6 +87,12 @@ func (m *mockAnnotationsAPI) server(t *testing.T) *httptest.Server {
 				if all {
 					out = append(out, m.anns[i])
 				}
+			}
+			// Grafana sorts by epoch descending; do the same rather than
+			// leaning on fixtures happening to be inserted in time order.
+			slices.SortStableFunc(out, func(a, b grafanaAnnotation) int { return cmp.Compare(b.Time, a.Time) })
+			if len(out) > limit {
+				out = out[:limit]
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(out)
