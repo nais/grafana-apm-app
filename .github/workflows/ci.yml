@@ -204,7 +204,7 @@ jobs:
           persist-credentials: false
       - name: Resolve Grafana E2E versions
         id: resolve-versions
-        uses: grafana/plugin-actions/e2e-version@a66a1c96cdbb176f9cccf10cf23593e250db7cce # ratchet:grafana/plugin-actions/e2e-version@e2e-version/v1.1.0
+        uses: grafana/plugin-actions/e2e-version@31f6f292a4ccc6530594b8939af571898b09cda8 # ratchet:grafana/plugin-actions/e2e-version@e2e-version/v1.1.1
 
   playwright-tests:
     needs: [resolve-versions, package]
@@ -252,7 +252,7 @@ jobs:
           ANONYMOUS_AUTH_ENABLED=false DEVELOPMENT=false GRAFANA_VERSION=${{ matrix.GRAFANA_IMAGE.VERSION }} GRAFANA_IMAGE=${{ matrix.GRAFANA_IMAGE.NAME }} docker compose up --no-deps --build -d grafana
 
       - name: Wait for grafana server
-        uses: grafana/plugin-actions/wait-for-grafana@a66a1c96cdbb176f9cccf10cf23593e250db7cce # ratchet:grafana/plugin-actions/wait-for-grafana@wait-for-grafana/v1.1.0
+        uses: grafana/plugin-actions/wait-for-grafana@31f6f292a4ccc6530594b8939af571898b09cda8 # ratchet:grafana/plugin-actions/wait-for-grafana@wait-for-grafana/v1.1.1
         with:
           url: http://127.0.0.1:3000/login
           timeout: 120
@@ -265,7 +265,7 @@ jobs:
         run: pnpm run e2e
 
       - name: Upload e2e test summary
-        uses: grafana/plugin-actions/playwright-gh-pages/upload-report-artifacts@a66a1c96cdbb176f9cccf10cf23593e250db7cce # ratchet:grafana/plugin-actions/playwright-gh-pages/upload-report-artifacts@upload-report-artifacts/v1.1.0
+        uses: grafana/plugin-actions/playwright-gh-pages/upload-report-artifacts@31f6f292a4ccc6530594b8939af571898b09cda8 # ratchet:grafana/plugin-actions/playwright-gh-pages/upload-report-artifacts@upload-report-artifacts/v1.1.1
         if: ${{ always() && !cancelled() }}
         with:
           upload-report: false
@@ -300,7 +300,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Publish report
-        uses: grafana/plugin-actions/playwright-gh-pages/deploy-report-pages@a66a1c96cdbb176f9cccf10cf23593e250db7cce # ratchet:grafana/plugin-actions/playwright-gh-pages/deploy-report-pages@deploy-report-pages/v1.1.0
+        uses: grafana/plugin-actions/playwright-gh-pages/deploy-report-pages@31f6f292a4ccc6530594b8939af571898b09cda8 # ratchet:grafana/plugin-actions/playwright-gh-pages/deploy-report-pages@deploy-report-pages/v1.1.1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
