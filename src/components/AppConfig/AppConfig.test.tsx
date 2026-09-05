@@ -2,7 +2,7 @@ import React from 'react';
 import { render, screen, act, fireEvent } from '@testing-library/react';
 import { PluginType } from '@grafana/data';
 import AppConfig, { AppConfigProps } from './AppConfig';
-import { testIds } from 'components/testIds';
+import { testIds } from '../testIds';
 
 const mockGet = jest.fn();
 const mockFetch = jest.fn();
