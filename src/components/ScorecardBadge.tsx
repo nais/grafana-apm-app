@@ -1,8 +1,11 @@
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 import { css, cx } from '@emotion/css';
-import { GrafanaTheme2 } from '@grafana/data';
-import { Icon, Toggletip, useStyles2 } from '@grafana/ui';
-import { getScorecard, ScorecardConsole, ScorecardResponse } from '../api/scorecard';
+import { AppEvents, GrafanaTheme2 } from '@grafana/data';
+import { getAppEvents, locationService } from '@grafana/runtime';
+import { Button, ClipboardButton, Icon, TextLink, Toggletip, useStyles2 } from '@grafana/ui';
+import { getScorecard, ScorecardCheck, ScorecardConsole, ScorecardResponse } from '../api/scorecard';
+import { buildAlertRuleUrl, getAlertTemplate } from '../api/client';
+import { apmDocs } from '../utils/docsLinks';
 import { useFetch } from '../utils/useFetch';
 
 interface ScorecardBadgeProps {
@@ -10,6 +13,43 @@ interface ScorecardBadgeProps {
   service: string;
   environment?: string;
 }
+
+/**
+ * Per-check docs deep link (#143 Phase 1 "actionability"): every check the
+ * backend can report gets the how-to that closes it. The key set is closed —
+ * see `computeReadiness` in pkg/plugin/scorecard.go — so this is a frontend-only
+ * mapping rather than a new API field.
+ */
+const CHECK_DOCS: Record<string, string> = {
+  spanMetrics: apmDocs.getStarted(),
+  traces: apmDocs.getStarted(),
+  logs: apmDocs.logPatterns(),
+  runtimeMetrics: apmDocs.getStarted(),
+  browserTelemetry: apmDocs.trackFrontendErrors(),
+  alertRules: apmDocs.createAlerts(),
+};
+
+/**
+ * Auto-instrumentation is the one manifest block behind both span metrics (RED)
+ * and runtime metrics — the OTel agent emits both. Field shape from the nais
+ * Application spec (liberator `AutoInstrumentation`).
+ */
+const AUTO_INSTRUMENTATION_SNIPPET = `spec:
+  observability:
+    autoInstrumentation:
+      enabled: true
+      runtime: java # java | nodejs | python | dotnet | sdk`;
+
+/** Copy-pasteable nais.yaml for the manifest-driven checks. Exported for the content test. */
+export const CHECK_SNIPPETS: Record<string, string> = {
+  spanMetrics: AUTO_INSTRUMENTATION_SNIPPET,
+  runtimeMetrics: AUTO_INSTRUMENTATION_SNIPPET,
+  logs: `spec:
+  observability:
+    logging:
+      destinations:
+        - id: loki`,
+};
 
 /**
  * Compact observability-readiness badge for the service header (M7 service
@@ -34,7 +74,10 @@ export function ScorecardBadge({ namespace, service, environment }: ScorecardBad
   const tone = score === total ? styles.good : score * 2 >= total ? styles.partial : styles.low;
 
   return (
-    <Toggletip content={<ScorecardDetails data={data} />} placement="bottom">
+    <Toggletip
+      content={<ScorecardDetails data={data} namespace={namespace} service={service} environment={environment} />}
+      placement="bottom"
+    >
       <button type="button" className={cx(styles.badge, tone)} data-testid="scorecard-badge">
         <Icon name={score === total ? 'check-circle' : 'info-circle'} size="sm" />
         {score}/{total} observability checks
@@ -43,7 +86,12 @@ export function ScorecardBadge({ namespace, service, environment }: ScorecardBad
   );
 }
 
-function ScorecardDetails({ data }: { data: ScorecardResponse }) {
+function ScorecardDetails({
+  data,
+  namespace,
+  service,
+  environment,
+}: { data: ScorecardResponse } & ScorecardBadgeProps) {
   const styles = useStyles2(getStyles);
   const consoleInfo = data.console;
   return (
@@ -65,12 +113,74 @@ function ScorecardDetails({ data }: { data: ScorecardResponse }) {
             <div>
               {check.label}
               {check.notApplicable && <span className={styles.naTag}>N/A</span>}
-              {!check.ok && <div className={styles.hint}>{check.hint}</div>}
+              {!check.ok && (
+                <div className={styles.hint}>
+                  {check.hint}
+                  <CheckActions check={check} namespace={namespace} service={service} environment={environment} />
+                </div>
+              )}
             </div>
           </li>
         ))}
       </ul>
       <ConsoleLinks consoleInfo={consoleInfo} />
+    </div>
+  );
+}
+
+/**
+ * One-click follow-ups for a check that isn't passing: the docs how-to, the
+ * `nais.yaml` block to paste for manifest-driven checks, and — for alert rules —
+ * the prefilled new-rule form the backend already renders (#65 template).
+ *
+ * A not-applicable check keeps the docs link (its hint says "if this service
+ * gets a frontend…") but not the fix actions: nothing needs fixing.
+ */
+function CheckActions({ check, namespace, service, environment }: { check: ScorecardCheck } & ScorecardBadgeProps) {
+  const styles = useStyles2(getStyles);
+  const [creatingAlert, setCreatingAlert] = useState(false);
+  const docsHref = CHECK_DOCS[check.key];
+  const snippet = check.notApplicable ? undefined : CHECK_SNIPPETS[check.key];
+  const canCreateAlert = !check.notApplicable && check.key === 'alertRules';
+
+  const onCreateAlert = useCallback(async () => {
+    setCreatingAlert(true);
+    try {
+      const template = await getAlertTemplate('error-rate', {
+        namespace: namespace || undefined,
+        service,
+        environment: environment || undefined,
+      });
+      locationService.push(buildAlertRuleUrl(template.url));
+    } catch (err) {
+      setCreatingAlert(false);
+      getAppEvents().publish({
+        type: AppEvents.alertError.name,
+        payload: ['Could not prepare alert rule', err instanceof Error ? err.message : String(err)],
+      });
+    }
+  }, [namespace, service, environment]);
+
+  if (!docsHref && !snippet && !canCreateAlert) {
+    return null;
+  }
+  return (
+    <div className={styles.actions} data-testid={`check-actions-${check.key}`}>
+      {docsHref && (
+        <TextLink href={docsHref} external variant="bodySmall">
+          Docs
+        </TextLink>
+      )}
+      {snippet && (
+        <ClipboardButton variant="secondary" fill="text" size="sm" icon="copy" getText={() => snippet}>
+          Copy nais.yaml
+        </ClipboardButton>
+      )}
+      {canCreateAlert && (
+        <Button variant="secondary" fill="text" size="sm" icon="bell" disabled={creatingAlert} onClick={onCreateAlert}>
+          Alert on error rate
+        </Button>
+      )}
     </div>
   );
 }
@@ -188,6 +298,13 @@ const getStyles = (theme: GrafanaTheme2) => ({
   `,
   hint: css`
     color: ${theme.colors.text.secondary};
+  `,
+  actions: css`
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: ${theme.spacing(1)};
+    margin-top: ${theme.spacing(0.25)};
   `,
   consoleSection: css`
     margin-top: ${theme.spacing(1.5)};
