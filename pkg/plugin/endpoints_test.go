@@ -1,11 +1,103 @@
 package plugin
 
 import (
+	"encoding/json"
+	"fmt"
 	"math"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/nais/grafana-otel-plugin/pkg/plugin/queries"
 )
+
+func TestHandleEndpointsUsesSelectedRange(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	promSrv, captured := queryCapturingPromServer(t, map[string][]queries.PromResult{
+		`span_kind="SPAN_KIND_SERVER"`: {
+			{
+				Metric: map[string]string{"span_name": "GET /api/testusers/managed/{id}"},
+				Value:  queries.NewPromValue(float64(now.Unix()), "0.01"),
+			},
+		},
+	})
+	defer promSrv.Close()
+
+	app := newTestApp(t, promSrv.URL, defaultCaps())
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf(
+		"/services/traktor/ida/endpoints?from=%d&to=%d&environment=prod",
+		now.Add(-time.Hour).Unix(), now.Unix(),
+	), nil)
+	req.SetPathValue("namespace", "traktor")
+	req.SetPathValue("service", "ida")
+	w := httptest.NewRecorder()
+	app.handleEndpoints(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var groups queries.EndpointGroups
+	if err := json.Unmarshal(w.Body.Bytes(), &groups); err != nil {
+		t.Fatal(err)
+	}
+	if len(groups.HTTP) != 1 || groups.HTTP[0].HTTPRoute != "/api/testusers/managed/{id}" {
+		t.Fatalf("expected historical HTTP endpoint, got %+v", groups.HTTP)
+	}
+
+	found := false
+	for _, query := range *captured {
+		if strings.Contains(query, `span_kind="SPAN_KIND_SERVER"`) &&
+			strings.Contains(query, `service_name="ida"`) &&
+			strings.Contains(query, `service_namespace="traktor"`) &&
+			strings.Contains(query, `k8s_cluster_name="prod"`) &&
+			strings.Contains(query, "rate(traces_spanmetrics_calls_total") &&
+			strings.Contains(query, "[1h]") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected endpoint rate query spanning selected hour; queries: %v", *captured)
+	}
+}
+
+func TestHandleEndpointsCacheKeyIncludesQueryWindow(t *testing.T) {
+	promSrv := mockPromServer(t, nil)
+	defer promSrv.Close()
+	app := newTestApp(t, promSrv.URL, defaultCaps())
+
+	base := time.Now().Add(-time.Hour).Unix() / 30 * 30
+	request := func(from, to int64) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, fmt.Sprintf(
+			"/services/traktor/ida/endpoints?from=%d&to=%d", from, to,
+		), nil)
+		req.SetPathValue("namespace", "traktor")
+		req.SetPathValue("service", "ida")
+		w := httptest.NewRecorder()
+		app.handleEndpoints(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+		return w
+	}
+
+	// Both timestamp pairs round to the same 30-second cache buckets, but
+	// their PromQL lookbacks round to 30m and 31m respectively.
+	if got := request(base+29, base+1830).Header().Get("X-Cache"); got == "HIT" {
+		t.Fatal("first 30m request should miss the cache")
+	}
+	if got := request(base+29, base+1830).Header().Get("X-Cache"); got != "HIT" {
+		t.Fatal("repeated 30m request should hit the cache")
+	}
+	if got := request(base, base+1859).Header().Get("X-Cache"); got == "HIT" {
+		t.Fatal("31m request should not reuse the 30m response")
+	}
+	if got := request(base, base+1859).Header().Get("X-Cache"); got != "HIT" {
+		t.Fatal("repeated 31m request should hit the cache")
+	}
+}
 
 func TestParseHTTPSpanName(t *testing.T) {
 	tests := []struct {

@@ -76,8 +76,8 @@ export function ServerTab({ service, namespace, fromMs, toMs, environment, onVie
   if (!hasAny) {
     return (
       <Alert severity="info" title="No endpoint data">
-        No endpoint metadata found for this service. Ensure OpenTelemetry instrumentation is producing span metrics with
-        HTTP, gRPC, or database attributes.
+        No endpoint span metrics found in the queried time window. Check the time range or OpenTelemetry
+        instrumentation.
       </Alert>
     );
   }
