@@ -49,7 +49,7 @@ func (a *App) handleServices(w http.ResponseWriter, req *http.Request) {
 	// Include the post-clamp step: it sets the sparkline resolution, so two
 	// requests over the same range with different steps must not share an entry.
 	stepStr := fmt.Sprintf("%ds", int(step.Seconds()))
-	ck := cacheKey("services", orgID, roundedFrom, roundedTo, stepStr, seriesStr, filterNamespace, filterEnvironment, filterServices)
+	ck := cacheKey("services", orgID, roundedFrom, roundedTo, computeRangeStr(from, to), stepStr, seriesStr, filterNamespace, filterEnvironment, filterServices)
 	if cached, ok := a.respCache.get(ck); ok {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-Cache", "HIT")
@@ -87,7 +87,8 @@ func (a *App) fetchServiceSummaries(
 	durationUnit := caps.SpanMetrics.DurationUnit
 	durationBucket := caps.SpanMetrics.DurationMetric
 
-	rangeStr := "[5m]"
+	rangeStr := computeRangeStr(from, to)
+	sparklineRangeStr := "[5m]"
 
 	// Build optional label filters for namespace/environment/services
 	extraFilters := ""
@@ -149,10 +150,10 @@ func (a *App) fetchServiceSummaries(
 	// SDK/discovery query: no span_kind filter — discovers ALL services regardless of span type.
 	// This ensures services with only CLIENT/PRODUCER/CONSUMER spans appear in the inventory.
 	sdkQuery := fmt.Sprintf(
-		`group by (%s, %s, %s, %s) (%s{%s!=""%s})`,
+		`group by (%s, %s, %s, %s) (present_over_time(%s{%s!=""%s}%s))`,
 		a.otelCfg.Labels.ServiceName, a.otelCfg.Labels.ServiceNamespace,
 		a.otelCfg.Labels.SDKLanguage, a.otelCfg.Labels.DeploymentEnv,
-		callsMetric, a.otelCfg.Labels.ServiceName, extraFilters,
+		callsMetric, a.otelCfg.Labels.ServiceName, extraFilters, rangeStr,
 	)
 
 	// Fallback queries: no span_kind filter, used for services without SERVER spans.
@@ -256,12 +257,12 @@ func (a *App) fetchServiceSummaries(
 			name  string
 			query string
 		}{
-			{"rateSeries", rateQuery},
-			{"errorSeries", errorQuery},
-			{"durationSeries", p95Query},
-			{"fallbackRateSeries", fallbackRateQuery},
-			{"fallbackErrorSeries", fallbackErrorQuery},
-			{"fallbackDurationSeries", fallbackP95Query},
+			{"rateSeries", strings.Replace(rateQuery, rangeStr, sparklineRangeStr, 1)},
+			{"errorSeries", strings.Replace(errorQuery, rangeStr, sparklineRangeStr, 1)},
+			{"durationSeries", strings.Replace(p95Query, rangeStr, sparklineRangeStr, 1)},
+			{"fallbackRateSeries", strings.Replace(fallbackRateQuery, rangeStr, sparklineRangeStr, 1)},
+			{"fallbackErrorSeries", strings.Replace(fallbackErrorQuery, rangeStr, sparklineRangeStr, 1)},
+			{"fallbackDurationSeries", strings.Replace(fallbackP95Query, rangeStr, sparklineRangeStr, 1)},
 		} {
 			wg.Add(1)
 			go func(n, query string) {

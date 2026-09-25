@@ -51,7 +51,7 @@ func (a *App) handleEndpoints(w http.ResponseWriter, req *http.Request) {
 	from, to := parseTimeRange(req)
 
 	orgID := req.Header.Get("X-Grafana-Org-Id")
-	ck := cacheKey("endpoints", orgID, roundedUnix(from), roundedUnix(to), namespace, service, environment)
+	ck := cacheKey("endpoints", orgID, roundedUnix(from), roundedUnix(to), computeRangeStr(from, to), namespace, service, environment)
 	a.writeCached(w, ck, "querying endpoints failed", func() (any, error) {
 		caps := a.cachedOrDetectCapabilities(ctx)
 		if !caps.SpanMetrics.Detected {
@@ -65,14 +65,14 @@ func (a *App) queryEndpoints(
 	ctx context.Context,
 	caps queries.Capabilities,
 	namespace, service, environment string,
-	_, to time.Time,
+	from, to time.Time,
 ) queries.EndpointGroups {
 	logger := log.DefaultLogger.With("handler", "endpoints")
 	callsMetric := caps.SpanMetrics.CallsMetric
 	durationUnit := caps.SpanMetrics.DurationUnit
 	durationBucket := caps.SpanMetrics.DurationMetric
 
-	rangeStr := "[5m]"
+	rangeStr := computeRangeStr(from, to)
 
 	baseFilter := a.otelCfg.ServiceFilter(service, namespace)
 	if environment != "" {
