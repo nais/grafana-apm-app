@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.1](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.25.0...nais-apm-app-v0.25.1) (2026-10-12)
+
+
+### Bug Fixes
+
+* filter logs when environments share Loki ([#195](https://github.com/nais/grafana-apm-app/issues/195)) ([fde59fb](https://github.com/nais/grafana-apm-app/commit/fde59fbc6ade98b35a49a0dc7d8fd653bcb0eba5))
+
 ## [0.25.0](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.24.0...nais-apm-app-v0.25.0) (2026-09-25)
 
 
