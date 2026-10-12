@@ -545,6 +545,7 @@ function ServiceOverviewInner({ namespace, service }: { namespace: string; servi
                   to={to}
                   serviceNameLabel={labelOverrides.serviceNameLabel}
                   clusterFilter={!ds.isLogsEnvSpecific ? envFilter || undefined : undefined}
+                  clusterLabel={labelOverrides.deploymentEnvLabel}
                 />
               </ErrorBoundary>
             </div>

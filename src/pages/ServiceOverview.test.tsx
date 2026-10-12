@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import ServiceOverview from './ServiceOverview';
 import * as capabilitiesUtils from '../utils/capabilities';
+import * as datasourceUtils from '../utils/datasources';
 
 /**
  * Tab registry tests: the Issues tab is capability-gated on Loki exactly like
@@ -56,7 +57,7 @@ jest.mock('../utils/datasources', () => ({
     isLogsEnvSpecific: false,
   }),
   useHasEnvironmentOverrides: () => false,
-  usePluginLabelOverrides: () => ({}),
+  usePluginLabelOverrides: jest.fn(() => ({})),
 }));
 
 jest.mock('./buildServiceScene', () => ({
@@ -72,7 +73,11 @@ jest.mock('./tabs/BackendTab', () => ({ BackendTab: () => <div data-testid="back
 jest.mock('./tabs/FrontendTab', () => ({ FrontendTab: () => <div data-testid="frontend-tab" /> }));
 jest.mock('./tabs/DependenciesTab', () => ({ DependenciesTab: () => <div data-testid="dependencies-tab" /> }));
 jest.mock('./tabs/TracesTab', () => ({ TracesTab: () => <div data-testid="traces-tab" /> }));
-jest.mock('./tabs/LogsTab', () => ({ LogsTab: () => <div data-testid="logs-tab" /> }));
+jest.mock('./tabs/LogsTab', () => ({
+  LogsTab: ({ clusterFilter, clusterLabel }: { clusterFilter?: string; clusterLabel?: string }) => (
+    <div data-testid="logs-tab" data-cluster-filter={clusterFilter} data-cluster-label={clusterLabel} />
+  ),
+}));
 jest.mock('./tabs/DatabaseTab', () => ({ DatabaseTab: () => <div data-testid="database-tab" /> }));
 jest.mock('./tabs/ProfilingTab', () => ({ ProfilingTab: () => <div data-testid="profiling-tab" /> }));
 
@@ -188,6 +193,20 @@ describe('ServiceOverview Profiling tab (M7 Pyroscope gating)', () => {
     renderPage();
 
     expect(screen.queryByText('Profiling')).not.toBeInTheDocument();
+  });
+
+  describe('ServiceOverview Logs tab', () => {
+    it('passes the configured environment label when filtering a shared Loki datasource', () => {
+      (capabilitiesUtils.useCapabilities as jest.Mock).mockReturnValue({ caps: baseCaps, loading: false });
+      (datasourceUtils.usePluginLabelOverrides as jest.Mock).mockReturnValue({
+        deploymentEnvLabel: 'deployment_environment',
+      });
+
+      renderPage(['/services/team-a/my-svc?tab=logs&environment=dev']);
+
+      expect(screen.getByTestId('logs-tab')).toHaveAttribute('data-cluster-filter', 'dev');
+      expect(screen.getByTestId('logs-tab')).toHaveAttribute('data-cluster-label', 'deployment_environment');
+    });
   });
 
   it('shows the Profiling tab and mounts it when a Pyroscope datasource is available', () => {

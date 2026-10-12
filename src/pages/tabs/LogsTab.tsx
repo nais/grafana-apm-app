@@ -28,6 +28,7 @@ interface LogsTabProps {
   serviceNameLabel?: string;
   /** Cluster/environment filter to inject into stream selectors (for centralized Loki). */
   clusterFilter?: string;
+  clusterLabel?: string;
 }
 
 // Severity options based on detected_level stream label values observed in production.
@@ -58,6 +59,7 @@ export function LogsTab({
   to,
   serviceNameLabel = otel.labels.serviceName,
   clusterFilter,
+  clusterLabel = otel.labels.deploymentEnv,
 }: LogsTabProps) {
   const [severityFilter, setSeverityFilter] = useUrlCsv('logSeverity');
   const [logSearch, setLogSearch] = useUrlString('logSearch');
@@ -75,7 +77,7 @@ export function LogsTab({
   // Fetch available pod names for this service
   useEffect(() => {
     const controller = new AbortController();
-    const clusterMatcher = clusterFilter ? `, ${otel.labels.deploymentEnv}="${sanitizeLabelValue(clusterFilter)}"` : '';
+    const clusterMatcher = clusterFilter ? `, ${clusterLabel}="${sanitizeLabelValue(clusterFilter)}"` : '';
     fetch(
       `/api/datasources/proxy/uid/${encodeURIComponent(logsUid)}/loki/api/v1/label/k8s_pod_name/values?query=${encodeURIComponent(`{${serviceNameLabel}="${sanitizeLabelValue(service)}"${clusterMatcher}}`)}`,
       { signal: controller.signal }
@@ -89,7 +91,7 @@ export function LogsTab({
         /* ignore */
       });
     return () => controller.abort();
-  }, [service, logsUid, serviceNameLabel, clusterFilter]);
+  }, [service, logsUid, serviceNameLabel, clusterFilter, clusterLabel]);
 
   const scene = useMemo(() => {
     // Resolve against the shared URL range (fromMs/toMs) rather than the raw
@@ -102,7 +104,7 @@ export function LogsTab({
     const svcLabel = `${serviceNameLabel}="${sanitizeLabelValue(service)}"`;
 
     // Centralized Loki: inject cluster label to scope logs to the selected environment.
-    const clusterStream = clusterFilter ? `, ${otel.labels.deploymentEnv}="${sanitizeLabelValue(clusterFilter)}"` : '';
+    const clusterStream = clusterFilter ? `, ${clusterLabel}="${sanitizeLabelValue(clusterFilter)}"` : '';
     // Faro browser telemetry filtering via the `kind` stream label:
     // - Off: kind="" matches only backend app logs (no kind label)
     // - On + no filter: show all (no kind constraint)
@@ -206,6 +208,7 @@ export function LogsTab({
     toMs,
     serviceNameLabel,
     clusterFilter,
+    clusterLabel,
   ]);
 
   return (

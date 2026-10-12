@@ -52,10 +52,10 @@ jest.mock('./logs/PatternsPanel', () => ({
   PatternsPanel: () => null,
 }));
 
-const renderTab = (search = '') =>
+const renderTab = (search = '', options: { clusterFilter?: string; clusterLabel?: string } = {}) =>
   render(
     <MemoryRouter initialEntries={[`/${search}`]}>
-      <LogsTab service="my-svc" namespace="team-a" logsUid="loki-uid" from="now-1h" to="now" />
+      <LogsTab service="my-svc" namespace="team-a" logsUid="loki-uid" from="now-1h" to="now" {...options} />
     </MemoryRouter>
   );
 
@@ -108,5 +108,20 @@ describe('LogsTab severity filter', () => {
     const expr = queryRunner('A').queries[0].expr as string;
     expect(expr).toContain('detected_level=~"warn"');
     expect(expr).not.toContain('WARN');
+  });
+
+  it('uses the configured environment label for shared Loki log, volume and pod queries', () => {
+    renderTab('', { clusterFilter: 'dev', clusterLabel: 'deployment_environment' });
+
+    const logExpr = queryRunner('A').queries[0].expr as string;
+    const volumeExpr = queryRunner('volume').queries[0].expr as string;
+    expect(logExpr).toContain('{service_name="my-svc", deployment_environment="dev", kind=""}');
+    expect(volumeExpr).toContain('{service_name="my-svc", deployment_environment="dev", kind=""}');
+    expect(logExpr).not.toContain('k8s_cluster_name');
+    expect(volumeExpr).not.toContain('k8s_cluster_name');
+
+    const podUrl = (global.fetch as jest.Mock).mock.calls[0][0] as string;
+    const podQuery = new URL(podUrl, 'http://localhost').searchParams.get('query');
+    expect(podQuery).toBe('{service_name="my-svc", deployment_environment="dev"}');
   });
 });
