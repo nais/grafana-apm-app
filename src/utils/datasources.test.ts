@@ -204,6 +204,85 @@ describe('usePluginDatasources', () => {
     });
     expect(result.current.logsUid).toBe('prod-loki');
     expect(result.current.isEnvSpecific).toBe(true);
+    // The prod override UID is unique to prod, so it's genuinely isolated.
+    expect(result.current.isLogsEnvSpecific).toBe(true);
+  });
+
+  it('isLogsEnvSpecific is false when the override shares the UID with another environment (centralized Loki)', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        jsonData: {
+          logsDataSource: {
+            uid: 'default-loki',
+            byEnvironment: {
+              dev: { uid: 'central-loki' },
+              prod: { uid: 'central-loki' },
+            },
+          },
+        },
+      }),
+    });
+
+    initDatasourceConfig();
+
+    const { result: devResult } = renderHook(() => usePluginDatasources('dev'));
+    await waitFor(() => {
+      expect(devResult.current.logsUid).toBe('central-loki');
+    });
+    expect(devResult.current.isLogsEnvSpecific).toBe(false);
+
+    const { result: prodResult } = renderHook(() => usePluginDatasources('prod'));
+    await waitFor(() => {
+      expect(prodResult.current.logsUid).toBe('central-loki');
+    });
+    expect(prodResult.current.isLogsEnvSpecific).toBe(false);
+  });
+
+  it('isLogsEnvSpecific is false when the override shares the UID with the unconfigured-environment fallback', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        jsonData: {
+          logsDataSource: {
+            uid: 'shared-loki',
+            byEnvironment: { prod: { uid: 'shared-loki' } },
+          },
+        },
+      }),
+    });
+
+    initDatasourceConfig();
+
+    const { result } = renderHook(() => usePluginDatasources('prod'));
+    await waitFor(() => {
+      expect(result.current.logsUid).toBe('shared-loki');
+    });
+    // Any unconfigured environment also resolves to 'shared-loki' via
+    // fallback, so prod's override doesn't actually isolate it.
+    expect(result.current.isLogsEnvSpecific).toBe(false);
+  });
+
+  it('isLogsEnvSpecific is true when only one environment has an override with a distinct UID', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        jsonData: {
+          logsDataSource: {
+            uid: 'default-loki',
+            byEnvironment: { prod: { uid: 'prod-only-loki' } },
+          },
+        },
+      }),
+    });
+
+    initDatasourceConfig();
+
+    const { result } = renderHook(() => usePluginDatasources('prod'));
+    await waitFor(() => {
+      expect(result.current.logsUid).toBe('prod-only-loki');
+    });
+    expect(result.current.isLogsEnvSpecific).toBe(true);
   });
 });
 

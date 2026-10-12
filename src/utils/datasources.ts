@@ -19,6 +19,29 @@ function resolveUid(ds: EnvAwareDs | undefined, env: string | undefined, fallbac
   return ds?.uid || fallback;
 }
 
+/**
+ * Whether `env`'s configured override UID actually isolates it from other
+ * environments — i.e. no other environment (configured or not) resolves to
+ * the same UID. A `byEnvironment` entry alone isn't enough: centralized Loki
+ * setups commonly map several environments to the *same* datasource UID,
+ * differentiated only by a stream label (e.g. k8s_cluster_name). Callers use
+ * this to decide whether a query still needs that label filter — dropping it
+ * because "an override exists" caused dev/prod to silently return identical
+ * results whenever their overrides pointed at the same Loki instance.
+ */
+function isEnvIsolated(ds: EnvAwareDs | undefined, env: string): boolean {
+  const uid = ds?.byEnvironment?.[env]?.uid;
+  if (!uid) {
+    return false;
+  }
+  // Shared with an unconfigured environment (which falls back to ds.uid)?
+  if (ds?.uid && ds.uid === uid) {
+    return false;
+  }
+  // Shared with another explicitly configured environment?
+  return !Object.entries(ds?.byEnvironment ?? {}).some(([key, ref]) => key !== env && ref.uid === uid);
+}
+
 // Cached jsonData fetched from the plugin settings API.
 // Grafana's frontend config does NOT include jsonData for app plugins,
 // so we always fetch it from the REST API.
@@ -77,7 +100,10 @@ function getPluginDatasources(env?: string): PluginDatasources {
     (!!metricsDs.byEnvironment?.[env]?.uid ||
       !!tracesDs.byEnvironment?.[env]?.uid ||
       !!logsDs.byEnvironment?.[env]?.uid);
-  const isLogsEnvSpecific = !!env && !!logsDs.byEnvironment?.[env]?.uid;
+  // Only true when the override genuinely isolates this environment's logs
+  // from every other environment (see isEnvIsolated) — otherwise queries
+  // still need a cluster/env label filter to distinguish them.
+  const isLogsEnvSpecific = !!env && isEnvIsolated(logsDs, env);
 
   return {
     metricsUid,
