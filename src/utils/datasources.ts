@@ -34,8 +34,8 @@ function isEnvIsolated(ds: EnvAwareDs | undefined, env: string): boolean {
   if (!uid) {
     return false;
   }
-  // Shared with an unconfigured environment (which falls back to ds.uid)?
-  if (ds?.uid && ds.uid === uid) {
+  // Shared with an unconfigured environment (which falls back to ds.uid or 'loki')?
+  if (resolveUid(ds, undefined, 'loki') === uid) {
     return false;
   }
   // Shared with another explicitly configured environment?

@@ -263,6 +263,28 @@ describe('usePluginDatasources', () => {
     expect(result.current.isLogsEnvSpecific).toBe(false);
   });
 
+  it('isLogsEnvSpecific is false when the override matches the implicit Loki fallback', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        jsonData: {
+          logsDataSource: {
+            byEnvironment: { prod: { uid: 'loki' } },
+          },
+        },
+      }),
+    });
+
+    initDatasourceConfig();
+
+    const { result } = renderHook(() => usePluginDatasources('prod'));
+    await waitFor(() => {
+      expect(result.current.isEnvSpecific).toBe(true);
+    });
+    expect(result.current.logsUid).toBe('loki');
+    expect(result.current.isLogsEnvSpecific).toBe(false);
+  });
+
   it('isLogsEnvSpecific is true when only one environment has an override with a distinct UID', async () => {
     mockFetch.mockResolvedValue({
       ok: true,
