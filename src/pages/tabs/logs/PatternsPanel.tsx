@@ -17,6 +17,8 @@ interface PatternsPanelProps {
   logsUid: string;
   fromMs: number;
   toMs: number;
+  /** Environment filter for a centralized Loki datasource. */
+  clusterFilter?: string;
   /** Apply a pattern's search literal to the log panel's existing search filter. */
   onSelectFilter: (literal: string) => void;
 }
@@ -41,13 +43,21 @@ const MODE_LABEL: Record<LogPatternsMode, string> = {
  * TOP_N with a "show all" affordance so a noisy pattern table still doesn't
  * dominate the tab.
  */
-export function PatternsPanel({ namespace, service, logsUid, fromMs, toMs, onSelectFilter }: PatternsPanelProps) {
+export function PatternsPanel({
+  namespace,
+  service,
+  logsUid,
+  fromMs,
+  toMs,
+  clusterFilter,
+  onSelectFilter,
+}: PatternsPanelProps) {
   const styles = useStyles2(getStyles);
   const [showAll, setShowAll] = useState(false);
 
   const { data, loading, error } = useFetch(
-    () => getLogPatterns(namespace, service, fromMs, toMs, logsUid),
-    [namespace, service, fromMs, toMs, logsUid],
+    () => getLogPatterns(namespace, service, fromMs, toMs, logsUid, clusterFilter),
+    [namespace, service, fromMs, toMs, logsUid, clusterFilter],
     { skip: !logsUid }
   );
 

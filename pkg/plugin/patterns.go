@@ -101,6 +101,7 @@ func (a *App) handleLogPatterns(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	from, to := parseTimeRange(req)
+	environment := parseEnvironment(req)
 	lokiUID := sanitizeDatasourceUID(req.URL.Query().Get("lokiUid"))
 	// The UID arrives from the client and is proxied with the service-account
 	// token — only allow the configured logs datasource(s), never an arbitrary
@@ -111,19 +112,24 @@ func (a *App) handleLogPatterns(w http.ResponseWriter, req *http.Request) {
 	}
 
 	orgID := req.Header.Get("X-Grafana-Org-Id")
-	ck := cacheKey("logpatterns", orgID, roundedUnix(from), roundedUnix(to), service, lokiUID)
+	ck := cacheKey("logpatterns", orgID, roundedUnix(from), roundedUnix(to), service, environment, lokiUID)
 	headers := req.Header
 	a.writeCached(w, ck, "querying log patterns failed", func() (any, error) {
-		return a.queryLogPatterns(ctx, headers, lokiUID, service, from, to), nil
+		return a.queryLogPatterns(ctx, headers, lokiUID, service, environment, from, to), nil
 	})
 }
 
 // queryLogPatterns tries Loki's pattern ingester first (the accurate,
 // fleet-wide clustering) and falls back to sampling+normalizing the newest
 // error lines when the ingester or its endpoint is unavailable.
-func (a *App) queryLogPatterns(ctx context.Context, headers http.Header, lokiUID, service string, from, to time.Time) LogPatternsResponse {
+func (a *App) queryLogPatterns(
+	ctx context.Context,
+	headers http.Header,
+	lokiUID, service, environment string,
+	from, to time.Time,
+) LogPatternsResponse {
 	logger := log.DefaultLogger.With("handler", "log-patterns")
-	selector := fmt.Sprintf(`{%s="%s"}`, a.otelCfg.FaroLoki.ServiceName, service)
+	selector := a.otelCfg.LokiStreamSelector(service, "", environment)
 	token := a.resolveServiceToken(ctx)
 
 	raw, err := a.fetchLokiPatterns(ctx, headers, token, lokiUID, selector, from, to)

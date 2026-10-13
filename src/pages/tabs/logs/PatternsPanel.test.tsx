@@ -10,7 +10,7 @@ jest.mock('../../../api/analytics', () => ({
 
 const getLogPatterns = analytics.getLogPatterns as jest.Mock;
 
-function renderPanel(onSelectFilter = jest.fn()) {
+function renderPanel(onSelectFilter = jest.fn(), props: Partial<React.ComponentProps<typeof PatternsPanel>> = {}) {
   render(
     <PatternsPanel
       namespace="ns"
@@ -19,6 +19,7 @@ function renderPanel(onSelectFilter = jest.fn()) {
       fromMs={1000}
       toMs={2000}
       onSelectFilter={onSelectFilter}
+      {...props}
     />
   );
   return onSelectFilter;
@@ -107,6 +108,13 @@ describe('PatternsPanel', () => {
 
     fireEvent.click(screen.getByText('Timeout calling upstream <_>'));
     expect(onSelectFilter).toHaveBeenCalledWith('upstream');
+  });
+
+  it('requests patterns scoped to the selected environment', async () => {
+    getLogPatterns.mockResolvedValue({ mode: 'serverPatterns', patterns: [] });
+    renderPanel(jest.fn(), { clusterFilter: 'dev' });
+
+    await waitFor(() => expect(getLogPatterns).toHaveBeenCalledWith('ns', 'svc', 1000, 2000, 'nav-logs', 'dev'));
   });
 
   it('shows the sampled-mode label', async () => {

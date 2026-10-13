@@ -54,13 +54,15 @@ export async function getLogPatterns(
   service: string,
   from: number,
   to: number,
-  lokiUid: string
+  lokiUid: string,
+  environment?: string
 ): Promise<LogPatternsResponse> {
   return fetchResource<LogPatternsResponse>(
     `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/logs/patterns`,
     {
       ...timeParams(from, to),
       lokiUid,
+      ...(environment ? { environment } : {}),
     }
   );
 }

@@ -104,7 +104,7 @@ func TestQueryLogPatternsServerMode(t *testing.T) {
 	srv := mockPatternsServer(t, http.StatusOK, cur, prev, 1000, nil)
 	app := patternsTestApp(t, srv)
 
-	resp := app.queryLogPatterns(context.Background(), http.Header{}, "nav-logs", "my-svc", time.Unix(1000, 0), time.Unix(2000, 0))
+	resp := app.queryLogPatterns(context.Background(), http.Header{}, "nav-logs", "my-svc", "", time.Unix(1000, 0), time.Unix(2000, 0))
 
 	if resp.Mode != "serverPatterns" {
 		t.Fatalf("mode = %q, want serverPatterns", resp.Mode)
@@ -148,7 +148,7 @@ func TestQueryLogPatternsSampledFallback(t *testing.T) {
 	srv := mockPatternsServer(t, http.StatusInternalServerError, nil, nil, 0, lines)
 	app := patternsTestApp(t, srv)
 
-	resp := app.queryLogPatterns(context.Background(), http.Header{}, "nav-logs", "my-svc", time.Unix(1000, 0), time.Unix(2000, 0))
+	resp := app.queryLogPatterns(context.Background(), http.Header{}, "nav-logs", "my-svc", "", time.Unix(1000, 0), time.Unix(2000, 0))
 
 	if resp.Mode != "sampled" {
 		t.Fatalf("mode = %q, want sampled", resp.Mode)
@@ -166,6 +166,34 @@ func TestQueryLogPatternsSampledFallback(t *testing.T) {
 	}
 	if top.Sample == "" {
 		t.Errorf("sampled mode should carry a representative sample line")
+	}
+}
+
+func TestQueryLogPatternsFiltersByConfiguredEnvironmentLabel(t *testing.T) {
+	var selector string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		selector = r.URL.Query().Get("query")
+		writeMock(w, map[string]any{"status": "success", "data": []any{}})
+	}))
+	app := patternsTestApp(t, srv)
+	app.otelCfg.Labels.DeploymentEnv = "deployment_environment"
+
+	resp := app.queryLogPatterns(
+		context.Background(),
+		http.Header{},
+		"nav-logs",
+		"my-svc",
+		"dev",
+		time.Unix(1000, 0),
+		time.Unix(2000, 0),
+	)
+
+	if resp.Mode != "serverPatterns" {
+		t.Fatalf("mode = %q, want serverPatterns", resp.Mode)
+	}
+	want := `{service_name="my-svc", deployment_environment="dev"}`
+	if selector != want {
+		t.Errorf("selector = %q, want %q", selector, want)
 	}
 }
 
@@ -217,7 +245,7 @@ func TestServerPatternsIsNewNeedsBaseline(t *testing.T) {
 	srv := mockPatternsServer(t, http.StatusOK, cur, []patternDoc{}, 1000, nil)
 	app := patternsTestApp(t, srv)
 
-	resp := app.queryLogPatterns(context.Background(), http.Header{}, "nav-logs", "my-svc", time.Unix(1000, 0), time.Unix(2000, 0))
+	resp := app.queryLogPatterns(context.Background(), http.Header{}, "nav-logs", "my-svc", "", time.Unix(1000, 0), time.Unix(2000, 0))
 
 	if resp.Mode != "serverPatterns" || len(resp.Patterns) != 2 {
 		t.Fatalf("unexpected response: mode=%s patterns=%d", resp.Mode, len(resp.Patterns))

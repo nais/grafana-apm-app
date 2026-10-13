@@ -279,6 +279,7 @@ export function LogsTab({
         logsUid={logsUid}
         fromMs={fromMs}
         toMs={toMs}
+        clusterFilter={clusterFilter}
         onSelectFilter={setLogSearch}
       />
       <div className={styles.sceneWrapper}>
