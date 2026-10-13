@@ -53,6 +53,17 @@ describe('buildBrowserBreakdownSection', () => {
     expect(buildBrowserBreakdownSection(makeCtx({ hasLoki: false }))).toBeNull();
   });
 
+  it('filters browser volume by the configured environment label for shared Loki', () => {
+    const layout = buildBrowserBreakdownSection(
+      makeCtx({ clusterFilter: 'dev-gcp', clusterLabel: 'nais_cluster_name' })
+    );
+    const s = serialize(layout!.state);
+
+    expect(s).toContain(
+      'count_over_time({service_name=\\"checkout\\", kind=\\"measurement\\", nais_cluster_name=\\"dev-gcp\\"}'
+    );
+  });
+
   it('no longer renders a Console Errors table anywhere (P4)', () => {
     const errors = serialize(buildErrorsSection(makeCtx({ hasLoki: true })).state);
     const browser = serialize(buildBrowserBreakdownSection(makeCtx({ hasLoki: true }))!.state);

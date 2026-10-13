@@ -26,6 +26,13 @@ function clusterMatcher(opts?: LokiClusterOpts): string {
   return `, ${label}="${sanitizeLabelValue(opts.cluster)}"`;
 }
 
+/** Base pipeline for Faro web-vitals measurement logs. */
+export function lokiWebVitalsPipeline(service: string, clusterOpts?: LokiClusterOpts): string {
+  const fl = otel.faroLoki;
+  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindMeasurement}"${clusterMatcher(clusterOpts)}}`;
+  return `${stream} | logfmt | ${fl.typeField}="${fl.typeWebVitals}"`;
+}
+
 /**
  * Base pipeline for extracting a vital from Faro measurement logs.
  * Filters to web-vitals measurements, requires the vital field to be non-empty,
@@ -38,10 +45,8 @@ export function lokiVitalPipeline(
   browserFilter = BROWSER_FILTER,
   clusterOpts?: LokiClusterOpts
 ): string {
-  const fl = otel.faroLoki;
-  const stream = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindMeasurement}"${clusterMatcher(clusterOpts)}}`;
   const keepFields = extraKeep ? `${vital}, ${extraKeep}` : vital;
-  return `${stream} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" | ${vital}!="" ${browserFilter} | keep ${keepFields}`;
+  return `${lokiWebVitalsPipeline(service, clusterOpts)} | ${vital}!="" ${browserFilter} | keep ${keepFields}`;
 }
 
 /**

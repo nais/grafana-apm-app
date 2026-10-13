@@ -17,13 +17,13 @@ import {
 import { ThresholdsMode, GraphThresholdsStyleMode } from '@grafana/schema';
 
 import { otel } from '../../../otelconfig';
-import { sanitizeLabelValue } from '../../../utils/sanitize';
 import { VITAL_THRESHOLDS, CWV_BUCKET_BOUNDARIES, type VitalKey } from './constants';
 import { makePromQuery, makeLokiQuery } from './panel-helpers';
 import {
   lokiVitalByGroupExpr,
   lokiVitalByPageExpr,
   lokiSessionStartExpr,
+  lokiWebVitalsPipeline,
   type LokiClusterOpts,
 } from './queries/loki-builders';
 import { FrontendSceneContext } from './scene-context';
@@ -486,7 +486,7 @@ export function buildBrowserBreakdownSection(ctx: FrontendSceneContext): SceneFl
   );
 
   // Browser volume pie (from Loki measurement counts per browser_name)
-  const browserVolumePipeline = `{${fl.serviceName}="${sanitizeLabelValue(service)}", ${fl.kind}="${fl.kindMeasurement}"} | logfmt | ${fl.typeField}="${fl.typeWebVitals}" | ${fl.browserName}!=""`;
+  const browserVolumePipeline = `${lokiWebVitalsPipeline(service, co2)} | ${fl.browserName}!=""`;
   const browserVolumeQ = new SceneQueryRunner({
     datasource: { uid: logsDs.uid, type: 'loki' },
     queries: [
