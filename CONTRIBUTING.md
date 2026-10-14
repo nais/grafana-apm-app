@@ -123,6 +123,8 @@ mise run all
 - Run `mise run all` before pushing
 - Write tests for new functionality
 - Keep PRs focused — one feature or fix per PR
+- Prefix fix and feature commits that land on `main` with `fix:` or `feat:`
+  (including the final squash-merge title) to prepare releases automatically.
 
 ## Reporting issues
 
