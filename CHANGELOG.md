@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.2](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.25.1...nais-apm-app-v0.25.2) (2026-10-14)
+
+
+### Bug Fixes
+
+* clarify release commit titles ([#200](https://github.com/nais/grafana-apm-app/issues/200)) ([509c644](https://github.com/nais/grafana-apm-app/commit/509c644b435b66066d8a96e02d335f10199cc6d8))
+
 ## [0.25.1](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.25.0...nais-apm-app-v0.25.1) (2026-10-12)
 
 
