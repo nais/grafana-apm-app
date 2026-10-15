@@ -19,7 +19,7 @@ import {
 import { dateMath, GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getServices, getCapabilities, ServiceSummary, Capabilities } from '../api/client';
-import { QUICK_TIME_RANGES } from '../utils/timeRangeOptions';
+import { QUICK_TIME_RANGES, describeTimeRange } from '../utils/timeRangeOptions';
 import { useAppNavigate, sanitizeParam } from '../utils/navigation';
 import { formatDuration } from '../utils/format';
 import { sparklineColors } from '../utils/colors';
@@ -327,82 +327,84 @@ function ServiceInventory() {
           </Alert>
         )}
 
-        {!loading && services.length > 0 && (
-          <>
-            <div className={styles.toolbar}>
-              {/* Row 1: Data scope filters */}
-              <div className={styles.scopeRow}>
-                <div className={styles.filterGroup}>
-                  <div className={styles.filterItem}>
-                    <Input
-                      prefix={<Icon name="search" />}
-                      placeholder="Filter services..."
-                      value={search}
-                      onChange={(e) => {
-                        setSearch(e.currentTarget.value);
-                      }}
-                    />
-                  </div>
+        {!loading && (services.length > 0 || caps?.spanMetrics.detected) && (
+          <div className={styles.toolbar}>
+            {/* Row 1: Data scope filters */}
+            <div className={styles.scopeRow}>
+              <div className={styles.filterGroup}>
+                <div className={styles.filterItem}>
+                  <Input
+                    prefix={<Icon name="search" />}
+                    placeholder="Filter services..."
+                    value={search}
+                    onChange={(e) => {
+                      setSearch(e.currentTarget.value);
+                    }}
+                  />
+                </div>
+                <div className={styles.filterItem}>
+                  <MultiCombobox
+                    options={namespaceOptions}
+                    value={nsFilters}
+                    onChange={(selected) => setNsFilters(selected.map((o) => o.value).filter(Boolean) as string[])}
+                    placeholder="All namespaces"
+                  />
+                </div>
+                {(envOptions.length > 1 || envFilters.length > 0) && (
                   <div className={styles.filterItem}>
                     <MultiCombobox
-                      options={namespaceOptions}
-                      value={nsFilters}
-                      onChange={(selected) => setNsFilters(selected.map((o) => o.value).filter(Boolean) as string[])}
-                      placeholder="All namespaces"
+                      options={envOptions}
+                      value={envFilters}
+                      onChange={(selected) => setEnvFilters(selected.map((o) => o.value).filter(Boolean) as string[])}
+                      placeholder="All environments"
                     />
                   </div>
-                  {(envOptions.length > 1 || envFilters.length > 0) && (
-                    <div className={styles.filterItem}>
-                      <MultiCombobox
-                        options={envOptions}
-                        value={envFilters}
-                        onChange={(selected) => setEnvFilters(selected.map((o) => o.value).filter(Boolean) as string[])}
-                        placeholder="All environments"
-                      />
-                    </div>
-                  )}
-                  {sdkOptions.length > 1 && (
-                    <div className={styles.filterItem}>
-                      <MultiCombobox
-                        options={sdkOptions}
-                        value={sdkFilters}
-                        onChange={(selected) => setSdkFilters(selected.map((o) => o.value).filter(Boolean) as string[])}
-                        placeholder="All types"
-                      />
-                    </div>
-                  )}
-                </div>
-                <Combobox
-                  options={INVENTORY_TIME_RANGES}
-                  value={from}
-                  onChange={(v) => selectRange(v?.value ?? 'now-5m')}
-                  width={22}
-                  prefixIcon="clock-nine"
-                />
+                )}
+                {sdkOptions.length > 1 && (
+                  <div className={styles.filterItem}>
+                    <MultiCombobox
+                      options={sdkOptions}
+                      value={sdkFilters}
+                      onChange={(selected) => setSdkFilters(selected.map((o) => o.value).filter(Boolean) as string[])}
+                      placeholder="All types"
+                    />
+                  </div>
+                )}
               </div>
-              {/* Row 2: View options (pills) */}
-              <div className={styles.viewRow}>
-                <FilterPill
-                  icon="star"
-                  label={`My Apps${favCount > 0 ? ` (${favCount})` : ''}`}
-                  selected={showFavoritesOnly}
-                  onClick={() => setShowFavorites(!showFavoritesOnly)}
-                />
-                <FilterPill
-                  icon="exclamation-circle"
-                  label="Has errors"
-                  selected={showErrorsOnly}
-                  onClick={() => updateParams({ hasErrors: showErrorsOnly ? null : 'true', page: null })}
-                />
-                <FilterPill
-                  icon="eye-slash"
-                  label="Hide sidecars"
-                  selected={hideSidecars}
-                  onClick={() => updateParams({ hideSidecars: hideSidecars ? 'false' : null, page: null })}
-                />
-              </div>
+              <Combobox
+                options={INVENTORY_TIME_RANGES}
+                value={from}
+                onChange={(v) => selectRange(v?.value ?? 'now-5m')}
+                width={22}
+                prefixIcon="clock-nine"
+              />
             </div>
+            {/* Row 2: View options (pills) */}
+            <div className={styles.viewRow}>
+              <FilterPill
+                icon="star"
+                label={`My Apps${favCount > 0 ? ` (${favCount})` : ''}`}
+                selected={showFavoritesOnly}
+                onClick={() => setShowFavorites(!showFavoritesOnly)}
+              />
+              <FilterPill
+                icon="exclamation-circle"
+                label="Has errors"
+                selected={showErrorsOnly}
+                onClick={() => updateParams({ hasErrors: showErrorsOnly ? null : 'true', page: null })}
+              />
+              <FilterPill
+                icon="eye-slash"
+                label="Hide sidecars"
+                selected={hideSidecars}
+                onClick={() => updateParams({ hideSidecars: hideSidecars ? 'false' : null, page: null })}
+              />
+            </div>
+          </div>
+        )}
 
+        {!loading && services.length > 0 && (
+          <>
             <table className={styles.table}>
               <colgroup>
                 <col style={{ width: '32px' }} />
@@ -506,7 +508,10 @@ function ServiceInventory() {
                                 className={styles.nsLink}
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  appNavigate(`namespaces/${encodeURIComponent(svc.namespace)}`, { from, to: 'now' });
+                                  appNavigate(`namespaces/${encodeURIComponent(svc.namespace)}`, {
+                                    from,
+                                    to: 'now',
+                                  });
                                 }}
                               >
                                 {svc.namespace}
@@ -591,7 +596,7 @@ function ServiceInventory() {
 
         {!loading && services.length === 0 && caps?.spanMetrics.detected && (
           <Alert severity="info" title="No services found">
-            Span metrics are detected but no server spans were found.
+            No services found in {describeTimeRange(from, 'now')}. Select a wider time range to find older activity.
           </Alert>
         )}
       </div>

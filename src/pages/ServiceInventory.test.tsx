@@ -146,6 +146,16 @@ describe('ServiceInventory — Time range', () => {
       expect(to - from).toBe(5 * 60 * 1000);
     }
   });
+
+  it('keeps the range picker available when the initial window has no services', async () => {
+    jest.mocked(getServices).mockResolvedValueOnce([]);
+    renderInventory();
+
+    expect(await screen.findByText('No services found')).toBeInTheDocument();
+    expect(screen.getByText(/Select a wider time range to find older activity/)).toBeInTheDocument();
+    expect(screen.getByDisplayValue('Last 5 minutes')).toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  });
 });
 
 describe('ServiceInventory — Favorites', () => {
