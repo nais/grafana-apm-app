@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.3](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.25.2...nais-apm-app-v0.25.3) (2026-10-15)
+
+
+### Performance Improvements
+
+* reduce service inventory query load ([#202](https://github.com/nais/grafana-apm-app/issues/202)) ([3118680](https://github.com/nais/grafana-apm-app/commit/3118680c44081c18300c119217d0d8f673ecd03d))
+
 ## [0.25.2](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.25.1...nais-apm-app-v0.25.2) (2026-10-14)
 
 
