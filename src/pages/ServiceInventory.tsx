@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { PluginPage } from '@grafana/runtime';
 import {
@@ -16,10 +16,9 @@ import {
   useStyles2,
   useTheme2,
 } from '@grafana/ui';
-import { GrafanaTheme2 } from '@grafana/data';
+import { dateMath, GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { getServices, getCapabilities, ServiceSummary, Capabilities } from '../api/client';
-import { useTimeRange } from '../utils/timeRange';
 import { QUICK_TIME_RANGES } from '../utils/timeRangeOptions';
 import { useAppNavigate, sanitizeParam } from '../utils/navigation';
 import { formatDuration } from '../utils/format';
@@ -27,7 +26,6 @@ import { sparklineColors } from '../utils/colors';
 import { extractEnvironmentOptions, extractNamespaceOptions } from '../utils/options';
 import { useFetch } from '../utils/useFetch';
 import { FrameworkBadge } from '../components/FrameworkBadge';
-import { RefreshControl } from '../components/RefreshControl';
 import { Sparkline } from '../components/Sparkline';
 import { useFavorites, serviceKey } from '../utils/useFavorites';
 import { createServiceSearchIndex, searchServices } from '../utils/serviceSearch';
@@ -40,21 +38,48 @@ const PAGE_SIZE_OPTIONS: Array<{ label: string; value: number }> = [
   { label: '25', value: 25 },
   { label: '50', value: 50 },
 ];
+const MAX_INVENTORY_RANGE_MS = 12 * 60 * 60 * 1000;
+const INVENTORY_TIME_RANGES = QUICK_TIME_RANGES.filter((range) => range.value !== 'now-24h');
 
 function ServiceInventory() {
   const styles = useStyles2(getStyles);
   const theme = useTheme2();
   const sc = sparklineColors(theme);
   const appNavigate = useAppNavigate();
-  const { from, fromMs, toMs, setTimeRange, refresh: refreshTimeRange } = useTimeRange();
+  const [{ from, fromMs, toMs }, setRange] = useState(() => {
+    const now = Date.now();
+    return { from: 'now-5m', fromMs: now - 5 * 60_000, toMs: now };
+  });
   const { isFavorite, toggle: toggleFavorite, count: favCount } = useFavorites();
   const [searchParams, setSearchParams] = useSearchParams();
+
+  useEffect(() => {
+    if (searchParams.has('from') || searchParams.has('to')) {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete('from');
+          next.delete('to');
+          return next;
+        },
+        { replace: true }
+      );
+    }
+  }, [searchParams, setSearchParams]);
+
+  const selectRange = (value: string) => {
+    const parsedFrom = dateMath.toDateTime(value, {});
+    if (!parsedFrom) {
+      throw new Error(`Invalid inventory time range: ${value}`);
+    }
+    const now = Date.now();
+    setRange({ from: value, fromMs: Math.max(parsedFrom.valueOf(), now - MAX_INVENTORY_RANGE_MS), toMs: now });
+  };
 
   const {
     data: fetchResult,
     loading,
     error,
-    refetch,
   } = useFetch<{ services: ServiceSummary[]; caps: Capabilities }>(async () => {
     const [capsResult, servicesResult] = await Promise.all([getCapabilities(), getServices(fromMs, toMs, 60, false)]);
     return { caps: capsResult, services: servicesResult };
@@ -258,7 +283,7 @@ function ServiceInventory() {
   // JOINED string — `paginated` is a fresh array every render, and an array
   // dep would refetch in a loop.
   const visibleServicesKey = Array.from(new Set(paginated.map((s) => `${s.namespace}/${s.name}`))).join(',');
-  const { data: sparklineResult, refetch: refetchSparklines } = useFetch<ServiceSummary[]>(
+  const { data: sparklineResult } = useFetch<ServiceSummary[]>(
     () => getServices(fromMs, toMs, 60, true, { services: visibleServicesKey.split(',') }),
     [fromMs, toMs, visibleServicesKey],
     { skip: !fetchResult || visibleServicesKey === '' }
@@ -269,19 +294,6 @@ function ServiceInventory() {
     }
     return new Map(sparklineResult.map((s) => [`${s.namespace}/${s.name}/${s.environment ?? ''}`, s]));
   }, [sparklineResult]);
-
-  // Auto-refresh. For relative ranges (now-1h), re-resolving the range updates
-  // fromMs/toMs and every useFetch above refetches via its deps — without this
-  // each refresh would re-query the window resolved at first render forever.
-  const isRelativeRange = from.startsWith('now');
-  const handleRefresh = useCallback(() => {
-    if (isRelativeRange) {
-      refreshTimeRange();
-      return;
-    }
-    refetch();
-    refetchSparklines();
-  }, [isRelativeRange, refreshTimeRange, refetch, refetchSparklines]);
 
   const toggleSort = (field: SortField) => {
     if (sortField === field) {
@@ -309,7 +321,6 @@ function ServiceInventory() {
           </Alert>
         )}
         {loading && <LoadingPlaceholder text="Loading services..." />}
-
         {!loading && caps && !caps.spanMetrics.detected && (
           <Alert severity="warning" title="No span metrics detected">
             Ensure the OpenTelemetry Collector spanmetrics connector is configured and sending data to Mimir.
@@ -362,13 +373,12 @@ function ServiceInventory() {
                   )}
                 </div>
                 <Combobox
-                  options={QUICK_TIME_RANGES}
+                  options={INVENTORY_TIME_RANGES}
                   value={from}
-                  onChange={(v) => setTimeRange(v?.value ?? 'now-1h', 'now')}
+                  onChange={(v) => selectRange(v?.value ?? 'now-5m')}
                   width={22}
                   prefixIcon="clock-nine"
                 />
-                <RefreshControl onRefresh={handleRefresh} />
               </div>
               {/* Row 2: View options (pills) */}
               <div className={styles.viewRow}>
@@ -450,10 +460,11 @@ function ServiceInventory() {
                         className={styles.row}
                         onClick={() => {
                           const ns = svc.namespace || '_';
-                          appNavigate(
-                            `services/${encodeURIComponent(ns)}/${encodeURIComponent(svc.name)}`,
-                            svc.environment ? { environment: svc.environment } : undefined
-                          );
+                          appNavigate(`services/${encodeURIComponent(ns)}/${encodeURIComponent(svc.name)}`, {
+                            from,
+                            to: 'now',
+                            ...(svc.environment && { environment: svc.environment }),
+                          });
                         }}
                       >
                         <td className={styles.starCell}>
@@ -495,7 +506,7 @@ function ServiceInventory() {
                                 className={styles.nsLink}
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  appNavigate(`namespaces/${encodeURIComponent(svc.namespace)}`);
+                                  appNavigate(`namespaces/${encodeURIComponent(svc.namespace)}`, { from, to: 'now' });
                                 }}
                               >
                                 {svc.namespace}

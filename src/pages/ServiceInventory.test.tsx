@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import { MemoryRouter } from 'react-router-dom';
 import ServiceInventory from './ServiceInventory';
 import { FavoritesStore, FavoritesStorage } from '../utils/favoritesStorage';
+import { getServices } from '../api/client';
 
 jest.mock('../api/client', () => ({
   getServices: jest.fn().mockImplementation(() =>
@@ -114,6 +115,39 @@ function createStore(initial: string[] = []): FavoritesStore {
   return new FavoritesStore(storage);
 }
 
+describe('ServiceInventory — Time range', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    activeStore = createStore();
+  });
+
+  afterEach(() => {
+    activeStore.destroy();
+  });
+
+  it('defaults summary and sparkline queries to the last 5 minutes', async () => {
+    renderInventory();
+    await screen.findByText('my-api');
+    await waitFor(() => expect(getServices).toHaveBeenCalledTimes(2));
+
+    expect(screen.getByDisplayValue('Last 5 minutes')).toBeInTheDocument();
+    for (const [from, to] of jest.mocked(getServices).mock.calls) {
+      expect(to - from).toBeCloseTo(5 * 60 * 1000, -2);
+    }
+  });
+
+  it('ignores a wider URL time range on entry, including after a browser reload', async () => {
+    renderInventory('/services?from=now-30m&to=now');
+    await screen.findByText('my-api');
+    await waitFor(() => expect(getServices).toHaveBeenCalledTimes(2));
+
+    expect(screen.getByDisplayValue('Last 5 minutes')).toBeInTheDocument();
+    for (const [from, to] of jest.mocked(getServices).mock.calls) {
+      expect(to - from).toBe(5 * 60 * 1000);
+    }
+  });
+});
+
 describe('ServiceInventory — Favorites', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -211,7 +245,7 @@ describe('ServiceInventory — Fuzzy search', () => {
   });
 });
 
-describe('ServiceInventory — Auto-refresh', () => {
+describe('ServiceInventory — Refresh', () => {
   beforeEach(() => {
     localStorage.clear();
     activeStore = createStore();
@@ -221,9 +255,10 @@ describe('ServiceInventory — Auto-refresh', () => {
     activeStore.destroy();
   });
 
-  it('renders the refresh control in the toolbar', async () => {
+  it('does not auto-refresh while the page stays open', async () => {
     renderInventory();
-    expect(await screen.findByTestId('refresh-control')).toBeInTheDocument();
+    await screen.findByText('my-api');
+    expect(screen.queryByTestId('refresh-control')).not.toBeInTheDocument();
   });
 });
 

@@ -14,6 +14,7 @@ describe('QUICK_TIME_RANGES', () => {
 
   it('includes common presets', () => {
     const values = QUICK_TIME_RANGES.map((o) => o.value);
+    expect(values).toContain('now-5m');
     expect(values).toContain('now-1h');
     expect(values).toContain('now-24h');
   });

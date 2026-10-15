@@ -50,10 +50,10 @@ interface TimeRangeState {
  * Shared time range hook that persists from/to in URL search params.
  * All pages and backend API calls should use this for consistent time windows.
  */
-export function useTimeRange(): TimeRangeState {
+export function useTimeRange(defaultFrom = DEFAULT_FROM): TimeRangeState {
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const from = searchParams.get('from') || DEFAULT_FROM;
+  const from = searchParams.get('from') || defaultFrom;
   const to = searchParams.get('to') || DEFAULT_TO;
 
   // Stable fallback for when parsing fails (lazy init runs once, avoids impure Date.now in render)
