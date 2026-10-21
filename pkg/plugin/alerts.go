@@ -209,7 +209,7 @@ func summarizeAlertRules(rules *queries.RulesResponse, namespace, source string)
 			if ruleNs == "" {
 				switch source {
 				case alertSourceMimir:
-					// Mimir ruler group file path: "{cluster}/{namespace}/{rule}/{uuid}"
+					// Mimir ruler group file path: "{cluster}//{namespace}/{rule}/{uuid}"
 					ruleNs = extractNamespaceFromGroupFile(group.File)
 				case alertSourceGrafana:
 					// Grafana-managed rules: File is the folder title; teams
@@ -363,12 +363,12 @@ func dedupeAndSortAlertRules(filtered []AlertRuleSummary) []AlertRuleSummary {
 }
 
 // extractNamespaceFromGroupFile extracts namespace from Mimir ruler file path.
-// In NAIS, ruler groups are stored as "{cluster}/{namespace}/{rulename}/{uuid}",
-// e.g. "dev-fss/teamfrikort/frikort-alerts/869209f5-...".
-// The namespace is the second path segment.
+// In NAIS, ruler groups are stored as "{cluster}//{namespace}/{rulename}/{uuid}",
+// e.g. "dev-fss//teamfrikort/frikort-alerts/869209f5-..." (Alloy's "<cluster>/"
+// prefix plus Mimir's own "/"). The namespace is the second non-empty segment.
 func extractNamespaceFromGroupFile(file string) string {
-	parts := strings.SplitN(file, "/", 3)
-	if len(parts) >= 2 && parts[1] != "" {
+	parts := strings.FieldsFunc(file, func(r rune) bool { return r == '/' })
+	if len(parts) >= 2 {
 		return parts[1]
 	}
 	return ""

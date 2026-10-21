@@ -15,7 +15,10 @@ func TestExtractNamespaceFromGroupFile(t *testing.T) {
 		file     string
 		expected string
 	}{
-		// NAIS format: {cluster}/{namespace}/{rulename}/{uuid}
+		// Live NAIS format: {cluster}//{namespace}/{rulename}/{uuid}
+		{"dev-fss//teamfrikort/frikort-alerts/869209f5-6602-4ebc-85c2-4ae3df3fd3ee", "teamfrikort"},
+		{"prod//amt/amt-prometheus-alerts/24842d8c-7800-493c-ad4e-a4ba94c71c27", "amt"},
+		// Single-slash format: {cluster}/{namespace}/{rulename}/{uuid}
 		{"dev-fss/teamfrikort/frikort-alerts/869209f5-6602-4ebc-85c2-4ae3df3fd3ee", "teamfrikort"},
 		{"dev/amt/amt-prometheus-alerts/24842d8c-7800-493c-ad4e-a4ba94c71c27", "amt"},
 		{"prod-gcp/nais-system/sla-rules/abc123", "nais-system"},
