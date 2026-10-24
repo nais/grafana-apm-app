@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.4](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.25.3...nais-apm-app-v0.25.4) (2026-10-24)
+
+
+### Bug Fixes
+
+* parse namespace from double-slash ruler group paths ([#207](https://github.com/nais/grafana-apm-app/issues/207)) ([48d5adc](https://github.com/nais/grafana-apm-app/commit/48d5adc8dbfb328639e57798c7f635b0318e7d17))
+
 ## [0.25.3](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.25.2...nais-apm-app-v0.25.3) (2026-10-15)
 
 
