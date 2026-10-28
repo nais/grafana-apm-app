@@ -23,9 +23,10 @@ var metricNamePattern = regexp.MustCompile(`^[a-zA-Z_:][a-zA-Z0-9_:]*$`)
 
 // baseURLPattern allowlists the shape of a client base URL: http(s), a plain
 // host[:port] and a path of URL-safe characters (datasource UIDs included).
-// No userinfo, query or fragment, so a bad datasource UID cannot redirect the
-// outgoing request.
-var baseURLPattern = regexp.MustCompile(`^https?://[A-Za-z0-9.\-]+(:[0-9]+)?(/[A-Za-z0-9._~\-/]*)?$`)
+// No userinfo, query, fragment or dot segments, so a bad datasource UID cannot
+// redirect the outgoing request.
+// The host is always localhost (resolveInternalGrafanaURL); widen this if GF_SERVER_HTTP_ADDR is wired in.
+var baseURLPattern = regexp.MustCompile(`^https?://[A-Za-z0-9.\-]+(:[0-9]+)?(/[A-Za-z0-9_\-/]*)?$`)
 
 // safeBaseURL returns u without trailing slashes if it matches baseURLPattern,
 // or "" otherwise, which makes every request from the client fail.
@@ -60,7 +61,7 @@ type PrometheusClient struct {
 
 // NewPrometheusClient creates a client that talks to a Prometheus-compatible endpoint.
 func NewPrometheusClient(baseURL string, serviceToken string) *PrometheusClient {
-	return &PrometheusClient{
+	c := &PrometheusClient{
 		baseURL:      safeBaseURL(baseURL),
 		serviceToken: serviceToken,
 		httpClient: &http.Client{
@@ -69,13 +70,17 @@ func NewPrometheusClient(baseURL string, serviceToken string) *PrometheusClient 
 		},
 		logger: log.DefaultLogger.With("component", "promClient"),
 	}
+	if c.baseURL == "" && baseURL != "" {
+		c.logger.Error("base URL rejected by allowlist", "url", baseURL)
+	}
+	return c
 }
 
 // NewLokiMetricClient creates a client for Loki's Prometheus-compatible metric query API.
 // Loki exposes /loki/api/v1/query and /loki/api/v1/query_range with the same response
 // format as Prometheus, so we reuse PrometheusClient with a /loki path prefix.
 func NewLokiMetricClient(proxyURL string, serviceToken string) *PrometheusClient {
-	return &PrometheusClient{
+	c := &PrometheusClient{
 		baseURL:      safeBaseURL(strings.TrimRight(proxyURL, "/") + "/loki"),
 		serviceToken: serviceToken,
 		httpClient: &http.Client{
@@ -84,6 +89,10 @@ func NewLokiMetricClient(proxyURL string, serviceToken string) *PrometheusClient
 		},
 		logger: log.DefaultLogger.With("component", "lokiMetricClient"),
 	}
+	if c.baseURL == "" && proxyURL != "" {
+		c.logger.Error("base URL rejected by allowlist", "url", proxyURL)
+	}
+	return c
 }
 
 // WithAuthHeaders returns a shallow copy of the client with auth headers set.
