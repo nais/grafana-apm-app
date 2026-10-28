@@ -4,7 +4,7 @@
 # while they lived in package.json.
 overrides:
   protobufjs: '>=7.5.5'
-  dompurify: '>=3.4.13'
+  dompurify: '>=3.4.17'
   immutable: '>=5.1.5'
   serialize-javascript: '>=7.0.5'
   postcss: 8.5.25
@@ -28,7 +28,8 @@ overrides:
   '@openfeature/react-sdk': 1.2.1
   '@openfeature/core': 1.9.2
   '@typescript-eslint/utils': 8.65.0
-  'brace-expansion@^1.1.12': 1.1.18
+  # GHSA-6j4f-fj2g-mc7p, GHSA-qhr7-859c-m2p7
+  'brace-expansion@^1.1.12': 1.1.20
   'js-yaml': 5.2.3
   # GHSA-jqff-g426-hqxp, GHSA-f65p-4m7j-42xc, GHSA-fph4-wmhf-6fwf,
   # GHSA-5jgf-p345-68v8 — fast-uri host confusion / SSRF. Upper bound keeps
@@ -48,4 +49,6 @@ overrides:
   # (faye-websocket -> webpack-livereload-plugin).
   websocket-driver: '>=0.7.5'
   # GHSA-3jxr-9vmj-r5cp — exponential-time brace expansion (minimatch 10.x).
-  'brace-expansion@>=3.0.0 <5.0.7': '>=5.0.9'
+  'brace-expansion@>=3.0.0 <5.0.11': '>=5.0.11'
+  # GHSA-68fv-2mgg-jv7q
+  source-map-js: '>=1.2.2'
