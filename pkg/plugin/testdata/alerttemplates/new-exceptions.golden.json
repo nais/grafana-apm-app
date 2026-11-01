@@ -86,12 +86,24 @@
       "value": "team-a"
     },
     {
+      "key": "team",
+      "value": "team-a"
+    },
+    {
+      "key": "env",
+      "value": "prod-gcp"
+    },
+    {
       "key": "service",
       "value": "my-svc"
     },
     {
       "key": "source",
       "value": "nais-apm"
+    },
+    {
+      "key": "severity",
+      "value": "info"
     }
   ]
 }

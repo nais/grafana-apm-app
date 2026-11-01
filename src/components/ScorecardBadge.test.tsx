@@ -234,6 +234,22 @@ describe('ScorecardBadge', () => {
       expect(mockPush.mock.calls[0][0]).toContain('returnTo=');
     });
 
+    it.each([undefined, 'dev,prod'])(
+      'disables alert creation without a single environment (%s)',
+      async (environment) => {
+        mockGetScorecard.mockResolvedValue(allFailing);
+        render(<ScorecardBadge namespace="team-a" service="my-app" environment={environment} />);
+        fireEvent.click(await screen.findByTestId('scorecard-badge'));
+        const actions = await screen.findByTestId('check-actions-alertRules');
+        const button = within(actions).getByRole('button', { name: /Alert on error rate/ });
+
+        expect(button).toBeDisabled();
+        expect(actions).toHaveTextContent('Select a team and exactly one environment to create an alert.');
+        fireEvent.click(button);
+        expect(mockGetAlertTemplate).not.toHaveBeenCalled();
+      }
+    );
+
     it('re-enables the alert action when the prefill fetch fails', async () => {
       mockGetAlertTemplate.mockRejectedValue(new Error('boom'));
       await openDetails();

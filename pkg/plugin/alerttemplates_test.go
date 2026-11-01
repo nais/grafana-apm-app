@@ -91,16 +91,6 @@ func TestHandleAlertTemplate(t *testing.T) {
 		wantAnnotation string // exact nais_apm_url annotation value
 	}{
 		{
-			name:      "error-rate uses detected calls metric",
-			url:       "/alert-templates/error-rate?namespace=team-a&service=my-svc",
-			wantDSUID: "mimir-default",
-			wantExpr: `sum(rate(traces_span_metrics_calls_total{service_name="my-svc", service_namespace="team-a", status_code="STATUS_CODE_ERROR"}[5m]))` +
-				` / sum(rate(traces_span_metrics_calls_total{service_name="my-svc", service_namespace="team-a"}[5m]))`,
-			wantName:       "Error rate above 5% – my-svc",
-			wantThreshold:  0.05,
-			wantAnnotation: "/a/nais-apm-app/services/team-a/my-svc",
-		},
-		{
 			name:      "error-rate with environment adds matcher and resolves per-env datasource",
 			url:       "/alert-templates/error-rate?namespace=team-a&service=my-svc&environment=prod-gcp",
 			wantDSUID: "mimir-prod-gcp",
@@ -109,16 +99,6 @@ func TestHandleAlertTemplate(t *testing.T) {
 			wantName:       "Error rate above 5% – my-svc (prod-gcp)",
 			wantThreshold:  0.05,
 			wantAnnotation: "/a/nais-apm-app/services/team-a/my-svc?environment=prod-gcp",
-		},
-		{
-			name:      "error-rate without namespace omits namespace matcher",
-			url:       "/alert-templates/error-rate?namespace=_&service=my-svc",
-			wantDSUID: "mimir-default",
-			wantExpr: `sum(rate(traces_span_metrics_calls_total{service_name="my-svc", status_code="STATUS_CODE_ERROR"}[5m]))` +
-				` / sum(rate(traces_span_metrics_calls_total{service_name="my-svc"}[5m]))`,
-			wantName:       "Error rate above 5% – my-svc",
-			wantThreshold:  0.05,
-			wantAnnotation: "/a/nais-apm-app/services/_/my-svc",
 		},
 		{
 			name:           "exception-spike single hash uses drawer query shape",
@@ -131,21 +111,21 @@ func TestHandleAlertTemplate(t *testing.T) {
 		},
 		{
 			name:           "exception-spike multiple member hashes uses regex form",
-			url:            "/alert-templates/exception-spike?namespace=team-a&service=my-svc&hash=abc123,def456&fingerprint=v1:9f2ab31c04d7e655",
-			wantDSUID:      "loki-default",
-			wantExpr:       "sum(count_over_time({service_name=\"my-svc\", kind=\"exception\"} |~ `hash=(abc123|def456)` | logfmt | hash=~\"(abc123|def456)\" [5m]))",
+			url:            "/alert-templates/exception-spike?namespace=team-a&service=my-svc&environment=prod-gcp&hash=abc123,def456&fingerprint=v1:9f2ab31c04d7e655",
+			wantDSUID:      "loki-prod-gcp",
+			wantExpr:       "sum(count_over_time({service_name=\"my-svc\", kind=\"exception\", k8s_cluster_name=\"prod-gcp\"} |~ `hash=(abc123|def456)` | logfmt | hash=~\"(abc123|def456)\" [5m]))",
 			wantName:       "Exception spike – my-svc (v1:9f2ab31c04d7e655)",
 			wantThreshold:  10,
-			wantAnnotation: "/a/nais-apm-app/services/team-a/my-svc?issueId=v1%3A9f2ab31c04d7e655&tab=issues",
+			wantAnnotation: "/a/nais-apm-app/services/team-a/my-svc?environment=prod-gcp&issueId=v1%3A9f2ab31c04d7e655&tab=issues",
 		},
 		{
 			name:           "exception-spike without fingerprint falls back to exceptionHash deep link",
-			url:            "/alert-templates/exception-spike?namespace=team-a&service=my-svc&hash=abc123",
-			wantDSUID:      "loki-default",
-			wantExpr:       "sum(count_over_time({service_name=\"my-svc\", kind=\"exception\"} |= `hash=abc123` | logfmt | hash=\"abc123\" [5m]))",
+			url:            "/alert-templates/exception-spike?namespace=team-a&service=my-svc&environment=prod-gcp&hash=abc123",
+			wantDSUID:      "loki-prod-gcp",
+			wantExpr:       "sum(count_over_time({service_name=\"my-svc\", kind=\"exception\", k8s_cluster_name=\"prod-gcp\"} |= `hash=abc123` | logfmt | hash=\"abc123\" [5m]))",
 			wantName:       "Exception spike – my-svc (abc123)",
 			wantThreshold:  10,
-			wantAnnotation: "/a/nais-apm-app/services/team-a/my-svc?exceptionHash=abc123&tab=issues",
+			wantAnnotation: "/a/nais-apm-app/services/team-a/my-svc?environment=prod-gcp&exceptionHash=abc123&tab=issues",
 		},
 		{
 			name:           "web-vitals uses alloy LCP bucket metric",
@@ -155,15 +135,6 @@ func TestHandleAlertTemplate(t *testing.T) {
 			wantName:       "LCP p75 above 2.5s – my-svc (prod-gcp)",
 			wantThreshold:  2500,
 			wantAnnotation: "/a/nais-apm-app/services/team-a/my-svc?environment=prod-gcp&tab=frontend",
-		},
-		{
-			name:           "web-vitals without environment omits env matcher",
-			url:            "/alert-templates/web-vitals?namespace=team-a&service=my-svc",
-			wantDSUID:      "mimir-default",
-			wantExpr:       `histogram_quantile(0.75, sum by (le) (rate(loki_process_custom_faro_web_vitals_lcp_milliseconds_bucket{app_name="my-svc"}[15m])))`,
-			wantName:       "LCP p75 above 2.5s – my-svc",
-			wantThreshold:  2500,
-			wantAnnotation: "/a/nais-apm-app/services/team-a/my-svc?tab=frontend",
 		},
 		{
 			name:       "unknown kind returns 404",
@@ -177,12 +148,12 @@ func TestHandleAlertTemplate(t *testing.T) {
 		},
 		{
 			name:       "exception-spike without hash returns 400",
-			url:        "/alert-templates/exception-spike?namespace=team-a&service=my-svc",
+			url:        "/alert-templates/exception-spike?namespace=team-a&service=my-svc&environment=prod-gcp",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "exception-spike rejects non-alphanumeric hashes",
-			url:        "/alert-templates/exception-spike?namespace=team-a&service=my-svc&hash=" + url.QueryEscape(`ab".*|{}`),
+			url:        "/alert-templates/exception-spike?namespace=team-a&service=my-svc&environment=prod-gcp&hash=" + url.QueryEscape(`ab".*|{}`),
 			wantStatus: http.StatusBadRequest,
 		},
 	}
@@ -253,6 +224,12 @@ func TestHandleAlertTemplate(t *testing.T) {
 			if v := findKV(d.Labels, "service"); v != "my-svc" {
 				t.Errorf("label service = %q, want my-svc", v)
 			}
+			if v := findKV(d.Labels, "team"); v != "team-a" {
+				t.Errorf("label team = %q, want team-a", v)
+			}
+			if v := findKV(d.Labels, "env"); v != "prod-gcp" {
+				t.Errorf("label env = %q, want prod-gcp", v)
+			}
 
 			assertURLEncoding(t, resp)
 		})
@@ -262,8 +239,9 @@ func TestHandleAlertTemplate(t *testing.T) {
 // sloBurnExpr independently derives the expected multi-window burn-rate
 // expression so the test asserts the exact windows/factor/budget math the
 // handler renders, not just that it produced *some* string.
-func sloBurnExpr(errSel, allSel, longWin, shortWin, budget, factor string) string {
+func sloBurnExpr(allSel, longWin, shortWin, budget, factor string) string {
 	const calls = "traces_span_metrics_calls_total"
+	errSel := allSel + `, status_code="STATUS_CODE_ERROR"`
 	ratio := func(w string) string {
 		return fmt.Sprintf(`(sum(rate(%s{%s}[%s])) or vector(0)) / sum(rate(%s{%s}[%s]))`,
 			calls, errSel, w, calls, allSel, w)
@@ -292,25 +270,23 @@ func TestSLOBurnRateTemplate(t *testing.T) {
 	}{
 		{
 			name:      "fast burn defaults to 99.9% target, 14.4x over 1h/5m",
-			url:       "/alert-templates/slo-burn-rate?namespace=team-a&service=my-svc",
-			wantDSUID: "mimir-default",
-			wantExpr: sloBurnExpr(`service_name="my-svc", service_namespace="team-a", status_code="STATUS_CODE_ERROR"`,
-				`service_name="my-svc", service_namespace="team-a"`,
+			url:       "/alert-templates/slo-burn-rate?namespace=team-a&service=my-svc&environment=prod-gcp",
+			wantDSUID: "mimir-prod-gcp",
+			wantExpr: sloBurnExpr(`service_name="my-svc", service_namespace="team-a", k8s_cluster_name="prod-gcp"`,
 				"1h", "5m", "0.001", "14.4"),
-			wantName:       "Fast burn (14.4x) – SLO 99.9% – my-svc",
+			wantName:       "Fast burn (14.4x) – SLO 99.9% – my-svc (prod-gcp)",
 			wantThreshold:  14.4,
 			wantEvaluate:   "2m",
 			wantSeverity:   "critical",
 			wantSLOLabel:   "99.9%",
-			wantAnnotation: "/a/nais-apm-app/services/team-a/my-svc",
+			wantAnnotation: "/a/nais-apm-app/services/team-a/my-svc?environment=prod-gcp",
 			wantContains:   []string{"[1h]", "[5m]", "/ 0.001", ">= bool 14.4", "or vector(0)"},
 		},
 		{
 			name:      "slow burn with env and custom 99% target, 6x over 6h/30m",
 			url:       "/alert-templates/slo-burn-rate?namespace=team-a&service=my-svc&environment=prod-gcp&window=slow&slo=0.99",
 			wantDSUID: "mimir-prod-gcp",
-			wantExpr: sloBurnExpr(`service_name="my-svc", service_namespace="team-a", k8s_cluster_name="prod-gcp", status_code="STATUS_CODE_ERROR"`,
-				`service_name="my-svc", service_namespace="team-a", k8s_cluster_name="prod-gcp"`,
+			wantExpr: sloBurnExpr(`service_name="my-svc", service_namespace="team-a", k8s_cluster_name="prod-gcp"`,
 				"6h", "30m", "0.01", "6"),
 			wantName:       "Slow burn (6x) – SLO 99% – my-svc (prod-gcp)",
 			wantThreshold:  6,
@@ -322,39 +298,52 @@ func TestSLOBurnRateTemplate(t *testing.T) {
 		},
 		{
 			name:      "four-nines target renders 0.0001 budget",
-			url:       "/alert-templates/slo-burn-rate?namespace=_&service=my-svc&slo=0.9999",
-			wantDSUID: "mimir-default",
-			wantExpr: sloBurnExpr(`service_name="my-svc", status_code="STATUS_CODE_ERROR"`,
-				`service_name="my-svc"`,
+			url:       "/alert-templates/slo-burn-rate?namespace=team-a&service=my-svc&environment=prod-gcp&slo=0.9999",
+			wantDSUID: "mimir-prod-gcp",
+			wantExpr: sloBurnExpr(`service_name="my-svc", service_namespace="team-a", k8s_cluster_name="prod-gcp"`,
 				"1h", "5m", "0.0001", "14.4"),
-			wantName:       "Fast burn (14.4x) – SLO 99.99% – my-svc",
+			wantName:       "Fast burn (14.4x) – SLO 99.99% – my-svc (prod-gcp)",
 			wantThreshold:  14.4,
 			wantEvaluate:   "2m",
 			wantSeverity:   "critical",
 			wantSLOLabel:   "99.99%",
-			wantAnnotation: "/a/nais-apm-app/services/_/my-svc",
+			wantAnnotation: "/a/nais-apm-app/services/team-a/my-svc?environment=prod-gcp",
 			wantContains:   []string{"/ 0.0001", ">= bool 14.4"},
 		},
 		{
 			name:      "invalid slo falls back to 99.9% default",
-			url:       "/alert-templates/slo-burn-rate?namespace=team-a&service=my-svc&slo=not-a-number",
-			wantDSUID: "mimir-default",
-			wantExpr: sloBurnExpr(`service_name="my-svc", service_namespace="team-a", status_code="STATUS_CODE_ERROR"`,
-				`service_name="my-svc", service_namespace="team-a"`,
+			url:       "/alert-templates/slo-burn-rate?namespace=team-a&service=my-svc&environment=prod-gcp&slo=not-a-number",
+			wantDSUID: "mimir-prod-gcp",
+			wantExpr: sloBurnExpr(`service_name="my-svc", service_namespace="team-a", k8s_cluster_name="prod-gcp"`,
 				"1h", "5m", "0.001", "14.4"),
-			wantName:       "Fast burn (14.4x) – SLO 99.9% – my-svc",
+			wantName:       "Fast burn (14.4x) – SLO 99.9% – my-svc (prod-gcp)",
 			wantThreshold:  14.4,
 			wantEvaluate:   "2m",
 			wantSeverity:   "critical",
 			wantSLOLabel:   "99.9%",
-			wantAnnotation: "/a/nais-apm-app/services/team-a/my-svc",
+			wantAnnotation: "/a/nais-apm-app/services/team-a/my-svc?environment=prod-gcp",
 			wantContains:   []string{"/ 0.001", ">= bool 14.4"},
+		},
+		{
+			name:      "routes prod data to prod-gcp notification policy",
+			url:       "/alert-templates/slo-burn-rate?namespace=team-a&service=my-svc&environment=prod",
+			wantDSUID: "mimir-default",
+			wantExpr: sloBurnExpr(`service_name="my-svc", service_namespace="team-a", k8s_cluster_name="prod"`,
+				"1h", "5m", "0.001", "14.4"),
+			wantName:       "Fast burn (14.4x) – SLO 99.9% – my-svc (prod)",
+			wantThreshold:  14.4,
+			wantEvaluate:   "2m",
+			wantSeverity:   "critical",
+			wantSLOLabel:   "99.9%",
+			wantAnnotation: "/a/nais-apm-app/services/team-a/my-svc?environment=prod",
+			wantContains:   []string{"[1h]", "[5m]", "/ 0.001", ">= bool 14.4"},
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			app := newAlertTemplateApp(t)
+			app.settings.AlertRoutingEnvironments = map[string]string{"prod": "prod-gcp"}
 			w := serveAlertTemplate(t, app, tc.url)
 			resp := decodeAlertTemplate(t, w)
 			d := resp.Defaults
@@ -390,11 +379,26 @@ func TestSLOBurnRateTemplate(t *testing.T) {
 			if v := findKV(d.Labels, "severity"); v != tc.wantSeverity {
 				t.Errorf("severity label = %q, want %q", v, tc.wantSeverity)
 			}
+			severityCount := 0
+			for _, label := range d.Labels {
+				if label.Key == "severity" {
+					severityCount++
+				}
+			}
+			if severityCount != 1 {
+				t.Errorf("severity label count = %d, want 1", severityCount)
+			}
 			if v := findKV(d.Labels, "slo"); v != tc.wantSLOLabel {
 				t.Errorf("slo label = %q, want %q", v, tc.wantSLOLabel)
 			}
 			if v := findKV(d.Labels, "source"); v != "nais-apm" {
 				t.Errorf("source label = %q, want nais-apm", v)
+			}
+			if v := findKV(d.Labels, "team"); v != "team-a" {
+				t.Errorf("team label = %q, want team-a", v)
+			}
+			if v := findKV(d.Labels, "env"); v != "prod-gcp" {
+				t.Errorf("env label = %q, want prod-gcp", v)
 			}
 			assertAnnotation(t, d.Annotations, "nais_apm_url", tc.wantAnnotation)
 			if v := findKV(d.Annotations, "summary"); v == "" {
@@ -411,7 +415,7 @@ func TestSLOBurnRateValidation(t *testing.T) {
 		url        string
 		wantStatus int
 	}{
-		{"invalid window rejected", "/alert-templates/slo-burn-rate?service=my-svc&window=medium", http.StatusBadRequest},
+		{"invalid window rejected", "/alert-templates/slo-burn-rate?namespace=team-a&service=my-svc&environment=prod-gcp&window=medium", http.StatusBadRequest},
 		{"missing service rejected", "/alert-templates/slo-burn-rate?namespace=team-a", http.StatusBadRequest},
 	}
 	for _, tc := range tests {
@@ -425,9 +429,84 @@ func TestSLOBurnRateValidation(t *testing.T) {
 	}
 }
 
+func TestAlertTemplateRequiresRoutingLabels(t *testing.T) {
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{"missing team", "/alert-templates/error-rate?service=my-svc&environment=prod-gcp"},
+		{"placeholder team", "/alert-templates/error-rate?namespace=_&service=my-svc&environment=prod-gcp"},
+		{"missing environment", "/alert-templates/web-vitals?namespace=team-a&service=my-svc"},
+		{"multiple environments", "/alert-templates/slo-burn-rate?namespace=team-a&service=my-svc&environment=dev-gcp,prod-gcp"},
+		{"trailing empty environment", "/alert-templates/slo-burn-rate?namespace=team-a&service=my-svc&environment=prod-gcp,"},
+		{"exception without environment", "/alert-templates/exception-spike?namespace=team-a&service=my-svc&hash=abc123"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			w := serveAlertTemplate(t, newAlertTemplateApp(t), tc.url)
+			if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "exactly one environment") {
+				t.Fatalf("expected a routing context error, got %d: %s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestAlertTemplateRoutingEnvironment(t *testing.T) {
+	tests := []struct {
+		name        string
+		environment string
+		routingEnv  string
+	}{
+		{"dev GCP", "dev", "dev-gcp"},
+		{"prod GCP", "prod", "prod-gcp"},
+		{"dev FSS", "dev-fss", "dev-fss"},
+		{"prod FSS", "prod-fss", "prod-fss"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			app := newAlertTemplateApp(t)
+			app.settings.AlertRoutingEnvironments = map[string]string{
+				"dev": "dev-gcp", "prod": "prod-gcp",
+			}
+			for _, kind := range []string{"error-rate", "exception-spike", "web-vitals", "new-exceptions", "slo-burn-rate"} {
+				t.Run(kind, func(t *testing.T) {
+					target := fmt.Sprintf("/alert-templates/%s?namespace=team-a&service=my-svc&environment=%s", kind, tc.environment)
+					if kind == "exception-spike" {
+						target += "&hash=abc123"
+					}
+					d := decodeAlertTemplate(t, serveAlertTemplate(t, app, target)).Defaults
+					if got := findKV(d.Labels, "env"); got != tc.routingEnv {
+						t.Errorf("routing env = %q, want %q", got, tc.routingEnv)
+					}
+					expr, _ := d.Queries[0].Model["expr"].(string)
+					matcher := fmt.Sprintf(`k8s_cluster_name="%s"`, tc.environment)
+					if kind == "web-vitals" {
+						matcher = fmt.Sprintf(`env="%s"`, tc.environment)
+					}
+					if !strings.Contains(expr, matcher) {
+						t.Errorf("query %q does not filter on data environment %q", expr, matcher)
+					}
+					if link := findKV(d.Annotations, "nais_apm_url"); !strings.Contains(link, "environment="+tc.environment) {
+						t.Errorf("deep link %q does not use data environment %q", link, tc.environment)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestAlertTemplateEmptyRoutingEnvironment(t *testing.T) {
+	app := newAlertTemplateApp(t)
+	app.settings.AlertRoutingEnvironments = map[string]string{"prod": ""}
+	w := serveAlertTemplate(t, app, "/alert-templates/error-rate?namespace=team-a&service=my-svc&environment=prod")
+	if w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), "alert routing environment is empty") {
+		t.Fatalf("expected a configuration error, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestSLOBurnRateDatasourceNotConfigured(t *testing.T) {
 	app := newTestApp(t, "http://prom.invalid", defaultCaps())
-	w := serveAlertTemplate(t, app, "/alert-templates/slo-burn-rate?service=my-svc")
+	w := serveAlertTemplate(t, app, "/alert-templates/slo-burn-rate?namespace=team-a&service=my-svc&environment=prod-gcp")
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
 	}
@@ -458,9 +537,9 @@ func TestAlertTemplateDatasourceNotConfigured(t *testing.T) {
 		name string
 		url  string
 	}{
-		{"error-rate without metrics datasource", "/alert-templates/error-rate?service=my-svc"},
-		{"exception-spike without logs datasource", "/alert-templates/exception-spike?service=my-svc&hash=abc123"},
-		{"web-vitals without metrics datasource", "/alert-templates/web-vitals?service=my-svc"},
+		{"error-rate without metrics datasource", "/alert-templates/error-rate?namespace=team-a&service=my-svc&environment=prod-gcp"},
+		{"exception-spike without logs datasource", "/alert-templates/exception-spike?namespace=team-a&service=my-svc&environment=prod-gcp&hash=abc123"},
+		{"web-vitals without metrics datasource", "/alert-templates/web-vitals?namespace=team-a&service=my-svc&environment=prod-gcp"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -489,31 +568,37 @@ func TestAlertTemplateGolden(t *testing.T) {
 		name      string
 		url       string
 		wantDSUID string
+		severity  string
 	}{
 		{
 			name:      "error-rate",
 			url:       "/alert-templates/error-rate?namespace=team-a&service=my-svc&environment=prod-gcp",
 			wantDSUID: "mimir-prod-gcp",
+			severity:  "warning",
 		},
 		{
 			name:      "exception-spike",
 			url:       "/alert-templates/exception-spike?namespace=team-a&service=my-svc&environment=prod-gcp&hash=abc123&fingerprint=v1:9f2ab31c04d7e655",
 			wantDSUID: "loki-prod-gcp",
+			severity:  "warning",
 		},
 		{
 			name:      "web-vitals",
 			url:       "/alert-templates/web-vitals?namespace=team-a&service=my-svc&environment=prod-gcp",
 			wantDSUID: "mimir-prod-gcp",
+			severity:  "info",
 		},
 		{
 			name:      "new-exceptions",
 			url:       "/alert-templates/new-exceptions?namespace=team-a&service=my-svc&environment=prod-gcp",
 			wantDSUID: "loki-prod-gcp",
+			severity:  "info",
 		},
 		{
 			name:      "slo-burn-rate",
 			url:       "/alert-templates/slo-burn-rate?namespace=team-a&service=my-svc&environment=prod-gcp&window=fast",
 			wantDSUID: "mimir-prod-gcp",
+			severity:  "critical",
 		},
 	}
 
@@ -524,6 +609,9 @@ func TestAlertTemplateGolden(t *testing.T) {
 			resp := decodeAlertTemplate(t, w)
 
 			assertRuleFormContract(t, resp.Defaults, tc.wantDSUID)
+			if got := findKV(resp.Defaults.Labels, "severity"); got != tc.severity {
+				t.Errorf("severity = %q, want %q", got, tc.severity)
+			}
 
 			// Snapshot the exact object Grafana receives (indented for a
 			// reviewable diff). Re-marshal from the decoded struct so the golden
@@ -585,6 +673,23 @@ func assertRuleFormContract(t *testing.T, d ruleFormDefaults, wantDSUID string) 
 	}
 	if findKV(d.Labels, "source") != "nais-apm" {
 		t.Errorf("label source = %q, want nais-apm", findKV(d.Labels, "source"))
+	}
+	if findKV(d.Labels, "team") != "team-a" || findKV(d.Labels, "env") != "prod-gcp" {
+		t.Errorf("routing labels = %+v, want team=team-a and env=prod-gcp", d.Labels)
+	}
+	severityCount := 0
+	for _, label := range d.Labels {
+		if label.Key == "severity" {
+			severityCount++
+			switch label.Value {
+			case "critical", "warning", "info":
+			default:
+				t.Errorf("invalid severity label %q", label.Value)
+			}
+		}
+	}
+	if severityCount != 1 {
+		t.Errorf("severity label count = %d, want 1", severityCount)
 	}
 
 	// condition == "C" and C is among the query refIds.

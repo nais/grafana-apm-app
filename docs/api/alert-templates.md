@@ -28,13 +28,33 @@ Any other kind → `404 {"error":"unknown alert template kind"}`.
 | Name | Applies to | Sanitization / default | Meaning |
 | --- | --- | --- | --- |
 | `service` | all | `MustSanitizeLabel`, **required** (else `400`) | Service name. |
-| `namespace` | all | `ParseNamespace` | Namespace. |
-| `environment` | all | `parseEnvironment` | Environment (drives the cluster label matcher). |
+| `namespace` | Grafana rules | `ParseNamespace`, required | Team slug; emitted as both `namespace` and `team` labels. |
+| `environment` | Grafana rules | `parseEnvironment`, exactly one required | Data environment name used in the query's cluster matcher and APM link; the `env` notification label uses `alertRoutingEnvironments` when configured. |
 | `fingerprint` | exception kinds | `MustSanitizeLabel` | Issue fingerprint to scope the rule. |
 | `hash` | `exception-spike` | CSV, each must match `^[a-zA-Z0-9]+$` | Exception hash(es); missing/invalid → `400 {"error":"missing or invalid hash"}`. |
 | `window` | `slo-burn-rate` | `fast` (default) or `slow`; else `400 {"error":"window must be fast or slow"}` | Burn-rate window pair. |
 | `slo` | `slo-burn-rate` | float in `[0.5, 0.999999]`, default `0.999` | SLO target. |
 | `format` | `new-exceptions` | `prometheusrule`; another known kind → `400`, unknown kind → `404` | Render a PrometheusRule manifest instead of the Grafana rule form (see below). |
+
+Grafana rule templates require a team and exactly one environment. An
+unscoped or multi-environment request returns `400` rather than pre-filling a
+rule that would miss the `team` + `env` notification route. The
+`format=prometheusrule` variant retains its existing optional parameters and
+routes through the team's own alerting setup instead.
+
+The template only opens Grafana's rule editor. Leave direct contact-point
+selection unset so notification policies apply, and check **Preview routing**
+with `team=<slug>` and `env=<routing environment>` before saving. In NAV Cloud,
+`environment=prod` queries `k8s_cluster_name="prod"`, but its configured
+`alertRoutingEnvironments.prod=prod-gcp` emits `env=prod-gcp` for the Console
+notification policy. Existing rules are not changed by updating these templates;
+audit their labels and direct
+contact-point settings separately. The global default contact point has no
+integrations and cannot be relied on as a Slack fallback.
+
+All Grafana templates set the required `severity` label: `warning` for
+error-rate and exception-spike, `info` for new-exceptions and web-vitals,
+`critical` for fast SLO burn, and `warning` for slow SLO burn.
 
 ### `format=prometheusrule` — the manifest variant
 
@@ -90,7 +110,7 @@ and an unknown kind still returns `404` as it does without the param.
 | `evaluateFor` | string | Pending period, e.g. `"5m"`. |
 | `queries` | array&lt;alertQuery&gt; | The A (data) / B (reduce) / C (threshold) query chain. |
 | `annotations` | array&lt;{key,value}&gt; | Suggested annotations (summary, deep link). |
-| `labels` | array&lt;{key,value}&gt; | `namespace`, `service`, `source=nais-apm`. |
+| `labels` | array&lt;{key,value}&gt; | `namespace`, `team`, `env` (mapped routing environment), `service`, `severity` (`critical`, `warning`, or `info`), `source=nais-apm`. |
 
 **alertQuery**: `refId`, `queryType`, `relativeTimeRange` (`{from,to}` seconds
 before now; present on the data query), `datasourceUid`, `model` (query model —
@@ -133,8 +153,11 @@ curl -s ".../alert-templates/new-exceptions?namespace=fager&service=min-side-arb
     ],
     "labels": [
       { "key": "namespace", "value": "fager" },
+      { "key": "team", "value": "fager" },
+      { "key": "env", "value": "prod-gcp" },
       { "key": "service", "value": "min-side-arbeidsgiver" },
-      { "key": "source", "value": "nais-apm" }
+      { "key": "source", "value": "nais-apm" },
+      { "key": "severity", "value": "info" }
     ]
   }
 }

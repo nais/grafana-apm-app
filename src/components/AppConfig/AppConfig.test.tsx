@@ -115,6 +115,96 @@ describe('Components/AppConfig', () => {
     expect(payload.secureJsonData).toBeUndefined();
   });
 
+  test('preserves and edits alert routing environment overrides', async () => {
+    const plugin = {
+      meta: {
+        ...props.plugin.meta,
+        jsonData: { ...props.plugin.meta.jsonData, alertRoutingEnvironments: { prod: 'prod-gcp' } },
+      },
+    };
+
+    await act(async () => {
+      // @ts-ignore
+      render(<AppConfig plugin={plugin} query={props.query} />);
+    });
+
+    const routingInput = screen.getByPlaceholderText('e.g., prod-gcp') as HTMLInputElement;
+    expect(routingInput.value).toBe('prod-gcp');
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(testIds.appConfig.submit));
+    });
+    expect(submittedPayload().jsonData.alertRoutingEnvironments).toEqual({ prod: 'prod-gcp' });
+  });
+
+  test('auto-detects datasource overrides alongside routing-only environments', async () => {
+    mockGet.mockResolvedValue([
+      { uid: 'dev-tempo', name: 'dev-tempo', type: 'tempo', isDefault: false },
+      { uid: 'prod-tempo', name: 'prod-tempo', type: 'tempo', isDefault: false },
+    ]);
+    const plugin = props.plugin;
+    plugin.meta = {
+      ...plugin.meta,
+      jsonData: {
+        ...plugin.meta.jsonData,
+        alertRoutingEnvironments: { prod: 'prod-gcp', staging: 'staging-gcp' },
+      },
+    };
+
+    await act(async () => {
+      render(<AppConfig plugin={plugin} query={props.query} />);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(testIds.appConfig.submit));
+    });
+
+    const { jsonData } = submittedPayload();
+    expect(jsonData.tracesDataSource).toEqual({
+      uid: 'tempo',
+      type: 'tempo',
+      byEnvironment: {
+        dev: { uid: 'dev-tempo', type: 'tempo' },
+        prod: { uid: 'prod-tempo', type: 'tempo' },
+      },
+    });
+    expect(jsonData.alertRoutingEnvironments).toEqual({ prod: 'prod-gcp', staging: 'staging-gcp' });
+  });
+
+  test('does not auto-detect over existing datasource overrides', async () => {
+    mockGet.mockResolvedValue([
+      { uid: 'dev-tempo', name: 'dev-tempo', type: 'tempo', isDefault: false },
+      { uid: 'prod-tempo', name: 'prod-tempo', type: 'tempo', isDefault: false },
+    ]);
+    const plugin = props.plugin;
+    plugin.meta = {
+      ...plugin.meta,
+      jsonData: {
+        ...plugin.meta.jsonData,
+        tracesDataSource: {
+          uid: 'tempo',
+          type: 'tempo',
+          byEnvironment: { prod: { uid: 'custom-prod-tempo', type: 'tempo' } },
+        },
+        alertRoutingEnvironments: { prod: 'prod-gcp' },
+      },
+    };
+
+    await act(async () => {
+      render(<AppConfig plugin={plugin} query={props.query} />);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(testIds.appConfig.submit));
+    });
+
+    const { jsonData } = submittedPayload();
+    expect(jsonData.tracesDataSource).toEqual({
+      uid: 'tempo',
+      type: 'tempo',
+      byEnvironment: { prod: { uid: 'custom-prod-tempo', type: 'tempo' } },
+    });
+    expect(jsonData.alertRoutingEnvironments).toEqual({ prod: 'prod-gcp' });
+  });
+
   test('sends the nais API token via secureJsonData only when a new value is entered', async () => {
     const plugin = { meta: { ...props.plugin.meta, enabled: true } };
 

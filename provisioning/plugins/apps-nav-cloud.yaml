@@ -10,6 +10,9 @@ apps:
     org_id: 1
     disabled: false
     jsonData:
+      alertRoutingEnvironments:
+        dev: dev-gcp
+        prod: prod-gcp
       metricsDataSource:
         uid: nav-metrics
         type: prometheus

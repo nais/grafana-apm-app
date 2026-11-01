@@ -41,10 +41,10 @@ function LocationDisplay() {
   return <div data-testid="location-search">{loc.search}</div>;
 }
 
-function renderPanel(initialEntry = '/') {
+function renderPanel(initialEntry = '/', environment = 'prod-gcp') {
   return render(
     <MemoryRouter initialEntries={[initialEntry]}>
-      <SloPanel namespace="team-a" service="my-svc" environment="prod-gcp" />
+      <SloPanel namespace="team-a" service="my-svc" environment={environment} />
       <LocationDisplay />
     </MemoryRouter>
   );
@@ -57,6 +57,14 @@ beforeEach(() => {
 });
 
 describe('SloPanel', () => {
+  it('disables burn-rate templates without a single environment', async () => {
+    mockedFetchMetrics.mockResolvedValue({ errorRatio30d: 0.0002, total30d: 1_000_000, errorRatio1h: 0.0001 });
+    renderPanel('/', 'dev-gcp,prod-gcp');
+    expect(await screen.findByRole('button', { name: 'Fast burn (page)' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Slow burn (ticket)' })).toBeDisabled();
+    expect(screen.getByText(/Select a team and exactly one environment/)).toBeInTheDocument();
+    expect(mockedFetchTemplate).not.toHaveBeenCalled();
+  });
   it('renders compliance, remaining budget and burn rate for the default 99.9% target', async () => {
     mockedFetchMetrics.mockResolvedValue({ errorRatio30d: 0.0002, total30d: 1_000_000, errorRatio1h: 0.0001 });
     renderPanel();

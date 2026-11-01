@@ -37,6 +37,8 @@ export interface AppPluginSettings {
   metricNamespace?: string;
   durationUnit?: string;
   labelOverrides?: LabelOverrides;
+  /** Data environment name → Grafana notification policy env label. Unmapped names are used as-is. */
+  alertRoutingEnvironments?: Record<string, string>;
   /** nais API (Console) GraphQL endpoint — enables deploy/release tracking and the scorecard ownership card. Paired with secureJsonData.naisApiToken. */
   naisApiUrl?: string;
   /** Ingress hostname → service name mapping for discovering on-prem callers via nais ingress. */

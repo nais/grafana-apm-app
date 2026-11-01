@@ -84,6 +84,10 @@ type PluginSettings struct {
 	// LabelOverrides allows customising Prometheus label names for non-standard OTel pipelines.
 	LabelOverrides LabelOverrides `json:"labelOverrides,omitempty"`
 
+	// AlertRoutingEnvironments maps data environment names to Grafana notification
+	// policy env labels. Unmapped environments use their data environment name.
+	AlertRoutingEnvironments map[string]string `json:"alertRoutingEnvironments,omitempty"`
+
 	// IngressAliases maps ingress hostnames to the service_name they route to.
 	// This allows the plugin to discover callers that reach a service via its
 	// ingress hostname (e.g., on-prem services calling via nais ingress).

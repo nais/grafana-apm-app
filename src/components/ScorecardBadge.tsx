@@ -7,6 +7,7 @@ import { getScorecard, ScorecardCheck, ScorecardConsole, ScorecardResponse } fro
 import { buildAlertRuleUrl, getAlertTemplate } from '../api/client';
 import { apmDocs } from '../utils/docsLinks';
 import { useFetch } from '../utils/useFetch';
+import { hasAlertRoutingContext } from '../utils/alertRouting';
 
 interface ScorecardBadgeProps {
   namespace: string;
@@ -142,6 +143,7 @@ function CheckActions({ check, namespace, service, environment }: { check: Score
   const docsHref = CHECK_DOCS[check.key];
   const snippet = check.notApplicable ? undefined : CHECK_SNIPPETS[check.key];
   const canCreateAlert = !check.notApplicable && check.key === 'alertRules';
+  const canRouteAlert = hasAlertRoutingContext(namespace, environment);
 
   const onCreateAlert = useCallback(async () => {
     setCreatingAlert(true);
@@ -177,10 +179,18 @@ function CheckActions({ check, namespace, service, environment }: { check: Score
         </ClipboardButton>
       )}
       {canCreateAlert && (
-        <Button variant="secondary" fill="text" size="sm" icon="bell" disabled={creatingAlert} onClick={onCreateAlert}>
+        <Button
+          variant="secondary"
+          fill="text"
+          size="sm"
+          icon="bell"
+          disabled={creatingAlert || !canRouteAlert}
+          onClick={onCreateAlert}
+        >
           Alert on error rate
         </Button>
       )}
+      {canCreateAlert && !canRouteAlert && <span>Select a team and exactly one environment to create an alert.</span>}
     </div>
   );
 }

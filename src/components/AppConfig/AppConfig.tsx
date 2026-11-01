@@ -20,6 +20,7 @@ interface EnvOverride {
   prometheusUid: string;
   tempoUid: string;
   lokiUid: string;
+  alertRoutingEnv: string;
 }
 
 type IngressAlias = {
@@ -49,18 +50,21 @@ type State = {
 function parseEnvOverrides(
   metricsDs: EnvAwareDs | undefined,
   tracesDs: EnvAwareDs | undefined,
-  logsDs: EnvAwareDs | undefined
+  logsDs: EnvAwareDs | undefined,
+  alertRoutingEnvironments: Record<string, string> | undefined
 ): EnvOverride[] {
   const envs = new Set<string>([
     ...Object.keys(metricsDs?.byEnvironment ?? {}),
     ...Object.keys(tracesDs?.byEnvironment ?? {}),
     ...Object.keys(logsDs?.byEnvironment ?? {}),
+    ...Object.keys(alertRoutingEnvironments ?? {}),
   ]);
   return [...envs].sort().map((env) => ({
     env,
     prometheusUid: metricsDs?.byEnvironment?.[env]?.uid || '',
     tempoUid: tracesDs?.byEnvironment?.[env]?.uid || '',
     lokiUid: logsDs?.byEnvironment?.[env]?.uid || '',
+    alertRoutingEnv: alertRoutingEnvironments?.[env] || '',
   }));
 }
 
@@ -77,7 +81,12 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
     metricNamespace: jsonData?.metricNamespace || '',
     durationUnit: jsonData?.durationUnit || '',
     labelOverrides: jsonData?.labelOverrides ?? {},
-    envOverrides: parseEnvOverrides(jsonData?.metricsDataSource, jsonData?.tracesDataSource, jsonData?.logsDataSource),
+    envOverrides: parseEnvOverrides(
+      jsonData?.metricsDataSource,
+      jsonData?.tracesDataSource,
+      jsonData?.logsDataSource,
+      jsonData?.alertRoutingEnvironments
+    ),
     ingressAliases: Object.entries(jsonData?.ingressAliases ?? {}).map(([hostname, service]) => ({
       hostname,
       service,
@@ -149,7 +158,10 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
           }
 
           // Auto-detect environment overrides from naming patterns
-          if (prev.envOverrides.length === 0 && (prom.length > 1 || tempo.length > 1 || loki.length > 1)) {
+          if (
+            !prev.envOverrides.some((row) => row.prometheusUid || row.tempoUid || row.lokiUid) &&
+            (prom.length > 1 || tempo.length > 1 || loki.length > 1)
+          ) {
             const envMap = new Map<string, { prometheusUid: string; tempoUid: string; lokiUid: string }>();
             const envPattern = /^(.+?)[-_](prometheus|mimir|tempo|loki)$/i;
             for (const ds of datasources) {
@@ -171,12 +183,15 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
               }
             }
             if (envMap.size > 0) {
-              updates.envOverrides = [...envMap.entries()].sort().map(([env, ds]) => ({
-                env,
-                prometheusUid: ds.prometheusUid,
-                tempoUid: ds.tempoUid,
-                lokiUid: ds.lokiUid,
-              }));
+              const overrides = new Map(prev.envOverrides.map((row) => [row.env, row]));
+              for (const [env, ds] of envMap) {
+                overrides.set(env, {
+                  env,
+                  ...ds,
+                  alertRoutingEnv: overrides.get(env)?.alertRoutingEnv ?? '',
+                });
+              }
+              updates.envOverrides = [...overrides.values()].sort((a, b) => a.env.localeCompare(b.env));
             }
           }
 
@@ -233,7 +248,10 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
   const addEnvOverride = () => {
     setState((prev) => ({
       ...prev,
-      envOverrides: [...prev.envOverrides, { env: '', prometheusUid: '', tempoUid: '', lokiUid: '' }],
+      envOverrides: [
+        ...prev.envOverrides,
+        { env: '', prometheusUid: '', tempoUid: '', lokiUid: '', alertRoutingEnv: '' },
+      ],
     }));
   };
 
@@ -294,6 +312,7 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
     const metricsByEnv: Record<string, DsRef> = {};
     const tracesByEnv: Record<string, DsRef> = {};
     const logsByEnv: Record<string, DsRef> = {};
+    const alertRoutingEnvironments: Record<string, string> = {};
     for (const ov of state.envOverrides) {
       if (ov.env) {
         if (ov.prometheusUid) {
@@ -304,6 +323,9 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
         }
         if (ov.lokiUid) {
           logsByEnv[ov.env] = { uid: ov.lokiUid, type: 'loki' };
+        }
+        if (ov.alertRoutingEnv) {
+          alertRoutingEnvironments[ov.env] = ov.alertRoutingEnv;
         }
       }
     }
@@ -361,6 +383,8 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
         metricNamespace: state.metricNamespace || undefined,
         durationUnit: state.durationUnit || undefined,
         labelOverrides: Object.values(state.labelOverrides).some(Boolean) ? state.labelOverrides : undefined,
+        alertRoutingEnvironments:
+          Object.keys(alertRoutingEnvironments).length > 0 ? alertRoutingEnvironments : undefined,
         ingressAliases: Object.keys(ingressAliases).length > 0 ? ingressAliases : undefined,
         opsWatchlist: opsWatchlist.length > 0 ? opsWatchlist : undefined,
         naisApiUrl: state.naisApiUrl || undefined,
@@ -467,7 +491,9 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
         <p className={s.description}>
           For multi-cluster setups where each environment has its own Tempo/Loki. Filtering by environment routes traces
           and logs to the matching datasource; metrics always read from the Mimir instance above. Environment names must
-          match the dropdown values (the <code>deployment_environment</code> label in your OTel data).
+          match the dropdown values (the <code>deployment_environment</code> label in your OTel data). If Grafana
+          notification policies use a different environment name, set its routing label below; queries still use the
+          data environment name.
         </p>
         {state.envOverrides.map((ov, idx) => (
           <div key={idx} className={s.envRow}>
@@ -564,6 +590,14 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
                   onChange={onEnvChange(idx, 'lokiUid')}
                 />
               )}
+            </Field>
+            <Field label="Alert routing env">
+              <Input
+                width={20}
+                value={ov.alertRoutingEnv}
+                placeholder="e.g., prod-gcp"
+                onChange={onEnvChange(idx, 'alertRoutingEnv')}
+              />
             </Field>
             <IconButton name="trash-alt" tooltip="Remove" onClick={() => removeEnvOverride(idx)} />
           </div>
