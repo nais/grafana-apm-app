@@ -33,6 +33,7 @@ import {
 import { otel } from '../../../../otelconfig';
 import { PLUGIN_BASE_URL } from '../../../../constants';
 import { sanitizeLabelValue } from '../../../../utils/sanitize';
+import { hasAlertRoutingContext } from '../../../../utils/alertRouting';
 import { apmDocs, frontendDocs } from '../../../../utils/docsLinks';
 import { usePluginLabelOverrides, usePluginDatasources } from '../../../../utils/datasources';
 import { useTimeRange } from '../../../../utils/timeRange';
@@ -151,6 +152,7 @@ export function ExceptionDrawer({
   const [searchParams] = useSearchParams();
   const issueId = searchParams.get('issueId') ?? '';
   const isServer = source === 'server';
+  const canRouteAlert = hasAlertRoutingContext(namespace, environment);
 
   const fl = otel.faroLoki;
   const clusterLabel = labelOverrides.deploymentEnvLabel || otel.labels.deploymentEnv;
@@ -837,10 +839,11 @@ export function ExceptionDrawer({
                     variant="secondary"
                     icon="bell"
                     onClick={onCreateAlert}
-                    disabled={creatingAlert || hashes.length === 0}
+                    disabled={creatingAlert || hashes.length === 0 || !canRouteAlert}
                   >
                     {creatingAlert ? 'Preparing alert…' : 'Create alert'}
                   </Button>
+                  {!canRouteAlert && <span>Select a team and exactly one environment to create an alert.</span>}
                   <TextLink
                     href={apmDocs.createAlerts()}
                     external

@@ -82,6 +82,26 @@ a Tempo UID and/or Loki UID:
 When a user selects an environment filter, the app resolves the matching
 datasource UID. If no override exists, the default datasource is used.
 
+### Alert notification environment
+
+Grafana alert templates use the selected **data environment** to filter
+metrics/logs and build APM links. Notification policies can use different
+environment names. Configure `alertRoutingEnvironments` in plugin `jsonData`
+(or the **Alert routing env** field under Per-Environment Datasources) to
+translate only the alert's `env` label:
+
+```yaml
+alertRoutingEnvironments:
+  dev: dev-gcp
+  prod: prod-gcp
+```
+
+In NAV Cloud, `dev-fss` and `prod-fss` already match the Console notification
+policy names and need no overrides. An unmapped environment uses its data name
+as the `env` label. Check Grafana's **Preview routing** for the selected team and
+environment before saving; the mapping does not change existing alert rules or
+rules with a directly selected contact point.
+
 ---
 
 ## Authentication

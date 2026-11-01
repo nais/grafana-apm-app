@@ -115,6 +115,28 @@ describe('Components/AppConfig', () => {
     expect(payload.secureJsonData).toBeUndefined();
   });
 
+  test('preserves and edits alert routing environment overrides', async () => {
+    const plugin = {
+      meta: {
+        ...props.plugin.meta,
+        jsonData: { ...props.plugin.meta.jsonData, alertRoutingEnvironments: { prod: 'prod-gcp' } },
+      },
+    };
+
+    await act(async () => {
+      // @ts-ignore
+      render(<AppConfig plugin={plugin} query={props.query} />);
+    });
+
+    const routingInput = screen.getByPlaceholderText('e.g., prod-gcp') as HTMLInputElement;
+    expect(routingInput.value).toBe('prod-gcp');
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(testIds.appConfig.submit));
+    });
+    expect(submittedPayload().jsonData.alertRoutingEnvironments).toEqual({ prod: 'prod-gcp' });
+  });
+
   test('sends the nais API token via secureJsonData only when a new value is entered', async () => {
     const plugin = { meta: { ...props.plugin.meta, enabled: true } };
 

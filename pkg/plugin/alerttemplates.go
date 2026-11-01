@@ -47,7 +47,6 @@ import (
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend/useragent"
 	"github.com/grafana/grafana-plugin-sdk-go/config"
-
 	"github.com/nais/grafana-otel-plugin/pkg/plugin/queries"
 )
 
@@ -114,8 +113,9 @@ const (
 // ruleFormValuesV1 until a real incompatible major ships, then add its case
 // here together with the alternate builder and a new golden snapshot.
 //
-//nolint:unparam // Intentionally returns the one shipped shape today; the
 // parameter and switch are the forward-looking version-branch seam (#77).
+//
+//nolint:unparam // Intentionally returns the one shipped shape today; the
 func selectRuleFormValuesSchema(grafanaMajor int) ruleFormValuesSchema {
 	switch {
 	case grafanaMajor >= 13:
@@ -224,6 +224,19 @@ func (a *App) handleAlertTemplate(w http.ResponseWriter, req *http.Request) {
 			// param must not turn a typo'd kind into a different error.
 			http.Error(w, `{"error":"unknown alert template kind"}`, http.StatusNotFound)
 		}
+		return
+	}
+
+	if !alertTemplateKinds[req.PathValue("kind")] {
+		http.Error(w, `{"error":"unknown alert template kind"}`, http.StatusNotFound)
+		return
+	}
+	if namespace == "" || env == "" || strings.Contains(q.Get("environment"), ",") {
+		http.Error(w, `{"error":"select a team and exactly one environment to route Grafana alerts"}`, http.StatusBadRequest)
+		return
+	}
+	if routingEnv, ok := a.settings.AlertRoutingEnvironments[env]; ok && routingEnv == "" {
+		http.Error(w, `{"error":"alert routing environment is empty"}`, http.StatusServiceUnavailable)
 		return
 	}
 
@@ -340,7 +353,7 @@ func (a *App) errorRateDefaults(ctx context.Context, namespace, service, env, ds
 			{Key: "summary", Value: fmt.Sprintf("More than 5%% of requests to %s are failing (5m window)", service)},
 			{Key: "nais_apm_url", Value: serviceDeepLink(namespace, service, env, "", "", "")},
 		},
-		Labels: templateLabels(namespace, service),
+		Labels: templateLabels(namespace, service, a.alertRoutingEnvironment(env), "warning"),
 	}
 }
 
@@ -390,7 +403,7 @@ func (a *App) exceptionSpikeDefaults(namespace, service, env, fingerprint string
 			// exceptionHash as legacy fallback — both resolve there too.
 			{Key: "nais_apm_url", Value: serviceDeepLink(namespace, service, env, "issues", fingerprint, hashes[0])},
 		},
-		Labels: templateLabels(namespace, service),
+		Labels: templateLabels(namespace, service, a.alertRoutingEnvironment(env), "warning"),
 	}
 }
 
@@ -418,7 +431,7 @@ func (a *App) webVitalsDefaults(namespace, service, env, dsUID string) ruleFormD
 			// A UX-health alert, not an issue — stays on the Frontend tab (#69 P10).
 			{Key: "nais_apm_url", Value: serviceDeepLink(namespace, service, env, "frontend", "", "")},
 		},
-		Labels: templateLabels(namespace, service),
+		Labels: templateLabels(namespace, service, a.alertRoutingEnvironment(env), "info"),
 	}
 }
 
@@ -467,7 +480,7 @@ sum by (%[1]s) (count_over_time(%[2]s | logfmt | %[1]s!="" | keep %[1]s [7d] off
 			// own drawer on the Issues tab (#69 P10, docs/url-contract.md).
 			{Key: "nais_apm_url", Value: serviceDeepLink(namespace, service, env, "issues", "", "{{ $labels."+fl.Hash+" }}")},
 		},
-		Labels: templateLabels(namespace, service),
+		Labels: templateLabels(namespace, service, a.alertRoutingEnvironment(env), "info"),
 	}
 }
 
@@ -695,8 +708,7 @@ func (a *App) sloBurnRateDefaults(ctx context.Context, namespace, service, env, 
 				strings.ToLower(tier), service, longWin, factorStr, sloPct, shortWin)},
 			{Key: "nais_apm_url", Value: serviceDeepLink(namespace, service, env, "", "", "")},
 		},
-		Labels: append(templateLabels(namespace, service),
-			alertKeyValue{Key: "severity", Value: sloSeverity(window)},
+		Labels: append(templateLabels(namespace, service, a.alertRoutingEnvironment(env), sloSeverity(window)),
 			alertKeyValue{Key: "slo", Value: sloPct},
 		),
 	}
@@ -799,16 +811,26 @@ func expressionQueries(threshold float64) []alertQuery {
 	}
 }
 
+func (a *App) alertRoutingEnvironment(env string) string {
+	if routingEnv, ok := a.settings.AlertRoutingEnvironments[env]; ok {
+		return routingEnv
+	}
+	return env
+}
+
 // templateLabels are attached to every created rule so teams can route and
 // audit plugin-suggested rules (`source=nais-apm`).
-func templateLabels(namespace, service string) []alertKeyValue {
-	labels := make([]alertKeyValue, 0, 3)
-	if namespace != "" {
-		labels = append(labels, alertKeyValue{Key: "namespace", Value: namespace})
-	}
+func templateLabels(namespace, service, env, severity string) []alertKeyValue {
+	labels := make([]alertKeyValue, 0, 6)
+	labels = append(labels,
+		alertKeyValue{Key: "namespace", Value: namespace},
+		alertKeyValue{Key: "team", Value: namespace},
+		alertKeyValue{Key: "env", Value: env},
+	)
 	labels = append(labels,
 		alertKeyValue{Key: "service", Value: service},
 		alertKeyValue{Key: "source", Value: "nais-apm"},
+		alertKeyValue{Key: "severity", Value: severity},
 	)
 	return labels
 }

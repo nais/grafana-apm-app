@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import ServiceOverview from './ServiceOverview';
 import * as capabilitiesUtils from '../utils/capabilities';
 import * as datasourceUtils from '../utils/datasources';
+import * as client from '../api/client';
 
 /**
  * Tab registry tests: the Issues tab is capability-gated on Loki exactly like
@@ -20,6 +21,11 @@ jest.mock('@grafana/runtime', () => ({
   getAppEvents: () => ({ publish: jest.fn() }),
   locationService: { push: jest.fn() },
   getBackendSrv: () => ({ fetch: jest.fn() }),
+}));
+
+jest.mock('../api/client', () => ({
+  ...jest.requireActual('../api/client'),
+  getAlertTemplate: jest.fn(),
 }));
 
 jest.mock('../utils/capabilities', () => ({
@@ -179,6 +185,34 @@ describe('ServiceOverview tab registry', () => {
     const params = new URLSearchParams(screen.getByTestId('location-search').textContent ?? '');
     expect(params.get('tab')).toBe('issues');
     expect(screen.getByTestId('issues-tab')).toBeInTheDocument();
+  });
+});
+
+describe('ServiceOverview alert action', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (capabilitiesUtils.useCapabilities as jest.Mock).mockReturnValue({ caps: baseCaps, loading: false });
+  });
+
+  it.each([
+    ['no environment', '/services/team-a/my-svc'],
+    ['multiple environments', '/services/team-a/my-svc?environment=dev,prod'],
+  ])('disables the header alert action for %s', (_name, route) => {
+    renderPage([route]);
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+
+    const action = screen.getByText('Alert on error rate — select a team and exactly one environment');
+    expect(action.closest('[role="menuitem"]')).toBeDisabled();
+    fireEvent.click(action);
+    expect(client.getAlertTemplate).not.toHaveBeenCalled();
+  });
+
+  it('enables the header alert action for one environment', () => {
+    renderPage(['/services/team-a/my-svc?environment=prod']);
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+
+    const action = screen.getByText('Alert on error rate');
+    expect(action.closest('[role="menuitem"]')).not.toBeDisabled();
   });
 });
 

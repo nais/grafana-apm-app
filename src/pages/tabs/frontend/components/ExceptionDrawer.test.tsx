@@ -73,13 +73,14 @@ function lokiFetchImpl(options: any) {
   return of({ data: { data: { result: [] } } });
 }
 
-function renderDrawer() {
+function renderDrawer(environment?: string) {
   return render(
     <MemoryRouter initialEntries={['/?issueId=v1:abc123']}>
       <ExceptionDrawer
         hashes={['abc123']}
         service="my-app"
         namespace="ns"
+        environment={environment}
         logsUid="loki-uid"
         selectedSessionId="sess-1"
         onSessionChange={jest.fn()}
@@ -120,6 +121,19 @@ describe('opening effect (fetch-once regression)', () => {
       (opts?.params?.query ?? '').includes('hash=')
     );
     expect(occurrenceCalls).toHaveLength(1);
+  });
+
+  describe('alert routing context', () => {
+    it('requires a single environment to enable the exception alert template', async () => {
+      renderDrawer();
+      expect(await screen.findByRole('button', { name: 'Create alert' })).toBeDisabled();
+      expect(screen.getByText(/Select a team and exactly one environment/)).toBeInTheDocument();
+    });
+
+    it('enables the exception alert template for a scoped team and environment', async () => {
+      renderDrawer('prod-gcp');
+      expect(await screen.findByRole('button', { name: 'Create alert' })).toBeEnabled();
+    });
   });
 });
 
