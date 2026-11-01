@@ -158,7 +158,10 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
           }
 
           // Auto-detect environment overrides from naming patterns
-          if (prev.envOverrides.length === 0 && (prom.length > 1 || tempo.length > 1 || loki.length > 1)) {
+          if (
+            !prev.envOverrides.some((row) => row.prometheusUid || row.tempoUid || row.lokiUid) &&
+            (prom.length > 1 || tempo.length > 1 || loki.length > 1)
+          ) {
             const envMap = new Map<string, { prometheusUid: string; tempoUid: string; lokiUid: string }>();
             const envPattern = /^(.+?)[-_](prometheus|mimir|tempo|loki)$/i;
             for (const ds of datasources) {
@@ -180,13 +183,15 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
               }
             }
             if (envMap.size > 0) {
-              updates.envOverrides = [...envMap.entries()].sort().map(([env, ds]) => ({
-                env,
-                prometheusUid: ds.prometheusUid,
-                tempoUid: ds.tempoUid,
-                lokiUid: ds.lokiUid,
-                alertRoutingEnv: '',
-              }));
+              const overrides = new Map(prev.envOverrides.map((row) => [row.env, row]));
+              for (const [env, ds] of envMap) {
+                overrides.set(env, {
+                  env,
+                  ...ds,
+                  alertRoutingEnv: overrides.get(env)?.alertRoutingEnv ?? '',
+                });
+              }
+              updates.envOverrides = [...overrides.values()].sort((a, b) => a.env.localeCompare(b.env));
             }
           }
 
