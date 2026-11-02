@@ -66,7 +66,7 @@ func NewPrometheusClient(baseURL string, serviceToken string) *PrometheusClient 
 		serviceToken: serviceToken,
 		httpClient: &http.Client{
 			Timeout:   30 * time.Second,
-			Transport: sharedTransport,
+			Transport: RedirectBlockingTransport(sharedTransport),
 		},
 		logger: log.DefaultLogger.With("component", "promClient"),
 	}
@@ -85,7 +85,7 @@ func NewLokiMetricClient(proxyURL string, serviceToken string) *PrometheusClient
 		serviceToken: serviceToken,
 		httpClient: &http.Client{
 			Timeout:   30 * time.Second,
-			Transport: sharedTransport,
+			Transport: RedirectBlockingTransport(sharedTransport),
 		},
 		logger: log.DefaultLogger.With("component", "lokiMetricClient"),
 	}
