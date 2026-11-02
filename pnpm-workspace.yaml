@@ -31,10 +31,10 @@ overrides:
   'js-yaml@>=4.0.0 <=4.1.1': '>=4.2.0'
   '@openfeature/react-sdk': 1.2.1
   '@openfeature/core': 1.9.2
-  '@typescript-eslint/utils': 8.65.0
+  '@typescript-eslint/utils': 8.72.1
   # GHSA-6j4f-fj2g-mc7p, GHSA-qhr7-859c-m2p7
-  'brace-expansion@^1.1.12': 1.1.20
-  'js-yaml': 5.2.3
+  'brace-expansion@^1.1.12': 1.1.21
+  'js-yaml': 5.5.0
   # GHSA-jqff-g426-hqxp, GHSA-f65p-4m7j-42xc, GHSA-fph4-wmhf-6fwf,
   # GHSA-5jgf-p345-68v8 — fast-uri host confusion / SSRF. Upper bound keeps
   # ajv, the only consumer, on the 3.x line it declares.

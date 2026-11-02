@@ -3,7 +3,7 @@
 task.output = "interleave"
 
 [tools]
-node = "22"
+node = "22.23.4"
 go = "1.26"
 "golangci-lint" = "latest"
 pnpm = "12.16.1"

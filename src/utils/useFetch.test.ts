@@ -74,9 +74,45 @@ describe('useFetch', () => {
 
     // Initially shows cached data
     expect(result.current.data).toBe('cached');
+    expect(result.current.loading).toBe(false);
+    expect(result.current.stale).toBe(true);
 
     // After fetch completes, shows fresh data
     await waitFor(() => expect(result.current.data).toBe('fresh'));
+  });
+
+  it('keeps cached data stale while new dependencies are loading', async () => {
+    const fetcher = jest
+      .fn()
+      .mockResolvedValueOnce('cached')
+      .mockImplementation(() => new Promise(() => {}));
+    const { result, rerender } = renderHook(({ dep }) => useFetch<string>(fetcher, [dep]), {
+      initialProps: { dep: 'a' },
+    });
+    await waitFor(() => expect(result.current.data).toBe('cached'));
+
+    rerender({ dep: 'b' });
+    expect(result.current.data).toBe('cached');
+    expect(result.current.loading).toBe(false);
+    expect(result.current.stale).toBe(true);
+    expect(result.current.error).toBeNull();
+
+    rerender({ dep: 'b' });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops loading and ignores an in-flight result when skipped', async () => {
+    let resolve!: (value: string) => void;
+    const fetcher = jest.fn(() => new Promise<string>((done) => (resolve = done)));
+    const { result, rerender } = renderHook(({ skip }) => useFetch(fetcher, [], { skip }), {
+      initialProps: { skip: false },
+    });
+    expect(result.current.loading).toBe(true);
+
+    rerender({ skip: true });
+    expect(result.current.loading).toBe(false);
+    await act(async () => resolve('ignored'));
+    expect(result.current.data).toBeNull();
   });
 
   it('starts fetching when skip transitions from true to false', async () => {
