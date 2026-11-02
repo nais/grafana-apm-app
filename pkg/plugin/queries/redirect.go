@@ -5,19 +5,28 @@ import (
 	"net/http"
 )
 
-// RejectRedirect keeps authenticated Grafana requests at their configured
-// endpoint, including same-origin redirects that could escape the proxy path.
-// Callers must check RedirectResponseError before reading a response body.
-func RejectRedirect(_ *http.Request, _ []*http.Request) error {
-	return http.ErrUseLastResponse
+// RedirectBlockingTransport rejects redirects before http.Client can parse a
+// secret-bearing Location header. A nil base uses http.DefaultTransport.
+func RedirectBlockingTransport(base http.RoundTripper) http.RoundTripper {
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return redirectBlockingTransport{base: base}
 }
 
-// RedirectResponseError omits the body and Location, which may contain secrets.
-// Returning an error from CheckRedirect instead would expose Location through
-// net/http's url.Error, so rejection happens after Do returns the original 3xx.
-func RedirectResponseError(resp *http.Response) error {
-	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
-		return fmt.Errorf("redirect response rejected (HTTP %d)", resp.StatusCode)
+type redirectBlockingTransport struct {
+	base http.RoundTripper
+}
+
+func (t redirectBlockingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := t.base.RoundTrip(req)
+	if err != nil {
+		return resp, err
 	}
-	return nil
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		// Do not drain: a redirect body can stream until the request times out.
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("redirect response rejected (HTTP %d)", resp.StatusCode)
+	}
+	return resp, nil
 }

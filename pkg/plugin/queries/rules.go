@@ -76,9 +76,6 @@ func (c *PrometheusClient) GetAlertRules(ctx context.Context) (*RulesResponse, e
 		return nil, fmt.Errorf("fetching rules: %w", err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
-	if err := RedirectResponseError(resp); err != nil {
-		return nil, err
-	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
 	if err != nil {

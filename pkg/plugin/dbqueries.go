@@ -270,7 +270,7 @@ func (a *App) searchDBSpans(ctx context.Context, headers http.Header, tracesUID,
 	}
 	applyProxyAuth(httpReq, headers, a.resolveServiceToken(ctx))
 
-	client := &http.Client{Timeout: topQueriesTimeout, CheckRedirect: queries.RejectRedirect}
+	client := &http.Client{Timeout: topQueriesTimeout, Transport: queries.RedirectBlockingTransport(nil)}
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		return nil, false, err

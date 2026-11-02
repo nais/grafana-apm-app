@@ -301,7 +301,7 @@ func (a *App) searchNPlusOneTraces(ctx context.Context, headers http.Header, tra
 	}
 	applyProxyAuth(httpReq, headers, a.resolveServiceToken(ctx))
 
-	client := &http.Client{Timeout: nplusoneTimeout, CheckRedirect: queries.RejectRedirect}
+	client := &http.Client{Timeout: nplusoneTimeout, Transport: queries.RedirectBlockingTransport(nil)}
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		return nil, false, err

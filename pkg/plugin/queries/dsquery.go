@@ -30,9 +30,8 @@ func NewDsQueryClient(grafanaURL, serviceToken string) *DsQueryClient {
 		grafanaURL:   grafanaURL,
 		serviceToken: serviceToken,
 		httpClient: &http.Client{
-			Timeout:       30 * time.Second,
-			Transport:     sharedTransport,
-			CheckRedirect: RejectRedirect,
+			Timeout:   30 * time.Second,
+			Transport: RedirectBlockingTransport(sharedTransport),
 		},
 	}
 }
@@ -116,9 +115,6 @@ func (c *DsQueryClient) execute(ctx context.Context, dsReq dsQueryRequest) ([]ds
 		return nil, fmt.Errorf("executing ds query: %w", err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
-	if err := RedirectResponseError(resp); err != nil {
-		return nil, err
-	}
 
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 20<<20))
 	if err != nil {
