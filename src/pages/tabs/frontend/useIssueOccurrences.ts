@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { getBackendSrv } from '@grafana/runtime';
 import { lastValueFrom } from 'rxjs';
 import { getIssueOccurrences, IssueSource } from '../../../api/client';
@@ -134,6 +134,51 @@ export function useIssueOccurrences(opts: UseIssueOccurrencesOptions): UseIssueO
 
   // Stable key so the browser effect doesn't refire on array identity.
   const hashesKey = hashes.map(sanitizeLabelValue).join('|');
+  const serverRequest = useMemo(
+    () => [source, issueId, title, issueType, namespace, service, environment, fromMs, toMs],
+    [source, issueId, title, issueType, namespace, service, environment, fromMs, toMs]
+  );
+  const browserRequest = useMemo(
+    () => [
+      source,
+      resolving,
+      hashesKey,
+      service,
+      environment,
+      logsUid,
+      clusterStream,
+      fromMs,
+      toMs,
+      fl.hash,
+      fl.kind,
+      fl.kindException,
+      fl.serviceName,
+    ],
+    [
+      source,
+      resolving,
+      hashesKey,
+      service,
+      environment,
+      logsUid,
+      clusterStream,
+      fromMs,
+      toMs,
+      fl.hash,
+      fl.kind,
+      fl.kindException,
+      fl.serviceName,
+    ]
+  );
+  const request = source === 'server' ? serverRequest : browserRequest;
+  const [previousRequest, setPreviousRequest] = useState(request);
+  if (previousRequest !== request) {
+    setPreviousRequest(request);
+    setLoading(true);
+    if (source === 'server' ? !!issueId : !resolving && hashesKey !== '') {
+      setError(null);
+    }
+  }
 
   // ---- Server path: backend occurrences endpoint (#84) ----
   useEffect(() => {
@@ -141,12 +186,9 @@ export function useIssueOccurrences(opts: UseIssueOccurrencesOptions): UseIssueO
       return;
     }
     if (!issueId) {
-      setLoading(true);
       return;
     }
     let cancelled = false;
-    setLoading(true);
-    setError(null);
     getIssueOccurrences(namespace, service, issueId, fromMs, toMs, environment || undefined, {
       title,
       type: issueType,
@@ -212,11 +254,8 @@ export function useIssueOccurrences(opts: UseIssueOccurrencesOptions): UseIssueO
     // While the deep link is still resolving to hashes, keep the spinner and
     // don't query — the same instance re-runs this once hashes land.
     if (resolving || hashesKey === '') {
-      setLoading(true);
       return;
     }
-    setLoading(true);
-    setError(null);
 
     const single = !hashesKey.includes('|');
     const lineFilter = single ? `|= \`${fl.hash}=${hashesKey}\`` : `|~ \`${fl.hash}=(${hashesKey})\``;
@@ -335,7 +374,6 @@ export function useIssueOccurrences(opts: UseIssueOccurrencesOptions): UseIssueO
     // Depending on the object refired the effect on every unrelated re-render,
     // and since each fetch sets new-identity state, that self-sustained a
     // refetch loop (regression covered in ExceptionDrawer.test.tsx).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     source,
     resolving,

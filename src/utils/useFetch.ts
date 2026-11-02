@@ -29,9 +29,9 @@ export function useFetch<T>(
 
   const [state, setState] = useState<FetchState<T>>({
     data: initialData,
-    loading: !skip,
+    loading: !skip && initialData === null,
     error: null,
-    stale: false,
+    stale: !skip && initialData !== null,
   });
 
   // Keep fetcher in a ref so it's always current without being a dependency
@@ -43,22 +43,25 @@ export function useFetch<T>(
 
   // Refetch trigger — increment to force a new fetch
   const [fetchTrigger, setFetchTrigger] = useState(0);
+  const inputs = [...deps, fetchTrigger, skip];
+  const [previousInputs, setPreviousInputs] = useState(inputs);
+  if (inputs.length !== previousInputs.length || inputs.some((value, i) => !Object.is(value, previousInputs[i]))) {
+    setPreviousInputs(inputs);
+    setState((s) =>
+      skip
+        ? s.loading
+          ? { ...s, loading: false }
+          : s
+        : { ...s, loading: s.data === null, stale: s.data !== null, error: null }
+    );
+  }
 
   useEffect(() => {
     if (skip) {
-      setState((s) => (s.loading ? { ...s, loading: false } : s));
       return;
     }
 
     let cancelled = false;
-
-    // Stale-while-revalidate: keep existing data visible, mark as stale
-    setState((s) => ({
-      ...s,
-      loading: s.data === null,
-      stale: s.data !== null,
-      error: null,
-    }));
 
     fetcherRef
       .current()

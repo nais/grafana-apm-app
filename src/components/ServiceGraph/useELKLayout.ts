@@ -30,9 +30,7 @@ export function useELKLayout({ nodes, edges, groups, direction = 'RIGHT', enable
 
   const runLayout = useCallback(async () => {
     if (nodes.length === 0) {
-      setLayouted({ nodes: [], edges: [] });
-      setLoading(false);
-      return;
+      return { nodes: [], edges: [] };
     }
 
     const isHorizontal = direction === 'RIGHT';
@@ -46,9 +44,7 @@ export function useELKLayout({ nodes, edges, groups, direction = 'RIGHT', enable
         sourcePosition: isHorizontal ? Position.Right : Position.Bottom,
         targetPosition: isHorizontal ? Position.Left : Position.Top,
       }));
-      setLayouted({ nodes: fallback, edges: edges.map((e) => ({ ...e, type: 'smoothstep' })) });
-      setLoading(false);
-      return;
+      return { nodes: fallback, edges: edges.map((e) => ({ ...e, type: 'smoothstep' })) };
     }
 
     // Build ELK children — group nodes become compound parents
@@ -198,7 +194,7 @@ export function useELKLayout({ nodes, edges, groups, direction = 'RIGHT', enable
         type: 'smoothstep',
       }));
 
-      setLayouted({ nodes: positionedNodes, edges: positionedEdges });
+      return { nodes: positionedNodes, edges: positionedEdges };
     } catch (err) {
       console.error('ELK layout failed:', err);
       // Fallback: use nodes as-is with sequential positioning
@@ -208,15 +204,21 @@ export function useELKLayout({ nodes, edges, groups, direction = 'RIGHT', enable
         sourcePosition: isHorizontal ? Position.Right : Position.Bottom,
         targetPosition: isHorizontal ? Position.Left : Position.Top,
       }));
-      setLayouted({ nodes: fallback, edges: edges.map((e) => ({ ...e, type: 'smoothstep' })) });
-    } finally {
-      setLoading(false);
+      return { nodes: fallback, edges: edges.map((e) => ({ ...e, type: 'smoothstep' })) };
     }
   }, [nodes, edges, groups, direction, enableWrapping]);
 
-  useEffect(() => {
+  const [previousLayout, setPreviousLayout] = useState(() => runLayout);
+  if (previousLayout !== runLayout) {
+    setPreviousLayout(() => runLayout);
     setLoading(true);
-    runLayout();
+  }
+
+  useEffect(() => {
+    runLayout().then((result) => {
+      setLayouted(result);
+      setLoading(false);
+    });
   }, [runLayout]);
 
   return { ...layouted, loading };
