@@ -106,6 +106,7 @@
   "iam": {
     "permissions": [
       { "action": "datasources:query", "scope": "datasources:*" },
+      { "action": "folders:read", "scope": "folders:*" },
       { "action": "annotations:read", "scope": "annotations:*" },
       { "action": "annotations:create", "scope": "annotations:*" },
       { "action": "annotations:write", "scope": "annotations:*" }
