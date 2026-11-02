@@ -45,6 +45,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/useragent"
 	"github.com/grafana/grafana-plugin-sdk-go/config"
 	"github.com/nais/grafana-otel-plugin/pkg/plugin/queries"
@@ -165,9 +166,14 @@ type alertQuery struct {
 	Model             map[string]any          `json:"model"`
 }
 
+type alertFolder struct {
+	Title string `json:"title"`
+	UID   string `json:"uid"`
+}
+
 // ruleFormDefaults is the partial RuleFormValues we pre-fill. Grafana merges
-// it with its own form defaults, so anything omitted (folder, evaluation
-// group, contact point) is chosen by the user in Grafana's editor.
+// it with its own form defaults, so anything omitted (evaluation group,
+// contact point, or a folder without an exact team match) is chosen in the editor.
 type ruleFormDefaults struct {
 	Type        string          `json:"type"`
 	Name        string          `json:"name"`
@@ -176,6 +182,7 @@ type ruleFormDefaults struct {
 	Queries     []alertQuery    `json:"queries"`
 	Annotations []alertKeyValue `json:"annotations"`
 	Labels      []alertKeyValue `json:"labels"`
+	Folder      *alertFolder    `json:"folder,omitempty"`
 }
 
 // alertTemplateResponse is the resource endpoint payload.
@@ -300,6 +307,12 @@ func (a *App) handleAlertTemplate(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	folder, err := a.teamAlertFolder(req, namespace)
+	if err != nil {
+		log.DefaultLogger.Warn("Unable to preselect alert team folder", "team", namespace, "error", err)
+	}
+	defaults.Folder = folder
+
 	// Version guard (#77): key the emitted RuleFormValues shape to the running
 	// Grafana major. Only one shape ships today, so this is the branch point,
 	// not yet a branch — see selectRuleFormValuesSchema.
@@ -321,6 +334,48 @@ func (a *App) handleAlertTemplate(w http.ResponseWriter, req *http.Request) {
 		URL:      "/alerting/new?defaults=" + url.QueryEscape(string(data)),
 		Defaults: defaults,
 	})
+}
+
+func (a *App) teamAlertFolder(req *http.Request, namespace string) (*alertFolder, error) {
+	if a.grafanaURL == "" {
+		return nil, nil
+	}
+
+	const searchLimit = 1000
+	params := url.Values{
+		"type":  {"dash-folder"},
+		"query": {namespace},
+		"limit": {strconv.Itoa(searchLimit)},
+	}
+	body, err := a.proxyGET(req.Context(), req.Header, a.resolveServiceToken(req.Context()),
+		a.grafanaURL+"/api/search?"+params.Encode())
+	if err != nil {
+		return nil, fmt.Errorf("search Grafana folders: %w", err)
+	}
+
+	var results []struct {
+		Title string `json:"title"`
+		UID   string `json:"uid"`
+		Type  string `json:"type"`
+	}
+	if err := json.Unmarshal(body, &results); err != nil {
+		return nil, fmt.Errorf("decode Grafana folder search: %w", err)
+	}
+	if len(results) >= searchLimit {
+		return nil, fmt.Errorf("grafana folder search reached the %d-result limit", searchLimit)
+	}
+
+	var match *alertFolder
+	for _, result := range results {
+		if result.Type != "dash-folder" || result.UID == "" || !strings.EqualFold(result.Title, namespace) {
+			continue
+		}
+		if match != nil {
+			return nil, fmt.Errorf("multiple Grafana folders match team %q", namespace)
+		}
+		match = &alertFolder{Title: result.Title, UID: result.UID}
+	}
+	return match, nil
 }
 
 // errorRateDefaults builds a Mimir error-ratio rule using the detected

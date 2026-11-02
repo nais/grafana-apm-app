@@ -504,6 +504,95 @@ func TestAlertTemplateEmptyRoutingEnvironment(t *testing.T) {
 	}
 }
 
+func TestAlertTemplatePreselectsTeamFolder(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.URL.Path != "/api/search" || req.URL.Query().Get("type") != "dash-folder" ||
+			req.URL.Query().Get("query") != "team-a" || req.URL.Query().Get("limit") != "1000" {
+			t.Errorf("unexpected folder search request: %s", req.URL)
+		}
+		if got := req.Header.Get("Authorization"); got != "Bearer test-token" {
+			t.Errorf("folder search authorization = %q", got)
+		}
+		_, _ = w.Write([]byte(`[
+			{"title":"team-a other","uid":"other-uid","type":"dash-folder"},
+			{"title":"team-a","uid":"team-uid","type":"dash-folder"},
+			{"title":"team-a","uid":"dashboard-uid","type":"dash-db"}
+		]`))
+	}))
+	defer srv.Close()
+
+	app := newAlertTemplateApp(t)
+	app.grafanaURL = srv.URL
+	app.healthClient = srv.Client()
+	app.serviceToken = "test-token"
+
+	for _, kind := range []string{"error-rate", "exception-spike", "web-vitals", "new-exceptions", "slo-burn-rate"} {
+		t.Run(kind, func(t *testing.T) {
+			target := fmt.Sprintf("/alert-templates/%s?namespace=team-a&service=my-svc&environment=prod-gcp", kind)
+			if kind == "exception-spike" {
+				target += "&hash=abc123"
+			}
+			resp := decodeAlertTemplate(t, serveAlertTemplate(t, app, target))
+			if resp.Defaults.Folder == nil || *resp.Defaults.Folder != (alertFolder{Title: "team-a", UID: "team-uid"}) {
+				t.Errorf("folder = %+v, want team-a with team-uid", resp.Defaults.Folder)
+			}
+			assertURLEncoding(t, resp)
+		})
+	}
+}
+
+func TestAlertTemplateLeavesFolderForUserWhenNoUniqueMatch(t *testing.T) {
+	cases := []struct {
+		name   string
+		body   string
+		status int
+	}{
+		{"no matching folder", `[{"title":"team-a extra","uid":"other","type":"dash-folder"}]`, http.StatusOK},
+		{"ambiguous team folders", `[
+			{"title":"team-a","uid":"first","type":"dash-folder"},
+			{"title":"TEAM-A","uid":"second","type":"dash-folder"}
+		]`, http.StatusOK},
+		{"missing folder UID", `[{"title":"team-a","type":"dash-folder"}]`, http.StatusOK},
+		{"invalid search response", `{"message":"unexpected"}`, http.StatusOK},
+		{"folder lookup forbidden", `{"message":"forbidden"}`, http.StatusForbidden},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer srv.Close()
+			app := newAlertTemplateApp(t)
+			app.grafanaURL = srv.URL
+			app.healthClient = srv.Client()
+			resp := decodeAlertTemplate(t, serveAlertTemplate(t, app,
+				"/alert-templates/error-rate?namespace=team-a&service=my-svc&environment=prod-gcp"))
+			if resp.Defaults.Folder != nil {
+				t.Errorf("folder = %+v, want unset", resp.Defaults.Folder)
+			}
+			assertURLEncoding(t, resp)
+		})
+	}
+}
+
+func TestAlertTemplateFolderSearchLimit(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if err := json.NewEncoder(w).Encode(make([]alertFolder, 1000)); err != nil {
+			t.Errorf("encode folder search response: %v", err)
+		}
+	}))
+	defer srv.Close()
+
+	app := newAlertTemplateApp(t)
+	app.grafanaURL = srv.URL
+	app.healthClient = srv.Client()
+	folder, err := app.teamAlertFolder(httptest.NewRequest(http.MethodGet, "/", nil), "team-a")
+	if folder != nil || err == nil {
+		t.Errorf("folder = %+v, error = %v; want no folder and an incomplete-search error", folder, err)
+	}
+}
+
 func TestSLOBurnRateDatasourceNotConfigured(t *testing.T) {
 	app := newTestApp(t, "http://prom.invalid", defaultCaps())
 	w := serveAlertTemplate(t, app, "/alert-templates/slo-burn-rate?namespace=team-a&service=my-svc&environment=prod-gcp")
