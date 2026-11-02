@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.25.5](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.25.4...nais-apm-app-v0.25.5) (2026-11-02)
+
+
+### Bug Fixes
+
+* preselect team folder for new alert rules ([#216](https://github.com/nais/grafana-apm-app/issues/216)) ([1521dce](https://github.com/nais/grafana-apm-app/commit/1521dce4a333b0deba4361e15dcdb8b1a1d1deb5))
+* update Node.js version for plugin signing to 24.5.0 ([#212](https://github.com/nais/grafana-apm-app/issues/212)) ([a86287d](https://github.com/nais/grafana-apm-app/commit/a86287df0be3f1f98e227b108e9d3810f1a2833a))
+
 ## [0.25.4](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.25.3...nais-apm-app-v0.25.4) (2026-11-01)
 
 
