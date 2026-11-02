@@ -3,6 +3,7 @@
 
 [propose]
 allow_docker = true
+allow_localhost_any = true
 
 [propose.allow]
 ports = [2345, 3000, 3100, 3200, 4317, 4318, 8080, 9009]
