@@ -377,7 +377,7 @@ func newTempoQueryClient(grafanaURL, serviceToken string, headers http.Header) *
 		grafanaURL:   grafanaURL,
 		serviceToken: serviceToken,
 		headers:      headers,
-		httpClient:   &http.Client{Timeout: 30 * time.Second},
+		httpClient:   &http.Client{Timeout: 30 * time.Second, CheckRedirect: queries.RejectRedirect},
 	}
 }
 
@@ -456,6 +456,9 @@ func (c *tempoQueryClient) metricQuery(ctx context.Context, uid, query, step str
 		return nil, err
 	}
 	defer resp.Body.Close() //nolint:errcheck
+	if err := queries.RedirectResponseError(resp); err != nil {
+		return nil, err
+	}
 
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 20<<20))
 	if err != nil {

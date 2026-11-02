@@ -67,7 +67,7 @@ func NewPrometheusClient(baseURL string, serviceToken string) *PrometheusClient 
 		httpClient: &http.Client{
 			Timeout:       30 * time.Second,
 			Transport:     sharedTransport,
-			CheckRedirect: rejectQueryRedirect,
+			CheckRedirect: RejectRedirect,
 		},
 		logger: log.DefaultLogger.With("component", "promClient"),
 	}
@@ -87,7 +87,7 @@ func NewLokiMetricClient(proxyURL string, serviceToken string) *PrometheusClient
 		httpClient: &http.Client{
 			Timeout:       30 * time.Second,
 			Transport:     sharedTransport,
-			CheckRedirect: rejectQueryRedirect,
+			CheckRedirect: RejectRedirect,
 		},
 		logger: log.DefaultLogger.With("component", "lokiMetricClient"),
 	}
@@ -95,12 +95,6 @@ func NewLokiMetricClient(proxyURL string, serviceToken string) *PrometheusClient
 		c.logger.Error("base URL rejected by allowlist", "url", proxyURL)
 	}
 	return c
-}
-
-// Even same-origin redirects can escape the datasource proxy path and carry
-// Grafana credentials to another endpoint. Return the 3xx to the caller instead.
-func rejectQueryRedirect(_ *http.Request, _ []*http.Request) error {
-	return http.ErrUseLastResponse
 }
 
 // WithAuthHeaders returns a shallow copy of the client with auth headers set.
@@ -284,6 +278,9 @@ func (c *PrometheusClient) LabelValues(ctx context.Context, labelName string, st
 		return nil, fmt.Errorf("fetching label values: %w", err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
+	if err := RedirectResponseError(resp); err != nil {
+		return nil, err
+	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	if err != nil {
@@ -348,6 +345,9 @@ func (c *PrometheusClient) Metadata(ctx context.Context, metric string) ([]Metri
 		return nil, fmt.Errorf("fetching metadata: %w", err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
+	if err := RedirectResponseError(resp); err != nil {
+		return nil, err
+	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	if err != nil {
@@ -390,6 +390,9 @@ func (c *PrometheusClient) doQuery(ctx context.Context, path string, params url.
 		return nil, fmt.Errorf("executing query: %w", err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
+	if err := RedirectResponseError(resp); err != nil {
+		return nil, err
+	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20)) // 10 MB max
 	if err != nil {

@@ -41,9 +41,10 @@ func TestQueryClientsRejectRedirects(t *testing.T) {
 						}
 						w.Header().Set("Location", location)
 						w.WriteHeader(status)
+						_, _ = w.Write([]byte("sensitive-redirect-body"))
 					}))
 					defer proxy.Close()
-					client := constructor.new(proxy.URL+"/grafana/api/datasources/proxy/uid/test", "test-token").WithAuthHeaders(http.Header{"X-Grafana-Org-Id": {"2"}})
+					client := constructor.new(proxy.URL+"/grafana/api/datasources/proxy/uid/test", "old-token").WithServiceToken("test-token").WithAuthHeaders(http.Header{"X-Grafana-Org-Id": {"2"}})
 					calls := []func() error{
 						func() error { _, err := client.InstantQuery(context.Background(), "up", time.Now()); return err },
 						func() error {
@@ -58,8 +59,8 @@ func TestQueryClientsRejectRedirects(t *testing.T) {
 						func() error { _, err := client.Metadata(context.Background(), "up"); return err },
 					}
 					for _, call := range calls {
-						if err := call(); err == nil {
-							t.Error("redirect response must fail")
+						if err := call(); err == nil || err.Error() != fmt.Sprintf("redirect response rejected (HTTP %d)", status) {
+							t.Errorf("expected status-only redirect error, got %v", err)
 						}
 					}
 					if got := proxied.Load(); got != int32(len(calls)) {
@@ -71,6 +72,39 @@ func TestQueryClientsRejectRedirects(t *testing.T) {
 	}
 	if got := escaped.Load(); got != 0 {
 		t.Fatalf("redirects escaped the proxy: %d requests", got)
+	}
+}
+
+func TestDsQueryRejectsRedirect(t *testing.T) {
+	for _, token := range []string{"", "service-token"} {
+		t.Run("token="+token, func(t *testing.T) {
+			var escaped atomic.Int32
+			proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/api/ds/query" {
+					escaped.Add(1)
+					return
+				}
+				want := "Bearer user-token"
+				if token != "" {
+					want = "Bearer " + token
+				}
+				if r.Header.Get("Authorization") != want {
+					t.Error("missing initial authentication")
+				}
+				w.Header().Set("Location", "/secret-location?token=secret")
+				w.WriteHeader(http.StatusTemporaryRedirect)
+				_, _ = w.Write([]byte("secret-body"))
+			}))
+			defer proxy.Close()
+			client := NewDsQueryClient(proxy.URL, token).WithAuthHeaders(http.Header{"Authorization": {"Bearer user-token"}, "Cookie": {"session=test"}})
+			_, err := client.InstantQuery(context.Background(), "uid", "up", time.Now())
+			if err == nil || err.Error() != "redirect response rejected (HTTP 307)" {
+				t.Fatalf("expected status-only redirect error, got %v", err)
+			}
+			if escaped.Load() != 0 {
+				t.Fatal("request escaped fixed Grafana endpoint")
+			}
+		})
 	}
 }
 
