@@ -1,11 +1,12 @@
 [settings]
 # Only show task output on failure (keeps `mise run all` quiet on success)
-task_output = "interleave"
+task.output = "interleave"
 
 [tools]
 node = "22"
 go = "1.26"
 "golangci-lint" = "latest"
+pnpm = "12.16.1"
 
 [env]
 NODE_NO_WARNINGS = "1"

@@ -1,3 +1,7 @@
+allowBuilds:
+  '@parcel/watcher': false
+  '@swc/core': false
+  unrs-resolver: false
 # pnpm settings (pnpm >= 11 no longer reads the "pnpm" field in package.json;
 # this file is the new home — https://pnpm.io/settings). The overrides below
 # are mostly Dependabot/audit security pins and were being SILENTLY IGNORED
