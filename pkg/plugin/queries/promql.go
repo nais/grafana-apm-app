@@ -65,8 +65,9 @@ func NewPrometheusClient(baseURL string, serviceToken string) *PrometheusClient 
 		baseURL:      safeBaseURL(baseURL),
 		serviceToken: serviceToken,
 		httpClient: &http.Client{
-			Timeout:   30 * time.Second,
-			Transport: sharedTransport,
+			Timeout:       30 * time.Second,
+			Transport:     sharedTransport,
+			CheckRedirect: RejectRedirect,
 		},
 		logger: log.DefaultLogger.With("component", "promClient"),
 	}
@@ -84,8 +85,9 @@ func NewLokiMetricClient(proxyURL string, serviceToken string) *PrometheusClient
 		baseURL:      safeBaseURL(strings.TrimRight(proxyURL, "/") + "/loki"),
 		serviceToken: serviceToken,
 		httpClient: &http.Client{
-			Timeout:   30 * time.Second,
-			Transport: sharedTransport,
+			Timeout:       30 * time.Second,
+			Transport:     sharedTransport,
+			CheckRedirect: RejectRedirect,
 		},
 		logger: log.DefaultLogger.With("component", "lokiMetricClient"),
 	}
@@ -276,6 +278,9 @@ func (c *PrometheusClient) LabelValues(ctx context.Context, labelName string, st
 		return nil, fmt.Errorf("fetching label values: %w", err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
+	if err := RedirectResponseError(resp); err != nil {
+		return nil, err
+	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	if err != nil {
@@ -340,6 +345,9 @@ func (c *PrometheusClient) Metadata(ctx context.Context, metric string) ([]Metri
 		return nil, fmt.Errorf("fetching metadata: %w", err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
+	if err := RedirectResponseError(resp); err != nil {
+		return nil, err
+	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	if err != nil {
@@ -382,6 +390,9 @@ func (c *PrometheusClient) doQuery(ctx context.Context, path string, params url.
 		return nil, fmt.Errorf("executing query: %w", err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
+	if err := RedirectResponseError(resp); err != nil {
+		return nil, err
+	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20)) // 10 MB max
 	if err != nil {
