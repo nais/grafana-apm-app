@@ -309,9 +309,8 @@ func (a *App) handleAlertTemplate(w http.ResponseWriter, req *http.Request) {
 
 	folder, err := a.teamAlertFolder(req, namespace)
 	if err != nil {
-		safeNamespace := strings.ReplaceAll(namespace, "\n", "")
-		safeNamespace = strings.ReplaceAll(safeNamespace, "\r", "")
-		log.DefaultLogger.Warn("Unable to preselect alert team folder", "team", safeNamespace, "error", err)
+		log.DefaultLogger.Warn("Unable to preselect alert team folder",
+			"team", sanitizeLogValue(namespace), "error", sanitizeLogValue(err.Error()))
 	}
 	defaults.Folder = folder
 
