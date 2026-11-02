@@ -65,8 +65,9 @@ func NewPrometheusClient(baseURL string, serviceToken string) *PrometheusClient 
 		baseURL:      safeBaseURL(baseURL),
 		serviceToken: serviceToken,
 		httpClient: &http.Client{
-			Timeout:   30 * time.Second,
-			Transport: sharedTransport,
+			Timeout:       30 * time.Second,
+			Transport:     sharedTransport,
+			CheckRedirect: rejectQueryRedirect,
 		},
 		logger: log.DefaultLogger.With("component", "promClient"),
 	}
@@ -84,8 +85,9 @@ func NewLokiMetricClient(proxyURL string, serviceToken string) *PrometheusClient
 		baseURL:      safeBaseURL(strings.TrimRight(proxyURL, "/") + "/loki"),
 		serviceToken: serviceToken,
 		httpClient: &http.Client{
-			Timeout:   30 * time.Second,
-			Transport: sharedTransport,
+			Timeout:       30 * time.Second,
+			Transport:     sharedTransport,
+			CheckRedirect: rejectQueryRedirect,
 		},
 		logger: log.DefaultLogger.With("component", "lokiMetricClient"),
 	}
@@ -93,6 +95,12 @@ func NewLokiMetricClient(proxyURL string, serviceToken string) *PrometheusClient
 		c.logger.Error("base URL rejected by allowlist", "url", proxyURL)
 	}
 	return c
+}
+
+// Even same-origin redirects can escape the datasource proxy path and carry
+// Grafana credentials to another endpoint. Return the 3xx to the caller instead.
+func rejectQueryRedirect(_ *http.Request, _ []*http.Request) error {
+	return http.ErrUseLastResponse
 }
 
 // WithAuthHeaders returns a shallow copy of the client with auth headers set.
