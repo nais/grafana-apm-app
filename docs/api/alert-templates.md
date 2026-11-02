@@ -52,6 +52,11 @@ audit their labels and direct
 contact-point settings separately. The global default contact point has no
 integrations and cannot be relied on as a Slack fallback.
 
+Grafana templates preselect the existing team folder when exactly one folder
+title matches the team slug. If no folder matches, the lookup fails, or several
+folders match, choose the folder in Grafana's editor before saving; the plugin
+does not create folders.
+
 All Grafana templates set the required `severity` label: `warning` for
 error-rate and exception-spike, `info` for new-exceptions and web-vitals,
 `critical` for fast SLO burn, and `warning` for slow SLO burn.
@@ -111,6 +116,7 @@ and an unknown kind still returns `404` as it does without the param.
 | `queries` | array&lt;alertQuery&gt; | The A (data) / B (reduce) / C (threshold) query chain. |
 | `annotations` | array&lt;{key,value}&gt; | Suggested annotations (summary, deep link). |
 | `labels` | array&lt;{key,value}&gt; | `namespace`, `team`, `env` (mapped routing environment), `service`, `severity` (`critical`, `warning`, or `info`), `source=nais-apm`. |
+| `folder` | {title,uid} (optional) | Existing Grafana folder with a unique title matching the team slug; omitted when there is no unique match. |
 
 **alertQuery**: `refId`, `queryType`, `relativeTimeRange` (`{from,to}` seconds
 before now; present on the data query), `datasourceUid`, `model` (query model —
