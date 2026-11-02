@@ -377,7 +377,7 @@ func newTempoQueryClient(grafanaURL, serviceToken string, headers http.Header) *
 		grafanaURL:   grafanaURL,
 		serviceToken: serviceToken,
 		headers:      headers,
-		httpClient:   &http.Client{Timeout: 30 * time.Second},
+		httpClient:   &http.Client{Timeout: 30 * time.Second, Transport: queries.RedirectBlockingTransport(nil)},
 	}
 }
 

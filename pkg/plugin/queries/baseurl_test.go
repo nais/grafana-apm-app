@@ -9,15 +9,21 @@ import (
 func TestSafeBaseURL(t *testing.T) {
 	for in, want := range map[string]string{
 		"": "",
-		"http://localhost:3000/api/datasources/proxy/uid/abc-1_X/":    "http://localhost:3000/api/datasources/proxy/uid/abc-1_X",
-		"http://127.0.0.1:3000/api/prometheus/grafana":                "http://127.0.0.1:3000/api/prometheus/grafana",
-		"https://grafana.example.com/api/prometheus/grafana":          "https://grafana.example.com/api/prometheus/grafana",
-		"http://localhost:3000/grafana/api/datasources/proxy/uid/abc": "http://localhost:3000/grafana/api/datasources/proxy/uid/abc",
-		"http://localhost:3000/api/datasources/proxy/uid/x?y=1":       "",
-		"http://evil@attacker.example/":                               "",
-		"http://localhost:3000/api/datasources/proxy/uid/a#b":         "",
-		"http://localhost:3000/api/../x":                              "",
-		"file:///etc/passwd":                                          "",
+		"http://localhost:3000/api/datasources/proxy/uid/abc-1_X/":      "http://localhost:3000/api/datasources/proxy/uid/abc-1_X",
+		"http://127.0.0.1:3000/api/prometheus/grafana":                  "http://127.0.0.1:3000/api/prometheus/grafana",
+		"https://grafana.example.com/api/prometheus/grafana":            "https://grafana.example.com/api/prometheus/grafana",
+		"http://localhost:3000/grafana/api/datasources/proxy/uid/abc":   "http://localhost:3000/grafana/api/datasources/proxy/uid/abc",
+		"http://localhost:3000/api/datasources/proxy/uid/x?y=1":         "",
+		"http://evil@attacker.example/":                                 "",
+		"http://localhost:3000/api/datasources/proxy/uid/a#b":           "",
+		"http://localhost:3000/api/../x":                                "",
+		"file:///etc/passwd":                                            "",
+		"//169.254.169.254/latest/meta-data":                            "",
+		"http://localhost:3000\\@169.254.169.254/":                      "",
+		"http://localhost:3000/%2e%2e/admin":                            "",
+		"http://localhost:3000/api/datasources/proxy/uid/a%2fb":         "",
+		"http://localhost:3000/api/datasources/proxy/uid/a/../../admin": "",
+		"http://localhost:3000/\r\nHost: attacker.example":              "",
 	} {
 		if got := safeBaseURL(in); got != want {
 			t.Errorf("safeBaseURL(%q) = %q, want %q", in, got, want)

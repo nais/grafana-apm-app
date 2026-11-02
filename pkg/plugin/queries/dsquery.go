@@ -31,7 +31,7 @@ func NewDsQueryClient(grafanaURL, serviceToken string) *DsQueryClient {
 		serviceToken: serviceToken,
 		httpClient: &http.Client{
 			Timeout:   30 * time.Second,
-			Transport: sharedTransport,
+			Transport: RedirectBlockingTransport(sharedTransport),
 		},
 	}
 }
