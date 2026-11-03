@@ -53,7 +53,8 @@ contact-point settings separately. The global default contact point has no
 integrations and cannot be relied on as a Slack fallback.
 
 Grafana templates preselect the existing team folder when exactly one folder
-title matches the team slug. If no folder matches, the lookup fails, or several
+title matches the team slug exactly (case-sensitive). For example, `NAIS` does
+not match the team slug `nais`. If no folder matches, the lookup fails, or several
 folders match, choose the folder in Grafana's editor before saving; the plugin
 does not create folders.
 
