@@ -368,7 +368,7 @@ func (a *App) teamAlertFolder(req *http.Request, namespace string) (*alertFolder
 
 	var match *alertFolder
 	for _, result := range results {
-		if result.Type != "dash-folder" || result.UID == "" || !strings.EqualFold(result.Title, namespace) {
+		if result.Type != "dash-folder" || result.UID == "" || result.Title != namespace {
 			continue
 		}
 		if match != nil {
