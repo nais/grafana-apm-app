@@ -261,8 +261,8 @@ importers:
         specifier: ^9.0.0
         version: 9.0.0(@stylistic/eslint-plugin-ts@4.4.1(@typescript/typescript6@6.0.2)(eslint@9.39.5(jiti@2.7.0)(supports-color@8.1.1))(supports-color@8.1.1))(@typescript-eslint/eslint-plugin@8.72.1(@typescript-eslint/parser@8.72.1(@typescript/typescript6@6.0.2)(eslint@9.39.5(jiti@2.7.0)(supports-color@8.1.1))(supports-color@8.1.1))(@typescript/typescript6@6.0.2)(eslint@9.39.5(jiti@2.7.0)(supports-color@8.1.1))(supports-color@8.1.1))(@typescript-eslint/parser@8.72.1(@typescript/typescript6@6.0.2)(eslint@9.39.5(jiti@2.7.0)(supports-color@8.1.1))(supports-color@8.1.1))(@typescript/typescript6@6.0.2)(eslint-config-prettier@10.1.8(eslint@9.39.5(jiti@2.7.0)(supports-color@8.1.1)))(eslint-plugin-jsdoc@65.4.2(@typescript/typescript6@6.0.2)(eslint@9.39.5(jiti@2.7.0)(supports-color@8.1.1))(supports-color@8.1.1))(eslint-plugin-react-hooks@7.1.1(eslint@9.39.5(jiti@2.7.0)(supports-color@8.1.1)))(eslint-plugin-react@7.37.5(eslint@9.39.5(jiti@2.7.0)(supports-color@8.1.1)))(eslint@9.39.5(jiti@2.7.0)(supports-color@8.1.1))
       '@grafana/plugin-e2e':
-        specifier: ^3.15.4
-        version: 3.15.4(@playwright/test@1.64.1)
+        specifier: ^4.0.0
+        version: 4.0.0(@playwright/test@1.64.1)
       '@grafana/tsconfig':
         specifier: ^2.2.0
         version: 2.2.0
@@ -977,9 +977,9 @@ packages:
     peerDependencies:
       react: '>=18'
 
-  '@grafana/plugin-e2e@3.15.4':
-    resolution: {integrity: sha512-NC/AA3lajw6OLvi26TMSOkkaOl8uP+Ax5eiRmraZdUbaDKF0FLxBwuKz2qgYCbK7PrWuDoIHrBJ3n1VMGmyjMw==}
-    engines: {node: '>=20'}
+  '@grafana/plugin-e2e@4.0.0':
+    resolution: {integrity: sha512-XtvSaBnLNNwX7Opc04fNf1U1QLA2qWBh5rzStI/JmJ9FG5yR3vs0uHhB+5F4d+HGa6qGnoKxhCUiSRy7TvBIXA==}
+    engines: {node: '>=22'}
     peerDependencies:
       '@axe-core/playwright': ^4.11.1
       '@playwright/test': ^1.52.0
@@ -6708,7 +6708,7 @@ snapshots:
       - supports-color
       - typescript
 
-  '@grafana/plugin-e2e@3.15.4(@playwright/test@1.64.1)':
+  '@grafana/plugin-e2e@4.0.0(@playwright/test@1.64.1)':
     dependencies:
       '@playwright/test': 1.64.1
       yaml: 2.9.1
