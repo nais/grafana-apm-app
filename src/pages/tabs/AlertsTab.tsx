@@ -333,11 +333,11 @@ function AlertRulesTable({
                   <Button size="sm" variant="secondary" fill="text" onClick={() => onOpenDetail(rule.name)}>
                     Details
                   </Button>
-                ) : (
+                ) : rule.source === 'grafana' ? (
                   <TextLink href={`/alerting/list?search=${encodeURIComponent(rule.name)}`} variant="bodySmall">
                     Open in Grafana
                   </TextLink>
-                )}
+                ) : null}
               </td>
             </tr>
           );

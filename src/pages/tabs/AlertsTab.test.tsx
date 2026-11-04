@@ -46,6 +46,33 @@ beforeEach(() => {
 });
 
 describe('AlertsTab (#32/#33 home)', () => {
+  it('only links Grafana-managed rules to Grafana', async () => {
+    getServiceAlerts.mockResolvedValue({
+      rules: ['grafana', 'mimir'].map((source) => ({
+        name: `${source} rule`,
+        state: 'inactive',
+        severity: '',
+        summary: '',
+        description: '',
+        activeSince: '',
+        activeCount: 0,
+        groupName: 'orders-alerts',
+        source,
+        firingState: { state: 'inactive', activeCount: 0, instances: [] },
+      })),
+    });
+
+    renderTab();
+
+    const grafanaRow = (await screen.findByText('grafana rule')).closest('tr')!;
+    const mimirRow = screen.getByText('mimir rule').closest('tr')!;
+    expect(within(grafanaRow).getByRole('link', { name: 'Open in Grafana' })).toHaveAttribute(
+      'href',
+      '/alerting/list?search=grafana%20rule'
+    );
+    expect(within(mimirRow).queryByRole('link', { name: 'Open in Grafana' })).not.toBeInTheDocument();
+  });
+
   it('lists rules with a source badge and the derived firing state (#33)', async () => {
     getServiceAlerts.mockResolvedValue({
       rules: [
@@ -185,11 +212,7 @@ describe('AlertsTab (#32/#33 home)', () => {
     renderTab(['/?firingAlert=OrdersHighErrorRate']);
 
     await waitFor(() => expect(screen.getByText('Current value')).toBeInTheDocument());
-    // Footer deep link uses the name-search fallback (no rule UID available).
-    expect(screen.getByRole('link', { name: /Open in Grafana Alerting/ })).toHaveAttribute(
-      'href',
-      '/alerting/list?search=OrdersHighErrorRate'
-    );
+    expect(screen.queryByRole('link', { name: /Open in Grafana Alerting/ })).not.toBeInTheDocument();
   });
 
   it('creates an alert via the template flow and navigates to the pre-filled editor', async () => {

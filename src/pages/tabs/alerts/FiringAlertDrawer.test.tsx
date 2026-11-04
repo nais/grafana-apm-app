@@ -80,6 +80,21 @@ describe('FiringAlertDrawer (#32)', () => {
     expect(redLink.getAttribute('href')).toContain('tab=backend');
   });
 
+  it('does not link Mimir rules to Grafana', () => {
+    renderDrawer(
+      <FiringAlertDrawer
+        rule={rule({ source: 'mimir' })}
+        ruleName="OrdersHighErrorRate"
+        namespace="teamorders"
+        service="orders"
+        onClose={jest.fn()}
+      />
+    );
+
+    expect(screen.getByText('Current value')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Open in Grafana Alerting/ })).not.toBeInTheDocument();
+  });
+
   it('emits a related-Issue link only when a label confidently resolves', async () => {
     renderDrawer(
       <FiringAlertDrawer
@@ -124,8 +139,7 @@ describe('FiringAlertDrawer (#32)', () => {
     );
 
     expect(screen.getByText(/Firing state is unavailable/)).toBeInTheDocument();
-    // Even degraded, the Grafana Alerting deep link is still offered.
-    expect(screen.getByRole('link', { name: /Open in Grafana Alerting/ })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Open in Grafana Alerting/ })).not.toBeInTheDocument();
   });
 
   it('shows the last deploy before firing when a deploy annotation is found', async () => {
