@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.7](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.25.6...nais-apm-app-v0.25.7) (2026-11-04)
+
+
+### Bug Fixes
+
+* grant plugin access to alert rules and datasource metadata ([#235](https://github.com/nais/grafana-apm-app/issues/235)) ([e1eb73d](https://github.com/nais/grafana-apm-app/commit/e1eb73db3f42469813e3fbb1ac9c12f2433401b2))
+
 ## [0.25.6](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.25.5...nais-apm-app-v0.25.6) (2026-11-03)
 
 
