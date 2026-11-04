@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
+	"github.com/nais/grafana-otel-plugin/pkg/plugin/queries"
 )
 
 // Top queries — Database tab Phase 2 (issue #119 §4.2).
@@ -269,7 +270,7 @@ func (a *App) searchDBSpans(ctx context.Context, headers http.Header, tracesUID,
 	}
 	applyProxyAuth(httpReq, headers, a.resolveServiceToken(ctx))
 
-	client := &http.Client{Timeout: topQueriesTimeout}
+	client := &http.Client{Timeout: topQueriesTimeout, Transport: queries.RedirectBlockingTransport(nil)}
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		return nil, false, err

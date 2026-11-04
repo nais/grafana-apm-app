@@ -548,9 +548,10 @@ func TestAlertTemplateLeavesFolderForUserWhenNoUniqueMatch(t *testing.T) {
 		status int
 	}{
 		{"no matching folder", `[{"title":"team-a extra","uid":"other","type":"dash-folder"}]`, http.StatusOK},
+		{"case-only match", `[{"title":"TEAM-A","uid":"other","type":"dash-folder"}]`, http.StatusOK},
 		{"ambiguous team folders", `[
 			{"title":"team-a","uid":"first","type":"dash-folder"},
-			{"title":"TEAM-A","uid":"second","type":"dash-folder"}
+			{"title":"team-a","uid":"second","type":"dash-folder"}
 		]`, http.StatusOK},
 		{"missing folder UID", `[{"title":"team-a","type":"dash-folder"}]`, http.StatusOK},
 		{"invalid search response", `{"message":"unexpected"}`, http.StatusOK},
@@ -570,6 +571,30 @@ func TestAlertTemplateLeavesFolderForUserWhenNoUniqueMatch(t *testing.T) {
 				"/alert-templates/error-rate?namespace=team-a&service=my-svc&environment=prod-gcp"))
 			if resp.Defaults.Folder != nil {
 				t.Errorf("folder = %+v, want unset", resp.Defaults.Folder)
+			}
+			assertURLEncoding(t, resp)
+		})
+	}
+}
+
+func TestAlertTemplatePreselectsExactCaseTeamFolder(t *testing.T) {
+	for _, body := range []string{
+		`[{"title":"NAIS","uid":"platform","type":"dash-folder"},{"title":"nais","uid":"nais-team","type":"dash-folder"}]`,
+		`[{"title":"nais","uid":"nais-team","type":"dash-folder"},{"title":"NAIS","uid":"platform","type":"dash-folder"}]`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(body))
+			}))
+			defer srv.Close()
+
+			app := newAlertTemplateApp(t)
+			app.grafanaURL = srv.URL
+			app.healthClient = srv.Client()
+			resp := decodeAlertTemplate(t, serveAlertTemplate(t, app,
+				"/alert-templates/error-rate?namespace=nais&service=my-svc&environment=prod-gcp"))
+			if resp.Defaults.Folder == nil || *resp.Defaults.Folder != (alertFolder{Title: "nais", UID: "nais-team"}) {
+				t.Fatalf("folder = %+v, want nais with nais-team", resp.Defaults.Folder)
 			}
 			assertURLEncoding(t, resp)
 		})

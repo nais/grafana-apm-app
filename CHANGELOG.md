@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.25.6](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.25.5...nais-apm-app-v0.25.6) (2026-11-03)
+
+
+### Bug Fixes
+
+* match alert team folders case-sensitively ([#234](https://github.com/nais/grafana-apm-app/issues/234)) ([f832296](https://github.com/nais/grafana-apm-app/commit/f832296839348135e93ab5ff3b667b475f294a2a))
+* **queries:** block authenticated proxy redirects ([#229](https://github.com/nais/grafana-apm-app/issues/229)) ([19bca14](https://github.com/nais/grafana-apm-app/commit/19bca14e986bfdac28ed2dd04bec5737fca56cb0))
+
 ## [0.25.5](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.25.4...nais-apm-app-v0.25.5) (2026-11-02)
 
 
