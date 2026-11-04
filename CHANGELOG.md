@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.8](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.25.7...nais-apm-app-v0.25.8) (2026-11-04)
+
+
+### Bug Fixes
+
+* hide Grafana links for Mimir alert rules ([#238](https://github.com/nais/grafana-apm-app/issues/238)) ([7849183](https://github.com/nais/grafana-apm-app/commit/7849183e4f1180fae0d359b8bcd629657e2d1852))
+
 ## [0.25.7](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.25.6...nais-apm-app-v0.25.7) (2026-11-04)
 
 
