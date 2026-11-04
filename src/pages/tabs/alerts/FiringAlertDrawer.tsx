@@ -103,9 +103,6 @@ export function FiringAlertDrawer({
       : `${PLUGIN_BASE_URL}/services/${nsSegment}/${encodeURIComponent(service)}?tab=frontend${envParam}&exceptionHash=${encodeURIComponent(issueLink.exceptionHash)}`
     : null;
 
-  // "Open in Grafana Alerting": no rule UID is carried on the summary (the
-  // ruler→Grafana UID join is out of scope, #33 Phase 2), so we fall back to
-  // the name-search deep link, which always resolves.
   const grafanaUrl = `/alerting/list?search=${encodeURIComponent(ruleName)}`;
 
   const shown = instances.slice(0, INSTANCE_DISPLAY_CAP);
@@ -261,12 +258,13 @@ export function FiringAlertDrawer({
           </>
         )}
 
-        {/* Footer: Grafana Alerting deep link (name-search fallback). */}
-        <div className={styles.footer}>
-          <TextLink href={grafanaUrl} variant="bodySmall">
-            Open in Grafana Alerting
-          </TextLink>
-        </div>
+        {rule?.source === 'grafana' && (
+          <div className={styles.footer}>
+            <TextLink href={grafanaUrl} variant="bodySmall">
+              Open in Grafana Alerting
+            </TextLink>
+          </div>
+        )}
       </div>
     </Drawer>
   );
