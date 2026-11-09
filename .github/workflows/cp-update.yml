@@ -18,7 +18,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: grafana/plugin-actions/create-plugin-update@31f6f292a4ccc6530594b8939af571898b09cda8 # ratchet:grafana/plugin-actions/create-plugin-update@create-plugin-update/v1.1.1
+      - uses: grafana/plugin-actions/create-plugin-update@dfa9631cf7a2077d75d1d374935813156a770419 # ratchet:grafana/plugin-actions/create-plugin-update@create-plugin-update/v1.1.2
         with:
           # Make sure to save the token in your repository secrets as `GH_PAT_TOKEN`
           token: ${{ secrets.GH_PAT_TOKEN }}
