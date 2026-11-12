@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.9](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.25.8...nais-apm-app-v0.25.9) (2026-11-12)
+
+
+### Bug Fixes
+
+* align alert readiness with service alert rules ([#242](https://github.com/nais/grafana-apm-app/issues/242)) ([133a58b](https://github.com/nais/grafana-apm-app/commit/133a58bcaee96af61f9c9ee971f3a2001f8ae865))
+
 ## [0.25.8](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.25.7...nais-apm-app-v0.25.8) (2026-11-04)
 
 
