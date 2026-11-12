@@ -107,6 +107,8 @@
     "permissions": [
       { "action": "datasources:query", "scope": "datasources:*" },
       { "action": "datasources:read", "scope": "datasources:*" },
+      { "action": "plugins.app:access", "scope": "plugins:id:nais-apm-app" },
+      { "action": "plugins:write", "scope": "plugins:id:nais-apm-app" },
       { "action": "folders:read", "scope": "folders:*" },
       { "action": "alert.rules:read", "scope": "folders:*" },
       { "action": "annotations:read", "scope": "annotations:*" },
