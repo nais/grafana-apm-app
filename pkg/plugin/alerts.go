@@ -212,6 +212,11 @@ func (a *App) loadAlertRules(ctx context.Context, key string, client *queries.Pr
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if client.ServiceToken() == "" {
+		fetchCtx, cancel := context.WithTimeout(ctx, scorecardProbeTimeout)
+		defer cancel()
+		return client.GetAlertRules(fetchCtx)
+	}
 	if rules, ok := a.freshAlertRules(key); ok {
 		return rules, nil
 	}

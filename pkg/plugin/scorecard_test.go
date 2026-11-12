@@ -350,6 +350,7 @@ func TestScorecardAndAlertsShareRuleCache(t *testing.T) {
 	app := newScorecardApp(t, scorecardFixture{})
 	app.promClient = queries.NewPrometheusClient(server.URL, "")
 	app.grafanaURL = server.URL
+	app.serviceToken = "service-token"
 
 	getAlerts := func() ServiceAlertsResponse {
 		t.Helper()

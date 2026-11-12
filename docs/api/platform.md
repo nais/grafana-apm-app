@@ -83,7 +83,8 @@ ownership enrichment.
 
 `namespace`, `service` (path, service required); `environment` (query). Cached
 **5 min** (`X-Cache: HIT` on hit), except alert rules, which share the Alerts
-tab's **30 s** cache of successful fetches.
+tab's **30 s** cache of successful service-account fetches. Calls using forwarded
+user credentials bypass shared caching and singleflight.
 
 ### Response — `ScorecardResponse`
 

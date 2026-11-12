@@ -34,7 +34,7 @@ func TestAlertRuleCacheSurvivesCallerCancellation(t *testing.T) {
 	defer server.Close()
 	defer unblock()
 	app := &App{}
-	client := queries.NewPrometheusClient(server.URL, "")
+	client := queries.NewPrometheusClient(server.URL, "service-token")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	first := make(chan error, 1)
@@ -105,16 +105,16 @@ func TestAlertRuleCacheRetriesFailedSources(t *testing.T) {
 			}))
 			defer server.Close()
 			app := &App{
-				promClient: queries.NewPrometheusClient(server.URL, ""),
+				promClient: queries.NewPrometheusClient(server.URL, "service-token"),
 				grafanaURL: server.URL,
 			}
-			first, err := app.alertRuleSources(context.Background(), http.Header{}, "", "")
+			first, err := app.alertRuleSources(context.Background(), http.Header{}, "service-token", "")
 			if !first.Failed || (failedSource == "both" && err == nil) {
 				t.Fatalf("expected failed sources to be reported: %+v, error %v", first, err)
 			}
 			recovered.Store(true)
 			for range 2 {
-				sources, err := app.alertRuleSources(context.Background(), http.Header{}, "", "")
+				sources, err := app.alertRuleSources(context.Background(), http.Header{}, "service-token", "")
 				if err != nil || sources.Failed || sources.Mimir == nil || sources.Grafana == nil {
 					t.Fatalf("failed sources must recover on the next request: %+v, error %v", sources, err)
 				}
@@ -200,7 +200,7 @@ func TestAlertRuleCacheStoresNewEntriesAtCapacity(t *testing.T) {
 			fetchedAt: time.Now().Add(-time.Second),
 		}
 	}
-	client := queries.NewPrometheusClient(server.URL, "")
+	client := queries.NewPrometheusClient(server.URL, "service-token")
 	for range 2 {
 		if _, err := app.loadAlertRules(context.Background(), "new", client); err != nil {
 			t.Fatal(err)
@@ -209,6 +209,121 @@ func TestAlertRuleCacheStoresNewEntriesAtCapacity(t *testing.T) {
 	if requests.Load() != 1 || len(app.alertRulesCache) != maxAlertRulesCacheEntries {
 		t.Fatalf("new entries should be cached within capacity: requests=%d, entries=%d",
 			requests.Load(), len(app.alertRulesCache))
+	}
+}
+
+func TestAlertRuleCacheBypassedForUserCredentials(t *testing.T) {
+	for _, header := range []string{"Authorization", "Cookie"} {
+		t.Run(header, func(t *testing.T) {
+			var requests atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				name := "shared"
+				if r.Header.Get("Authorization") != "Bearer service-token" {
+					if r.Header.Get(header) != "allowed-user" {
+						http.Error(w, "forbidden", http.StatusForbidden)
+						return
+					}
+					name = "user"
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"status": "success",
+					"data": queries.RulesResponse{Groups: []queries.RuleGroup{{
+						Rules: []queries.Rule{{Type: "alerting", Name: name}},
+					}}},
+				})
+			}))
+			defer server.Close()
+			app := &App{}
+			ctx := context.Background()
+			sharedClient := queries.NewPrometheusClient(server.URL, "service-token")
+			shared, err := app.loadAlertRules(ctx, "rules", sharedClient)
+			if err != nil {
+				t.Fatal(err)
+			}
+			allowed := queries.NewPrometheusClient(server.URL, "").WithAuthHeaders(http.Header{header: {"allowed-user"}})
+			for range 2 {
+				rules, err := app.loadAlertRules(ctx, "rules", allowed)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if rules.Groups[0].Rules[0].Name != "user" {
+					t.Fatal("user received shared service-account rules")
+				}
+			}
+			denied := queries.NewPrometheusClient(server.URL, "").WithAuthHeaders(http.Header{header: {"denied-user"}})
+			if rules, err := app.loadAlertRules(ctx, "rules", denied); err == nil || rules != nil || !strings.Contains(err.Error(), "403") {
+				t.Fatalf("denied user must receive an upstream permission error: rules=%+v, error=%v", rules, err)
+			}
+			cached, err := app.loadAlertRules(ctx, "rules", sharedClient)
+			if err != nil || cached != shared {
+				t.Fatalf("user calls must not replace the shared cache: rules=%p, want=%p, error=%v", cached, shared, err)
+			}
+			if got := requests.Load(); got != 4 {
+				t.Fatalf("expected one shared fetch and three user fetches, got %d", got)
+			}
+		})
+	}
+}
+
+func TestAlertRuleFlightsNotSharedBetweenUsers(t *testing.T) {
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		if r.Header.Get("Cookie") != "session=allowed-user" {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		started <- struct{}{}
+		select {
+		case <-release:
+			_, _ = w.Write([]byte(`{"status":"success","data":{"groups":[]}}`))
+		case <-r.Context().Done():
+		}
+	}))
+	defer server.Close()
+	defer unblock()
+	app := &App{}
+	allowed := queries.NewPrometheusClient(server.URL, "").WithAuthHeaders(http.Header{"Cookie": {"session=allowed-user"}})
+	first := make(chan error, 1)
+	go func() {
+		_, err := app.loadAlertRules(context.Background(), "rules", allowed)
+		first <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first user fetch did not start")
+	}
+	denied := queries.NewPrometheusClient(server.URL, "").WithAuthHeaders(http.Header{"Cookie": {"session=denied-user"}})
+	second := make(chan error, 1)
+	go func() {
+		_, err := app.loadAlertRules(context.Background(), "rules", denied)
+		second <- err
+	}()
+	select {
+	case err := <-second:
+		if err == nil || !strings.Contains(err.Error(), "403") {
+			t.Fatalf("second user must get their own permission check, got %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("second user joined the first user's flight")
+	}
+	unblock()
+	select {
+	case err := <-first:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("first user did not receive their result")
+	}
+	if got := requests.Load(); got != 2 {
+		t.Fatalf("expected independent requests for both users, got %d", got)
 	}
 }
 
