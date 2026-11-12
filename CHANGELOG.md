@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.10](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.25.9...nais-apm-app-v0.25.10) (2026-11-12)
+
+
+### Bug Fixes
+
+* grant service account access to own plugin settings ([#244](https://github.com/nais/grafana-apm-app/issues/244)) ([4484f19](https://github.com/nais/grafana-apm-app/commit/4484f19e6f189ffd0337563859d2b9dcb80f32e9))
+
 ## [0.25.9](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.25.8...nais-apm-app-v0.25.9) (2026-11-12)
 
 
