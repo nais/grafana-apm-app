@@ -1,10 +1,13 @@
 package plugin
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 
@@ -22,6 +25,11 @@ const (
 // instances; we surface the first handful and set InstancesTruncated for the
 // rest so the payload stays small.
 const alertInstanceCap = 20
+
+const (
+	alertRulesCacheTTL        = 30 * time.Second
+	maxAlertRulesCacheEntries = 200
+)
 
 // handleNamespaceAlerts returns alert rules for a namespace, merged from the
 // Mimir ruler and Grafana-managed alerting (#65 Phase 0: rules created via the
@@ -115,66 +123,23 @@ func (a *App) handleServiceAlerts(w http.ResponseWriter, req *http.Request) {
 	if !requireGET(w, req) {
 		return
 	}
-	namespace, service := parseServiceRef(req)
+	_, service := parseServiceRef(req)
 	if !requireServiceParam(w, service) {
 		return
 	}
 
-	// Rules aren't time- or environment-scoped in this fetch, so the cache key
-	// is just org + service (namespace disambiguates same-named services).
-	orgID := req.Header.Get("X-Grafana-Org-Id")
-	ck := cacheKey("service-alerts", orgID, namespace, service)
-	a.writeCached(w, ck, "querying service alerts failed", func() (any, error) {
-		return a.computeServiceAlerts(req, service), nil
-	})
+	writeJSON(w, a.computeServiceAlerts(req, service))
 }
 
 // computeServiceAlerts fans out to both rule sources (like handleNamespaceAlerts)
 // and filters to rules mentioning the service, degrading per-source.
 func (a *App) computeServiceAlerts(req *http.Request, service string) ServiceAlertsResponse {
-	logger := log.DefaultLogger.With("handler", "service-alerts")
-
-	prom := a.promClientForRequest(req)
-	grafanaRules := a.grafanaRulesClient(req)
-
-	var (
-		wg          sync.WaitGroup
-		mimirRules  *queries.RulesResponse
-		mimirErr    error
-		grafanaResp *queries.RulesResponse
-		grafanaErr  error
-	)
-	if prom != nil {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			mimirRules, mimirErr = prom.GetAlertRules(req.Context())
-		}()
+	ctx := a.requestContext(req)
+	sources, err := a.alertRuleSources(ctx, req.Header, a.resolveServiceToken(ctx), parseEnvironment(req))
+	if err != nil {
+		log.DefaultLogger.Warn("Failed to load alert rule sources", "error", err)
 	}
-	if grafanaRules != nil {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			grafanaResp, grafanaErr = grafanaRules.GetAlertRules(req.Context())
-		}()
-	}
-	wg.Wait()
-
-	if mimirErr != nil {
-		logger.Warn("Failed to fetch Mimir alert rules", "error", mimirErr)
-	}
-	if grafanaErr != nil {
-		// Expected on Grafana instances without unified-alerting rules access;
-		// degrade to Mimir-only rather than failing the tab.
-		logger.Debug("Failed to fetch Grafana-managed alert rules", "error", grafanaErr)
-	}
-
-	// Neither source configured → empty (not an error; the local/dev case).
-	if prom == nil && grafanaRules == nil {
-		return ServiceAlertsResponse{Rules: []AlertRuleSummary{}}
-	}
-	// Both sources configured but both failed → surface the unavailable state.
-	if mimirRules == nil && grafanaResp == nil {
+	if err != nil || (sources.Failed && sources.Mimir == nil && sources.Grafana == nil) {
 		return ServiceAlertsResponse{
 			Rules:        []AlertRuleSummary{},
 			Unavailable:  true,
@@ -183,10 +148,115 @@ func (a *App) computeServiceAlerts(req *http.Request, service string) ServiceAle
 	}
 
 	var filtered []AlertRuleSummary
-	filtered = append(filtered, summarizeServiceAlertRules(mimirRules, service, alertSourceMimir)...)
-	filtered = append(filtered, summarizeServiceAlertRules(grafanaResp, service, alertSourceGrafana)...)
+	filtered = append(filtered, summarizeServiceAlertRules(sources.Mimir, service, alertSourceMimir)...)
+	filtered = append(filtered, summarizeServiceAlertRules(sources.Grafana, service, alertSourceGrafana)...)
 
-	return ServiceAlertsResponse{Rules: dedupeAndSortAlertRules(filtered)}
+	return ServiceAlertsResponse{Rules: dedupeAndSortAlertRules(filtered), Partial: sources.Failed}
+}
+
+type alertRuleSources struct {
+	Mimir   *queries.RulesResponse
+	Grafana *queries.RulesResponse
+	Failed  bool
+}
+
+func (a *App) alertRuleSources(ctx context.Context, headers http.Header, token, env string) (alertRuleSources, error) {
+	var sources alertRuleSources
+	var mimirErr, grafanaErr error
+	var wg sync.WaitGroup
+	orgID := headers.Get("X-Grafana-Org-Id")
+	if prom := a.prom(ctx); prom != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			key := cacheKey("alert-rules", orgID, alertSourceMimir, a.settings.MetricsDataSource.Resolve(env).UID)
+			sources.Mimir, mimirErr = a.loadAlertRules(ctx, key, prom.WithAuthHeaders(headers.Clone()))
+		}()
+	}
+	if a.grafanaURL != "" {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			key := cacheKey("alert-rules", orgID, alertSourceGrafana)
+			client := queries.NewPrometheusClient(a.grafanaURL+"/api/prometheus/grafana", token).WithAuthHeaders(headers.Clone())
+			sources.Grafana, grafanaErr = a.loadAlertRules(ctx, key, client)
+		}()
+	}
+	wg.Wait()
+	if mimirErr != nil {
+		log.DefaultLogger.Warn("Failed to fetch Mimir alert rules", "error", mimirErr)
+	}
+	if grafanaErr != nil {
+		log.DefaultLogger.Warn("Failed to fetch Grafana-managed alert rules", "error", grafanaErr)
+	}
+	sources.Failed = mimirErr != nil || grafanaErr != nil
+	if sources.Mimir == nil && sources.Grafana == nil {
+		return sources, errors.Join(mimirErr, grafanaErr)
+	}
+	return sources, nil
+}
+
+type cachedAlertRules struct {
+	rules     *queries.RulesResponse
+	fetchedAt time.Time
+}
+
+func (a *App) freshAlertRules(key string) (*queries.RulesResponse, bool) {
+	a.alertRulesMu.RLock()
+	entry, ok := a.alertRulesCache[key]
+	a.alertRulesMu.RUnlock()
+	return entry.rules, ok && time.Since(entry.fetchedAt) < alertRulesCacheTTL
+}
+
+func (a *App) loadAlertRules(ctx context.Context, key string, client *queries.PrometheusClient) (*queries.RulesResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if client.ServiceToken() == "" {
+		fetchCtx, cancel := context.WithTimeout(ctx, scorecardProbeTimeout)
+		defer cancel()
+		return client.GetAlertRules(fetchCtx)
+	}
+	if rules, ok := a.freshAlertRules(key); ok {
+		return rules, nil
+	}
+	resultCh := a.alertRulesSF.DoChan(key, func() (any, error) {
+		if rules, ok := a.freshAlertRules(key); ok {
+			return rules, nil
+		}
+		fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), scorecardProbeTimeout)
+		defer cancel()
+		rules, err := client.GetAlertRules(fetchCtx)
+		if err != nil {
+			return nil, err
+		}
+		a.alertRulesMu.Lock()
+		defer a.alertRulesMu.Unlock()
+		if a.alertRulesCache == nil {
+			a.alertRulesCache = make(map[string]cachedAlertRules)
+		}
+		if _, exists := a.alertRulesCache[key]; !exists && len(a.alertRulesCache) >= maxAlertRulesCacheEntries {
+			var oldestKey string
+			var oldest time.Time
+			for key, entry := range a.alertRulesCache {
+				if oldest.IsZero() || entry.fetchedAt.Before(oldest) {
+					oldestKey, oldest = key, entry.fetchedAt
+				}
+			}
+			delete(a.alertRulesCache, oldestKey)
+		}
+		a.alertRulesCache[key] = cachedAlertRules{rules: rules, fetchedAt: time.Now()}
+		return rules, nil
+	})
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case result := <-resultCh:
+		if result.Err != nil {
+			return nil, result.Err
+		}
+		return result.Val.(*queries.RulesResponse), nil
+	}
 }
 
 // summarizeAlertRules filters alerting rules to the given namespace and maps

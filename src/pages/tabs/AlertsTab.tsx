@@ -91,7 +91,10 @@ export function AlertsTab({ service, namespace, environment }: AlertsTabProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const updateParams = useUrlParams();
 
-  const { data, loading, error } = useFetch(() => getServiceAlerts(namespace, service), [namespace, service]);
+  const { data, loading, error } = useFetch(
+    () => getServiceAlerts(namespace, service, environment),
+    [namespace, service, environment]
+  );
   const rules = data?.rules ?? [];
 
   // #123 Phase 1: the one alert path that does NOT need per-team Grafana
@@ -164,13 +167,16 @@ export function AlertsTab({ service, namespace, environment }: AlertsTabProps) {
           </span>
         </div>
 
+        {data?.partial && (
+          <div className={styles.message}>Some alert rule sources are unavailable. The list may be incomplete.</div>
+        )}
         {loading && !data ? (
           <LoadingPlaceholder text="Loading alert rules…" />
         ) : error ? (
           <div className={styles.message}>Could not load alert rules for this service.</div>
         ) : data?.unavailable ? (
           <div className={styles.message}>Alert rules are currently unavailable.</div>
-        ) : rules.length === 0 ? (
+        ) : rules.length === 0 && data?.partial ? null : rules.length === 0 ? (
           <div className={styles.empty}>
             <div className={styles.emptyText}>No alerts configured for this service.</div>
             <div className={styles.emptyHint}>Create one below to get notified when this service degrades.</div>

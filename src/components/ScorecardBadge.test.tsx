@@ -162,6 +162,26 @@ describe('ScorecardBadge', () => {
     expect(screen.getAllByRole('img', { name: 'Not enabled' })).toHaveLength(1);
   });
 
+  it('shows an unavailable alert check without suggesting creation of a duplicate rule', async () => {
+    await openDetails({
+      ...baseResponse,
+      readiness: {
+        ...baseResponse.readiness,
+        checks: baseResponse.readiness.checks.map((check) =>
+          check.key === 'alertRules'
+            ? { ...check, unavailable: true, hint: 'Unable to check alert rules right now.' }
+            : check
+        ),
+      },
+    });
+    expect(screen.getByRole('img', { name: 'Unavailable' })).toBeInTheDocument();
+    expect(screen.getByText('Unable to check alert rules right now.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Alert on error rate/ })).not.toBeInTheDocument();
+    expect(
+      within(screen.getByTestId('check-actions-alertRules')).getByRole('link', { name: /Docs/ })
+    ).toBeInTheDocument();
+  });
+
   // --- Actionability (#143 Phase 1) ---
 
   describe('per-check actions', () => {

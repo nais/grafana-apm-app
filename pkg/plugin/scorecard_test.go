@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,14 +17,17 @@ import (
 // scorecardFixture controls which observability signals the fake backends
 // report for the probed service.
 type scorecardFixture struct {
-	spanMetrics  bool
-	traces       bool
-	logs         bool
-	runtime      bool
-	browser      bool
-	alertRule    bool
-	sdkLanguage  string                    // telemetry_sdk_language answered by the language probe ("" → no series)
-	naisResponse func(query string) string // nil → console unconfigured
+	spanMetrics        bool
+	traces             bool
+	logs               bool
+	runtime            bool
+	browser            bool
+	alertRule          bool
+	mimirRules         []queries.Rule
+	mimirStatus        int
+	grafanaRulesStatus int
+	sdkLanguage        string                    // telemetry_sdk_language answered by the language probe ("" → no series)
+	naisResponse       func(query string) string // nil → console unconfigured
 }
 
 // newScorecardApp wires fake Prometheus, Grafana-proxy (Tempo/Loki/rules) and
@@ -35,7 +39,14 @@ func newScorecardApp(t *testing.T, fx scorecardFixture) *App {
 	prom := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if strings.HasSuffix(r.URL.Path, "/api/v1/rules") {
-			_, _ = w.Write([]byte(`{"status":"success","data":{"groups":[]}}`))
+			if fx.mimirStatus != 0 {
+				http.Error(w, "rules unavailable", fx.mimirStatus)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"status": "success",
+				"data":   queries.RulesResponse{Groups: []queries.RuleGroup{{Rules: fx.mimirRules}}},
+			})
 			return
 		}
 		query := r.URL.Query().Get("query")
@@ -83,6 +94,10 @@ func newScorecardApp(t *testing.T, fx scorecardFixture) *App {
 				_, _ = w.Write([]byte(`{"streams":0,"chunks":0,"entries":0,"bytes":0}`))
 			}
 		case strings.Contains(r.URL.Path, "/api/prometheus/grafana/api/v1/rules"):
+			if fx.grafanaRulesStatus != 0 {
+				http.Error(w, "rules unavailable", fx.grafanaRulesStatus)
+				return
+			}
 			groups := `[]`
 			if fx.alertRule {
 				groups = `[{"name":"g","file":"team-a","rules":[
@@ -240,6 +255,144 @@ func TestScorecardReadinessScore(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestScorecardAlertRulesBeyondFormerScanLimit(t *testing.T) {
+	for _, source := range []string{"mimir", "grafana"} {
+		t.Run(source, func(t *testing.T) {
+			rules := make([]queries.Rule, 5001)
+			for i := range rules {
+				rules[i] = queries.Rule{Type: "recording", Query: `up{service_name="my-app"}`}
+			}
+			if source == "mimir" {
+				rules = append(rules, queries.Rule{
+					Type: "alerting", Name: "MyAppDown", State: "inactive",
+					Labels: map[string]string{"service_name": "my-app"},
+				})
+			}
+			app := newScorecardApp(t, scorecardFixture{mimirRules: rules, alertRule: source == "grafana"})
+			response := getScorecard(t, app)
+			for _, check := range response.Readiness.Checks {
+				if check.Key == "alertRules" && (!check.OK || check.Unavailable) {
+					t.Fatalf("expected inactive %s rule to pass readiness: %+v", source, check)
+				}
+			}
+			if response.Readiness.Score != 1 {
+				t.Fatalf("score = %d, want 1", response.Readiness.Score)
+			}
+		})
+	}
+}
+
+func TestScorecardAlertRulesUnavailable(t *testing.T) {
+	tests := []struct {
+		name            string
+		fixture         scorecardFixture
+		wantOK          bool
+		wantUnavailable bool
+	}{
+		{name: "both sources empty"},
+		{name: "mimir failed", fixture: scorecardFixture{mimirStatus: http.StatusServiceUnavailable}, wantUnavailable: true},
+		{name: "grafana failed", fixture: scorecardFixture{grafanaRulesStatus: http.StatusForbidden}, wantUnavailable: true},
+		{name: "both failed", fixture: scorecardFixture{
+			mimirStatus: http.StatusServiceUnavailable, grafanaRulesStatus: http.StatusForbidden,
+		}, wantUnavailable: true},
+		{name: "grafana match despite mimir failure", fixture: scorecardFixture{
+			mimirStatus: http.StatusServiceUnavailable, alertRule: true,
+		}, wantOK: true},
+		{name: "mimir match despite grafana failure", fixture: scorecardFixture{
+			grafanaRulesStatus: http.StatusForbidden,
+			mimirRules:         []queries.Rule{{Type: "alerting", Labels: map[string]string{"service": "my-app"}}},
+		}, wantOK: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			response := getScorecard(t, newScorecardApp(t, tt.fixture))
+			for _, check := range response.Readiness.Checks {
+				if check.Key != "alertRules" {
+					continue
+				}
+				if check.OK != tt.wantOK || check.Unavailable != tt.wantUnavailable {
+					t.Fatalf("unexpected alert readiness: %+v", check)
+				}
+				if check.Unavailable && (strings.Contains(check.Hint, "No alert rule") || !strings.Contains(check.Hint, "Unable to check")) {
+					t.Fatalf("unavailable check must not claim there are no rules: %s", check.Hint)
+				}
+			}
+		})
+	}
+}
+
+func TestScorecardAndAlertsShareRuleCache(t *testing.T) {
+	var requests atomic.Int32
+	var hasRule atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if !strings.HasSuffix(r.URL.Path, "/api/v1/rules") {
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
+			return
+		}
+		requests.Add(1)
+		rules := []queries.Rule{}
+		if hasRule.Load() {
+			rules = append(rules, queries.Rule{
+				Type: "alerting", Name: "MyAppDown", State: "inactive",
+				Labels: map[string]string{"service": "my-app"},
+			})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status": "success",
+			"data":   queries.RulesResponse{Groups: []queries.RuleGroup{{Rules: rules}}},
+		})
+	}))
+	defer server.Close()
+	app := newScorecardApp(t, scorecardFixture{})
+	app.promClient = queries.NewPrometheusClient(server.URL, "")
+	app.grafanaURL = server.URL
+	app.serviceToken = "service-token"
+
+	getAlerts := func() ServiceAlertsResponse {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/services/team-a/my-app/alerts", nil)
+		req.SetPathValue("namespace", "team-a")
+		req.SetPathValue("service", "my-app")
+		w := httptest.NewRecorder()
+		app.handleServiceAlerts(w, req)
+		var response ServiceAlertsResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+			t.Fatal(err)
+		}
+		return response
+	}
+	if response := getScorecard(t, app); response.Readiness.Score != 0 {
+		t.Fatalf("initial score = %d, want 0", response.Readiness.Score)
+	}
+	if response := getAlerts(); len(response.Rules) != 0 {
+		t.Fatalf("unexpected initial rules: %+v", response)
+	}
+	if got := requests.Load(); got != 2 {
+		t.Fatalf("both views should share one fetch per source, got %d requests", got)
+	}
+
+	hasRule.Store(true)
+	app.alertRulesMu.Lock()
+	for key, entry := range app.alertRulesCache {
+		entry.fetchedAt = time.Now().Add(-time.Minute)
+		app.alertRulesCache[key] = entry
+	}
+	app.alertRulesMu.Unlock()
+
+	if response := getAlerts(); len(response.Rules) != 1 {
+		t.Fatalf("expected the new rule deduplicated across sources: %+v", response)
+	}
+	for range 2 {
+		if response := getScorecard(t, app); response.Readiness.Score != 1 {
+			t.Fatalf("cached base scorecard must reflect refreshed rules exactly once: %+v", response.Readiness)
+		}
+	}
+	if got := requests.Load(); got != 4 {
+		t.Fatalf("expected one refresh per source, got %d requests", got)
 	}
 }
 

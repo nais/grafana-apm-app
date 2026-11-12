@@ -534,6 +534,7 @@ export interface ServiceAlertRule extends AlertRuleSummary {
 
 export interface ServiceAlertsResponse {
   rules: ServiceAlertRule[];
+  partial?: boolean;
   /** Both rule sources were configured but unreachable. */
   unavailable?: boolean;
   errorMessage?: string;
@@ -557,9 +558,14 @@ export function deriveFiringState(rule: AlertRuleSummary): AlertFiringState {
   };
 }
 
-export async function getServiceAlerts(namespace: string, service: string): Promise<ServiceAlertsResponse> {
+export async function getServiceAlerts(
+  namespace: string,
+  service: string,
+  environment?: string
+): Promise<ServiceAlertsResponse> {
   const resp = await fetchResource<ServiceAlertsResponse>(
-    `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/alerts`
+    `/services/${nsParam(namespace)}/${encodeURIComponent(service)}/alerts`,
+    environment ? { environment } : undefined
   );
   return {
     ...resp,

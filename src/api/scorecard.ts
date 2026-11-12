@@ -24,6 +24,7 @@ export interface ScorecardCheck {
   key: string;
   label: string;
   ok: boolean;
+  unavailable?: boolean;
   /** How to enable the capability — or, for a not-applicable check, why it doesn't apply. */
   hint: string;
   /** Check doesn't apply to this service (e.g. Faro for a pure JVM backend); excluded from score/total. */

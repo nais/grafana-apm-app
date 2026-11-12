@@ -198,6 +198,7 @@ type NamespaceAlertsResponse struct {
 // this list as a follow-up.
 type ServiceAlertsResponse struct {
 	Rules        []AlertRuleSummary `json:"rules"`
+	Partial      bool               `json:"partial,omitempty"`
 	Unavailable  bool               `json:"unavailable,omitempty"`
 	ErrorMessage string             `json:"errorMessage,omitempty"`
 }

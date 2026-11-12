@@ -35,9 +35,6 @@ const (
 	scorecardProbeTimeout = 10 * time.Second
 	// scorecardTraceLookback is the window the Tempo search probe scans.
 	scorecardTraceLookback = time.Hour
-	// maxScorecardRuleScan caps how many alert rules the "has alert rules"
-	// check inspects — rulers can hold tens of thousands of rules fleet-wide.
-	maxScorecardRuleScan = 5000
 	// scorecardConsoleAppsPageSize caps the team applications listing used to
 	// find this service's ingresses.
 	scorecardConsoleAppsPageSize = 100
@@ -47,9 +44,10 @@ const (
 
 // ScorecardCheck is one observability readiness check with an enablement hint.
 type ScorecardCheck struct {
-	Key   string `json:"key"`
-	Label string `json:"label"`
-	OK    bool   `json:"ok"`
+	Key         string `json:"key"`
+	Label       string `json:"label"`
+	OK          bool   `json:"ok"`
+	Unavailable bool   `json:"unavailable,omitempty"`
 	// Hint says how to enable the capability (one sentence, nais-flavored) —
 	// or, for a not-applicable check, why it does not apply.
 	Hint string `json:"hint"`
@@ -114,31 +112,45 @@ func (a *App) handleScorecard(w http.ResponseWriter, req *http.Request) {
 	headers := req.Header.Clone()
 
 	cache := a.scorecardResponseCache()
-	if cached, ok := cache.get(ck); ok {
-		w.Header().Set("Content-Type", "application/json")
+	if _, ok := cache.get(ck); ok {
 		w.Header().Set("X-Cache", "HIT")
-		_, _ = w.Write(cached)
-		return
 	}
 	data, err := cache.getOrCompute(ck, func() (any, error) {
-		return a.computeScorecard(ctx, headers, namespace, service, env), nil
+		return a.computeBaseScorecard(ctx, headers, namespace, service, env), nil
 	})
 	if err != nil {
 		http.Error(w, "computing scorecard failed", http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write(data)
+	var response ScorecardResponse
+	if err := json.Unmarshal(data, &response); err != nil {
+		log.DefaultLogger.Error("Failed to decode scorecard", "error", err)
+		http.Error(w, "decoding scorecard failed", http.StatusInternalServerError)
+		return
+	}
+	for i := range response.Readiness.Checks {
+		check := &response.Readiness.Checks[i]
+		if check.Key != "alertRules" {
+			continue
+		}
+		check.OK, check.Unavailable = a.checkAlertRules(ctx, headers, a.resolveServiceToken(ctx), service, env)
+		if check.OK {
+			response.Readiness.Score++
+		} else if check.Unavailable {
+			check.Hint = "Unable to check alert rules right now. Try again later or check the Alerts tab."
+		}
+	}
+	writeJSON(w, response)
 }
 
-func (a *App) computeScorecard(ctx context.Context, headers http.Header, namespace, service, env string) ScorecardResponse {
+func (a *App) computeBaseScorecard(ctx context.Context, headers http.Header, namespace, service, env string) ScorecardResponse {
 	var (
 		wg        sync.WaitGroup
 		readiness ScorecardReadiness
 		console   ScorecardConsole
 	)
 	wg.Add(2)
-	go func() { defer wg.Done(); readiness = a.computeReadiness(ctx, headers, namespace, service, env) }()
+	go func() { defer wg.Done(); readiness = a.computeBaseReadiness(ctx, headers, namespace, service, env) }()
 	go func() { defer wg.Done(); console = a.fetchConsoleEnrichment(ctx, namespace, service) }()
 	wg.Wait()
 	return ScorecardResponse{Readiness: readiness, Console: console}
@@ -148,7 +160,7 @@ func (a *App) computeScorecard(ctx context.Context, headers http.Header, namespa
 // Observability readiness
 // ---------------------------------------------------------------------------
 
-func (a *App) computeReadiness(ctx context.Context, headers http.Header, namespace, service, env string) ScorecardReadiness {
+func (a *App) computeBaseReadiness(ctx context.Context, headers http.Header, namespace, service, env string) ScorecardReadiness {
 	now := time.Now()
 	token := a.resolveServiceToken(ctx)
 
@@ -169,7 +181,7 @@ func (a *App) computeReadiness(ctx context.Context, headers http.Header, namespa
 	}
 
 	var wg sync.WaitGroup
-	wg.Add(6)
+	wg.Add(5)
 	go func() { defer wg.Done(); checks[0].OK = a.checkSpanMetrics(ctx, namespace, service, env, now) }()
 	go func() {
 		defer wg.Done()
@@ -195,7 +207,6 @@ func (a *App) computeReadiness(ctx context.Context, headers http.Header, namespa
 			}
 		}
 	}()
-	go func() { defer wg.Done(); checks[5].OK = a.checkAlertRules(ctx, headers, token, service) }()
 	wg.Wait()
 
 	score, total := 0, 0
@@ -362,64 +373,28 @@ func (a *App) checkLokiLogs(ctx context.Context, headers http.Header, token, ser
 	return parsed.Streams > 0 || parsed.Entries > 0
 }
 
-// checkAlertRules scans Mimir ruler rules and Grafana-managed rules for any
-// alerting rule that mentions the service, capped at maxScorecardRuleScan.
-func (a *App) checkAlertRules(ctx context.Context, headers http.Header, token, service string) bool {
-	ctx, cancel := context.WithTimeout(ctx, scorecardProbeTimeout)
-	defer cancel()
-
-	var (
-		wg      sync.WaitGroup
-		sources [2]*queries.RulesResponse
-	)
-	if prom := a.prom(ctx); prom != nil {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			rules, err := prom.GetAlertRules(ctx)
-			if err != nil {
-				log.DefaultLogger.Debug("Scorecard mimir rules probe failed", "error", err)
-				return
-			}
-			sources[0] = rules
-		}()
+func (a *App) checkAlertRules(ctx context.Context, headers http.Header, token, service, env string) (ok, unavailable bool) {
+	sources, err := a.alertRuleSources(ctx, headers, token, env)
+	if err != nil {
+		log.DefaultLogger.Warn("Scorecard alert rules probe failed", "error", err)
+		return false, true
 	}
-	if a.grafanaURL != "" {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			client := queries.NewPrometheusClient(a.grafanaURL+"/api/prometheus/grafana", token).WithAuthHeaders(headers)
-			rules, err := client.GetAlertRules(ctx)
-			if err != nil {
-				log.DefaultLogger.Debug("Scorecard grafana rules probe failed", "error", err)
-				return
-			}
-			sources[1] = rules
-		}()
-	}
-	wg.Wait()
-
-	scanned := 0
-	for _, src := range sources {
+	for _, src := range []*queries.RulesResponse{sources.Mimir, sources.Grafana} {
 		if src == nil {
 			continue
 		}
 		for _, group := range src.Groups {
 			for _, rule := range group.Rules {
-				if scanned >= maxScorecardRuleScan {
-					return false
-				}
-				scanned++
 				if rule.Type != "alerting" {
 					continue
 				}
 				if ruleMentionsService(rule, service) {
-					return true
+					return true, false
 				}
 			}
 		}
 	}
-	return false
+	return false, sources.Failed || (sources.Mimir == nil && sources.Grafana == nil)
 }
 
 // ruleMentionsService reports whether an alerting rule targets the service.

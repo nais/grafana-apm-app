@@ -46,6 +46,10 @@ type App struct {
 
 	respCache *responseCache // short-lived response cache for expensive queries
 
+	alertRulesMu    sync.RWMutex
+	alertRulesCache map[string]cachedAlertRules
+	alertRulesSF    singleflight.Group
+
 	naisToken      string         // nais Console API token (scorecard enrichment + deploy sync)
 	scorecardOnce  sync.Once      // lazily builds the dedicated long-TTL scorecard cache
 	scorecardCache *responseCache // see scorecardResponseCache()
