@@ -18,7 +18,7 @@ interface ScorecardBadgeProps {
 /**
  * Per-check docs deep link (#143 Phase 1 "actionability"): every check the
  * backend can report gets the how-to that closes it. The key set is closed —
- * see `computeReadiness` in pkg/plugin/scorecard.go — so this is a frontend-only
+ * see `computeBaseReadiness` in pkg/plugin/scorecard.go — so this is a frontend-only
  * mapping rather than a new API field.
  */
 const CHECK_DOCS: Record<string, string> = {
@@ -103,17 +103,41 @@ function ScorecardDetails({
           <li key={check.key} className={cx(styles.check, check.notApplicable && styles.checkNotApplicable)}>
             <span
               className={
-                check.notApplicable ? styles.checkIconNA : check.ok ? styles.checkIconOk : styles.checkIconMissing
+                check.notApplicable || check.unavailable
+                  ? styles.checkIconNA
+                  : check.ok
+                    ? styles.checkIconOk
+                    : styles.checkIconMissing
               }
               role="img"
-              aria-label={check.notApplicable ? 'Not applicable' : check.ok ? 'Enabled' : 'Not enabled'}
+              aria-label={
+                check.notApplicable
+                  ? 'Not applicable'
+                  : check.unavailable
+                    ? 'Unavailable'
+                    : check.ok
+                      ? 'Enabled'
+                      : 'Not enabled'
+              }
             >
-              <Icon name={check.notApplicable ? 'minus-circle' : check.ok ? 'check-circle' : 'circle'} size="sm" />
+              <Icon
+                name={
+                  check.notApplicable
+                    ? 'minus-circle'
+                    : check.unavailable
+                      ? 'question-circle'
+                      : check.ok
+                        ? 'check-circle'
+                        : 'circle'
+                }
+                size="sm"
+              />
             </span>
             {/* div, not span: the hint below is block-level and a div inside a span is invalid HTML */}
             <div>
               {check.label}
               {check.notApplicable && <span className={styles.naTag}>N/A</span>}
+              {check.unavailable && <span className={styles.naTag}>Unavailable</span>}
               {!check.ok && (
                 <div className={styles.hint}>
                   {check.hint}
@@ -141,8 +165,8 @@ function CheckActions({ check, namespace, service, environment }: { check: Score
   const styles = useStyles2(getStyles);
   const [creatingAlert, setCreatingAlert] = useState(false);
   const docsHref = CHECK_DOCS[check.key];
-  const snippet = check.notApplicable ? undefined : CHECK_SNIPPETS[check.key];
-  const canCreateAlert = !check.notApplicable && check.key === 'alertRules';
+  const snippet = check.notApplicable || check.unavailable ? undefined : CHECK_SNIPPETS[check.key];
+  const canCreateAlert = !check.notApplicable && !check.unavailable && check.key === 'alertRules';
   const canRouteAlert = hasAlertRoutingContext(namespace, environment);
 
   const onCreateAlert = useCallback(async () => {

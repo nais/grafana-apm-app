@@ -150,6 +150,18 @@ describe('AlertsTab (#32/#33 home)', () => {
     await waitFor(() => expect(screen.getByText('Alert rules are currently unavailable.')).toBeInTheDocument());
   });
 
+  it('uses the selected environment when fetching alert rules', async () => {
+    renderTab();
+    await waitFor(() => expect(getServiceAlerts).toHaveBeenCalledWith('teamorders', 'orders', 'prod-gcp'));
+  });
+
+  it('does not claim there are no alerts when a source is unavailable', async () => {
+    getServiceAlerts.mockResolvedValue({ rules: [], partial: true });
+    renderTab();
+    expect(await screen.findByText(/Some alert rule sources are unavailable/)).toBeInTheDocument();
+    expect(screen.queryByText('No alerts configured for this service.')).not.toBeInTheDocument();
+  });
+
   it('opens the firing-alert detail drawer (#32) from a firing row', async () => {
     getServiceAlerts.mockResolvedValue({
       rules: [

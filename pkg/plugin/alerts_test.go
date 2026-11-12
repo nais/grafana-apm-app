@@ -1,14 +1,216 @@
 package plugin
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/nais/grafana-otel-plugin/pkg/plugin/queries"
 )
+
+func TestAlertRuleCacheSurvivesCallerCancellation(t *testing.T) {
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		started <- struct{}{}
+		select {
+		case <-release:
+			_, _ = w.Write([]byte(`{"status":"success","data":{"groups":[]}}`))
+		case <-r.Context().Done():
+		}
+	}))
+	defer server.Close()
+	defer unblock()
+	app := &App{}
+	client := queries.NewPrometheusClient(server.URL, "")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	first := make(chan error, 1)
+	go func() {
+		_, err := app.loadAlertRules(ctx, "rules", client)
+		first <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("shared fetch did not start")
+	}
+	cancel()
+	select {
+	case err := <-first:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancelled caller got %v, want context.Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("cancelled caller did not stop waiting")
+	}
+
+	type result struct {
+		rules *queries.RulesResponse
+		err   error
+	}
+	second := make(chan result, 1)
+	go func() {
+		rules, err := app.loadAlertRules(context.Background(), "rules", client)
+		second <- result{rules, err}
+	}()
+	unblock()
+	select {
+	case got := <-second:
+		if got.err != nil {
+			t.Fatalf("shared fetch should survive cancellation: %v", got.err)
+		}
+		cached, err := app.loadAlertRules(context.Background(), "rules", client)
+		if err != nil || cached != got.rules {
+			t.Fatalf("cache must return the same parsed rule set, got %p, want %p, error %v", cached, got.rules, err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("second caller did not receive the shared result")
+	}
+	if got := requests.Load(); got != 1 {
+		t.Fatalf("expected one shared upstream request, got %d", got)
+	}
+}
+
+func TestAlertRuleCacheRetriesFailedSources(t *testing.T) {
+	for _, failedSource := range []string{alertSourceMimir, alertSourceGrafana, "both"} {
+		t.Run(failedSource, func(t *testing.T) {
+			var recovered atomic.Bool
+			var mimirRequests, grafanaRequests atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				source := alertSourceMimir
+				if strings.Contains(r.URL.Path, "/api/prometheus/grafana/") {
+					source = alertSourceGrafana
+					grafanaRequests.Add(1)
+				} else {
+					mimirRequests.Add(1)
+				}
+				if !recovered.Load() && (source == failedSource || failedSource == "both") {
+					http.Error(w, "unavailable", http.StatusServiceUnavailable)
+					return
+				}
+				_, _ = w.Write([]byte(`{"status":"success","data":{"groups":[]}}`))
+			}))
+			defer server.Close()
+			app := &App{
+				promClient: queries.NewPrometheusClient(server.URL, ""),
+				grafanaURL: server.URL,
+			}
+			first, err := app.alertRuleSources(context.Background(), http.Header{}, "", "")
+			if !first.Failed || (failedSource == "both" && err == nil) {
+				t.Fatalf("expected failed sources to be reported: %+v, error %v", first, err)
+			}
+			recovered.Store(true)
+			for range 2 {
+				sources, err := app.alertRuleSources(context.Background(), http.Header{}, "", "")
+				if err != nil || sources.Failed || sources.Mimir == nil || sources.Grafana == nil {
+					t.Fatalf("failed sources must recover on the next request: %+v, error %v", sources, err)
+				}
+				if first.Mimir != nil && sources.Mimir != first.Mimir {
+					t.Fatal("healthy Mimir cache entry should be reused")
+				}
+				if first.Grafana != nil && sources.Grafana != first.Grafana {
+					t.Fatal("healthy Grafana cache entry should be reused")
+				}
+			}
+			wantMimir, wantGrafana := int32(1), int32(1)
+			if failedSource == alertSourceMimir || failedSource == "both" {
+				wantMimir = 2
+			}
+			if failedSource == alertSourceGrafana || failedSource == "both" {
+				wantGrafana = 2
+			}
+			if mimirRequests.Load() != wantMimir || grafanaRequests.Load() != wantGrafana {
+				t.Fatalf("unexpected requests: mimir=%d (want %d), grafana=%d (want %d)",
+					mimirRequests.Load(), wantMimir, grafanaRequests.Load(), wantGrafana)
+			}
+		})
+	}
+}
+
+func TestAlertRuleCacheScopes(t *testing.T) {
+	var mu sync.Mutex
+	requests := map[string]int{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer service-token" {
+			t.Error("service-account authorization was not preserved")
+		}
+		mu.Lock()
+		requests[r.Header.Get("X-Grafana-Org-Id")+r.URL.Path]++
+		mu.Unlock()
+		_, _ = w.Write([]byte(`{"status":"success","data":{"groups":[]}}`))
+	}))
+	defer server.Close()
+	app := &App{
+		grafanaURL:   server.URL,
+		serviceToken: "service-token",
+		settings: queries.PluginSettings{
+			MetricsDataSource: queries.EnvAwareDataSource{
+				UID:           "dev",
+				ByEnvironment: map[string]queries.DataSourceRef{"prod": {UID: "prod"}},
+			},
+		},
+	}
+	for _, test := range []struct{ org, env string }{{"1", "dev"}, {"1", "prod"}, {"2", "prod"}} {
+		for range 2 {
+			req := httptest.NewRequest(http.MethodGet, "/?environment="+test.env, nil)
+			req.Header.Set("X-Grafana-Org-Id", test.org)
+			ctx := app.requestContext(req)
+			sources, err := app.alertRuleSources(ctx, req.Header, app.resolveServiceToken(ctx), test.env)
+			if err != nil || sources.Failed {
+				t.Fatalf("fetch failed: %+v, error %v", sources, err)
+			}
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(requests) != 5 {
+		t.Fatalf("expected three Mimir and two Grafana cache entries, got %v", requests)
+	}
+	for key, count := range requests {
+		if count != 1 {
+			t.Errorf("%s fetched %d times, want 1", key, count)
+		}
+	}
+}
+
+func TestAlertRuleCacheStoresNewEntriesAtCapacity(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		_, _ = w.Write([]byte(`{"status":"success","data":{"groups":[]}}`))
+	}))
+	defer server.Close()
+	app := &App{alertRulesCache: make(map[string]cachedAlertRules)}
+	for i := range maxAlertRulesCacheEntries {
+		app.alertRulesCache[fmt.Sprint(i)] = cachedAlertRules{
+			rules:     &queries.RulesResponse{},
+			fetchedAt: time.Now().Add(-time.Second),
+		}
+	}
+	client := queries.NewPrometheusClient(server.URL, "")
+	for range 2 {
+		if _, err := app.loadAlertRules(context.Background(), "new", client); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if requests.Load() != 1 || len(app.alertRulesCache) != maxAlertRulesCacheEntries {
+		t.Fatalf("new entries should be cached within capacity: requests=%d, entries=%d",
+			requests.Load(), len(app.alertRulesCache))
+	}
+}
 
 func TestExtractNamespaceFromGroupFile(t *testing.T) {
 	tests := []struct {

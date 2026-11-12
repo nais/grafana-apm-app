@@ -82,7 +82,8 @@ ownership enrichment.
 ### Parameters
 
 `namespace`, `service` (path, service required); `environment` (query). Cached
-**5 min** (dedicated scorecard cache; `X-Cache: HIT` on hit).
+**5 min** (`X-Cache: HIT` on hit), except alert rules, which share the Alerts
+tab's **30 s** cache of successful fetches.
 
 ### Response — `ScorecardResponse`
 
@@ -93,7 +94,9 @@ ownership enrichment.
 
 **ScorecardCheck**: `key` (string), `label` (string), `ok` (bool), `hint`
 (string). The six checks, in order: `spanMetrics`, `traces`, `logs`,
-`runtimeMetrics`, `browserTelemetry`, `alertRules`.
+`runtimeMetrics`, `browserTelemetry`, `alertRules`. Inactive alert rules count.
+Optional `unavailable` (bool) marks an inconclusive check: included in the total,
+but not the score.
 
 **console** (`ScorecardConsole`): `configured` (bool), `teamSlug?`,
 `slackChannel?`, `repositoryUrl?`, `ingresses?` (array&lt;string&gt;).
