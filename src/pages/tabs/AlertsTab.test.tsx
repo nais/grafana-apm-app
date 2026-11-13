@@ -136,6 +136,8 @@ describe('AlertsTab (#32/#33 home)', () => {
     renderTab();
 
     await waitFor(() => expect(screen.getByText('No alerts configured for this service.')).toBeInTheDocument());
+    expect(screen.getByRole('heading', { name: 'Alert rules' })).toBeInTheDocument();
+    expect(screen.queryByText('Under construction')).not.toBeInTheDocument();
     // The create-alert catalog is offered regardless of whether rules exist.
     expect(screen.getByText('Web Vitals (LCP)')).toBeInTheDocument();
     expect(screen.getByText('CrashLoopBackOff')).toBeInTheDocument();
@@ -272,9 +274,6 @@ describe('AlertsTab (#32/#33 home)', () => {
     expect(getAlertTemplate).not.toHaveBeenCalled();
   });
 
-  // #123 Phase 1: the self-serve "new issue -> Slack" path. This section is
-  // deliberately NOT under the "Under construction" banner - it needs nothing
-  // provisioned per team, unlike the Grafana-folder/contact-point work.
   it('renders the new-issues PrometheusRule with a copy button', async () => {
     renderTab();
 
