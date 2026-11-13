@@ -45,6 +45,11 @@ a configured logs datasource. Existing saved Grafana rules are not modified.
 `crash-loop-back-off` uses the selected data environment as `k8s_cluster_name`
 and the team as Kubernetes `namespace`. It preserves `pod` and `container`
 labels for separate alert instances, with a threshold above zero for 5 minutes.
+It uses an instant query so a recovered container's last waiting-state value
+is not retained by a range query and reduced into a stale alert.
+An empty result is normal (`noDataState=OK`), since healthy containers may have
+no waiting-reason series; query failures remain errors (`execErrState=Error`).
+Missing telemetry also produces no data, so verify metric collection separately.
 It watches **all pods in the namespace**, not only the current service, and
 requires `kube_pod_container_status_waiting_reason` in the metrics datasource.
 
@@ -147,8 +152,8 @@ and an unknown kind still returns `404` as it does without the param.
 | `name` | string | Suggested rule name. |
 | `condition` | string | Ref id of the condition query (always `"C"`). |
 | `evaluateFor` | string | Pending period, e.g. `"5m"`. |
-| `noDataState` | string (optional) | `"OK"` for new-exceptions, where no matching hashes is normal. |
-| `execErrState` | string (optional) | `"Error"` for new-exceptions; datasource failures are not healthy results. |
+| `noDataState` | string (optional) | `"OK"` for new-exceptions and crash-loop-back-off, where an empty result is normal. |
+| `execErrState` | string (optional) | `"Error"` for new-exceptions and crash-loop-back-off; datasource failures are not healthy results. |
 | `queries` | array&lt;alertQuery&gt; | The A (data) / B (reduce) / C (threshold) query chain. |
 | `annotations` | array&lt;{key,value}&gt; | Suggested annotations (summary, deep link). |
 | `labels` | array&lt;{key,value}&gt; | `namespace`, `team`, `env` (mapped routing environment), `service`, `severity` (`critical`, `warning`, or `info`), `source=nais-apm`. |

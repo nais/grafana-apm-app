@@ -500,13 +500,18 @@ func (a *App) crashLoopBackOffDefaults(namespace, service, env, dsUID string) ru
     reason="CrashLoopBackOff"
   }
 )`, env, namespace)
+	query := dataQuery(dsUID, expr)
+	query.Model["instant"] = true
+	query.Model["range"] = false
 
 	return ruleFormDefaults{
-		Type:        "grafana",
-		Name:        fmt.Sprintf("CrashLoopBackOff – %s%s", namespace, envSuffix(env)),
-		Condition:   "C",
-		EvaluateFor: "5m",
-		Queries:     append([]alertQuery{dataQuery(dsUID, expr)}, expressionQueries(0)...),
+		Type:         "grafana",
+		Name:         fmt.Sprintf("CrashLoopBackOff – %s%s", namespace, envSuffix(env)),
+		Condition:    "C",
+		EvaluateFor:  "5m",
+		NoDataState:  "OK",
+		ExecErrState: "Error",
+		Queries:      append([]alertQuery{query}, expressionQueries(0)...),
 		Annotations: []alertKeyValue{
 			{Key: "summary", Value: "Container {{ $labels.container }} in pod {{ $labels.pod }} has been in CrashLoopBackOff for 5 minutes"},
 			{Key: "nais_apm_url", Value: serviceDeepLink(namespace, service, env, "", "", "")},

@@ -675,6 +675,25 @@ func TestParseSloTarget(t *testing.T) {
 	}
 }
 
+func TestCrashLoopBackOffInstantQuery(t *testing.T) {
+	app := newAlertTemplateApp(t)
+	resp := decodeAlertTemplate(t, serveAlertTemplate(t, app,
+		"/alert-templates/crash-loop-back-off?namespace=team-a&service=my-svc&environment=prod-gcp"))
+	d := resp.Defaults
+
+	assertRuleFormContract(t, d, "mimir-prod-gcp")
+	if d.Queries[0].Model["instant"] != true || d.Queries[0].Model["range"] != false {
+		t.Errorf("expected current container state via an instant query, got %+v", d.Queries[0].Model)
+	}
+	if d.NoDataState != "OK" || d.ExecErrState != "Error" {
+		t.Errorf("expected absent waiting-reason series to be normal and query failures to remain errors, got %+v", d)
+	}
+	if thresholdParam(t, d.Queries[2]) != 0 || d.EvaluateFor != "5m" {
+		t.Error("expected threshold > 0 for 5 minutes")
+	}
+	assertURLEncoding(t, resp)
+}
+
 func TestNewExceptionsMimirTemplate(t *testing.T) {
 	app := newAlertTemplateApp(t)
 	app.settings.LogsDataSource = queries.EnvAwareDataSource{}
