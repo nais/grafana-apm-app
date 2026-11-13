@@ -175,14 +175,16 @@ type alertFolder struct {
 // it with its own form defaults, so anything omitted (evaluation group,
 // contact point, or a folder without an exact team match) is chosen in the editor.
 type ruleFormDefaults struct {
-	Type        string          `json:"type"`
-	Name        string          `json:"name"`
-	Condition   string          `json:"condition"`
-	EvaluateFor string          `json:"evaluateFor"`
-	Queries     []alertQuery    `json:"queries"`
-	Annotations []alertKeyValue `json:"annotations"`
-	Labels      []alertKeyValue `json:"labels"`
-	Folder      *alertFolder    `json:"folder,omitempty"`
+	Type         string          `json:"type"`
+	Name         string          `json:"name"`
+	Condition    string          `json:"condition"`
+	EvaluateFor  string          `json:"evaluateFor"`
+	NoDataState  string          `json:"noDataState,omitempty"`
+	ExecErrState string          `json:"execErrState,omitempty"`
+	Queries      []alertQuery    `json:"queries"`
+	Annotations  []alertKeyValue `json:"annotations"`
+	Labels       []alertKeyValue `json:"labels"`
+	Folder       *alertFolder    `json:"folder,omitempty"`
 }
 
 // alertTemplateResponse is the resource endpoint payload.
@@ -198,6 +200,7 @@ type alertTemplateResponse struct {
 var alertTemplateKinds = map[string]bool{
 	"error-rate": true, "exception-spike": true, "web-vitals": true,
 	"new-exceptions": true, "slo-burn-rate": true,
+	"crash-loop-back-off": true, "custom": true,
 }
 
 func (a *App) handleAlertTemplate(w http.ResponseWriter, req *http.Request) {
@@ -278,10 +281,22 @@ func (a *App) handleAlertTemplate(w http.ResponseWriter, req *http.Request) {
 		}
 		defaults = a.webVitalsDefaults(namespace, service, env, uid)
 
-	case "new-exceptions":
-		uid := a.settings.LogsDataSource.Resolve(env).UID
+	case "crash-loop-back-off", "custom":
+		uid := a.settings.MetricsDataSource.Resolve(env).UID
 		if uid == "" {
-			http.Error(w, `{"error":"logs datasource not configured"}`, http.StatusServiceUnavailable)
+			http.Error(w, `{"error":"metrics datasource not configured"}`, http.StatusServiceUnavailable)
+			return
+		}
+		if req.PathValue("kind") == "custom" {
+			defaults = a.customAlertDefaults(namespace, service, env, uid)
+		} else {
+			defaults = a.crashLoopBackOffDefaults(namespace, service, env, uid)
+		}
+
+	case "new-exceptions":
+		uid := a.settings.MetricsDataSource.Resolve(env).UID
+		if uid == "" {
+			http.Error(w, `{"error":"metrics datasource not configured"}`, http.StatusServiceUnavailable)
 			return
 		}
 		defaults = a.newExceptionsDefaults(namespace, service, env, uid)
@@ -463,6 +478,43 @@ func (a *App) exceptionSpikeDefaults(namespace, service, env, fingerprint string
 	}
 }
 
+func (a *App) customAlertDefaults(namespace, service, env, dsUID string) ruleFormDefaults {
+	return ruleFormDefaults{
+		Type:        "grafana",
+		Name:        "",
+		Condition:   "C",
+		EvaluateFor: "5m",
+		Queries:     append([]alertQuery{dataQuery(dsUID, "")}, expressionQueries(0)...),
+		Annotations: []alertKeyValue{
+			{Key: "nais_apm_url", Value: serviceDeepLink(namespace, service, env, "", "", "")},
+		},
+		Labels: templateLabels(namespace, service, a.alertRoutingEnvironment(env), "warning"),
+	}
+}
+
+func (a *App) crashLoopBackOffDefaults(namespace, service, env, dsUID string) ruleFormDefaults {
+	expr := fmt.Sprintf(`max by (k8s_cluster_name, namespace, pod, container) (
+  kube_pod_container_status_waiting_reason{
+    k8s_cluster_name="%s",
+    namespace="%s",
+    reason="CrashLoopBackOff"
+  }
+)`, env, namespace)
+
+	return ruleFormDefaults{
+		Type:        "grafana",
+		Name:        fmt.Sprintf("CrashLoopBackOff – %s%s", namespace, envSuffix(env)),
+		Condition:   "C",
+		EvaluateFor: "5m",
+		Queries:     append([]alertQuery{dataQuery(dsUID, expr)}, expressionQueries(0)...),
+		Annotations: []alertKeyValue{
+			{Key: "summary", Value: "Container {{ $labels.container }} in pod {{ $labels.pod }} has been in CrashLoopBackOff for 5 minutes"},
+			{Key: "nais_apm_url", Value: serviceDeepLink(namespace, service, env, "", "", "")},
+		},
+		Labels: templateLabels(namespace, service, a.alertRoutingEnvironment(env), "warning"),
+	}
+}
+
 // webVitalsDefaults builds a Mimir LCP p75 rule over the Alloy-exported Faro
 // Web Vitals histogram (Google CWV "poor" boundary).
 func (a *App) webVitalsDefaults(namespace, service, env, dsUID string) ruleFormDefaults {
@@ -491,50 +543,28 @@ func (a *App) webVitalsDefaults(namespace, service, env, dsUID string) ruleFormD
 	}
 }
 
-// newExceptionsDefaults builds the #65 Phase 2a "first seen" approximation:
-// one alert instance per exception hash present in the last 30m but absent
-// from the preceding 7 days. This is stateless and therefore APPROXIMATE —
-// the trade-offs are stated in the alert's own summary annotation:
-//   - a hash last seen just beyond the lookback re-fires as "new"
-//   - Loki retention shorter than 7d silently shrinks the baseline
-//   - resolved-issue regressions do NOT fire (no notion of triage state);
-//     exact detection is the #57 Phase 2 backend worker
-//
-// Cost, measured against the chattiest NAV Faro app (tms-min-side,
-// >150k exception lines/day): ~11s per evaluation — acceptable at the 5m
-// evaluation interval this template ships with.
 func (a *App) newExceptionsDefaults(namespace, service, env, dsUID string) ruleFormDefaults {
-	fl := a.otelCfg.FaroLoki
-
-	sel := []string{
-		fmt.Sprintf(`%s="%s"`, fl.ServiceName, service),
-		fmt.Sprintf(`%s="%s"`, fl.Kind, fl.KindException),
-	}
-	if m := envMatcher(a.otelCfg.Labels.DeploymentEnv, env); m != "" {
-		sel = append(sel, m)
-	}
-	stream := "{" + strings.Join(sel, ", ") + "}"
-
-	expr := fmt.Sprintf(
-		`sum by (%[1]s, value) (count_over_time(%[2]s | logfmt | %[1]s!="" | keep %[1]s, value [30m]))
-unless on (%[1]s)
-sum by (%[1]s) (count_over_time(%[2]s | logfmt | %[1]s!="" | keep %[1]s [7d] offset 30m))`,
-		fl.Hash, stream,
-	)
+	sel := fmt.Sprintf(`%s="%s", %s="%s", %s="%s"`,
+		recordedNamespaceLabel, namespace, recordedServiceNameLabel, service, recordedClusterLabel, env)
+	by := fmt.Sprintf("%s, %s, %s, %s",
+		recordedNamespaceLabel, recordedServiceNameLabel, recordedClusterLabel, recordedHashLabel)
+	query := dataQuery(dsUID, newExceptionsExpr(sel, by))
+	query.Model["instant"] = true
+	query.Model["range"] = false
 
 	return ruleFormDefaults{
-		Type:        "grafana",
-		Name:        fmt.Sprintf("New exception types – %s%s", service, envSuffix(env)),
-		Condition:   "C",
-		EvaluateFor: "5m",
-		Queries:     append([]alertQuery{dataQuery(dsUID, expr)}, expressionQueries(0)...),
+		Type:         "grafana",
+		Name:         fmt.Sprintf("New frontend exceptions – %s%s", service, envSuffix(env)),
+		Condition:    "C",
+		EvaluateFor:  "5m",
+		NoDataState:  "OK",
+		ExecErrState: "Error",
+		Queries:      append([]alertQuery{query}, expressionQueries(0)...),
 		Annotations: []alertKeyValue{
 			{Key: "summary", Value: fmt.Sprintf(
-				"Exception {{ $labels.value }} in %s was not seen in the previous 7 days (approximate stateless detection: "+
+				"Frontend exception {{ $labels.hash }} in %s was not seen in the previous 7 days (approximate stateless detection: "+
 					"issues older than the 7d lookback re-fire as new, and resolved-issue regressions do not fire)", service)},
-			// Templated per-instance deep link: each firing hash opens its
-			// own drawer on the Issues tab (#69 P10, docs/url-contract.md).
-			{Key: "nais_apm_url", Value: serviceDeepLink(namespace, service, env, "issues", "", "{{ $labels."+fl.Hash+" }}")},
+			{Key: "nais_apm_url", Value: serviceDeepLink(namespace, service, env, "issues", "", "{{ $labels.hash }}")},
 		},
 		Labels: templateLabels(namespace, service, a.alertRoutingEnvironment(env), "info"),
 	}
@@ -544,9 +574,9 @@ sum by (%[1]s) (count_over_time(%[2]s | logfmt | %[1]s!="" | keep %[1]s [7d] off
 // (nais/helm-charts features/loki/values.yaml, group `apm-exception-sessions`):
 // distinct sessions per exception hash, per minute.
 //
-// The three label names are deliberately CONSTANTS and not the operator-tunable
+// The label names are deliberately CONSTANTS and not the operator-tunable
 // a.otelCfg.Labels values: they are baked into the recording rule's
-// `count by(service_namespace,service_name,hash)` in helm-charts, so an
+// `count by(service_namespace,service_name,k8s_cluster_name,hash)` in helm-charts, so an
 // otelCfg override would silently produce a selector matching no series at all
 // — a rule that never fires and never errors. If helm-charts ever renames them,
 // these change with it.
@@ -554,6 +584,7 @@ const (
 	newExceptionSessionsMetric = "loki:apm:exception_sessions:count1m"
 	recordedServiceNameLabel   = "service_name"
 	recordedNamespaceLabel     = "service_namespace"
+	recordedClusterLabel       = "k8s_cluster_name"
 	recordedHashLabel          = "hash"
 
 	// namespacePlaceholder goes in BOTH the manifest metadata and the PromQL
@@ -567,6 +598,16 @@ const (
 	// broken rather than something subtly broken.
 	grafanaURLPlaceholder = "https://REPLACE-WITH-YOUR-GRAFANA"
 )
+
+func newExceptionsExpr(selector, groupBy string) string {
+	return fmt.Sprintf(`sum by (%[1]s) (
+  sum_over_time(%[2]s{%[3]s}[30m])
+)
+unless on (%[1]s)
+sum by (%[1]s) (
+  count_over_time(%[2]s{%[3]s}[7d] offset 30m)
+)`, groupBy, newExceptionSessionsMetric, selector)
+}
 
 // newExceptionsPrometheusRule renders the same "not seen in the previous 7
 // days" detection as newExceptionsDefaults, but as a PrometheusRule manifest a
@@ -633,13 +674,7 @@ spec:
       rules:
         - alert: NewException
           expr: |
-            sum by (%[5]s) (
-              sum_over_time(%[3]s{%[6]s}[30m])
-            )
-            unless on (%[5]s)
-            sum by (%[5]s) (
-              count_over_time(%[3]s{%[6]s}[7d] offset 30m)
-            )
+            %[5]s
           for: 5m
           labels:
             namespace: %[4]q
@@ -655,7 +690,7 @@ spec:
 		k8sName("nais-apm-new-exceptions-"+service),
 		newExceptionSessionsMetric,
 		ns,
-		by,
+		strings.ReplaceAll(newExceptionsExpr(sel, by), "\n", "\n            "),
 		sel,
 		// summary is the grouped header — one line for the whole notification,
 		// so it must NOT template a per-instance label (it would show one

@@ -18,10 +18,43 @@ Base: `{GRAFANA_URL}/api/plugins/nais-apm-app/resources`.
 | `error-rate` | Service error rate over threshold | metrics (Mimir) |
 | `exception-spike` | Spike in a specific exception hash | logs (Loki) |
 | `web-vitals` | Web-vital regression (Faro) | metrics |
-| `new-exceptions` | Exception types not seen in the previous 7 days (the `#65` "new-exceptions" semantics used by CI gates) | logs |
+| `new-exceptions` | Frontend exception hashes not seen in the previous 7 days | metrics (Mimir recording rule) |
 | `slo-burn-rate` | Multi-window SLO burn rate | metrics |
+| `crash-loop-back-off` | Container in CrashLoopBackOff for 5 minutes, across the selected namespace | metrics (kube-state-metrics) |
+| `custom` | Blank query and name, with routing context pre-filled | metrics (initial selection) |
 
 Any other kind → `404 {"error":"unknown alert template kind"}`.
+
+The service page's Alerts tab offers Custom alert, CrashLoopBackOff,
+New frontend exceptions and Web Vitals (LCP), plus an Exception spike card linking to Issues. The
+"Alert on new frontend exceptions" section offers a PrometheusRule managed as
+code alongside the app, unlike the templates saved in Grafana. Notifications
+follow the team's existing alert routing; Slack delivery depends on that
+configuration. Error-rate and SLO burn-rate endpoints remain available to existing callers.
+
+`new-exceptions` uses PromQL over `loki:apm:exception_sessions:count1m` in Mimir,
+scoped to the selected service, namespace and data environment (`k8s_cluster_name`).
+It shares the 30m-versus-preceding-7d detection builder with the PrometheusRule
+variant. Each hash produces a separate alert instance above zero for 5 minutes.
+The query is instant; an empty result is normal (`noDataState=OK`), while query
+errors remain errors (`execErrState=Error`). Verify the recording rule is
+producing series before relying on it: missing telemetry also yields no data.
+Unlike the former Loki template, this requires the recording rule rather than
+a configured logs datasource. Existing saved Grafana rules are not modified.
+
+`crash-loop-back-off` uses the selected data environment as `k8s_cluster_name`
+and the team as Kubernetes `namespace`. It preserves `pod` and `container`
+labels for separate alert instances, with a threshold above zero for 5 minutes.
+It watches **all pods in the namespace**, not only the current service, and
+requires `kube_pod_container_status_waiting_reason` in the metrics datasource.
+
+`custom` pre-fills routing labels, `severity=warning`, the APM service link,
+and the existing team folder when a unique match is found. Name and query are
+empty; the developer must supply both and review the condition and pending
+period in Grafana. The initial datasource is the environment's metrics
+datasource, with a starter condition above zero for 5 minutes. Routing labels
+do not filter the query: the developer must scope it to the intended app and
+environment.
 
 ### Query parameters
 
@@ -59,7 +92,7 @@ folders match, choose the folder in Grafana's editor before saving; the plugin
 does not create folders.
 
 All Grafana templates set the required `severity` label: `warning` for
-error-rate and exception-spike, `info` for new-exceptions and web-vitals,
+error-rate, exception-spike, crash-loop-back-off and custom, `info` for new-exceptions and web-vitals,
 `critical` for fast SLO burn, and `warning` for slow SLO burn.
 
 ### `format=prometheusrule` — the manifest variant
@@ -70,9 +103,9 @@ a team commits next to their app, so a new issue reaches their Slack channel
 through the alerting they already run — the plugin holds no Slack credential.
 
 It is the same "not seen in the previous 7 days" detection as the Grafana
-variant, translated from LogQL to PromQL over the shipped Mimir recording rule
+variant, using the same PromQL detection over the shipped Mimir recording rule
 `loki:apm:exception_sessions:count1m` (labels `service_namespace`,
-`service_name`, `hash`). Those three label names are **constants** in the
+`service_name`, `k8s_cluster_name`, `hash`). Those label names are **constants** in the
 backend, not `otelConfig` values: they are fixed by the recording rule in
 helm-charts, so an override would silently select no series.
 
@@ -114,6 +147,8 @@ and an unknown kind still returns `404` as it does without the param.
 | `name` | string | Suggested rule name. |
 | `condition` | string | Ref id of the condition query (always `"C"`). |
 | `evaluateFor` | string | Pending period, e.g. `"5m"`. |
+| `noDataState` | string (optional) | `"OK"` for new-exceptions, where no matching hashes is normal. |
+| `execErrState` | string (optional) | `"Error"` for new-exceptions; datasource failures are not healthy results. |
 | `queries` | array&lt;alertQuery&gt; | The A (data) / B (reduce) / C (threshold) query chain. |
 | `annotations` | array&lt;{key,value}&gt; | Suggested annotations (summary, deep link). |
 | `labels` | array&lt;{key,value}&gt; | `namespace`, `team`, `env` (mapped routing environment), `service`, `severity` (`critical`, `warning`, or `info`), `source=nais-apm`. |
@@ -125,9 +160,9 @@ before now; present on the data query), `datasourceUid`, `model` (query model �
 
 ### Datasource errors
 
-- metrics kinds (`error-rate`, `web-vitals`, `slo-burn-rate`) →
+- metrics kinds (`error-rate`, `web-vitals`, `slo-burn-rate`, `crash-loop-back-off`, `custom`, `new-exceptions`) →
   `503 {"error":"metrics datasource not configured"}`.
-- logs kinds (`exception-spike`, `new-exceptions`) →
+- logs kinds (`exception-spike`) →
   `503 {"error":"logs datasource not configured"}`.
 
 ### Example
@@ -141,18 +176,22 @@ curl -s ".../alert-templates/new-exceptions?namespace=fager&service=min-side-arb
   "url": "/alerting/new?defaults=%7B%22type%22%3A%22grafana%22%2C...",
   "defaults": {
     "type": "grafana",
-    "name": "New exception types – min-side-arbeidsgiver (prod)",
+    "name": "New frontend exceptions – min-side-arbeidsgiver (prod)",
     "condition": "C",
     "evaluateFor": "5m",
+    "noDataState": "OK",
+    "execErrState": "Error",
     "queries": [
       {
         "refId": "A",
         "queryType": "",
         "relativeTimeRange": { "from": 600, "to": 0 },
-        "datasourceUid": "nav-logs",
+        "datasourceUid": "nav-metrics",
         "model": {
           "refId": "A",
-          "expr": "sum by (hash, value) (count_over_time({service_name=\"min-side-arbeidsgiver\", kind=\"exception\", k8s_cluster_name=\"prod\"} | logfmt | hash!=\"\" | keep hash, value [30m])) unless on (hash) sum by (hash) (...)"
+          "expr": "sum by (service_namespace, service_name, k8s_cluster_name, hash) (sum_over_time(loki:apm:exception_sessions:count1m{service_namespace=\"fager\", service_name=\"min-side-arbeidsgiver\", k8s_cluster_name=\"prod\"}[30m])) unless on (service_namespace, service_name, k8s_cluster_name, hash) sum by (service_namespace, service_name, k8s_cluster_name, hash) (count_over_time(loki:apm:exception_sessions:count1m{service_namespace=\"fager\", service_name=\"min-side-arbeidsgiver\", k8s_cluster_name=\"prod\"}[7d] offset 30m))",
+          "instant": true,
+          "range": false
         }
       },
       { "refId": "B", "datasourceUid": "__expr__", "model": { "type": "reduce", "reducer": "last", "expression": "A", "refId": "B" } },

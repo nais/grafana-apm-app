@@ -430,7 +430,14 @@ export async function getNamespaceAlerts(namespace: string): Promise<NamespaceAl
 
 // ---- Alert rule templates (#65 Phase 1) ----
 
-export type AlertTemplateKind = 'error-rate' | 'exception-spike' | 'web-vitals' | 'new-exceptions' | 'slo-burn-rate';
+export type AlertTemplateKind =
+  | 'error-rate'
+  | 'exception-spike'
+  | 'web-vitals'
+  | 'new-exceptions'
+  | 'slo-burn-rate'
+  | 'crash-loop-back-off'
+  | 'custom';
 
 export interface AlertTemplateResponse {
   /**

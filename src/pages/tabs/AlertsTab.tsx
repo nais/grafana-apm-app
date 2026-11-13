@@ -35,41 +35,35 @@ interface AlertTemplateCard {
   kind: AlertTemplateKind;
   title: string;
   description: string;
-  window?: 'fast' | 'slow';
 }
 
 const ALERT_TEMPLATES: AlertTemplateCard[] = [
   {
-    key: 'error-rate',
-    kind: 'error-rate',
-    title: 'Error rate',
-    description: 'Fires when more than 5% of requests to this service fail over a 5m window.',
+    key: 'custom',
+    kind: 'custom',
+    title: 'Custom alert',
+    description:
+      'Start with routing labels, warning severity and a matching team folder pre-filled when available. You can change severity to info or critical. Add a name, query and alert condition. Scope the query to the app and environment yourself.',
   },
   {
-    key: 'slo-fast',
-    kind: 'slo-burn-rate',
-    window: 'fast',
-    title: 'SLO fast burn (page)',
-    description: 'Multi-window burn-rate rule that pages when the error budget burns 14.4× over 1h.',
-  },
-  {
-    key: 'slo-slow',
-    kind: 'slo-burn-rate',
-    window: 'slow',
-    title: 'SLO slow burn (ticket)',
-    description: 'Tickets when the error budget burns 6× over 6h — a slower, non-paging signal.',
+    key: 'crash-loop-back-off',
+    kind: 'crash-loop-back-off',
+    title: 'CrashLoopBackOff',
+    description:
+      'Fires when a container stays in CrashLoopBackOff for 5m. Watches all pods in the selected team namespace and environment.',
   },
   {
     key: 'new-exceptions',
     kind: 'new-exceptions',
-    title: 'New exception types',
-    description: 'Fires when an exception type appears that was not seen in the previous 7 days. Requires logs (Loki).',
+    title: 'New frontend exceptions',
+    description:
+      'Fires when a frontend exception was seen in the last 30m but not in the preceding 7 days. Uses the Faro recording rule in Mimir; review and save in Grafana.',
   },
   {
     key: 'web-vitals',
     kind: 'web-vitals',
     title: 'Web Vitals (LCP)',
-    description: 'Fires when LCP p75 exceeds 2.5s (Core Web Vitals "poor"). Requires frontend (Faro) telemetry.',
+    description: 'Fires when LCP p75 exceeds 2.5s. Requires frontend (Faro) telemetry.',
   },
 ];
 
@@ -127,7 +121,6 @@ export function AlertsTab({ service, namespace, environment }: AlertsTabProps) {
           namespace: namespace || undefined,
           service,
           environment: environment || undefined,
-          window: card.window,
         });
         locationService.push(buildAlertRuleUrl(template.url));
       } catch (err) {
@@ -191,7 +184,7 @@ export function AlertsTab({ service, namespace, environment }: AlertsTabProps) {
           <h3 className={styles.sectionTitle}>Create alert</h3>
           <span className={styles.sectionSubtitle}>
             {canRouteAlert
-              ? 'Pre-filled rules for this service — use notification policies (not a direct contact point) and Preview routing in Grafana before saving.'
+              ? 'Rules with pre-filled routing labels for Slack notifications to your team. Review and save in Grafana, using notification policies (not a direct contact point). Check Preview routing before saving to confirm delivery to the intended Slack channel.'
               : 'Select a team and exactly one environment to create a Grafana alert that matches its notification policy.'}
           </span>
         </div>
@@ -239,11 +232,13 @@ export function AlertsTab({ service, namespace, environment }: AlertsTabProps) {
 
       <section className={styles.panel}>
         <div className={styles.sectionHeader}>
-          <h3 className={styles.sectionTitle}>New issues in your Slack channel</h3>
+          <h3 className={styles.sectionTitle}>Alert on new frontend exceptions</h3>
           <span className={styles.sectionSubtitle}>
-            Commit this PrometheusRule next to your app and the alerting you already run delivers every new exception
-            type to your team&apos;s channel. Apply it in the cluster you want watched — the environment comes from
-            where it lands. Requires frontend (Faro) telemetry.
+            The templates above open rules you review and save in Grafana. This PrometheusRule is managed as code:
+            commit it alongside your app and deploy it to the cluster you want watched. It alerts on frontend exceptions
+            not seen in the preceding 7 days, not on APM issue status. Notifications follow your team&apos;s existing
+            alert routing; Slack delivery depends on that configuration. The environment comes from the cluster where
+            you deploy the rule. Requires frontend (Faro) telemetry.
           </span>
         </div>
 
