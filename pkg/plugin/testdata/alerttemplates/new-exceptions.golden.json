@@ -1,8 +1,10 @@
 {
   "type": "grafana",
-  "name": "New exception types – my-svc (prod-gcp)",
+  "name": "New frontend exceptions – my-svc (prod-gcp)",
   "condition": "C",
   "evaluateFor": "5m",
+  "noDataState": "OK",
+  "execErrState": "Error",
   "queries": [
     {
       "refId": "A",
@@ -11,9 +13,11 @@
         "from": 600,
         "to": 0
       },
-      "datasourceUid": "loki-prod-gcp",
+      "datasourceUid": "mimir-prod-gcp",
       "model": {
-        "expr": "sum by (hash, value) (count_over_time({service_name=\"my-svc\", kind=\"exception\", k8s_cluster_name=\"prod-gcp\"} | logfmt | hash!=\"\" | keep hash, value [30m]))\nunless on (hash)\nsum by (hash) (count_over_time({service_name=\"my-svc\", kind=\"exception\", k8s_cluster_name=\"prod-gcp\"} | logfmt | hash!=\"\" | keep hash [7d] offset 30m))",
+        "expr": "sum by (service_namespace, service_name, k8s_cluster_name, hash) (\n  sum_over_time(loki:apm:exception_sessions:count1m{service_namespace=\"team-a\", service_name=\"my-svc\", k8s_cluster_name=\"prod-gcp\"}[30m])\n)\nunless on (service_namespace, service_name, k8s_cluster_name, hash)\nsum by (service_namespace, service_name, k8s_cluster_name, hash) (\n  count_over_time(loki:apm:exception_sessions:count1m{service_namespace=\"team-a\", service_name=\"my-svc\", k8s_cluster_name=\"prod-gcp\"}[7d] offset 30m)\n)",
+        "instant": true,
+        "range": false,
         "refId": "A"
       }
     },
@@ -73,7 +77,7 @@
   "annotations": [
     {
       "key": "summary",
-      "value": "Exception {{ $labels.value }} in my-svc was not seen in the previous 7 days (approximate stateless detection: issues older than the 7d lookback re-fire as new, and resolved-issue regressions do not fire)"
+      "value": "Frontend exception {{ $labels.hash }} in my-svc was not seen in the previous 7 days (approximate stateless detection: issues older than the 7d lookback re-fire as new, and resolved-issue regressions do not fire)"
     },
     {
       "key": "nais_apm_url",

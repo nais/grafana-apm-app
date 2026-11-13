@@ -137,6 +137,30 @@ func TestHandleAlertTemplate(t *testing.T) {
 			wantAnnotation: "/a/nais-apm-app/services/team-a/my-svc?environment=prod-gcp&tab=frontend",
 		},
 		{
+			name:      "crash-loop-back-off scopes containers to namespace and environment",
+			url:       "/alert-templates/crash-loop-back-off?namespace=team-a&service=my-svc&environment=prod-gcp",
+			wantDSUID: "mimir-prod-gcp",
+			wantExpr: `max by (k8s_cluster_name, namespace, pod, container) (
+  kube_pod_container_status_waiting_reason{
+    k8s_cluster_name="prod-gcp",
+    namespace="team-a",
+    reason="CrashLoopBackOff"
+  }
+)`,
+			wantName:       "CrashLoopBackOff – team-a (prod-gcp)",
+			wantThreshold:  0,
+			wantAnnotation: "/a/nais-apm-app/services/team-a/my-svc?environment=prod-gcp",
+		},
+		{
+			name:           "custom leaves name and query empty",
+			url:            "/alert-templates/custom?namespace=team-a&service=my-svc&environment=prod-gcp",
+			wantDSUID:      "mimir-prod-gcp",
+			wantExpr:       "",
+			wantName:       "",
+			wantThreshold:  0,
+			wantAnnotation: "/a/nais-apm-app/services/team-a/my-svc?environment=prod-gcp",
+		},
+		{
 			name:       "unknown kind returns 404",
 			url:        "/alert-templates/nonsense?service=my-svc",
 			wantStatus: http.StatusNotFound,
@@ -215,8 +239,11 @@ func TestHandleAlertTemplate(t *testing.T) {
 			}
 
 			assertAnnotation(t, d.Annotations, "nais_apm_url", tc.wantAnnotation)
-			if v := findKV(d.Annotations, "summary"); v == "" {
+			if v := findKV(d.Annotations, "summary"); v == "" && !strings.Contains(tc.url, "/custom?") {
 				t.Error("missing summary annotation")
+			}
+			if tc.wantThreshold == 0 && findKV(d.Labels, "severity") != "warning" {
+				t.Error("expected warning severity")
 			}
 			if v := findKV(d.Labels, "source"); v != "nais-apm" {
 				t.Errorf("label source = %q, want nais-apm", v)
@@ -440,6 +467,8 @@ func TestAlertTemplateRequiresRoutingLabels(t *testing.T) {
 		{"multiple environments", "/alert-templates/slo-burn-rate?namespace=team-a&service=my-svc&environment=dev-gcp,prod-gcp"},
 		{"trailing empty environment", "/alert-templates/slo-burn-rate?namespace=team-a&service=my-svc&environment=prod-gcp,"},
 		{"exception without environment", "/alert-templates/exception-spike?namespace=team-a&service=my-svc&hash=abc123"},
+		{"crash loop without team", "/alert-templates/crash-loop-back-off?service=my-svc&environment=prod-gcp"},
+		{"custom without environment", "/alert-templates/custom?namespace=team-a&service=my-svc"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -468,7 +497,7 @@ func TestAlertTemplateRoutingEnvironment(t *testing.T) {
 			app.settings.AlertRoutingEnvironments = map[string]string{
 				"dev": "dev-gcp", "prod": "prod-gcp",
 			}
-			for _, kind := range []string{"error-rate", "exception-spike", "web-vitals", "new-exceptions", "slo-burn-rate"} {
+			for _, kind := range []string{"error-rate", "exception-spike", "web-vitals", "new-exceptions", "slo-burn-rate", "crash-loop-back-off", "custom"} {
 				t.Run(kind, func(t *testing.T) {
 					target := fmt.Sprintf("/alert-templates/%s?namespace=team-a&service=my-svc&environment=%s", kind, tc.environment)
 					if kind == "exception-spike" {
@@ -483,7 +512,7 @@ func TestAlertTemplateRoutingEnvironment(t *testing.T) {
 					if kind == "web-vitals" {
 						matcher = fmt.Sprintf(`env="%s"`, tc.environment)
 					}
-					if !strings.Contains(expr, matcher) {
+					if kind != "custom" && !strings.Contains(expr, matcher) {
 						t.Errorf("query %q does not filter on data environment %q", expr, matcher)
 					}
 					if link := findKV(d.Annotations, "nais_apm_url"); !strings.Contains(link, "environment="+tc.environment) {
@@ -526,7 +555,7 @@ func TestAlertTemplatePreselectsTeamFolder(t *testing.T) {
 	app.healthClient = srv.Client()
 	app.serviceToken = "test-token"
 
-	for _, kind := range []string{"error-rate", "exception-spike", "web-vitals", "new-exceptions", "slo-burn-rate"} {
+	for _, kind := range []string{"error-rate", "exception-spike", "web-vitals", "new-exceptions", "slo-burn-rate", "crash-loop-back-off", "custom"} {
 		t.Run(kind, func(t *testing.T) {
 			target := fmt.Sprintf("/alert-templates/%s?namespace=team-a&service=my-svc&environment=prod-gcp", kind)
 			if kind == "exception-spike" {
@@ -646,6 +675,60 @@ func TestParseSloTarget(t *testing.T) {
 	}
 }
 
+func TestCrashLoopBackOffInstantQuery(t *testing.T) {
+	app := newAlertTemplateApp(t)
+	resp := decodeAlertTemplate(t, serveAlertTemplate(t, app,
+		"/alert-templates/crash-loop-back-off?namespace=team-a&service=my-svc&environment=prod-gcp"))
+	d := resp.Defaults
+
+	assertRuleFormContract(t, d, "mimir-prod-gcp")
+	if d.Queries[0].Model["instant"] != true || d.Queries[0].Model["range"] != false {
+		t.Errorf("expected current container state via an instant query, got %+v", d.Queries[0].Model)
+	}
+	if d.NoDataState != "OK" || d.ExecErrState != "Error" {
+		t.Errorf("expected absent waiting-reason series to be normal and query failures to remain errors, got %+v", d)
+	}
+	if thresholdParam(t, d.Queries[2]) != 0 || d.EvaluateFor != "5m" {
+		t.Error("expected threshold > 0 for 5 minutes")
+	}
+	assertURLEncoding(t, resp)
+}
+
+func TestNewExceptionsMimirTemplate(t *testing.T) {
+	app := newAlertTemplateApp(t)
+	app.settings.LogsDataSource = queries.EnvAwareDataSource{}
+	app.otelCfg.FaroLoki.Hash = "custom_hash"
+	app.settings.AlertRoutingEnvironments = map[string]string{"prod": "prod-gcp"}
+	d := decodeAlertTemplate(t, serveAlertTemplate(t, app,
+		"/alert-templates/new-exceptions?namespace=team-a&service=my-svc&environment=prod")).Defaults
+
+	assertRuleFormContract(t, d, "mimir-default")
+	wantExpr := `sum by (service_namespace, service_name, k8s_cluster_name, hash) (
+  sum_over_time(loki:apm:exception_sessions:count1m{service_namespace="team-a", service_name="my-svc", k8s_cluster_name="prod"}[30m])
+)
+unless on (service_namespace, service_name, k8s_cluster_name, hash)
+sum by (service_namespace, service_name, k8s_cluster_name, hash) (
+  count_over_time(loki:apm:exception_sessions:count1m{service_namespace="team-a", service_name="my-svc", k8s_cluster_name="prod"}[7d] offset 30m)
+)`
+	if got := d.Queries[0].Model["expr"]; got != wantExpr {
+		t.Errorf("query = %s, want %s", got, wantExpr)
+	}
+	if d.Queries[0].Model["instant"] != true || d.Queries[0].Model["range"] != false {
+		t.Errorf("expected instant query, got %+v", d.Queries[0].Model)
+	}
+	if d.NoDataState != "OK" || d.ExecErrState != "Error" {
+		t.Errorf("expected empty result to be normal and query errors to remain errors, got %+v", d)
+	}
+	if thresholdParam(t, d.Queries[2]) != 0 || d.EvaluateFor != "5m" {
+		t.Error("expected threshold > 0 for 5 minutes")
+	}
+	if !strings.Contains(findKV(d.Annotations, "summary"), "{{ $labels.hash }}") {
+		t.Error("summary must identify the exception by its recorded hash")
+	}
+	assertAnnotation(t, d.Annotations, "nais_apm_url",
+		"/a/nais-apm-app/services/team-a/my-svc?environment=prod&exceptionHash={{ $labels.hash }}&tab=issues")
+}
+
 func TestAlertTemplateDatasourceNotConfigured(t *testing.T) {
 	tests := []struct {
 		name string
@@ -654,6 +737,9 @@ func TestAlertTemplateDatasourceNotConfigured(t *testing.T) {
 		{"error-rate without metrics datasource", "/alert-templates/error-rate?namespace=team-a&service=my-svc&environment=prod-gcp"},
 		{"exception-spike without logs datasource", "/alert-templates/exception-spike?namespace=team-a&service=my-svc&environment=prod-gcp&hash=abc123"},
 		{"web-vitals without metrics datasource", "/alert-templates/web-vitals?namespace=team-a&service=my-svc&environment=prod-gcp"},
+		{"crash-loop-back-off without metrics datasource", "/alert-templates/crash-loop-back-off?namespace=team-a&service=my-svc&environment=prod-gcp"},
+		{"custom without metrics datasource", "/alert-templates/custom?namespace=team-a&service=my-svc&environment=prod-gcp"},
+		{"new-exceptions without metrics datasource", "/alert-templates/new-exceptions?namespace=team-a&service=my-svc&environment=prod-gcp"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -705,7 +791,7 @@ func TestAlertTemplateGolden(t *testing.T) {
 		{
 			name:      "new-exceptions",
 			url:       "/alert-templates/new-exceptions?namespace=team-a&service=my-svc&environment=prod-gcp",
-			wantDSUID: "loki-prod-gcp",
+			wantDSUID: "mimir-prod-gcp",
 			severity:  "info",
 		},
 		{

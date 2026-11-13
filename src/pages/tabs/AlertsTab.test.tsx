@@ -136,10 +136,21 @@ describe('AlertsTab (#32/#33 home)', () => {
     renderTab();
 
     await waitFor(() => expect(screen.getByText('No alerts configured for this service.')).toBeInTheDocument());
+    expect(screen.getByRole('heading', { name: 'Alert rules' })).toBeInTheDocument();
+    expect(screen.queryByText('Under construction')).not.toBeInTheDocument();
     // The create-alert catalog is offered regardless of whether rules exist.
-    expect(screen.getByText('Error rate')).toBeInTheDocument();
-    expect(screen.getByText('SLO fast burn (page)')).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: /Create alert/ }).length).toBeGreaterThan(0);
+    expect(screen.getByText('Web Vitals (LCP)')).toBeInTheDocument();
+    expect(screen.getByText('CrashLoopBackOff')).toBeInTheDocument();
+    expect(screen.getByText('Custom alert')).toBeInTheDocument();
+    expect(screen.getByText('New frontend exceptions')).toBeInTheDocument();
+    expect(screen.getByText('Exception spike')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Go to Issues' })).toBeInTheDocument();
+    expect(screen.queryByText('Error rate')).not.toBeInTheDocument();
+    expect(screen.queryByText('SLO fast burn (page)')).not.toBeInTheDocument();
+    expect(screen.queryByText('SLO slow burn (ticket)')).not.toBeInTheDocument();
+    expect(screen.queryByText('New exception types')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /Create alert/ })).toHaveLength(4);
+    expect(screen.getByText(/pre-filled routing labels for Slack notifications to your team/)).toBeInTheDocument();
   });
 
   it('surfaces the unavailable state', async () => {
@@ -227,18 +238,23 @@ describe('AlertsTab (#32/#33 home)', () => {
     expect(screen.queryByRole('link', { name: /Open in Grafana Alerting/ })).not.toBeInTheDocument();
   });
 
-  it('creates an alert via the template flow and navigates to the pre-filled editor', async () => {
+  it.each([
+    ['Web Vitals (LCP)', 'web-vitals'],
+    ['CrashLoopBackOff', 'crash-loop-back-off'],
+    ['Custom alert', 'custom'],
+    ['New frontend exceptions', 'new-exceptions'],
+  ])('creates %s via the template flow and navigates to the pre-filled editor', async (title, kind) => {
     renderTab();
 
-    await waitFor(() => expect(screen.getByText('Error rate')).toBeInTheDocument());
+    await screen.findByText(title);
 
     // cardTitle → cardBody → card; the Create alert button is the card's sibling.
-    const errorRateCard = screen.getByText('Error rate').parentElement!.parentElement!;
-    fireEvent.click(within(errorRateCard).getByRole('button', { name: /Create alert/ }));
+    const card = screen.getByText(title).parentElement!.parentElement!;
+    fireEvent.click(within(card).getByRole('button', { name: /Create alert/ }));
 
     await waitFor(() =>
       expect(getAlertTemplate).toHaveBeenCalledWith(
-        'error-rate',
+        kind,
         expect.objectContaining({ namespace: 'teamorders', service: 'orders', environment: 'prod-gcp' })
       )
     );
@@ -258,13 +274,10 @@ describe('AlertsTab (#32/#33 home)', () => {
     expect(getAlertTemplate).not.toHaveBeenCalled();
   });
 
-  // #123 Phase 1: the self-serve "new issue -> Slack" path. This section is
-  // deliberately NOT under the "Under construction" banner - it needs nothing
-  // provisioned per team, unlike the Grafana-folder/contact-point work.
   it('renders the new-issues PrometheusRule with a copy button', async () => {
     renderTab();
 
-    await waitFor(() => expect(screen.getByText(/New issues in your Slack channel/)).toBeInTheDocument());
+    await screen.findByRole('heading', { name: 'Alert on new frontend exceptions' });
     await waitFor(() => expect(screen.getByText(/kind: PrometheusRule/)).toBeInTheDocument());
 
     expect(getNewExceptionsPrometheusRule).toHaveBeenCalledWith({
@@ -276,7 +289,11 @@ describe('AlertsTab (#32/#33 home)', () => {
     // Faro-only: the recording rule filters session_id!="", so a backend-only
     // app gets a rule that never fires. Say so in THIS section (the web-vitals
     // card carries the same sentence), and give the check for it.
-    const section = screen.getByText(/New issues in your Slack channel/).closest('section')!;
+    const section = screen.getByRole('heading', { name: 'Alert on new frontend exceptions' }).closest('section')!;
+    expect(within(section).getByText(/templates above open rules you review and save in Grafana/)).toBeInTheDocument();
+    expect(within(section).getByText(/PrometheusRule is managed as code/)).toBeInTheDocument();
+    expect(within(section).getByText(/not seen in the preceding 7 days, not on APM issue status/)).toBeInTheDocument();
+    expect(within(section).getByText(/Slack delivery depends on that configuration/)).toBeInTheDocument();
     expect(within(section).getByText(/Requires frontend \(Faro\) telemetry/)).toBeInTheDocument();
     expect(within(section).getByText(/count\(loki:apm:exception_sessions:count1m/)).toBeInTheDocument();
   });
