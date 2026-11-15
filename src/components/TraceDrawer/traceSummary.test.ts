@@ -1,5 +1,5 @@
 import { FieldType, LoadingState, PanelData, toDataFrame } from '@grafana/data';
-import { buildTraceLogsQueries, summarizeTrace, traceLookup } from './traceSummary';
+import { buildTraceLogsQueries, hitLineLimit, summarizeTrace, traceLookup } from './traceSummary';
 
 // One row per span, as Tempo's trace-by-ID query returns it (times in ms).
 function traceFrame(
@@ -106,10 +106,21 @@ describe('buildTraceLogsQueries', () => {
   it('finds the ID in the line, or only in structured metadata, never the same line twice', () => {
     expect(buildTraceLogsQueries(TRACE, { serviceLabel: 'service_name', services: ['cartservice'] })).toEqual([
       // As apps log it, with the leading zero Tempo's search results drop.
-      `{service_name="cartservice"} |= "${FULL}"${FORMAT}`,
+      `{service_name="cartservice"} |~ "(?i)${FULL}"${FORMAT}`,
       // As OTLP logs carry it: in Loki's trace_id metadata, not the line.
-      `{service_name="cartservice"} != "${FULL}" | trace_id="${FULL}"${FORMAT}`,
+      `{service_name="cartservice"} !~ "(?i)${FULL}" | trace_id=~"(?i)${FULL}"${FORMAT}`,
     ]);
+  });
+
+  it('matches the ID in either case, with the same line filter in both queries', () => {
+    const [byLine, byMetadata] = buildTraceLogsQueries(TRACE, {
+      serviceLabel: 'service_name',
+      services: ['cartservice'],
+    });
+    // Loki's (?i) on a literal: a case-insensitive substring match, in and out alike.
+    expect(byLine).toContain(`|~ "(?i)${FULL}"`);
+    expect(byMetadata).toContain(`!~ "(?i)${FULL}"`);
+    expect(byMetadata).toContain(`trace_id=~"(?i)${FULL}"`);
   });
 
   it('searches every service in the trace and names the service on each line', () => {
@@ -154,7 +165,26 @@ describe('buildTraceLogsQueries', () => {
       services: ['api'],
     });
     // The short form is in the padded one too, so one line filter finds both.
-    expect(byLine).toContain('|= "2f3e0cee77ae5dc9"');
-    expect(byMetadata).toContain('!= "2f3e0cee77ae5dc9" | trace_id=~"(0{16})?2f3e0cee77ae5dc9"');
+    expect(byLine).toContain('|~ "(?i)2f3e0cee77ae5dc9"');
+    expect(byMetadata).toContain('!~ "(?i)2f3e0cee77ae5dc9" | trace_id=~"(?i)(0{16})?2f3e0cee77ae5dc9"');
+  });
+});
+
+describe('hitLineLimit', () => {
+  const lines = (count: number, refId?: string) =>
+    toDataFrame({ refId, fields: [{ name: 'Line', type: FieldType.string, values: Array(count).fill('x') }] });
+
+  it('is reached when a query returns as many lines as its limit', () => {
+    expect(hitLineLimit([lines(1000, 'A')], 1000)).toBe(true);
+    expect(hitLineLimit([lines(999, 'A')], 1000)).toBe(false);
+    expect(hitLineLimit(undefined, 1000)).toBe(false);
+  });
+
+  it("adds up a query's lines across its frames", () => {
+    expect(hitLineLimit([lines(600, 'A'), lines(400, 'A')], 1000)).toBe(true);
+  });
+
+  it('counts each query against its own limit', () => {
+    expect(hitLineLimit([lines(600, 'A'), lines(400, 'B')], 1000)).toBe(false);
   });
 });

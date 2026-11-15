@@ -130,8 +130,10 @@ it("searches the logs of the trace's services, by line and by structured metadat
   const loki = lokiRunner();
   expect(loki?.datasource.uid).toBe('loki-uid');
   expect(loki?.queries.map((q) => q.refId)).toEqual(['A', 'B']);
-  expect(loki?.queries[0].expr).toMatch(new RegExp(`^\\{service_name=~"frontend\\|cartservice"\\} \\|= "${TRACE}"`));
-  expect(loki?.queries[1].expr).toContain(`| trace_id="${TRACE}"`);
+  expect(loki?.queries[0].expr).toMatch(
+    new RegExp(`^\\{service_name=~"frontend\\|cartservice"\\} \\|~ "\\(\\?i\\)${TRACE}"`)
+  );
+  expect(loki?.queries[1].expr).toContain(`| trace_id=~"(?i)${TRACE}"`);
 });
 
 it('scopes a shared Loki to the environment with the built-in label when none is configured', () => {
@@ -173,7 +175,10 @@ it('says when a logs query hit its line limit, and offers all lines in Explore',
   traceData = loaded;
   logsData = {
     state: LoadingState.Done,
-    series: [toDataFrame({ fields: [{ name: 'Line', type: FieldType.string, values: Array(1000).fill('x') }] })],
+    // One query's lines in two frames: together they reach the limit.
+    series: [600, 400].map((count) =>
+      toDataFrame({ refId: 'A', fields: [{ name: 'Line', type: FieldType.string, values: Array(count).fill('x') }] })
+    ),
   } as unknown as PanelData;
   renderDrawer(`?traceId=${TRACE}`, { logsUid: 'loki-uid' });
   fireEvent.click(screen.getByText('Logs'));

@@ -133,8 +133,9 @@ function labelMatcher(label: string, values: string[]): string {
  * - the ID in the line itself (a JSON `trace_id`, or anywhere in plain text);
  * - the ID only in Loki's `trace_id` structured metadata, as OTLP logs carry it.
  * A 64-bit (B3) trace ID, whose padded form starts with 16 zeros, may be logged as its 16 low
- * characters, so both queries look for that form too. Lines from more than one service start
- * with the service's name. Empty without a service.
+ * characters, so both queries look for that form too. The ID matches in either case: the drawer
+ * lowercases it, an app may log it in capitals. Lines from more than one service start with the
+ * service's name. Empty without a service.
  */
 export function buildTraceLogsQueries(traceId: string, opts: TraceLogsOptions): string[] {
   const services = [...new Set(opts.services.filter(Boolean))];
@@ -149,15 +150,33 @@ export function buildTraceLogsQueries(traceId: string, opts: TraceLogsOptions): 
     environments.length > 0 && opts.clusterLabel ? `, ${labelMatcher(opts.clusterLabel, environments)}` : '';
   const selector = `{${labelMatcher(opts.serviceLabel, services)}${clusterMatcher}}`;
   // Validated hex by the drawer; the short form is a substring of the padded one, so one line
-  // filter catches both.
+  // filter catches both. Loki runs a case-insensitive literal as a substring match, not a regex.
   const full = fullTraceId(traceId);
   const isB3 = full.startsWith('0'.repeat(16));
   const needle = isB3 ? full.slice(16) : full;
-  const metadata = isB3 ? `trace_id=~"(0{16})?${needle}"` : `trace_id="${full}"`;
+  const inLine = `"(?i)${needle}"`;
+  const metadata = `trace_id=~"(?i)${isB3 ? `(0{16})?${needle}` : full}"`;
   const message = '{{ if .message }}{{ .message }}{{ else if .msg }}{{ .msg }}{{ else }}{{ __line__ }}{{ end }}';
   const line = services.length > 1 ? `{{ .${opts.serviceLabel} }}  ${message}` : message;
   const format = ` | json | line_format \`${line}\` | drop __error__, __error_details__`;
-  return [`${selector} |= "${needle}"${format}`, `${selector} != "${needle}" | ${metadata}${format}`];
+  return [`${selector} |~ ${inLine}${format}`, `${selector} !~ ${inLine} | ${metadata}${format}`];
+}
+
+/**
+ * Whether a logs query returned as many lines as its limit, so may have more. The limit is per
+ * query, and one query's lines can come in several frames (a frame per stream, say), so the
+ * frames are counted per query.
+ */
+export function hitLineLimit(series: DataFrame[] | undefined, limit: number): boolean {
+  const lines = new Map<string | undefined, number>();
+  for (const frame of series ?? []) {
+    const count = (lines.get(frame.refId) ?? 0) + frame.length;
+    if (count >= limit) {
+      return true;
+    }
+    lines.set(frame.refId, count);
+  }
+  return false;
 }
 
 /** A trace's duration as the trace view shows it: µs under a millisecond, s from a second. */

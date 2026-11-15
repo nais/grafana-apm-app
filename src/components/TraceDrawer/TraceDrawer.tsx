@@ -40,6 +40,7 @@ import {
   TraceSummary,
   buildTraceLogsQueries,
   formatTraceDuration,
+  hitLineLimit,
   summarizeTrace,
   traceLookup,
 } from './traceSummary';
@@ -333,7 +334,7 @@ function TraceLogs({
   }, [exprKey, logsUid, fromMs, toMs]);
   const { data } = runner.useState();
   // A query that hit its limit may have more: say so, and offer every line in Explore.
-  const truncated = data?.series?.some((frame) => frame.length >= LOG_LINE_LIMIT) ?? false;
+  const truncated = hitLineLimit(data?.series, LOG_LINE_LIMIT);
 
   if (exprs.length === 0) {
     return null;
