@@ -92,7 +92,7 @@ export type TraceLookup =
  */
 export function traceLookup(data: PanelData | undefined): TraceLookup {
   if (data?.state === LoadingState.Error) {
-    const message = data.errors?.[0]?.message ?? data.error?.message ?? '';
+    const message = data.errors?.[0]?.message ?? '';
     return /not found|404/i.test(message) ? { status: 'not-found' } : { status: 'error', message };
   }
   if (data?.state === LoadingState.Done) {

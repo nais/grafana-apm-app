@@ -82,10 +82,12 @@ describe('traceLookup', () => {
       status: 'error',
       message: 'Forbidden',
     });
-    expect(traceLookup(data(LoadingState.Error, { error: { message: 'connection refused' } }))).toEqual({
+    expect(traceLookup(data(LoadingState.Error, { errors: [{ message: 'connection refused' }] }))).toEqual({
       status: 'error',
       message: 'connection refused',
     });
+    // An error without a message is still an error.
+    expect(traceLookup(data(LoadingState.Error, { errors: [] }))).toEqual({ status: 'error', message: '' });
   });
 });
 
