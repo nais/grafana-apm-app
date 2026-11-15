@@ -150,7 +150,11 @@ describe('AlertsTab (#32/#33 home)', () => {
     expect(screen.queryByText('SLO slow burn (ticket)')).not.toBeInTheDocument();
     expect(screen.queryByText('New exception types')).not.toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /Create alert/ })).toHaveLength(4);
-    expect(screen.getByText(/pre-filled routing labels for Slack notifications to your team/)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Routing labels are prefilled for your team. Check Preview routing before saving to confirm the intended Slack channel.'
+      )
+    ).toBeInTheDocument();
   });
 
   it('surfaces the unavailable state', async () => {
@@ -250,6 +254,8 @@ describe('AlertsTab (#32/#33 home)', () => {
 
     // cardTitle → cardBody → card; the Create alert button is the card's sibling.
     const card = screen.getByText(title).parentElement!.parentElement!;
+    expect(card).not.toHaveTextContent(/Grafana/i);
+    expect(card.closest('section')).not.toHaveTextContent(/Grafana/i);
     fireEvent.click(within(card).getByRole('button', { name: /Create alert/ }));
 
     await waitFor(() =>
@@ -267,7 +273,8 @@ describe('AlertsTab (#32/#33 home)', () => {
     ['no team', 'prod-gcp', '_'],
   ])('disables Grafana alert templates with %s', async (_name, environment, namespace) => {
     renderTab(['/'], environment, namespace);
-    await screen.findByText(/Select a team and exactly one environment/);
+    const guidance = await screen.findByText(/Select a team and exactly one environment/);
+    expect(guidance).not.toHaveTextContent(/Grafana/i);
     for (const button of screen.getAllByRole('button', { name: /Create alert/ })) {
       expect(button).toBeDisabled();
     }
@@ -290,7 +297,8 @@ describe('AlertsTab (#32/#33 home)', () => {
     // app gets a rule that never fires. Say so in THIS section (the web-vitals
     // card carries the same sentence), and give the check for it.
     const section = screen.getByRole('heading', { name: 'Alert on new frontend exceptions' }).closest('section')!;
-    expect(within(section).getByText(/templates above open rules you review and save in Grafana/)).toBeInTheDocument();
+    expect(within(section).getByText(/templates above open a pre-filled alert editor/)).toBeInTheDocument();
+    expect(section).not.toHaveTextContent(/Grafana/i);
     expect(within(section).getByText(/PrometheusRule is managed as code/)).toBeInTheDocument();
     expect(within(section).getByText(/not seen in the preceding 7 days, not on APM issue status/)).toBeInTheDocument();
     expect(within(section).getByText(/Slack delivery depends on that configuration/)).toBeInTheDocument();
