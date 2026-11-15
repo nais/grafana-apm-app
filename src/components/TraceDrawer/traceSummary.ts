@@ -1,4 +1,4 @@
-import { DataFrame, Field } from '@grafana/data';
+import { DataFrame, Field, LoadingState, PanelData } from '@grafana/data';
 import { escapePromQLRegex } from '../../utils/debounce';
 import { escapeQueryString, sanitizeLabelValue } from '../../utils/sanitize';
 import { fullTraceId } from './traceLinks';
@@ -82,10 +82,29 @@ export function summarizeTrace(frame: DataFrame | undefined): TraceSummary | und
   };
 }
 
+/** Where a trace lookup stands: the drawer's message, and whether the Logs tab can run. */
+export type TraceLookup =
+  { status: 'loading' } | { status: 'found' } | { status: 'not-found' } | { status: 'error'; message: string };
+
+/**
+ * Tells a trace Tempo does not have (a successful empty answer, or its 404) from a lookup that
+ * failed (no access, network, a Tempo error): the first is about the trace, the second is not.
+ */
+export function traceLookup(data: PanelData | undefined): TraceLookup {
+  if (data?.state === LoadingState.Error) {
+    const message = data.errors?.[0]?.message ?? data.error?.message ?? '';
+    return /not found|404/i.test(message) ? { status: 'not-found' } : { status: 'error', message };
+  }
+  if (data?.state === LoadingState.Done) {
+    return data.series?.[0]?.length ? { status: 'found' } : { status: 'not-found' };
+  }
+  return { status: 'loading' };
+}
+
 interface TraceLogsOptions {
   /** Loki stream label naming the service. */
   serviceLabel: string;
-  /** Services whose streams are searched: the trace's, or the page's service before it loads. */
+  /** The services in the trace: only their streams are searched. */
   services: string[];
   /** For a Loki shared by environments: the label and value scoping the streams. */
   clusterLabel?: string;
@@ -93,14 +112,17 @@ interface TraceLogsOptions {
 }
 
 /**
- * LogQL for the log lines of one trace: the streams of the services in the trace, filtered on
- * the trace ID as apps write it (JSON `trace_id`). Lines from more than one service start with
- * the service's name.
+ * LogQL for the log lines of one trace, in the streams of the services in the trace. Two
+ * queries, so a line is found however it carries the ID and never twice:
+ * - the ID in the line itself (a JSON `trace_id`, or anywhere in plain text);
+ * - the ID only in Loki's `trace_id` structured metadata, as OTLP logs carry it.
+ * Lines from more than one service start with the service's name. Empty when no service name
+ * is a valid label value.
  */
-export function buildTraceLogsExpr(traceId: string, opts: TraceLogsOptions): string {
+export function buildTraceLogsQueries(traceId: string, opts: TraceLogsOptions): string[] {
   const services = opts.services.map(sanitizeLabelValue).filter(Boolean);
   if (services.length === 0) {
-    return '';
+    return [];
   }
   const serviceMatcher =
     services.length === 1
@@ -108,12 +130,12 @@ export function buildTraceLogsExpr(traceId: string, opts: TraceLogsOptions): str
       : `${opts.serviceLabel}=~"${services.map(escapePromQLRegex).join('|')}"`;
   const cluster = opts.clusterFilter ? sanitizeLabelValue(opts.clusterFilter) : '';
   const clusterMatcher = cluster && opts.clusterLabel ? `, ${opts.clusterLabel}="${cluster}"` : '';
+  const selector = `{${serviceMatcher}${clusterMatcher}}`;
+  const id = escapeQueryString(fullTraceId(traceId));
   const message = '{{ if .message }}{{ .message }}{{ else if .msg }}{{ .msg }}{{ else }}{{ __line__ }}{{ end }}';
   const line = services.length > 1 ? `{{ .${opts.serviceLabel} }}  ${message}` : message;
-  return (
-    `{${serviceMatcher}${clusterMatcher}} |= "${escapeQueryString(fullTraceId(traceId))}"` +
-    ` | json | line_format \`${line}\` | drop __error__, __error_details__`
-  );
+  const format = ` | json | line_format \`${line}\` | drop __error__, __error_details__`;
+  return [`${selector} |= "${id}"${format}`, `${selector} != "${id}" | trace_id="${id}"${format}`];
 }
 
 /** A trace's duration as the trace view shows it: µs under a millisecond, s from a second. */

@@ -38,18 +38,38 @@ export function openTraceDrawer(traceId: string, spanId?: string): void {
 
 /**
  * The current page with the drawer open on a trace: the target of a Ctrl/Cmd-click (new tab)
- * and of a copied link. `traceId` and `spanId` go in unencoded, so they may be data-link
- * templates such as `${__value.raw}`; every other param is encoded, so no `$` survives to be
- * read as a template.
+ * and of a copied link. Build it when rendering the link, so it carries the page's current tab
+ * and filters.
  */
 export function traceDrawerHref(traceId: string, spanId?: string): string {
   const location = locationService.getLocation();
   const params = new URLSearchParams(location.search);
   params.delete(TRACE_ID_PARAM);
   params.delete(SPAN_ID_PARAM);
-  const rest = params.toString();
+  params.set(TRACE_ID_PARAM, traceId);
+  if (spanId) {
+    params.set(SPAN_ID_PARAM, spanId);
+  }
+  return `${location.pathname}?${params}`;
+}
+
+/**
+ * The same href for a data link, as a template Grafana fills in when it renders the link: the
+ * page's current path and params (Scenes' `__url` macro) rather than a snapshot from when the
+ * data arrived, which a tab kept mounted in the background would carry long after the URL moved
+ * on. `traceId` and `spanId` are templates too, such as `${__value.raw}`.
+ */
+function traceDrawerHrefTemplate(traceId: string, spanId?: string): string {
   const span = spanId ? `&${SPAN_ID_PARAM}=${spanId}` : '';
-  return `${location.pathname}?${rest ? `${rest}&` : ''}${TRACE_ID_PARAM}=${traceId}${span}`;
+  return (
+    `\${__url.path:raw}\${__url.params:exclude:${TRACE_ID_PARAM},${SPAN_ID_PARAM}}` +
+    `&${TRACE_ID_PARAM}=${traceId}${span}`
+  );
+}
+
+/** A click meant for a new tab or window (modifier key, or not the main button). */
+function opensElsewhere(event?: Pick<MouseEvent, 'button' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey'>): boolean {
+  return !!event && (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey);
 }
 
 /**
@@ -57,11 +77,11 @@ export function traceDrawerHref(traceId: string, spanId?: string): string {
  * the drawer in place; a click meant for a new tab or window follows the href.
  */
 export function openTraceOnClick(traceId: string, spanId?: string) {
-  return (event: MouseEvent<HTMLElement>) => {
-    if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) {
+  return (event?: MouseEvent<HTMLElement>) => {
+    if (opensElsewhere(event)) {
       return;
     }
-    event.preventDefault();
+    event?.preventDefault();
     openTraceDrawer(traceId, spanId);
   };
 }
@@ -74,7 +94,7 @@ export function openTraceOnClick(traceId: string, spanId?: string) {
 export function traceIdDataLink(): DataLink {
   return {
     title: 'Open trace',
-    url: traceDrawerHref('${__value.raw}'),
+    url: traceDrawerHrefTemplate('${__value.raw}'),
     onClick: (event: DataLinkClickEvent) => {
       openTraceDrawer(event.replaceVariables?.('${__value.raw}') ?? '');
     },
@@ -88,7 +108,7 @@ export function traceIdDataLink(): DataLink {
 export function spanIdDataLink(): DataLink {
   return {
     title: 'Open span',
-    url: traceDrawerHref('${__data.fields.traceIdHidden}', '${__value.raw}'),
+    url: traceDrawerHrefTemplate('${__data.fields.traceIdHidden}', '${__value.raw}'),
     onClick: (event: DataLinkClickEvent) => {
       const replace = event.replaceVariables;
       openTraceDrawer(replace?.('${__data.fields.traceIdHidden}') ?? '', replace?.('${__value.raw}') ?? '');

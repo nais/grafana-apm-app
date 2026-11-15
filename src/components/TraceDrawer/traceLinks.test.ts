@@ -77,10 +77,12 @@ describe('traceDrawerHref', () => {
     );
   });
 
-  it('leaves data-link templates for Grafana to fill in', () => {
-    expect(traceDrawerHref('${__data.fields.traceIdHidden}', '${__value.raw}')).toMatch(
-      /&traceId=\$\{__data\.fields\.traceIdHidden\}&spanId=\$\{__value\.raw\}$/
-    );
+  it("builds data-link hrefs from the page's URL when Grafana renders the link, not a snapshot", () => {
+    // A tab kept mounted in the background would otherwise carry the URL from when its data
+    // arrived; Scenes' __url macro reads the location when the link is drawn.
+    const page = '${__url.path:raw}${__url.params:exclude:traceId,spanId}';
+    expect(traceIdDataLink().url).toBe(`${page}&traceId=\${__value.raw}`);
+    expect(spanIdDataLink().url).toBe(`${page}&traceId=\${__data.fields.traceIdHidden}&spanId=\${__value.raw}`);
   });
 
   it('encodes a $ in other params, so Grafana never reads it as a template', () => {
@@ -206,6 +208,11 @@ describe('openTraceOnClick', () => {
     const event = click({});
     openTraceOnClick(TRACE)(event);
     expect(event.preventDefault).toHaveBeenCalled();
+    expect(partial).toHaveBeenCalledWith({ traceId: TRACE, spanId: null });
+  });
+
+  it('opens the drawer when called without an event', () => {
+    openTraceOnClick(TRACE)();
     expect(partial).toHaveBeenCalledWith({ traceId: TRACE, spanId: null });
   });
 

@@ -1,5 +1,5 @@
-import { FieldType, toDataFrame } from '@grafana/data';
-import { buildTraceLogsExpr, summarizeTrace } from './traceSummary';
+import { FieldType, LoadingState, PanelData, toDataFrame } from '@grafana/data';
+import { buildTraceLogsQueries, summarizeTrace, traceLookup } from './traceSummary';
 
 // One row per span, as Tempo's trace-by-ID query returns it (times in ms).
 function traceFrame(
@@ -21,18 +21,18 @@ describe('summarizeTrace', () => {
   it('names the trace after its root span and counts services, spans and errors', () => {
     const summary = summarizeTrace(
       traceFrame([
-        { parent: 'a', name: 'SELECT raffles', service: 'raffles', start: 1010, duration: 5, status: 2 },
-        { parent: '', name: 'GET /v1/raffles', service: 'raffles', start: 1000, duration: 40 },
-        { parent: 'b', name: 'publish', service: 'socket', start: 1030, duration: 25 },
-        { parent: 'c', name: 'auth', service: 'services', start: 1002, duration: 3, status: 2 },
+        { parent: 'a', name: 'SELECT cart_items', service: 'cartservice', start: 1010, duration: 5, status: 2 },
+        { parent: '', name: 'GET /api/cart', service: 'cartservice', start: 1000, duration: 40 },
+        { parent: 'b', name: 'POST /api/quote', service: 'pricingservice', start: 1030, duration: 25 },
+        { parent: 'c', name: 'GET /cart', service: 'frontend', start: 1002, duration: 3, status: 2 },
       ])
     );
     expect(summary).toEqual({
-      rootName: 'GET /v1/raffles',
-      rootService: 'raffles',
-      services: ['raffles', 'services', 'socket'],
+      rootName: 'GET /api/cart',
+      rootService: 'cartservice',
+      services: ['cartservice', 'frontend', 'pricingservice'],
       startMs: 1000,
-      // The socket span ends after the root.
+      // The pricing span ends after the root.
       durationMs: 55,
       spanCount: 4,
       errorCount: 2,
@@ -57,32 +57,70 @@ describe('summarizeTrace', () => {
   });
 });
 
-describe('buildTraceLogsExpr', () => {
-  const TRACE = '2f3e0cee77ae5dc9c17ade3689eb2e5';
+describe('traceLookup', () => {
+  const data = (state: LoadingState, extra: Partial<PanelData> = {}) => ({ state, series: [], ...extra }) as PanelData;
 
-  it("searches one service's streams for the trace ID as apps log it", () => {
-    expect(buildTraceLogsExpr(TRACE, { serviceLabel: 'service', services: ['raffles'] })).toBe(
-      '{service="raffles"} |= "02f3e0cee77ae5dc9c17ade3689eb2e5" | json | line_format ' +
-        '`{{ if .message }}{{ .message }}{{ else if .msg }}{{ .msg }}{{ else }}{{ __line__ }}{{ end }}`' +
-        ' | drop __error__, __error_details__'
-    );
+  it('is loading until Tempo answers', () => {
+    expect(traceLookup(undefined)).toEqual({ status: 'loading' });
+    expect(traceLookup(data(LoadingState.Loading))).toEqual({ status: 'loading' });
+  });
+
+  it('finds a trace with spans', () => {
+    const frame = traceFrame([{ parent: '', name: 'GET /', service: 'a', start: 1, duration: 1 }]);
+    expect(traceLookup(data(LoadingState.Done, { series: [frame] }))).toEqual({ status: 'found' });
+  });
+
+  it("reports a trace Tempo does not have: an empty answer, or Tempo's 404", () => {
+    expect(traceLookup(data(LoadingState.Done))).toEqual({ status: 'not-found' });
+    expect(
+      traceLookup(data(LoadingState.Error, { errors: [{ message: 'failed to get trace: 404 Not Found' }] }))
+    ).toEqual({ status: 'not-found' });
+  });
+
+  it('reports a failed lookup as an error, not as a missing trace', () => {
+    expect(traceLookup(data(LoadingState.Error, { errors: [{ message: 'Forbidden' }] }))).toEqual({
+      status: 'error',
+      message: 'Forbidden',
+    });
+    expect(traceLookup(data(LoadingState.Error, { error: { message: 'connection refused' } }))).toEqual({
+      status: 'error',
+      message: 'connection refused',
+    });
+  });
+});
+
+describe('buildTraceLogsQueries', () => {
+  const TRACE = '2f3e0cee77ae5dc9c17ade3689eb2e5';
+  const FULL = '02f3e0cee77ae5dc9c17ade3689eb2e5';
+  const FORMAT =
+    ' | json | line_format `{{ if .message }}{{ .message }}{{ else if .msg }}{{ .msg }}{{ else }}{{ __line__ }}{{ end }}`' +
+    ' | drop __error__, __error_details__';
+
+  it('finds the ID in the line, or only in structured metadata, never the same line twice', () => {
+    expect(buildTraceLogsQueries(TRACE, { serviceLabel: 'service_name', services: ['cartservice'] })).toEqual([
+      // As apps log it, with the leading zero Tempo's search results drop.
+      `{service_name="cartservice"} |= "${FULL}"${FORMAT}`,
+      // As OTLP logs carry it: in Loki's trace_id metadata, not the line.
+      `{service_name="cartservice"} != "${FULL}" | trace_id="${FULL}"${FORMAT}`,
+    ]);
   });
 
   it('searches every service in the trace and names the service on each line', () => {
-    const expr = buildTraceLogsExpr(TRACE, {
-      serviceLabel: 'service',
-      services: ['raffles', 'socket.io'],
-      clusterLabel: 'deployment_environment',
-      clusterFilter: 'staging',
+    const [byLine, byMetadata] = buildTraceLogsQueries(TRACE, {
+      serviceLabel: 'service_name',
+      services: ['cartservice', 'pricing.v2'],
+      clusterLabel: 'k8s_cluster_name',
+      clusterFilter: 'prod',
     });
-    expect(expr).toContain('{service=~"raffles|socket\\\\.io", deployment_environment="staging"}');
-    expect(expr).toContain('`{{ .service }}  {{ if .message }}');
+    const selector = '{service_name=~"cartservice|pricing\\\\.v2", k8s_cluster_name="prod"}';
+    expect(byLine).toContain(selector);
+    expect(byMetadata).toContain(selector);
+    expect(byLine).toContain('`{{ .service_name }}  {{ if .message }}');
   });
 
   it('drops a service name that is not a label value, and gives up when none is left', () => {
-    expect(buildTraceLogsExpr(TRACE, { serviceLabel: 'service', services: ['a"} |= "x', 'api'] })).toMatch(
-      /^\{service="api"\}/
-    );
-    expect(buildTraceLogsExpr(TRACE, { serviceLabel: 'service', services: [''] })).toBe('');
+    const [byLine] = buildTraceLogsQueries(TRACE, { serviceLabel: 'service_name', services: ['a"} |= "x', 'api'] });
+    expect(byLine).toMatch(/^\{service_name="api"\}/);
+    expect(buildTraceLogsQueries(TRACE, { serviceLabel: 'service_name', services: [''] })).toEqual([]);
   });
 });

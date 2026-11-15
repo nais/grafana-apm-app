@@ -33,7 +33,7 @@ import { SortHeader, ImpactBar, useTableSort, getTableStyles } from '../componen
 import { getSectionStyles } from '../utils/styles';
 import { useFetch } from '../utils/useFetch';
 import { usePluginDatasources, usePluginLabelOverrides } from '../utils/datasources';
-import { useCapabilities } from '../utils/capabilities';
+import { useCapabilities, datasourceStatus } from '../utils/capabilities';
 import { escapePromQLRegex } from '../utils/debounce';
 import { otel } from '../otelconfig';
 import { TraceDrawer } from '../components/TraceDrawer/TraceDrawer';
@@ -374,17 +374,14 @@ function DependencyDetail() {
         </DataState>
       </div>
 
-      {caps?.tempo?.available !== false && (
-        <TraceDrawer
-          tracesUid={ds.tracesUid}
-          logsUid={caps?.loki?.available !== false ? ds.logsUid : undefined}
-          logsServiceLabel={labelOverrides.serviceNameLabel}
-          clusterFilter={!ds.isLogsEnvSpecific ? envFilter || undefined : undefined}
-          clusterLabel={labelOverrides.deploymentEnvLabel}
-          // A dependency is not a service: its logs come from the services in the trace.
-          service=""
-        />
-      )}
+      {/* Mounted whenever there is a Tempo to ask, as on the service page. */}
+      <TraceDrawer
+        tracesUid={ds.tracesUid}
+        logsUid={datasourceStatus(caps?.lokiByEnv, caps?.loki, envFilter)?.available !== false ? ds.logsUid : undefined}
+        logsServiceLabel={labelOverrides.serviceNameLabel}
+        clusterFilter={!ds.isLogsEnvSpecific ? envFilter || undefined : undefined}
+        clusterLabel={labelOverrides.deploymentEnvLabel}
+      />
     </PluginPage>
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getCapabilities, Capabilities } from '../api/client';
+import { getCapabilities, Capabilities, DataSourceStatus } from '../api/client';
 
 let cachedCapabilities: Capabilities | null = null;
 let fetchPromise: Promise<Capabilities> | null = null;
@@ -45,6 +45,18 @@ export function useCapabilities(): { caps: Capabilities | null; loading: boolean
  * probe (M7). Kept here rather than in api/client.ts so the profiling feature's
  * type surface stays self-contained.
  */
+/**
+ * The status of the datasource a page actually queries: the environment's own when it has one
+ * (`tempoByEnv`, `lokiByEnv`), else the default's.
+ */
+export function datasourceStatus(
+  byEnv: Record<string, DataSourceStatus> | undefined,
+  fallback: DataSourceStatus | undefined,
+  environment?: string
+): DataSourceStatus | undefined {
+  return (environment ? byEnv?.[environment] : undefined) ?? fallback;
+}
+
 export interface PyroscopeCapability {
   available: boolean;
   uid?: string;

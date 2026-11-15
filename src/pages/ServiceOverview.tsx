@@ -15,7 +15,7 @@ import { ErrorBoundary } from '../components/ErrorBoundary';
 import { usePluginDatasources, useHasEnvironmentOverrides, usePluginLabelOverrides } from '../utils/datasources';
 import { useTimeRange } from '../utils/timeRange';
 import { TraceDrawer } from '../components/TraceDrawer/TraceDrawer';
-import { useCapabilities, getMetricNames, getPyroscope } from '../utils/capabilities';
+import { useCapabilities, getMetricNames, getPyroscope, datasourceStatus } from '../utils/capabilities';
 import { useAppNavigate, sanitizeParam } from '../utils/navigation';
 import { hasAlertRoutingContext } from '../utils/alertRouting';
 import { useServiceData } from '../utils/useServiceData';
@@ -576,17 +576,18 @@ function ServiceOverviewInner({ namespace, service }: { namespace: string; servi
           )}
         </div>
 
-        {/* A trace opened from any tab (`traceId` in the URL) slides in over the page. */}
-        {caps?.tempo?.available !== false && (
-          <TraceDrawer
-            tracesUid={ds.tracesUid}
-            logsUid={caps?.loki?.available !== false ? ds.logsUid : undefined}
-            logsServiceLabel={labelOverrides.serviceNameLabel}
-            clusterFilter={!ds.isLogsEnvSpecific ? envFilter || undefined : undefined}
-            clusterLabel={labelOverrides.deploymentEnvLabel}
-            service={service}
-          />
-        )}
+        {/* A trace opened from any tab (`traceId` in the URL) slides in over the page. It mounts
+            whenever there is a Tempo to ask, so a trace link never does nothing: a failed lookup
+            shows its error in the drawer. The Logs tab follows the environment's own Loki. */}
+        <TraceDrawer
+          tracesUid={ds.tracesUid}
+          logsUid={
+            datasourceStatus(caps?.lokiByEnv, caps?.loki, envFilter)?.available !== false ? ds.logsUid : undefined
+          }
+          logsServiceLabel={labelOverrides.serviceNameLabel}
+          clusterFilter={!ds.isLogsEnvSpecific ? envFilter || undefined : undefined}
+          clusterLabel={labelOverrides.deploymentEnvLabel}
+        />
       </div>
     </PluginPage>
   );

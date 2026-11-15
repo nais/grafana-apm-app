@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { css } from '@emotion/css';
-import { Field, GrafanaTheme2, LinkModel, LoadingState, dateTimeFormat } from '@grafana/data';
-import { Alert, ClipboardButton, Drawer, LinkButton, Tab, TabsBar, useStyles2 } from '@grafana/ui';
+import { Field, GrafanaTheme2, LinkModel, dateTimeFormat } from '@grafana/data';
+import { Alert, ClipboardButton, Drawer, LinkButton, LoadingPlaceholder, Tab, TabsBar, useStyles2 } from '@grafana/ui';
 import {
   EmbeddedScene,
   PanelBuilders,
@@ -19,7 +19,7 @@ import { useUrlParams } from '../../utils/useUrlState';
 import {
   SPAN_ID_PARAM,
   TRACE_ID_PARAM,
-  openTraceDrawer,
+  openTraceOnClick,
   traceDrawerHref,
   validSpanId,
   validTraceId,
@@ -28,9 +28,10 @@ import { traceDrawerData } from './traceDrawerData';
 import {
   TRACE_LOGS_MARGIN_MS,
   TraceSummary,
-  buildTraceLogsExpr,
+  buildTraceLogsQueries,
   formatTraceDuration,
   summarizeTrace,
+  traceLookup,
 } from './traceSummary';
 
 export interface TraceDrawerProps {
@@ -43,8 +44,6 @@ export interface TraceDrawerProps {
   /** For a Loki shared by environments: the label and value scoping the log streams. */
   clusterLabel?: string;
   clusterFilter?: string;
-  /** The page's service: whose logs the Logs tab searches until the trace has loaded. */
-  service: string;
 }
 
 type DrawerTab = 'trace' | 'logs';
@@ -70,9 +69,9 @@ function TraceDrawerContent({
   logsUid,
   // The Logs tab's default: the label Faro and the log pipeline write.
   logsServiceLabel = otel.faroLoki.serviceName,
-  clusterLabel,
+  // As the Logs tab: without a configured label, the built-in one still scopes a shared Loki.
+  clusterLabel = otel.labels.deploymentEnv,
   clusterFilter,
-  service,
   traceId,
   spanId,
 }: TraceDrawerProps & { traceId: string; spanId: string }) {
@@ -90,8 +89,7 @@ function TraceDrawerContent({
   );
   const { data } = runner.useState();
   const summary = useMemo(() => summarizeTrace(data?.series?.[0]), [data]);
-  const notFound =
-    data?.state === LoadingState.Error || (data?.state === LoadingState.Done && !data.series?.[0]?.length);
+  const lookup = traceLookup(data);
 
   // Focus moves without rebuilding the scene: span links inside the trace only change `spanId`.
   useEffect(() => {
@@ -123,10 +121,15 @@ function TraceDrawerContent({
       }
     >
       <div className={styles.body}>
-        {notFound && (
+        {lookup.status === 'not-found' && (
           <Alert severity="warning" title="Trace not found">
             Tempo has no trace {traceId}. It can take a few seconds to appear after the request ends, and is gone once
             it is past retention.
+          </Alert>
+        )}
+        {lookup.status === 'error' && (
+          <Alert severity="error" title="Could not load the trace">
+            {lookup.message || 'The trace lookup failed.'}
           </Alert>
         )}
         {/* Hidden, not unmounted: back on this tab the trace is still there, not fetched again. */}
@@ -135,16 +138,26 @@ function TraceDrawerContent({
         </div>
         {tab === 'logs' && logsUid && (
           <div className={styles.pane}>
-            <TraceLogs
-              traceId={traceId}
-              logsUid={logsUid}
-              serviceLabel={logsServiceLabel}
-              services={summary?.services.length ? summary.services : [service]}
-              clusterLabel={clusterLabel}
-              clusterFilter={clusterFilter}
-              fromMs={range.from}
-              toMs={range.to}
-            />
+            {/* The search is scoped to the trace's services and time, so it waits for the trace
+                rather than scanning the page's whole range. */}
+            {summary ? (
+              <TraceLogs
+                traceId={traceId}
+                logsUid={logsUid}
+                serviceLabel={logsServiceLabel}
+                services={summary.services}
+                clusterLabel={clusterLabel}
+                clusterFilter={clusterFilter}
+                fromMs={range.from}
+                toMs={range.to}
+              />
+            ) : lookup.status === 'loading' ? (
+              <LoadingPlaceholder text="Loading the trace…" />
+            ) : (
+              <p className={styles.note}>
+                The logs are looked up by the trace&apos;s services and time, so they need the trace to load.
+              </p>
+            )}
           </div>
         )}
       </div>
@@ -158,16 +171,13 @@ function buildTraceScene(traceId: string, tracesUid: string, fromMs: number, toM
     queries: [{ refId: 'A', queryType: 'traceql', query: traceId }],
   });
   // A span reference inside the trace (parent, child, a link to another trace) refocuses the
-  // drawer instead of opening Explore.
+  // drawer instead of opening Explore; a new-tab click opens it in a new tab.
   const createFocusSpanLink = (linkTraceId: string, linkSpanId: string): LinkModel<Field> => ({
     title: 'Open span',
     href: traceDrawerHref(linkTraceId, linkSpanId),
     target: '_self',
     origin: {} as Field,
-    onClick: (event?: { preventDefault?: () => void }) => {
-      event?.preventDefault?.();
-      openTraceDrawer(linkTraceId, linkSpanId);
-    },
+    onClick: openTraceOnClick(linkTraceId, linkSpanId),
   });
   const panel: VizPanel = PanelBuilders.traces()
     .setTitle('')
@@ -260,12 +270,18 @@ function TraceLogs({
   fromMs,
   toMs,
 }: TraceLogsProps) {
-  const expr = buildTraceLogsExpr(traceId, { serviceLabel, services, clusterLabel, clusterFilter });
-  const serviceKey = services.join(',');
+  const exprs = buildTraceLogsQueries(traceId, { serviceLabel, services, clusterLabel, clusterFilter });
+  // Strings stand in for the arrays, which are new on every render.
+  const exprKey = exprs.join('\n');
   const scene = useMemo(() => {
     const runner = new SceneQueryRunner({
       datasource: { uid: logsUid, type: 'loki' },
-      queries: [{ refId: 'A', expr, queryType: 'range', maxLines: 1000 }],
+      queries: exprs.map((expr, i) => ({
+        refId: String.fromCharCode(65 + i),
+        expr,
+        queryType: 'range',
+        maxLines: 1000,
+      })),
     });
     return new EmbeddedScene({
       $timeRange: new SceneTimeRange({ from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString() }),
@@ -289,11 +305,10 @@ function TraceLogs({
         ],
       }),
     });
-    // serviceKey stands in for `services`, a new array on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expr, logsUid, serviceKey, fromMs, toMs]);
+  }, [exprKey, logsUid, fromMs, toMs]);
 
-  if (!expr) {
+  if (exprs.length === 0) {
     return null;
   }
   return <scene.Component model={scene} />;
@@ -339,6 +354,10 @@ const getStyles = (theme: GrafanaTheme2) => ({
   `,
   traceId: css`
     font-family: ${theme.typography.fontFamilyMonospace};
+  `,
+  note: css`
+    color: ${theme.colors.text.secondary};
+    padding: ${theme.spacing(2)};
   `,
   actions: css`
     display: flex;
