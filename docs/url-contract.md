@@ -122,3 +122,31 @@ Rules for maintainers:
   issue-related annotations (`exception-spike`, `new-exceptions`) at
   `tab=issues`; the `web-vitals` template still points at `tab=frontend`
   (a UX-health alert, not an issue).
+
+## Trace drawer (every service tab + dependency detail)
+
+A trace opens in a side drawer over the page instead of in Explore: the trace
+view (waterfall, span details) and, on a Logs tab, the trace's log lines from
+every service in it. The drawer opens purely from URL state, on top of whatever
+tab or other drawer is open, so a trace is shareable without a new route:
+
+```
+/a/nais-apm-app/services/{namespace}/{service}?tab={tab}&traceId={traceId}[&spanId={spanId}]
+/a/nais-apm-app/dependencies/{name}?traceId={traceId}[&spanId={spanId}]
+```
+
+| Param     | Meaning                                                                                                                                                                                       |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `traceId` | Hex trace ID (up to 32 characters; Tempo's search results drop leading zeros). Opens the drawer on that trace. Anything that is not hex is ignored, never interpolated into TraceQL or LogQL. |
+| `spanId`  | Hex span ID (up to 16 characters). Focuses that span in the trace view. Never meaningful without `traceId`.                                                                                   |
+
+Rules for maintainers:
+
+- Open the drawer with `openTraceDrawer()` (`src/components/TraceDrawer/traceLinks.ts`):
+  one `locationService.partial` call that sets `traceId` and clears a stale
+  `spanId`, pushing a history entry so Back closes the drawer.
+- A link to a trace pairs `href={traceDrawerHref(id)}` with
+  `onClick={openTraceOnClick(id)}`: a click opens the drawer in place, a
+  new-tab click opens the same drawer in a new tab. Panels get the same through
+  `traceDrawerLinkOverrides` on their trace ID fields (`traceID`, `trace_id`,
+  Loki's `TraceID`/`Trace`) and the `spanID` field of Tempo search results.

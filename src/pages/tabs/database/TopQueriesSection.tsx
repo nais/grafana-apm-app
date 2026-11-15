@@ -8,7 +8,7 @@ import { DataState } from '../../../components/DataState';
 import { SortHeader, useTableSort, getTableStyles } from '../../../components/SortableTable';
 import { DepTypeIcon } from '../../../components/DepTypeIcon';
 import { formatDuration } from '../../../utils/format';
-import { buildExploreUrl } from '../../../utils/explore';
+import { openTraceOnClick, traceDrawerHref, validTraceId } from '../../../components/TraceDrawer/traceLinks';
 
 type SortField = 'statement' | 'dbSystem' | 'count' | 'totalTimeMs' | 'avgTimeMs' | 'p95Ms';
 
@@ -149,12 +149,9 @@ function QueryRow({ query, tracesUid }: { query: TopQuery; tracesUid: string }) 
   const isKeyValue = /redis|valkey|keydb|memcached/i.test(query.dbSystem);
   const opWord = isKeyValue ? 'operation' : 'query';
 
-  const traceHref = query.traceId
-    ? buildExploreUrl({
-        datasourceUid: tracesUid,
-        queries: [{ refId: 'A', queryType: 'traceql', query: query.traceId }],
-      })
-    : undefined;
+  // Opens in the drawer over the page; a new-tab click opens the same drawer in a new tab.
+  const traceId = tracesUid ? validTraceId(query.traceId) : '';
+  const traceHref = traceId ? traceDrawerHref(traceId) : undefined;
 
   return (
     <tr>
@@ -184,8 +181,7 @@ function QueryRow({ query, tracesUid }: { query: TopQuery; tracesUid: string }) 
           <Tooltip content={`View a representative trace for this ${opWord}`}>
             <a
               href={traceHref}
-              target="_blank"
-              rel="noopener noreferrer"
+              onClick={openTraceOnClick(traceId)}
               className={styles.traceLink}
               aria-label="View representative trace"
             >

@@ -14,6 +14,7 @@ import { PageHeader } from '../components/PageHeader';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { usePluginDatasources, useHasEnvironmentOverrides, usePluginLabelOverrides } from '../utils/datasources';
 import { useTimeRange } from '../utils/timeRange';
+import { TraceDrawer } from '../components/TraceDrawer/TraceDrawer';
 import { useCapabilities, getMetricNames, getPyroscope } from '../utils/capabilities';
 import { useAppNavigate, sanitizeParam } from '../utils/navigation';
 import { hasAlertRoutingContext } from '../utils/alertRouting';
@@ -574,6 +575,18 @@ function ServiceOverviewInner({ namespace, service }: { namespace: string; servi
             </div>
           )}
         </div>
+
+        {/* A trace opened from any tab (`traceId` in the URL) slides in over the page. */}
+        {caps?.tempo?.available !== false && (
+          <TraceDrawer
+            tracesUid={ds.tracesUid}
+            logsUid={caps?.loki?.available !== false ? ds.logsUid : undefined}
+            logsServiceLabel={labelOverrides.serviceNameLabel}
+            clusterFilter={!ds.isLogsEnvSpecific ? envFilter || undefined : undefined}
+            clusterLabel={labelOverrides.deploymentEnvLabel}
+            service={service}
+          />
+        )}
       </div>
     </PluginPage>
   );

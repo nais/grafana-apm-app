@@ -8,12 +8,14 @@ import {
   EmbeddedScene,
   behaviors,
   dataLayers,
+  SceneDataProvider,
 } from '@grafana/scenes';
 import { DashboardCursorSync, TooltipDisplayMode, DataQuery } from '@grafana/schema';
 import { HeatmapColorMode } from '@grafana/schema/dist/esm/raw/composable/heatmap/panelcfg/x/HeatmapPanelCfg_types.gen';
 import { buildTempoExploreUrl, buildLokiExploreUrl, buildMimirExploreUrl } from '../utils/explore';
 import { sanitizeLabelValue } from '../utils/sanitize';
 import { otel } from '../otelconfig';
+import { traceDrawerData } from '../components/TraceDrawer/traceDrawerData';
 
 export interface BuildServiceSceneParams {
   service: string;
@@ -201,22 +203,9 @@ export function buildServiceScene(params: BuildServiceSceneParams): EmbeddedScen
     ],
   });
 
-  // Override exemplar links to point to the environment-resolved Tempo datasource
-  // (the Mimir datasource's built-in exemplar config always points to the default Tempo).
-  const exemplarOverride = (b: any) =>
-    tracesUid
-      ? b.matchFieldsWithName('traceID').overrideLinks([
-          {
-            title: 'View trace',
-            url: '',
-            internal: {
-              query: { query: '${__value.raw}', queryType: 'traceql' },
-              datasourceUid: tracesUid,
-              datasourceName: '',
-            },
-          },
-        ])
-      : b;
+  // An exemplar opens its trace in the drawer over the page, from the environment-resolved
+  // Tempo (the Mimir datasource's built-in exemplar link always points to the default one).
+  const withTraceLinks = (data: SceneDataProvider) => (tracesUid ? traceDrawerData(data) : data);
 
   const timeRange = new SceneTimeRange({ from, to });
 
@@ -240,9 +229,8 @@ export function buildServiceScene(params: BuildServiceSceneParams): EmbeddedScen
                 body: PanelBuilders.timeseries()
                   .setTitle('Duration')
                   .setDescription(durationDesc)
-                  .setData(durationQuery)
+                  .setData(withTraceLinks(durationQuery))
                   .setUnit(panelDurationUnit)
-                  .setOverrides(exemplarOverride)
                   .setLinks([
                     { title: 'Traces', url: tempoUrl, targetBlank: false },
                     { title: 'Logs', url: lokiUrl, targetBlank: false },
@@ -254,9 +242,8 @@ export function buildServiceScene(params: BuildServiceSceneParams): EmbeddedScen
                 body: PanelBuilders.timeseries()
                   .setTitle('Errors')
                   .setDescription(errorDesc)
-                  .setData(errorQuery)
+                  .setData(withTraceLinks(errorQuery))
                   .setUnit('percent')
-                  .setOverrides(exemplarOverride)
                   .setLinks([
                     { title: 'Traces', url: tempoUrl, targetBlank: false },
                     { title: 'Logs', url: lokiUrl, targetBlank: false },
@@ -268,9 +255,8 @@ export function buildServiceScene(params: BuildServiceSceneParams): EmbeddedScen
                 body: PanelBuilders.timeseries()
                   .setTitle('Rate')
                   .setDescription(rateDesc)
-                  .setData(rateQuery)
+                  .setData(withTraceLinks(rateQuery))
                   .setUnit('reqps')
-                  .setOverrides(exemplarOverride)
                   .setLinks([{ title: 'Explore', url: mimirUrl, targetBlank: false }])
                   .build(),
               }),

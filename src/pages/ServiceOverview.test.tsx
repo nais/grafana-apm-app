@@ -86,6 +86,7 @@ jest.mock('./tabs/LogsTab', () => ({
 }));
 jest.mock('./tabs/DatabaseTab', () => ({ DatabaseTab: () => <div data-testid="database-tab" /> }));
 jest.mock('./tabs/ProfilingTab', () => ({ ProfilingTab: () => <div data-testid="profiling-tab" /> }));
+jest.mock('../components/TraceDrawer/TraceDrawer', () => ({ TraceDrawer: () => null }));
 
 function LocationSpy() {
   const location = useLocation();

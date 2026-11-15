@@ -14,6 +14,7 @@ import { useDebouncedValue, escapeRegex } from '../../utils/debounce';
 import { escapeQueryString } from '../../utils/sanitize';
 import { useTimeRange } from '../../utils/timeRange';
 import { TraceBreakdowns } from './traces/TraceBreakdowns';
+import { traceDrawerData } from '../../components/TraceDrawer/traceDrawerData';
 
 /** Map OTel span kind values to TraceQL kind literals. */
 function mapSpanKindToTraceQL(raw: string): string {
@@ -120,7 +121,8 @@ export function TracesTab({
         children: [
           new SceneFlexItem({
             minHeight: 400,
-            body: PanelBuilders.table().setTitle(`Traces — ${service}`).setData(traceQuery).build(),
+            // A trace or span opens in the drawer over this tab, not in Explore.
+            body: PanelBuilders.table().setTitle(`Traces — ${service}`).setData(traceDrawerData(traceQuery)).build(),
           }),
         ],
       }),

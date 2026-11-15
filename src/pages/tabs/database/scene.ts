@@ -6,11 +6,13 @@ import {
   PanelBuilders,
   EmbeddedScene,
   behaviors,
+  SceneDataProvider,
 } from '@grafana/scenes';
 import { DashboardCursorSync, ThresholdsMode } from '@grafana/schema';
 import { otel } from '../../../otelconfig';
 import { sanitizeLabelValue, escapeQueryString } from '../../../utils/sanitize';
 import { buildExploreUrl } from '../../../utils/explore';
+import { traceDrawerData } from '../../../components/TraceDrawer/traceDrawerData';
 
 /**
  * Minimum inbound (SERVER|CONSUMER) span rate, in calls/s, for the
@@ -358,20 +360,8 @@ export function buildDatabaseScene(params: BuildDatabaseSceneParams): EmbeddedSc
     ],
   });
 
-  const exemplarOverride = (b: any) =>
-    tracesUid
-      ? b.matchFieldsWithName('traceID').overrideLinks([
-          {
-            title: 'View trace',
-            url: '',
-            internal: {
-              query: { query: '${__value.raw}', queryType: 'traceql' },
-              datasourceUid: tracesUid,
-              datasourceName: '',
-            },
-          },
-        ])
-      : b;
+  // An exemplar opens its trace in the drawer over the page.
+  const withTraceLinks = (data: SceneDataProvider) => (tracesUid ? traceDrawerData(data) : data);
 
   return new EmbeddedScene({
     $timeRange: new SceneTimeRange({ from, to }),
@@ -468,9 +458,8 @@ export function buildDatabaseScene(params: BuildDatabaseSceneParams): EmbeddedSc
                       body: PanelBuilders.timeseries()
                         .setTitle('Rate')
                         .setDescription('Database call rate per second, by db.system')
-                        .setData(rateQuery)
+                        .setData(withTraceLinks(rateQuery))
                         .setUnit('reqps')
-                        .setOverrides(exemplarOverride)
                         .build(),
                     }),
                     new SceneFlexItem({
@@ -478,9 +467,8 @@ export function buildDatabaseScene(params: BuildDatabaseSceneParams): EmbeddedSc
                       body: PanelBuilders.timeseries()
                         .setTitle('Errors')
                         .setDescription('Percentage of database calls resulting in an error status, by db.system')
-                        .setData(errorQuery)
+                        .setData(withTraceLinks(errorQuery))
                         .setUnit('percent')
-                        .setOverrides(exemplarOverride)
                         .build(),
                     }),
                     new SceneFlexItem({

@@ -12,6 +12,7 @@ import {
   PanelBuilders,
   EmbeddedScene,
   behaviors,
+  SceneDataProvider,
 } from '@grafana/scenes';
 import { DashboardCursorSync } from '@grafana/schema';
 import {
@@ -35,6 +36,8 @@ import { usePluginDatasources, usePluginLabelOverrides } from '../utils/datasour
 import { useCapabilities } from '../utils/capabilities';
 import { escapePromQLRegex } from '../utils/debounce';
 import { otel } from '../otelconfig';
+import { TraceDrawer } from '../components/TraceDrawer/TraceDrawer';
+import { traceDrawerData } from '../components/TraceDrawer/traceDrawerData';
 
 /**
  * Build a PromQL regex that matches the normalized address and its raw forms.
@@ -159,21 +162,8 @@ function DependencyDetail() {
       ],
     });
 
-    // Override exemplar links to use the environment-resolved Tempo datasource
-    const exemplarOverride = (b: any) =>
-      ds.tracesUid
-        ? b.matchFieldsWithName('traceID').overrideLinks([
-            {
-              title: 'View trace',
-              url: '',
-              internal: {
-                query: { query: '${__value.raw}', queryType: 'traceql' },
-                datasourceUid: ds.tracesUid,
-                datasourceName: '',
-              },
-            },
-          ])
-        : b;
+    // An exemplar opens its trace in the drawer, from the environment-resolved Tempo.
+    const withTraceLinks = (data: SceneDataProvider) => (ds.tracesUid ? traceDrawerData(data) : data);
 
     return new EmbeddedScene({
       $timeRange: timeRange,
@@ -185,27 +175,24 @@ function DependencyDetail() {
             height: 200,
             body: PanelBuilders.timeseries()
               .setTitle('Request Rate')
-              .setData(rateQuery)
+              .setData(withTraceLinks(rateQuery))
               .setUnit('reqps')
-              .setOverrides(exemplarOverride)
               .build(),
           }),
           new SceneFlexItem({
             height: 200,
             body: PanelBuilders.timeseries()
               .setTitle('Error Rate')
-              .setData(errorQuery)
+              .setData(withTraceLinks(errorQuery))
               .setUnit('percent')
-              .setOverrides(exemplarOverride)
               .build(),
           }),
           new SceneFlexItem({
             height: 200,
             body: PanelBuilders.timeseries()
               .setTitle('Duration (P95 / P50)')
-              .setData(durationQuery)
+              .setData(withTraceLinks(durationQuery))
               .setUnit('s')
-              .setOverrides(exemplarOverride)
               .build(),
           }),
         ],
@@ -386,6 +373,18 @@ function DependencyDetail() {
           )}
         </DataState>
       </div>
+
+      {caps?.tempo?.available !== false && (
+        <TraceDrawer
+          tracesUid={ds.tracesUid}
+          logsUid={caps?.loki?.available !== false ? ds.logsUid : undefined}
+          logsServiceLabel={labelOverrides.serviceNameLabel}
+          clusterFilter={!ds.isLogsEnvSpecific ? envFilter || undefined : undefined}
+          clusterLabel={labelOverrides.deploymentEnvLabel}
+          // A dependency is not a service: its logs come from the services in the trace.
+          service=""
+        />
+      )}
     </PluginPage>
   );
 }

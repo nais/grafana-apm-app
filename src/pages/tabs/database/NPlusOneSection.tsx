@@ -5,7 +5,7 @@ import { css } from '@emotion/css';
 import { scanNPlusOne, NPlusOneFinding } from '../../../api/analytics';
 import { useFetch } from '../../../utils/useFetch';
 import { DepTypeIcon } from '../../../components/DepTypeIcon';
-import { buildExploreUrl } from '../../../utils/explore';
+import { openTraceOnClick, traceDrawerHref, validTraceId } from '../../../components/TraceDrawer/traceLinks';
 
 interface NPlusOneSectionProps {
   namespace: string;
@@ -111,12 +111,9 @@ export function NPlusOneSection({ namespace, service, fromMs, toMs, tracesUid }:
 function FindingCard({ finding, tracesUid }: { finding: NPlusOneFinding; tracesUid: string }) {
   const styles = useStyles2(getStyles);
 
-  const traceHref = finding.traceId
-    ? buildExploreUrl({
-        datasourceUid: tracesUid,
-        queries: [{ refId: 'A', queryType: 'traceql', query: finding.traceId }],
-      })
-    : undefined;
+  // Opens in the drawer over the page; a new-tab click opens the same drawer in a new tab.
+  const traceId = tracesUid ? validTraceId(finding.traceId) : '';
+  const traceHref = traceId ? traceDrawerHref(traceId) : undefined;
 
   return (
     <li className={styles.findingCard}>
@@ -131,8 +128,7 @@ function FindingCard({ finding, tracesUid }: { finding: NPlusOneFinding; tracesU
           <Tooltip content="View the offending trace">
             <a
               href={traceHref}
-              target="_blank"
-              rel="noopener noreferrer"
+              onClick={openTraceOnClick(traceId)}
               className={styles.traceLink}
               aria-label="View offending trace"
             >

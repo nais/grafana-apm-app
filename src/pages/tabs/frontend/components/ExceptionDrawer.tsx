@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { MouseEvent, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Button,
@@ -37,7 +37,8 @@ import { hasAlertRoutingContext } from '../../../../utils/alertRouting';
 import { apmDocs, frontendDocs } from '../../../../utils/docsLinks';
 import { usePluginLabelOverrides, usePluginDatasources } from '../../../../utils/datasources';
 import { useTimeRange } from '../../../../utils/timeRange';
-import { buildExceptionTracesExploreUrl, buildTraceExploreUrl } from '../../../../utils/explore';
+import { buildExceptionTracesExploreUrl } from '../../../../utils/explore';
+import { openTraceOnClick, traceDrawerHref, validTraceId } from '../../../../components/TraceDrawer/traceLinks';
 import { StackTraceView, isConsoleCaptureValue } from './StackTraceView';
 import { stackLooksMinified, firstScriptUrl } from '../frames';
 import { useIssueOccurrences, msToNs, ParsedException } from '../useIssueOccurrences';
@@ -440,14 +441,11 @@ export function ExceptionDrawer({
           to: 'now',
         })
       : undefined;
-  // Deep-link to the *exact* trace this occurrence correlates to (#84 follow-up):
-  // the thin log line lacks spans / http / db / timing — the trace carries them.
-  // The selected time range is guaranteed to contain the occurrence, so it's the
-  // safe lookup window for the trace ID.
-  const occurrenceTraceUrl =
-    isServer && ds.tracesUid && exception?.traceId
-      ? buildTraceExploreUrl(ds.tracesUid, exception.traceId, { from: String(fromMs), to: String(toMs) })
-      : undefined;
+  // The *exact* trace this occurrence correlates to (#84 follow-up): the thin log
+  // line lacks spans / http / db / timing — the trace carries them. It opens in the
+  // trace drawer over this one; closing it comes back to the exception.
+  const occurrenceTraceId = isServer && ds.tracesUid ? validTraceId(exception?.traceId) : '';
+  const occurrenceTraceUrl = occurrenceTraceId ? traceDrawerHref(occurrenceTraceId) : undefined;
   // Shape (b)/(c) lines were logged as a message, not a throwable — no stack or
   // type. Surface a non-alarming hint pointing at the backend-exceptions guide.
   const showThinShapeHint = isServer && (shape === 'json' || shape === 'plaintext');
@@ -648,6 +646,7 @@ export function ExceptionDrawer({
                             label="Trace"
                             value={exception.traceId ? `${exception.traceId.slice(0, 16)}…` : undefined}
                             link={occurrenceTraceUrl}
+                            onLinkClick={openTraceOnClick(occurrenceTraceId)}
                             icon="gf-traces"
                           />
                           {exception.attributes &&
@@ -831,8 +830,7 @@ export function ExceptionDrawer({
                       <span className={styles.footerDivider}>|</span>
                       <a
                         href={occurrenceTraceUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                        onClick={openTraceOnClick(occurrenceTraceId)}
                         className={styles.footerLink}
                       >
                         <Icon name="gf-traces" /> View this trace
@@ -895,7 +893,20 @@ export function ExceptionDrawer({
   );
 }
 
-function MetaItem({ label, value, link, icon }: { label: string; value?: string; link?: string; icon: string }) {
+function MetaItem({
+  label,
+  value,
+  link,
+  onLinkClick,
+  icon,
+}: {
+  label: string;
+  value?: string;
+  link?: string;
+  /** Handles the click in place (the trace drawer); without it the link opens in a new tab. */
+  onLinkClick?: (event: MouseEvent<HTMLElement>) => void;
+  icon: string;
+}) {
   const styles = useStyles2(getStyles);
   if (!value) {
     return null;
@@ -906,7 +917,11 @@ function MetaItem({ label, value, link, icon }: { label: string; value?: string;
         <Icon name={icon as any} className={styles.metaIcon} /> {label}:
       </span>
       <span className={styles.metaValue}>
-        {link ? (
+        {link && onLinkClick ? (
+          <a href={link} onClick={onLinkClick} className={styles.metaLink}>
+            {value}
+          </a>
+        ) : link ? (
           <a href={link} target="_blank" rel="noopener noreferrer" className={styles.metaLink}>
             {value}
           </a>

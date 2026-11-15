@@ -18,6 +18,7 @@ import { useTimeRange } from '../../utils/timeRange';
 import { buildLogsDrilldownUrl } from '../../utils/explore';
 import { otel } from '../../otelconfig';
 import { PatternsPanel } from './logs/PatternsPanel';
+import { traceDrawerData } from '../../components/TraceDrawer/traceDrawerData';
 
 interface LogsTabProps {
   service: string;
@@ -150,6 +151,7 @@ export function LogsTab({
       ],
     });
 
+    // A line's trace link opens the trace in the drawer over this tab (traceDrawerData).
     const logQuery = new SceneQueryRunner({
       datasource: { uid: logsUid, type: 'loki' },
       queries: [
@@ -184,7 +186,7 @@ export function LogsTab({
             minHeight: 400,
             body: PanelBuilders.logs()
               .setTitle(`Logs — ${service}`)
-              .setData(logQuery)
+              .setData(traceDrawerData(logQuery))
               .setOption('enableLogDetails', true)
               .setOption('showTime', true)
               .setOption('wrapLogMessage', true)
