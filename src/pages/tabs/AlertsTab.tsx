@@ -43,7 +43,7 @@ const ALERT_TEMPLATES: AlertTemplateCard[] = [
     kind: 'custom',
     title: 'Custom alert',
     description:
-      'Start with routing labels and your team folder pre-filled. Set severity to info, warning or critical (default: warning). Add a name, query and alert condition.',
+      'Start with routing labels and your team folder pre-filled when available. Set severity to info, warning or critical (default: warning). Add a name, query and alert condition.',
   },
   {
     key: 'crash-loop-back-off',
@@ -179,7 +179,7 @@ export function AlertsTab({ service, namespace, environment }: AlertsTabProps) {
           <h3 className={styles.sectionTitle}>Create alert</h3>
           <span className={styles.sectionSubtitle}>
             {canRouteAlert
-              ? 'Routing labels are prefilled for your team. Check Preview routing before saving to confirm the intended Slack channel.'
+              ? 'Routing labels are prefilled for your team. Use the folder with exactly the same name as your team; select it yourself if it is not prefilled. Check Preview routing before saving to confirm the intended Slack channel.'
               : 'Select a team and exactly one environment to create an alert that matches its notification policy.'}
           </span>
         </div>

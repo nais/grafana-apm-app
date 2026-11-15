@@ -152,7 +152,7 @@ describe('AlertsTab (#32/#33 home)', () => {
     expect(screen.getAllByRole('button', { name: /Create alert/ })).toHaveLength(4);
     expect(
       screen.getByText(
-        'Routing labels are prefilled for your team. Check Preview routing before saving to confirm the intended Slack channel.'
+        'Routing labels are prefilled for your team. Use the folder with exactly the same name as your team; select it yourself if it is not prefilled. Check Preview routing before saving to confirm the intended Slack channel.'
       )
     ).toBeInTheDocument();
   });
