@@ -130,6 +130,33 @@ interface FieldLike {
   values?: unknown[];
 }
 
+// The keys a parsed log line or Loki's structured metadata carries a trace ID under. A parser
+// renames a key that collides with an existing label to `<key>_extracted`.
+const TRACE_ID_LABELS = ['trace_id', 'traceID', 'traceId'].flatMap((k) => [k, `${k}_extracted`]);
+
+/**
+ * A Loki log frame's trace IDs, from each line's labels (parsed fields and structured
+ * metadata). The Logs tab rewrites each line to its message, after which a datasource's regex
+ * derived field finds no ID in it. Undefined when no line has one.
+ */
+function traceIdsFromLabels(fields: FieldLike[]): Array<string | null> | undefined {
+  const labels = fields.find((field) => field.name === 'labels')?.values;
+  if (!labels) {
+    return undefined;
+  }
+  const ids = labels.map((row) => {
+    const values = (row ?? {}) as Record<string, unknown>;
+    for (const key of TRACE_ID_LABELS) {
+      const id = typeof values[key] === 'string' ? validTraceId(values[key] as string) : '';
+      if (id) {
+        return id;
+      }
+    }
+    return null;
+  });
+  return ids.some(Boolean) ? ids : undefined;
+}
+
 /**
  * Swaps the datasource's link on each trace ID field (and on `spanID` in Tempo's nested span
  * frames) for the drawer's. Only fields that already link to a trace are touched. This has to
@@ -137,7 +164,7 @@ interface FieldLike {
  * appends to them, and exemplars travel as annotations, which overrides never reach.
  *
  * Tempo's nested span frames may still be in their JSON form (`schema.fields`), so both
- * shapes are handled.
+ * shapes are handled. Loki log frames also get their trace link from each line's labels.
  */
 export function withDrawerTraceLinks<T>(frame: T): T {
   const f = frame as { fields?: FieldLike[]; schema?: { fields?: FieldLike[] } };
@@ -167,6 +194,23 @@ export function withDrawerTraceLinks<T>(frame: T): T {
     }
     return field;
   });
+  // A log frame: its lines link to their trace from their labels, whatever the line shows.
+  const fromLabels = f.fields ? traceIdsFromLabels(fields) : undefined;
+  if (fromLabels) {
+    changed = true;
+    const i = next.findIndex((field) => TRACE_ID_FIELDS.includes(field.name));
+    if (i >= 0) {
+      // A derived field that found nothing in a rewritten line: fill its gaps from the labels.
+      const found = next[i].values ?? [];
+      next[i] = {
+        ...next[i],
+        values: fromLabels.map((id, row) => found[row] || id),
+        config: { ...next[i].config, links: [traceIdDataLink()] },
+      };
+    } else {
+      next.push({ name: 'Trace', type: 'string', config: { links: [traceIdDataLink()] }, values: fromLabels });
+    }
+  }
   if (!changed) {
     return frame;
   }

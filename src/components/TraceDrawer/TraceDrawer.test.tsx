@@ -18,8 +18,9 @@ interface CapturedRunner {
 
 const runners: CapturedRunner[] = [];
 const panelOptions: Array<Record<string, unknown>> = [];
-// What the Tempo lookup has returned; undefined while it is in flight.
+// What the Tempo lookup and the Loki queries have returned; undefined while in flight.
 let traceData: PanelData | undefined;
+let logsData: PanelData | undefined;
 
 jest.mock('@grafana/scenes', () => {
   const builder = () => {
@@ -31,7 +32,7 @@ jest.mock('@grafana/scenes', () => {
     b.setOption = (key: string, value: unknown) => ((options[key] = value), b);
     b.build = () => {
       panelOptions.push(options);
-      return { state: { options }, onOptionsChange: jest.fn() };
+      return { state: { options }, onOptionsChange: jest.fn(), setState: jest.fn() };
     };
     return b;
   };
@@ -39,7 +40,7 @@ jest.mock('@grafana/scenes', () => {
     SceneTimeRange: jest.fn().mockImplementation((cfg: unknown) => cfg),
     SceneQueryRunner: jest.fn().mockImplementation((cfg: CapturedRunner) => {
       runners.push(cfg);
-      return { ...cfg, useState: () => ({ data: traceData }) };
+      return { ...cfg, useState: () => ({ data: cfg.datasource.type === 'loki' ? logsData : traceData }) };
     }),
     SceneDataTransformer: jest.fn().mockImplementation((cfg: unknown) => cfg),
     EmbeddedScene: jest.fn().mockImplementation((cfg: unknown) => ({ ...(cfg as object), Component: () => null })),
@@ -85,6 +86,7 @@ beforeEach(() => {
   runners.length = 0;
   panelOptions.length = 0;
   traceData = undefined;
+  logsData = undefined;
 });
 
 it('stays closed without a trace in the URL', () => {
@@ -150,6 +152,36 @@ it('tells a trace Tempo does not have from a lookup that failed', () => {
   expect(screen.getByText('Could not load the trace')).toBeInTheDocument();
   expect(screen.getByText('Forbidden')).toBeInTheDocument();
   expect(screen.queryByText('Trace not found')).not.toBeInTheDocument();
+});
+
+it('shows the trace again when the Logs tab goes away while selected', () => {
+  traceData = loaded;
+  const { rerender } = renderDrawer(`?traceId=${TRACE}`, { logsUid: 'loki-uid' });
+  fireEvent.click(screen.getByText('Logs'));
+  expect(screen.getByTestId('trace-drawer-trace')).toHaveStyle({ display: 'none' });
+  // Its Loki turns out unavailable after the drawer opened.
+  rerender(
+    <MemoryRouter initialEntries={[`/?traceId=${TRACE}`]}>
+      <TraceDrawer tracesUid="tempo-uid" logsServiceLabel="service_name" />
+    </MemoryRouter>
+  );
+  expect(screen.queryByText('Logs')).not.toBeInTheDocument();
+  expect(screen.getByTestId('trace-drawer-trace')).not.toHaveStyle({ display: 'none' });
+});
+
+it('says when a logs query hit its line limit, and offers all lines in Explore', () => {
+  traceData = loaded;
+  logsData = {
+    state: LoadingState.Done,
+    series: [toDataFrame({ fields: [{ name: 'Line', type: FieldType.string, values: Array(1000).fill('x') }] })],
+  } as unknown as PanelData;
+  renderDrawer(`?traceId=${TRACE}`, { logsUid: 'loki-uid' });
+  fireEvent.click(screen.getByText('Logs'));
+  expect(screen.getByText('Showing the first 1,000 lines per query')).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: /Open all of its lines in Explore/ })).toHaveAttribute(
+    'href',
+    expect.stringContaining('loki-uid')
+  );
 });
 
 it('has no Logs tab without a Loki datasource', () => {

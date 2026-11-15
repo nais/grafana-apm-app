@@ -72,9 +72,14 @@ describe('traceLookup', () => {
 
   it("reports a trace Tempo does not have: an empty answer, or Tempo's 404", () => {
     expect(traceLookup(data(LoadingState.Done))).toEqual({ status: 'not-found' });
-    expect(
-      traceLookup(data(LoadingState.Error, { errors: [{ message: 'failed to get trace: 404 Not Found' }] }))
-    ).toEqual({ status: 'not-found' });
+    const miss = 'failed to get trace with id: 4bf92f3577b34da6 Status: 404 Not Found Body: trace not found';
+    expect(traceLookup(data(LoadingState.Error, { errors: [{ message: miss }] }))).toEqual({ status: 'not-found' });
+  });
+
+  it('does not take a missing datasource or proxy route for a missing trace', () => {
+    for (const message of ['Data source with uid tempo not found', '404 page not found']) {
+      expect(traceLookup(data(LoadingState.Error, { errors: [{ message }] }))).toEqual({ status: 'error', message });
+    }
   });
 
   it('reports a failed lookup as an error, not as a missing trace', () => {
@@ -120,9 +125,36 @@ describe('buildTraceLogsQueries', () => {
     expect(byLine).toContain('`{{ .service_name }}  {{ if .message }}');
   });
 
-  it('drops a service name that is not a label value, and gives up when none is left', () => {
-    const [byLine] = buildTraceLogsQueries(TRACE, { serviceLabel: 'service_name', services: ['a"} |= "x', 'api'] });
-    expect(byLine).toMatch(/^\{service_name="api"\}/);
+  it('escapes service names instead of dropping them', () => {
+    // Valid OTel service names, and one that tries to break out of the matcher.
+    const [one] = buildTraceLogsQueries(TRACE, { serviceLabel: 'service_name', services: ['zahlungsdienst-ü'] });
+    expect(one).toMatch(/^\{service_name="zahlungsdienst-ü"\}/);
+    const [several] = buildTraceLogsQueries(TRACE, {
+      serviceLabel: 'service_name',
+      services: ['checkout+worker', 'pricing (eu)', 'a"} |= "x'],
+    });
+    // Regex-escaped, then escaped for the LogQL string: nothing gets out of the matcher.
+    expect(several).toContain(String.raw`{service_name=~"checkout\\+worker|pricing \\(eu\\)|a\"\\} \\|= \"x"}`);
     expect(buildTraceLogsQueries(TRACE, { serviceLabel: 'service_name', services: [''] })).toEqual([]);
+  });
+
+  it('keeps every selected environment in scope', () => {
+    const [byLine] = buildTraceLogsQueries(TRACE, {
+      serviceLabel: 'service_name',
+      services: ['api'],
+      clusterLabel: 'k8s_cluster_name',
+      clusterFilter: 'prod, dev',
+    });
+    expect(byLine).toMatch(/^\{service_name="api", k8s_cluster_name=~"prod\|dev"\}/);
+  });
+
+  it('also finds a 64-bit (B3) trace ID logged as its 16 characters, still never twice', () => {
+    const [byLine, byMetadata] = buildTraceLogsQueries('2f3e0cee77ae5dc9', {
+      serviceLabel: 'service_name',
+      services: ['api'],
+    });
+    // The short form is in the padded one too, so one line filter finds both.
+    expect(byLine).toContain('|= "2f3e0cee77ae5dc9"');
+    expect(byMetadata).toContain('!= "2f3e0cee77ae5dc9" | trace_id=~"(0{16})?2f3e0cee77ae5dc9"');
   });
 });

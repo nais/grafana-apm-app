@@ -190,6 +190,45 @@ describe('withDrawerTraceLinks', () => {
     // No link on trace_id, and spanID outside Tempo's span frames is not a span link here.
     expect(withDrawerTraceLinks(frame)).toBe(frame);
   });
+
+  describe('log lines', () => {
+    // A Loki log frame: each line's labels hold its parsed fields and structured metadata.
+    const logFrame = (labels: Array<Record<string, string>>, extra: Array<Record<string, unknown>> = []) =>
+      toDataFrame({
+        fields: [
+          { name: 'labels', type: FieldType.other, values: labels },
+          { name: 'Line', type: FieldType.string, values: labels.map(() => 'cart priced') },
+          ...extra,
+        ],
+      });
+
+    it('link to their trace from their labels, though the shown line no longer has the ID', () => {
+      const out = withDrawerTraceLinks(
+        logFrame([{ trace_id: TRACE }, { level: 'info' }, { traceID: TRACE.toUpperCase() }])
+      );
+      const trace = out.fields.find((f) => f.name === 'Trace');
+      expect(trace?.values).toEqual([TRACE, null, TRACE]);
+      expect(titles(trace?.config.links)).toEqual(['Open trace']);
+    });
+
+    it('fill the gaps of a derived field that found nothing in the rewritten line', () => {
+      const out = withDrawerTraceLinks(
+        logFrame(
+          [{ trace_id_extracted: TRACE }, {}],
+          [{ name: 'TraceID', type: FieldType.string, values: [null, null], config: { links: [exploreLink] } }]
+        )
+      );
+      expect(out.fields.filter((f) => f.name === 'Trace')).toHaveLength(0);
+      const derived = out.fields.find((f) => f.name === 'TraceID');
+      expect(derived?.values).toEqual([TRACE, null]);
+      expect(titles(derived?.config.links)).toEqual(['Open trace']);
+    });
+
+    it('are left alone without a trace ID, or with one that is not', () => {
+      const frame = logFrame([{ level: 'info' }, { trace_id: 'not-a-trace' }]);
+      expect(withDrawerTraceLinks(frame)).toBe(frame);
+    });
+  });
 });
 
 describe('openTraceOnClick', () => {

@@ -2,7 +2,17 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { css } from '@emotion/css';
 import { Field, GrafanaTheme2, LinkModel, dateTimeFormat } from '@grafana/data';
-import { Alert, ClipboardButton, Drawer, LinkButton, LoadingPlaceholder, Tab, TabsBar, useStyles2 } from '@grafana/ui';
+import {
+  Alert,
+  ClipboardButton,
+  Drawer,
+  LinkButton,
+  LoadingPlaceholder,
+  Tab,
+  TabsBar,
+  TextLink,
+  useStyles2,
+} from '@grafana/ui';
 import {
   EmbeddedScene,
   PanelBuilders,
@@ -13,7 +23,7 @@ import {
   VizPanel,
 } from '@grafana/scenes';
 import { otel } from '../../otelconfig';
-import { buildTraceExploreUrl } from '../../utils/explore';
+import { buildExploreUrl, buildTraceExploreUrl } from '../../utils/explore';
 import { useTimeRange } from '../../utils/timeRange';
 import { useUrlParams } from '../../utils/useUrlState';
 import {
@@ -48,6 +58,9 @@ export interface TraceDrawerProps {
 
 type DrawerTab = 'trace' | 'logs';
 
+// Lines each logs query returns: Loki's own default, plenty for one trace.
+const LOG_LINE_LIMIT = 1000;
+
 /**
  * A trace in a side drawer over the page, the way Datadog opens one: the waterfall with span
  * details, and the trace's log lines. Opened by the `traceId` URL param (and `spanId` to focus
@@ -78,7 +91,10 @@ function TraceDrawerContent({
   const styles = useStyles2(getStyles);
   const updateParams = useUrlParams();
   const { fromMs, toMs } = useTimeRange();
-  const [tab, setTab] = useState<DrawerTab>('trace');
+  const [selectedTab, setTab] = useState<DrawerTab>('trace');
+  // The Logs tab can go away after the drawer opens (its Loki turns out unavailable): the trace
+  // shows then, rather than an empty drawer.
+  const tab: DrawerTab = selectedTab === 'logs' && !logsUid ? 'trace' : selectedTab;
 
   // Built once per trace: a time-range change on the page must not refetch it. Tempo looks a
   // trace up by ID whatever the range.
@@ -95,7 +111,10 @@ function TraceDrawerContent({
   useEffect(() => {
     const focused = (panel.state.options as { focusedSpanId?: string }).focusedSpanId;
     if (focused !== (spanId || undefined)) {
-      panel.onOptionsChange({ focusedSpanId: spanId || undefined } as never);
+      // Set on the options as they are, so the panel keeps its link callbacks untouched.
+      panel.setState({
+        options: { ...panel.state.options, focusedSpanId: spanId || undefined } as typeof panel.state.options,
+      });
     }
   }, [panel, spanId]);
 
@@ -133,7 +152,11 @@ function TraceDrawerContent({
           </Alert>
         )}
         {/* Hidden, not unmounted: back on this tab the trace is still there, not fetched again. */}
-        <div className={styles.pane} style={{ display: tab === 'trace' ? undefined : 'none' }}>
+        <div
+          className={styles.pane}
+          style={{ display: tab === 'trace' ? undefined : 'none' }}
+          data-testid="trace-drawer-trace"
+        >
           <scene.Component model={scene} />
         </div>
         {tab === 'logs' && logsUid && (
@@ -273,17 +296,17 @@ function TraceLogs({
   const exprs = buildTraceLogsQueries(traceId, { serviceLabel, services, clusterLabel, clusterFilter });
   // Strings stand in for the arrays, which are new on every render.
   const exprKey = exprs.join('\n');
-  const scene = useMemo(() => {
+  const { scene, runner } = useMemo(() => {
     const runner = new SceneQueryRunner({
       datasource: { uid: logsUid, type: 'loki' },
       queries: exprs.map((expr, i) => ({
         refId: String.fromCharCode(65 + i),
         expr,
         queryType: 'range',
-        maxLines: 1000,
+        maxLines: LOG_LINE_LIMIT,
       })),
     });
-    return new EmbeddedScene({
+    const scene = new EmbeddedScene({
       $timeRange: new SceneTimeRange({ from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString() }),
       body: new SceneFlexLayout({
         direction: 'column',
@@ -305,13 +328,35 @@ function TraceLogs({
         ],
       }),
     });
+    return { scene, runner };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [exprKey, logsUid, fromMs, toMs]);
+  const { data } = runner.useState();
+  // A query that hit its limit may have more: say so, and offer every line in Explore.
+  const truncated = data?.series?.some((frame) => frame.length >= LOG_LINE_LIMIT) ?? false;
 
   if (exprs.length === 0) {
     return null;
   }
-  return <scene.Component model={scene} />;
+  const exploreUrl = buildExploreUrl({
+    datasourceUid: logsUid,
+    queries: exprs.map((expr, i) => ({ refId: String.fromCharCode(65 + i), expr })),
+    range: { from: String(fromMs), to: String(toMs) },
+  });
+  return (
+    <>
+      {truncated && (
+        <Alert severity="info" title={`Showing the first ${LOG_LINE_LIMIT.toLocaleString('en-US')} lines per query`}>
+          This trace logged more than that.{' '}
+          <TextLink href={exploreUrl} external>
+            Open all of its lines in Explore
+          </TextLink>
+          .
+        </Alert>
+      )}
+      <scene.Component model={scene} />
+    </>
+  );
 }
 
 const getStyles = (theme: GrafanaTheme2) => ({
