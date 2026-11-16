@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.1](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.26.0...nais-apm-app-v0.26.1) (2026-11-16)
+
+
+### Bug Fixes
+
+* clarify alert template descriptions ([#249](https://github.com/nais/grafana-apm-app/issues/249)) ([29df852](https://github.com/nais/grafana-apm-app/commit/29df852acd78480386bcc3002c1e78478f3de3fc))
+
 ## [0.26.0](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.25.10...nais-apm-app-v0.26.0) (2026-11-13)
 
 
