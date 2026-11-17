@@ -4,6 +4,8 @@ import { MemoryRouter } from 'react-router-dom';
 import { CustomMetricsPanel } from './CustomMetricsPanel';
 import { SceneQueryRunner } from '@grafana/scenes';
 import * as client from '../api/client';
+import { useFetch } from '../utils/useFetch';
+import { useTimeRange } from '../utils/timeRange';
 
 jest.mock('../api/client', () => ({
   ...jest.requireActual('../api/client'),
@@ -39,10 +41,27 @@ function exprFromHref(href: string | null): string {
   return JSON.parse(left).queries?.[0]?.expr ?? '';
 }
 
-function renderPanel() {
+function renderPanel(environment?: string) {
+  function PanelWithData() {
+    const { fromMs, toMs } = useTimeRange();
+    const { data, loading, error } = useFetch(
+      () => client.getCustomMetrics('team', 'app', fromMs, toMs, environment),
+      [fromMs, toMs, environment]
+    );
+    return (
+      <CustomMetricsPanel
+        namespace="team"
+        service="app"
+        environment={environment}
+        data={data}
+        loading={loading}
+        error={error}
+      />
+    );
+  }
   return render(
     <MemoryRouter>
-      <CustomMetricsPanel namespace="team" service="app" />
+      <PanelWithData />
     </MemoryRouter>
   );
 }
@@ -147,6 +166,20 @@ describe('CustomMetricsPanel', () => {
     );
     // The high-cardinality gauge is NOT auto-charted (Explore-link only).
     expect(exprs.some((e) => e.includes('queue_depth'))).toBe(false);
+  });
+
+  it('scopes chart queries and Explore links to the selected environment', async () => {
+    const runner = SceneQueryRunner as unknown as jest.Mock;
+    runner.mockClear();
+    getCustomMetrics.mockResolvedValue({ metrics: [COUNTER], truncated: false });
+    renderPanel('prod');
+
+    await waitFor(() => expect(screen.getByText('Custom metrics (1)')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Custom metrics (1)'));
+    const expr =
+      'sum(rate(orders_processed_total{app="app", namespace="team", k8s_cluster_name="prod"}[$__rate_interval]))';
+    expect(runner.mock.calls.at(-1)[0].queries[0].expr).toBe(expr);
+    expect(exprFromHref(screen.getByRole('link', { name: /open in explore/i }).getAttribute('href'))).toBe(expr);
   });
 
   it('renders nothing when no custom metrics are discovered', async () => {

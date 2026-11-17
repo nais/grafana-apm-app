@@ -3,7 +3,13 @@ import { useStyles2, LoadingPlaceholder, Alert } from '@grafana/ui';
 import { GrafanaTheme2 } from '@grafana/data';
 import { css } from '@emotion/css';
 import { EmbeddedScene } from '@grafana/scenes';
-import { OperationSummary, ConnectedServicesResponse, DependencySummary, HealthSummary } from '../../api/client';
+import {
+  OperationSummary,
+  ConnectedServicesResponse,
+  DependencySummary,
+  HealthSummary,
+  getCustomMetrics,
+} from '../../api/client';
 import { formatDuration } from '../../utils/format';
 import { CustomMetricsPanel } from '../../components/CustomMetricsPanel';
 import { getSectionStyles } from '../../utils/styles';
@@ -11,6 +17,9 @@ import { HealthSummarySection } from '../../components/HealthSummary/HealthSumma
 import { HealthHeaderRow } from './overview/HealthHeaderRow';
 import { SloPanel } from './overview/SloPanel';
 import { DependencySignal } from './overview/DependencySignal';
+import { FeaturedMetrics } from './overview/FeaturedMetrics';
+import { useFetch } from '../../utils/useFetch';
+import { useTimeRange } from '../../utils/timeRange';
 
 const MAX_OVERVIEW_OPS = 5;
 
@@ -52,6 +61,11 @@ export function OverviewTab({
   onNavigateDependency,
 }: OverviewTabProps) {
   const styles = useStyles2(getStyles);
+  const { fromMs, toMs } = useTimeRange();
+  const customMetrics = useFetch(
+    () => getCustomMetrics(namespace, service, fromMs, toMs, environment),
+    [namespace, service, fromMs, toMs, environment]
+  );
 
   const overviewOps = useMemo(() => {
     const byRate = [...operations].sort((a, b) => b.rate - a.rate);
@@ -85,6 +99,15 @@ export function OverviewTab({
       <div style={{ marginBottom: 16 }}>
         {scene ? <scene.Component key={sceneKey} model={scene} /> : <LoadingPlaceholder text="Loading metrics..." />}
       </div>
+
+      <FeaturedMetrics
+        namespace={namespace}
+        service={service}
+        environment={environment}
+        data={customMetrics.data}
+        loading={customMetrics.loading}
+        error={customMetrics.error}
+      />
 
       {/* Attention section — degraded operations and dependencies */}
       <HealthSummarySection
@@ -172,11 +195,15 @@ export function OverviewTab({
         )}
       </div>
 
-      {/* Custom application metrics (#68 Phase 0) — auto-discovered, hidden when
-          none. Collapsible and default-collapsed with the discovered-metric
-          count in its own header (IA review P9) — the panel manages that
-          state itself since it also owns the fetch that produces the count. */}
-      <CustomMetricsPanel namespace={namespace} service={service} environment={environment} />
+      {/* Auto-discovered custom application metrics, collapsed by default. */}
+      <CustomMetricsPanel
+        namespace={namespace}
+        service={service}
+        environment={environment}
+        data={customMetrics.data}
+        loading={customMetrics.loading}
+        error={customMetrics.error}
+      />
     </>
   );
 }
