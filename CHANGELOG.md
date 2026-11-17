@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.2](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.26.1...nais-apm-app-v0.26.2) (2026-11-17)
+
+
+### Features
+
+* choose custom metrics to chart on service overview ([b0b7e11](https://github.com/nais/grafana-apm-app/commit/b0b7e1107b5be44b9f79845712feea6093629b98))
+
 ## [0.26.1](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.26.0...nais-apm-app-v0.26.1) (2026-11-16)
 
 
