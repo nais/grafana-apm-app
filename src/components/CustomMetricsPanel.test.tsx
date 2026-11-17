@@ -4,6 +4,8 @@ import { MemoryRouter } from 'react-router-dom';
 import { CustomMetricsPanel } from './CustomMetricsPanel';
 import { SceneQueryRunner } from '@grafana/scenes';
 import * as client from '../api/client';
+import { useFetch } from '../utils/useFetch';
+import { useTimeRange } from '../utils/timeRange';
 
 jest.mock('../api/client', () => ({
   ...jest.requireActual('../api/client'),
@@ -40,9 +42,17 @@ function exprFromHref(href: string | null): string {
 }
 
 function renderPanel() {
+  function PanelWithData() {
+    const { fromMs, toMs } = useTimeRange();
+    const { data, loading, error } = useFetch(
+      () => client.getCustomMetrics('team', 'app', fromMs, toMs),
+      [fromMs, toMs]
+    );
+    return <CustomMetricsPanel namespace="team" service="app" data={data} loading={loading} error={error} />;
+  }
   return render(
     <MemoryRouter>
-      <CustomMetricsPanel namespace="team" service="app" />
+      <PanelWithData />
     </MemoryRouter>
   );
 }

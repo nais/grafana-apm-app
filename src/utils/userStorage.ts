@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePluginUserStorage } from '@grafana/runtime';
 
 /**
@@ -67,4 +67,91 @@ export function useUserMutes(
   );
 
   return { mutes, toggleMute, loaded };
+}
+
+export function usePinnedMetrics(namespace: string, service: string) {
+  const storage = usePluginUserStorage();
+  const storageRef = useRef(storage);
+  const key = `selectedMetrics:${namespace}/${service}`;
+  const [state, setState] = useState<{ key: string; metrics: string[]; loaded: boolean; error: string | null }>({
+    key,
+    metrics: [],
+    loaded: false,
+    error: null,
+  });
+  const edited = useRef(false);
+  const pendingWrite = useRef(Promise.resolve());
+
+  useEffect(() => {
+    let cancelled = false;
+    edited.current = false;
+    storageRef.current
+      .getItem(key)
+      .then((raw) => {
+        if (cancelled || edited.current) {
+          return;
+        }
+        if (raw == null) {
+          setState({ key, metrics: [], loaded: true, error: null });
+          return;
+        }
+        try {
+          const parsed: unknown = JSON.parse(raw);
+          if (!Array.isArray(parsed) || parsed.length > 3 || !parsed.every((name) => typeof name === 'string')) {
+            throw new Error('Invalid saved metric selections');
+          }
+          setState({ key, metrics: parsed, loaded: true, error: null });
+        } catch (error) {
+          setState({
+            key,
+            metrics: [],
+            loaded: true,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled && !edited.current) {
+          setState({
+            key,
+            metrics: [],
+            loaded: true,
+            error: `Could not load saved metrics: ${error instanceof Error ? error.message : String(error)}`,
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [key]);
+
+  const save = useCallback(
+    (metrics: string[]) => {
+      edited.current = true;
+      setState({ key, metrics, loaded: true, error: null });
+      pendingWrite.current = pendingWrite.current
+        .then(() => storageRef.current.setItem(key, JSON.stringify(metrics)))
+        .then(() => {
+          setState((current) => (current.key === key ? { ...current, error: null } : current));
+        })
+        .catch((error: unknown) => {
+          setState((current) =>
+            current.key === key
+              ? {
+                  ...current,
+                  error: `Could not save selected metrics: ${error instanceof Error ? error.message : String(error)}`,
+                }
+              : current
+          );
+        });
+    },
+    [key]
+  );
+
+  return {
+    metrics: state.key === key ? state.metrics : [],
+    loaded: state.key === key && state.loaded,
+    error: state.key === key ? state.error : null,
+    save,
+  };
 }
