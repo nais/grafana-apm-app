@@ -18,7 +18,7 @@ import {
   CustomMetricPanelSpec,
 } from '../../../components/customMetricQueries';
 import { CollapsibleSection } from '../../../components/CollapsibleSection';
-import { usePluginDatasources } from '../../../utils/datasources';
+import { usePluginDatasources, usePluginLabelOverrides } from '../../../utils/datasources';
 import { useTimeRange } from '../../../utils/timeRange';
 import { useSceneTimeSync } from '../../../utils/useSceneTimeSync';
 import { useUrlParams } from '../../../utils/useUrlState';
@@ -41,6 +41,7 @@ export function FeaturedMetrics({ namespace, service, environment, data, loading
   const updateParams = useUrlParams();
   const pinned = usePinnedMetrics(namespace, service);
   const { metricsUid } = usePluginDatasources(environment);
+  const { deploymentEnvLabel } = usePluginLabelOverrides();
   const { from, to, fromMs, toMs } = useTimeRange();
   const metrics = useMemo(() => data?.metrics.filter((metric) => !metric.highCardinality) ?? [], [data]);
   const choices = metrics.map((metric) => ({ label: metric.name, value: metric.name }));
@@ -49,7 +50,7 @@ export function FeaturedMetrics({ namespace, service, environment, data, loading
   const second = urlSelections ? (params.get(SLOTS[1]) ?? '') : (pinned.metrics[1] ?? '');
   const third = urlSelections ? (params.get(SLOTS[2]) ?? '') : (pinned.metrics[2] ?? '');
   const selected = useMemo(() => [first, second, third], [first, second, third]);
-  const filter = runtimeMetricFilter(service, namespace);
+  const filter = runtimeMetricFilter(service, namespace, environment, deploymentEnvLabel);
   const panelSpecs = JSON.stringify(
     selected
       .map((name, index) =>

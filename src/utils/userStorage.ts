@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePluginUserStorage } from '@grafana/runtime';
 
+const pendingMetricWrites = new Map<string, Promise<void>>();
+
 /**
  * Per-user issue mutes (#57 Phase 0), persisted via Grafana's plugin user
  * storage: survives across browsers for signed-in users (Grafana DB backed,
@@ -80,13 +82,12 @@ export function usePinnedMetrics(namespace: string, service: string) {
     error: null,
   });
   const edited = useRef(false);
-  const pendingWrite = useRef(Promise.resolve());
 
   useEffect(() => {
     let cancelled = false;
     edited.current = false;
-    storageRef.current
-      .getItem(key)
+    Promise.resolve(pendingMetricWrites.get(key))
+      .then(() => storageRef.current.getItem(key))
       .then((raw) => {
         if (cancelled || edited.current) {
           return;
@@ -129,7 +130,7 @@ export function usePinnedMetrics(namespace: string, service: string) {
     (metrics: string[]) => {
       edited.current = true;
       setState({ key, metrics, loaded: true, error: null });
-      pendingWrite.current = pendingWrite.current
+      const pendingWrite = (pendingMetricWrites.get(key) ?? Promise.resolve())
         .then(() => storageRef.current.setItem(key, JSON.stringify(metrics)))
         .then(() => {
           setState((current) => (current.key === key ? { ...current, error: null } : current));
@@ -144,6 +145,12 @@ export function usePinnedMetrics(namespace: string, service: string) {
               : current
           );
         });
+      pendingMetricWrites.set(key, pendingWrite);
+      void pendingWrite.then(() => {
+        if (pendingMetricWrites.get(key) === pendingWrite) {
+          pendingMetricWrites.delete(key);
+        }
+      });
     },
     [key]
   );

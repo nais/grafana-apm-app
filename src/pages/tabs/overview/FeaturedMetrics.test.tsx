@@ -170,15 +170,16 @@ describe('FeaturedMetrics', () => {
     expect(runner).toHaveBeenCalledTimes(initialQueries);
   });
 
-  it('keeps the mounted scene across discovery refreshes but rebuilds when a selected chart changes', () => {
+  it('keeps the mounted scene across discovery refreshes but rebuilds when a chart or environment changes', () => {
     const sceneBuilder = EmbeddedScene as unknown as jest.Mock;
     sceneBuilder.mockClear();
     const entry = '/services/team/app?overviewMetric1=orders_total';
-    const content = (metrics: CustomMetric[]) => (
+    const content = (metrics: CustomMetric[], environment?: string) => (
       <MemoryRouter initialEntries={[entry]}>
         <FeaturedMetrics
           namespace="team"
           service="app"
+          environment={environment}
           data={{ metrics, truncated: false }}
           loading={false}
           error={null}
@@ -202,6 +203,12 @@ describe('FeaturedMetrics', () => {
     expect(sceneBuilder).toHaveBeenCalledTimes(2);
     expect(screen.getByTestId('selected-metrics-scene')).not.toBe(graph);
     expect(runner.mock.calls.at(-1)[0].queries[0].expr).toBe('avg(orders_total{app="app", namespace="team"})');
+
+    view.rerender(content([{ ...counter, chart: 'gauge', help: 'Now a gauge' }, gauge], 'prod'));
+    expect(sceneBuilder).toHaveBeenCalledTimes(3);
+    expect(runner.mock.calls.at(-1)[0].queries[0].expr).toBe(
+      'avg(orders_total{app="app", namespace="team", k8s_cluster_name="prod"})'
+    );
   });
 
   it('does not chart an unknown or high-cardinality URL selection', () => {
@@ -224,6 +231,41 @@ describe('FeaturedMetrics', () => {
     renderMetrics('/services/team/app', 'other');
     await waitFor(() => expect(mockStorage.getItem).toHaveBeenCalledWith('selectedMetrics:team/other'));
     expect(screen.queryByTestId('selected-metrics-scene')).not.toBeInTheDocument();
+  });
+
+  it('waits for queued saves from a previous visit before loading or saving new selections', async () => {
+    let finishFirstWrite!: () => void;
+    mockStorage.setItem.mockImplementationOnce(
+      (key: string, value: string) =>
+        new Promise<void>((resolve) => {
+          finishFirstWrite = () => {
+            saved.set(key, value);
+            resolve();
+          };
+        })
+    );
+
+    const firstVisit = renderMetrics('/services/team/app');
+    fireEvent.click(screen.getByRole('button', { name: 'Select metrics' }));
+    const firstSelector = screen.getAllByRole('combobox')[0];
+    await waitFor(() => expect(firstSelector).toBeEnabled());
+    fireEvent.change(firstSelector, { target: { value: 'orders_total' } });
+    await waitFor(() => expect(mockStorage.setItem).toHaveBeenCalledTimes(1));
+    fireEvent.change(firstSelector, { target: { value: 'queue_depth' } });
+    expect(mockStorage.setItem).toHaveBeenCalledTimes(1);
+    firstVisit.unmount();
+
+    renderMetrics('/services/team/app');
+    fireEvent.click(screen.getByRole('button', { name: 'Select metrics' }));
+    const newSelector = screen.getAllByRole('combobox')[0];
+    expect(newSelector).toBeDisabled();
+    expect(mockStorage.getItem).toHaveBeenCalledTimes(1);
+
+    finishFirstWrite();
+    await waitFor(() => expect(newSelector).toBeEnabled());
+    expect(newSelector).toHaveValue('queue_depth');
+    fireEvent.change(newSelector, { target: { value: 'processing_seconds' } });
+    await waitFor(() => expect(saved.get('selectedMetrics:team/app')).toBe('["processing_seconds","",""]'));
   });
 
   it('loads pinned graphs without adding selections to the URL', async () => {

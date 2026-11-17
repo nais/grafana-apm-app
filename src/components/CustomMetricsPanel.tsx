@@ -13,7 +13,7 @@ import {
 import { CustomMetric, CustomMetricsResponse } from '../api/client';
 import { useTimeRange } from '../utils/timeRange';
 import { useSceneTimeSync } from '../utils/useSceneTimeSync';
-import { usePluginDatasources } from '../utils/datasources';
+import { usePluginDatasources, usePluginLabelOverrides } from '../utils/datasources';
 import { buildMimirExploreUrl } from '../utils/explore';
 import { customMetricExploreQuery, customMetricPanels, runtimeMetricFilter } from './customMetricQueries';
 import { DataState } from './DataState';
@@ -57,6 +57,7 @@ export function CustomMetricsPanel({ namespace, service, environment, data, load
   const styles = useStyles2(getStyles);
   const { from, to } = useTimeRange();
   const { metricsUid } = usePluginDatasources(environment);
+  const { deploymentEnvLabel } = usePluginLabelOverrides();
   const [collapsed, setCollapsed] = useState(true);
 
   const metrics = data?.metrics ?? [];
@@ -66,7 +67,7 @@ export function CustomMetricsPanel({ namespace, service, environment, data, load
     return null;
   }
 
-  const filter = runtimeMetricFilter(service, namespace);
+  const filter = runtimeMetricFilter(service, namespace, environment, deploymentEnvLabel);
   // Auto-chart the low-cardinality families; high-cardinality ones stay
   // Explore-link only (the series > 100 guard is the auto-chart cutoff).
   const chartable = metrics.filter((m) => !m.highCardinality);
