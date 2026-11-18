@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.3](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.26.2...nais-apm-app-v0.26.3) (2026-11-18)
+
+
+### Bug Fixes
+
+* allow plugin signing for Novari and Ldir ([#255](https://github.com/nais/grafana-apm-app/issues/255)) ([b3ac825](https://github.com/nais/grafana-apm-app/commit/b3ac8259bf18e4bda35535922cb60b9aac78c9fc))
+
 ## [0.26.2](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.26.1...nais-apm-app-v0.26.2) (2026-11-17)
 
 
