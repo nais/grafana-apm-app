@@ -156,9 +156,9 @@ jobs:
           node-version: '24.22.2'
 
       - name: Sign plugin
-        run: npx --yes @grafana/sign-plugin@latest --rootUrls "$GRAFANA_PLUGIN_ROOT_URLS"
+        run: npx --yes @grafana/sign-plugin@latest --rootUrls "${GRAFANA_PLUGIN_ROOT_URLS:?Set the GRAFANA_PLUGIN_ROOT_URLS repository variable}"
         env:
-          GRAFANA_PLUGIN_ROOT_URLS: ${{ secrets.GRAFANA_PLUGIN_ROOT_URLS }}
+          GRAFANA_PLUGIN_ROOT_URLS: ${{ vars.GRAFANA_PLUGIN_ROOT_URLS }}
         if: ${{ env.GRAFANA_ACCESS_POLICY_TOKEN != '' }}
         continue-on-error: true
 

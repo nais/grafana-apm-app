@@ -192,6 +192,15 @@ The project uses [mise](https://mise.jdx.dev/) as task runner:
 | `mise run e2e`               | E2E against `GRAFANA_PORT` or `GRAFANA_URL`    |
 | `mise run clean`             | Remove build artifacts and coverage            |
 
+### Plugin signing
+
+Allowed Grafana instance URLs are maintained in the GitHub Actions repository
+variable `GRAFANA_PLUGIN_ROOT_URLS` as a single comma-separated line, without spaces,
+line breaks, or a trailing comma. CI and both release workflows use this variable directly.
+
+For manual local signing (`pnpm run sign`), set the `GRAFANA_PLUGIN_ROOT_URLS` environment
+variable too. Signing stops if the value is missing.
+
 ## Architecture
 
 ```
