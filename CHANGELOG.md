@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.4](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.26.3...nais-apm-app-v0.26.4) (2026-11-19)
+
+
+### Bug Fixes
+
+* use repository variable instead of secret for plugin signing URLs ([#258](https://github.com/nais/grafana-apm-app/issues/258)) ([234ccd3](https://github.com/nais/grafana-apm-app/commit/234ccd323260718de3f766c1a20bb9ecee843cab))
+
 ## [0.26.3](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.26.2...nais-apm-app-v0.26.3) (2026-11-18)
 
 
