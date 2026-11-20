@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.27.1](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.27.0...nais-apm-app-v0.27.1) (2026-11-20)
+
+
+### Bug Fixes
+
+* hide redundant trace links in drawer logs ([#262](https://github.com/nais/grafana-apm-app/issues/262)) ([7466ac1](https://github.com/nais/grafana-apm-app/commit/7466ac1aab792fbb9c341735411b33407e014c31))
+* map service labels in local Tempo log links ([#263](https://github.com/nais/grafana-apm-app/issues/263)) ([d1215ed](https://github.com/nais/grafana-apm-app/commit/d1215ed260ee309f2e7f2f7fc2640c12f158c69b))
+
 ## [0.27.0](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.26.4...nais-apm-app-v0.27.0) (2026-11-20)
 
 
