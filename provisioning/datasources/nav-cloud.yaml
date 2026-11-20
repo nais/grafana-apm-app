@@ -35,10 +35,13 @@ datasources:
     access: proxy
     jsonData:
       httpHeaderName1: X-Scope-OrgID
-      tracesToLogs:
+      tracesToLogsV2:
         datasourceUid: nav-logs
         filterByTraceID: true
-        tags: ['service.name']
+        customQuery: false
+        tags:
+          - key: service.name
+            value: service_name
       tracesToMetrics:
         datasourceUid: nav-metrics
       serviceMap:
@@ -55,10 +58,13 @@ datasources:
     access: proxy
     jsonData:
       httpHeaderName1: X-Scope-OrgID
-      tracesToLogs:
+      tracesToLogsV2:
         datasourceUid: nav-logs
         filterByTraceID: true
-        tags: ['service.name']
+        customQuery: false
+        tags:
+          - key: service.name
+            value: service_name
       tracesToMetrics:
         datasourceUid: nav-metrics
       serviceMap:
