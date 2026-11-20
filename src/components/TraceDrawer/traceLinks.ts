@@ -50,7 +50,11 @@ export function traceDrawerHref(traceId: string, spanId?: string): string {
   if (spanId) {
     params.set(SPAN_ID_PARAM, spanId);
   }
-  return `${location.pathname}?${params}`;
+  return locationService.getHistory().createHref({
+    pathname: location.pathname,
+    search: `?${params}`,
+    hash: location.hash,
+  });
 }
 
 /**

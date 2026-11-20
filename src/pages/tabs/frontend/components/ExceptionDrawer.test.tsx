@@ -21,6 +21,10 @@ jest.mock('@grafana/runtime', () => ({
     push: jest.fn(),
     partial: jest.fn(),
     getLocation: () => ({ pathname: '/a/nais-apm-app/services/team/api', search: '?tab=issues' }),
+    getHistory: () => ({
+      createHref: ({ pathname, search, hash }: { pathname: string; search?: string; hash?: string }) =>
+        `${pathname}${search ?? ''}${hash ?? ''}`,
+    }),
   },
 }));
 

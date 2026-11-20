@@ -17,19 +17,30 @@ jest.mock('@grafana/runtime', () => ({
   locationService: {
     partial: jest.fn(),
     getLocation: jest.fn(),
+    getHistory: jest.fn(),
   },
 }));
 
 const partial = locationService.partial as jest.Mock;
 const getLocation = locationService.getLocation as jest.Mock;
+const getHistory = locationService.getHistory as jest.Mock;
+let createHref: jest.Mock;
+let basename = '';
 
 const TRACE = '4bf92f3577b34da6a3ce929d0e0e4736';
 
 beforeEach(() => {
+  basename = '';
+  createHref = jest.fn(
+    ({ pathname, search, hash }: { pathname: string; search?: string; hash?: string }) =>
+      `${basename}${pathname}${search ?? ''}${hash ?? ''}`
+  );
   partial.mockReset();
+  getHistory.mockReturnValue({ createHref });
   getLocation.mockReturnValue({
     pathname: '/a/nais-apm-app/services/team/api',
     search: '?tab=traces&traceSpan=middleware+-+%3Canonymous%3E&traceId=old&spanId=old',
+    hash: '',
   });
 });
 
@@ -88,6 +99,17 @@ describe('traceDrawerHref', () => {
   it('encodes a $ in other params, so Grafana never reads it as a template', () => {
     getLocation.mockReturnValue({ pathname: '/p', search: '?logSearch=%24__all' });
     expect(traceDrawerHref(TRACE)).toBe(`/p?logSearch=%24__all&traceId=${TRACE}`);
+  });
+
+  it('preserves Grafana’s subpath, query params, and hash', () => {
+    basename = '/grafana';
+    getLocation.mockReturnValue({
+      pathname: '/a/nais-apm-app/services/team/api',
+      search: '?tab=traces&traceId=old&spanId=old',
+      hash: '#logs',
+    });
+
+    expect(traceDrawerHref(TRACE)).toBe(`/grafana/a/nais-apm-app/services/team/api?tab=traces&traceId=${TRACE}#logs`);
   });
 });
 
