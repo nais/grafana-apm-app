@@ -130,6 +130,7 @@ export const TRACE_ID_FIELDS = ['traceID', 'trace_id', 'TraceID', 'Trace'];
 interface FieldLike {
   name: string;
   type?: string;
+  labels?: Record<string, unknown>;
   config?: { links?: unknown[] };
   values?: unknown[];
 }
@@ -144,14 +145,32 @@ const TRACE_ID_LABELS = ['trace_id', 'traceID', 'traceId', 'traceid'].flatMap((k
  * derived field finds no ID in it. Undefined when no line has one.
  */
 function traceIdsFromLabels(fields: FieldLike[]): Array<string | null> | undefined {
-  const labels = fields.find((field) => field.name === 'labels')?.values;
-  if (!labels) {
+  const line = fields.find((field) => ['Line', 'line', 'body'].includes(field.name));
+  const labels = fields.find((field) => field.name.toLowerCase() === 'labels')?.values;
+  const rows = line?.values ?? labels;
+  if (!rows) {
     return undefined;
   }
-  const ids = labels.map((row) => {
-    const values = (row ?? {}) as Record<string, unknown>;
+  const ids = rows.map((_, index) => {
+    let decoded = labels?.[index];
+    if (typeof decoded === 'string') {
+      try {
+        decoded = JSON.parse(decoded);
+      } catch (error) {
+        if (!(error instanceof SyntaxError)) {
+          throw error;
+        }
+        console.warn('Could not parse log labels; using stream labels for trace correlation.');
+        decoded = undefined;
+      }
+    }
+    const values =
+      decoded && typeof decoded === 'object' && !Array.isArray(decoded)
+        ? (decoded as Record<string, unknown>)
+        : (line?.labels ?? {});
     for (const key of TRACE_ID_LABELS) {
-      const id = typeof values[key] === 'string' ? validTraceId(values[key] as string) : '';
+      const value = values[key];
+      const id = typeof value === 'string' ? validTraceId(value) : '';
       if (id) {
         return id;
       }

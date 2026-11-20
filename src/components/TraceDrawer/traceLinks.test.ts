@@ -249,7 +249,7 @@ describe('withDrawerTraceLinks', () => {
 
   describe('log lines', () => {
     // A Loki log frame: each line's labels hold its parsed fields and structured metadata.
-    const logFrame = (labels: Array<Record<string, string>>, extra: Array<Record<string, unknown>> = []) =>
+    const logFrame = (labels: unknown[], extra: Array<Record<string, unknown>> = []) =>
       toDataFrame({
         fields: [
           { name: 'labels', type: FieldType.other, values: labels },
@@ -276,6 +276,100 @@ describe('withDrawerTraceLinks', () => {
       expect(trace?.values).toEqual([TRACE, null, null]);
       expect(titles(trace?.config.links)).toEqual(['Open trace']);
       expect(frame.fields.some((field) => field.name === 'Trace')).toBe(false);
+    });
+
+    it.each(['labels', 'Labels'])('reads JSON-encoded rows in the %s column', (name) => {
+      const frame = toDataFrame({
+        fields: [
+          {
+            name,
+            type: FieldType.string,
+            values: [JSON.stringify({ trace_id: TRACE.toUpperCase() }), JSON.stringify({ level: 'info' })],
+          },
+          { name: 'Line', type: FieldType.string, values: ['cart priced', 'request complete'] },
+        ],
+      });
+
+      const out = withDrawerTraceLinks(frame);
+
+      const trace = out.fields.find((field) => field.name === 'Trace');
+      expect(trace?.values).toEqual([TRACE, null]);
+      expect(titles(trace?.config.links)).toEqual(['Open trace']);
+      expect(frame.fields.some((field) => field.name === 'Trace')).toBe(false);
+    });
+
+    it.each(['Line', 'line', 'body'])('reads legacy stream labels on the %s field', (name) => {
+      const frame = toDataFrame({
+        fields: [
+          { name, type: FieldType.string, values: ['cart priced', 'request complete'], labels: { trace_id: TRACE } },
+        ],
+      });
+
+      const out = withDrawerTraceLinks(frame);
+
+      const trace = out.fields.find((field) => field.name === 'Trace');
+      expect(trace?.values).toEqual([TRACE, TRACE]);
+      expect(titles(trace?.config.links)).toEqual(['Open trace']);
+    });
+
+    it('uses stream labels only when row labels cannot be decoded, including missing rows', () => {
+      const streamTrace = '11111111111111111111111111111111';
+      const frame = toDataFrame({
+        fields: [
+          {
+            name: 'labels',
+            type: FieldType.other,
+            values: [
+              { trace_id: TRACE },
+              JSON.stringify({ traceid: TRACE }),
+              null,
+              '{invalid JSON',
+              '[]',
+              'null',
+              '42',
+              {},
+              { trace_id: 'not-a-trace' },
+            ],
+          },
+          {
+            name: 'Line',
+            type: FieldType.string,
+            values: Array(10).fill('cart priced'),
+            labels: { trace_id: streamTrace },
+          },
+        ],
+      });
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const out = withDrawerTraceLinks(frame);
+
+        expect(out.fields.find((field) => field.name === 'Trace')?.values).toEqual([
+          TRACE,
+          TRACE,
+          streamTrace,
+          streamTrace,
+          streamTrace,
+          streamTrace,
+          streamTrace,
+          null,
+          null,
+          streamTrace,
+        ]);
+        expect(warn).toHaveBeenCalledTimes(1);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('leaves malformed JSON labels without stream labels unlinked', () => {
+      const frame = logFrame(['{invalid JSON']);
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        expect(withDrawerTraceLinks(frame)).toBe(frame);
+        expect(warn).toHaveBeenCalledTimes(1);
+      } finally {
+        warn.mockRestore();
+      }
     });
 
     it('fill the gaps of a derived field that found nothing in the rewritten line', () => {
