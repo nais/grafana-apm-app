@@ -10,21 +10,21 @@ import {
   SceneQueryRunner,
   SceneTimeRange,
 } from '@grafana/scenes';
-import { CustomMetric, getCustomMetrics } from '../api/client';
-import { useFetch } from '../utils/useFetch';
+import { CustomMetric, CustomMetricsResponse } from '../api/client';
 import { useTimeRange } from '../utils/timeRange';
 import { useSceneTimeSync } from '../utils/useSceneTimeSync';
-import { usePluginDatasources } from '../utils/datasources';
+import { usePluginDatasources, usePluginLabelOverrides } from '../utils/datasources';
 import { buildMimirExploreUrl } from '../utils/explore';
-import { escapeQueryString } from '../utils/sanitize';
-import { otel } from '../otelconfig';
-import { customMetricExploreQuery, customMetricPanels } from './customMetricQueries';
+import { customMetricExploreQuery, customMetricPanels, runtimeMetricFilter } from './customMetricQueries';
 import { DataState } from './DataState';
 
 interface CustomMetricsPanelProps {
   namespace: string;
   service: string;
   environment?: string;
+  data: CustomMetricsResponse | null;
+  loading: boolean;
+  error: string | null;
 }
 
 type BadgeColor = React.ComponentProps<typeof Badge>['color'];
@@ -44,25 +44,21 @@ const TYPE_BADGE_COLOR: Record<string, BadgeColor> = {
  * are also rendered as type-aware Scenes panels (counter→rate, histogram→p95,
  * summary/timer→throughput+avg, gauge→pod-aggregated avg). High-cardinality
  * families (series > 100) stay Explore-link only. Renders nothing when no
- * custom metrics exist.
+ * custom metrics exist. Discovery data is shared with the selected-metrics
+ * section so the Overview tab only fetches it once.
  *
  * Collapsible, default-collapsed, with the discovered-metric count in its
  * own header (IA review P9): the Overview budget is RED-first, so this
  * unbounded auto-discovered list shouldn't compete for attention until
- * curated (#68 P1). The count still requires the fetch, so that keeps
- * running unconditionally (existing `useFetch` above/below is unchanged) —
- * only the table (and any fetch error) stay hidden until expanded.
+ * curated (#68 P1). Discovery runs even while collapsed; only the table
+ * stays hidden until expanded.
  */
-export function CustomMetricsPanel({ namespace, service, environment }: CustomMetricsPanelProps) {
+export function CustomMetricsPanel({ namespace, service, environment, data, loading, error }: CustomMetricsPanelProps) {
   const styles = useStyles2(getStyles);
-  const { from, to, fromMs, toMs } = useTimeRange();
+  const { from, to } = useTimeRange();
   const { metricsUid } = usePluginDatasources(environment);
+  const { deploymentEnvLabel } = usePluginLabelOverrides();
   const [collapsed, setCollapsed] = useState(true);
-
-  const { data, loading, error } = useFetch(
-    () => getCustomMetrics(namespace, service, fromMs, toMs, environment),
-    [namespace, service, fromMs, toMs, environment]
-  );
 
   const metrics = data?.metrics ?? [];
 
@@ -71,7 +67,7 @@ export function CustomMetricsPanel({ namespace, service, environment }: CustomMe
     return null;
   }
 
-  const filter = runtimeFilter(service, namespace);
+  const filter = runtimeMetricFilter(service, namespace, environment, deploymentEnvLabel);
   // Auto-chart the low-cardinality families; high-cardinality ones stay
   // Explore-link only (the series > 100 guard is the auto-chart cutoff).
   const chartable = metrics.filter((m) => !m.highCardinality);
@@ -148,15 +144,6 @@ function MetricRow({ metric, exploreUrl }: { metric: CustomMetric; exploreUrl: s
       </td>
     </tr>
   );
-}
-
-/** app/namespace matcher for app-emitted metrics (mirrors backend RuntimeFilter). */
-function runtimeFilter(service: string, namespace: string): string {
-  let f = `${otel.runtime.appLabel}="${escapeQueryString(service)}"`;
-  if (namespace) {
-    f += `, ${otel.runtime.namespaceLabel}="${escapeQueryString(namespace)}"`;
-  }
-  return f;
 }
 
 /**

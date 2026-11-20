@@ -1,4 +1,22 @@
 import { CustomMetric } from '../api/client';
+import { escapeQueryString } from '../utils/sanitize';
+import { otel } from '../otelconfig';
+
+export function runtimeMetricFilter(
+  service: string,
+  namespace: string,
+  environment?: string,
+  deploymentEnvLabel: string = otel.labels.deploymentEnv
+): string {
+  let filter = `${otel.runtime.appLabel}="${escapeQueryString(service)}"`;
+  if (namespace) {
+    filter += `, ${otel.runtime.namespaceLabel}="${escapeQueryString(namespace)}"`;
+  }
+  if (environment) {
+    filter += `, ${deploymentEnvLabel}="${escapeQueryString(environment)}"`;
+  }
+  return filter;
+}
 
 /**
  * Type-aware PromQL for auto-charting discovered custom metrics (#68 Phase 1).

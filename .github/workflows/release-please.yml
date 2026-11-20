@@ -148,13 +148,10 @@ jobs:
           version: latest
           args: buildAll
 
-      # Private signature — identical secrets to the retired release.yml
-      # (GRAFANA_ACCESS_POLICY_TOKEN + GRAFANA_PLUGIN_ROOT_URLS). Required: a
-      # released plugin MUST be signed to load in the target Grafana instances.
       - name: Sign plugin
-        run: npx --yes @grafana/sign-plugin@latest --rootUrls "$GRAFANA_PLUGIN_ROOT_URLS"
+        run: npx --yes @grafana/sign-plugin@latest --rootUrls "${GRAFANA_PLUGIN_ROOT_URLS:?Set the GRAFANA_PLUGIN_ROOT_URLS repository variable}"
         env:
-          GRAFANA_PLUGIN_ROOT_URLS: ${{ secrets.GRAFANA_PLUGIN_ROOT_URLS }}
+          GRAFANA_PLUGIN_ROOT_URLS: ${{ vars.GRAFANA_PLUGIN_ROOT_URLS }}
 
       - name: Get plugin metadata
         id: metadata
