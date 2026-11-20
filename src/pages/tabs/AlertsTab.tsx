@@ -43,7 +43,7 @@ const ALERT_TEMPLATES: AlertTemplateCard[] = [
     kind: 'custom',
     title: 'Custom alert',
     description:
-      'Start with routing labels, warning severity and a matching team folder pre-filled when available. You can change severity to info or critical. Add a name, query and alert condition. Scope the query to the app and environment yourself.',
+      'Start with routing labels and your team folder pre-filled when available. Set severity to info, warning or critical (default: warning). Add a name, query and alert condition.',
   },
   {
     key: 'crash-loop-back-off',
@@ -57,7 +57,7 @@ const ALERT_TEMPLATES: AlertTemplateCard[] = [
     kind: 'new-exceptions',
     title: 'New frontend exceptions',
     description:
-      'Fires when a frontend exception was seen in the last 30m but not in the preceding 7 days. Uses the Faro recording rule in Mimir; review and save in Grafana.',
+      'Fires when a frontend exception was seen in the last 30m but not in the preceding 7 days. Uses the Faro recording rule in Mimir.',
   },
   {
     key: 'web-vitals',
@@ -179,8 +179,8 @@ export function AlertsTab({ service, namespace, environment }: AlertsTabProps) {
           <h3 className={styles.sectionTitle}>Create alert</h3>
           <span className={styles.sectionSubtitle}>
             {canRouteAlert
-              ? 'Rules with pre-filled routing labels for Slack notifications to your team. Review and save in Grafana, using notification policies (not a direct contact point). Check Preview routing before saving to confirm delivery to the intended Slack channel.'
-              : 'Select a team and exactly one environment to create a Grafana alert that matches its notification policy.'}
+              ? 'Routing labels are prefilled for your team. Use the folder with exactly the same name as your team; select it yourself if it is not prefilled. Check Preview routing before saving to confirm the intended Slack channel.'
+              : 'Select a team and exactly one environment to create an alert that matches its notification policy.'}
           </span>
         </div>
 
@@ -229,11 +229,11 @@ export function AlertsTab({ service, namespace, environment }: AlertsTabProps) {
         <div className={styles.sectionHeader}>
           <h3 className={styles.sectionTitle}>Alert on new frontend exceptions</h3>
           <span className={styles.sectionSubtitle}>
-            The templates above open rules you review and save in Grafana. This PrometheusRule is managed as code:
-            commit it alongside your app and deploy it to the cluster you want watched. It alerts on frontend exceptions
-            not seen in the preceding 7 days, not on APM issue status. Notifications follow your team&apos;s existing
-            alert routing; Slack delivery depends on that configuration. The environment comes from the cluster where
-            you deploy the rule. Requires frontend (Faro) telemetry.
+            The templates above open a pre-filled alert editor. This PrometheusRule is managed as code: commit it
+            alongside your app and deploy it to the cluster you want watched. It alerts on frontend exceptions not seen
+            in the preceding 7 days, not on APM issue status. Notifications follow your team&apos;s existing alert
+            routing; Slack delivery depends on that configuration. The environment comes from the cluster where you
+            deploy the rule. Requires frontend (Faro) telemetry.
           </span>
         </div>
 

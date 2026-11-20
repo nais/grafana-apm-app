@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.26.4](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.26.3...nais-apm-app-v0.26.4) (2026-11-19)
+
+
+### Bug Fixes
+
+* use repository variable instead of secret for plugin signing URLs ([#258](https://github.com/nais/grafana-apm-app/issues/258)) ([234ccd3](https://github.com/nais/grafana-apm-app/commit/234ccd323260718de3f766c1a20bb9ecee843cab))
+
+## [0.26.3](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.26.2...nais-apm-app-v0.26.3) (2026-11-18)
+
+
+### Bug Fixes
+
+* allow plugin signing for Novari and Ldir ([#255](https://github.com/nais/grafana-apm-app/issues/255)) ([b3ac825](https://github.com/nais/grafana-apm-app/commit/b3ac8259bf18e4bda35535922cb60b9aac78c9fc))
+
+## [0.26.2](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.26.1...nais-apm-app-v0.26.2) (2026-11-17)
+
+
+### Features
+
+* choose custom metrics to chart on service overview ([b0b7e11](https://github.com/nais/grafana-apm-app/commit/b0b7e1107b5be44b9f79845712feea6093629b98))
+
+## [0.26.1](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.26.0...nais-apm-app-v0.26.1) (2026-11-16)
+
+
+### Bug Fixes
+
+* clarify alert template descriptions ([#249](https://github.com/nais/grafana-apm-app/issues/249)) ([29df852](https://github.com/nais/grafana-apm-app/commit/29df852acd78480386bcc3002c1e78478f3de3fc))
+
 ## [0.26.0](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.25.10...nais-apm-app-v0.26.0) (2026-11-13)
 
 

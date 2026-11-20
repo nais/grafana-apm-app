@@ -1,11 +1,30 @@
 import { CustomMetric } from '../api/client';
-import { customMetricExploreQuery, customMetricPanels } from './customMetricQueries';
+import { customMetricExploreQuery, customMetricPanels, runtimeMetricFilter } from './customMetricQueries';
 
 const FILTER = 'app="app", namespace="team"';
 
 function metric(over: Partial<CustomMetric>): CustomMetric {
   return { name: 'x', type: 'gauge', help: '', unit: '', series: 1, highCardinality: false, chart: 'gauge', ...over };
 }
+
+describe('runtimeMetricFilter', () => {
+  it('omits the environment matcher when no environment is selected', () => {
+    expect(runtimeMetricFilter('app', 'team')).toBe(FILTER);
+    expect(runtimeMetricFilter('app', '')).toBe('app="app"');
+  });
+
+  it('uses the default deployment environment label and escapes the selected value', () => {
+    expect(runtimeMetricFilter('app', 'team', 'prod"\\west')).toBe(
+      'app="app", namespace="team", k8s_cluster_name="prod\\"\\\\west"'
+    );
+  });
+
+  it('uses a configured deployment environment label', () => {
+    expect(runtimeMetricFilter('app', 'team', 'prod', 'deployment_environment')).toBe(
+      'app="app", namespace="team", deployment_environment="prod"'
+    );
+  });
+});
 
 describe('customMetricPanels', () => {
   it('charts a counter as a rate', () => {

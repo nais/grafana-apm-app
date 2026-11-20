@@ -1,7 +1,20 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render as renderWithTestingLibrary, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { OverviewTab } from './OverviewTab';
 import { ConnectedServicesResponse, DependencySummary, HealthSummary } from '../../api/client';
+
+function render(element: React.ReactElement) {
+  return renderWithTestingLibrary(<MemoryRouter>{element}</MemoryRouter>);
+}
+
+jest.mock('../../api/client', () => ({
+  ...jest.requireActual('../../api/client'),
+  getCustomMetrics: jest.fn().mockResolvedValue({ metrics: [], truncated: false }),
+}));
+jest.mock('./overview/FeaturedMetrics', () => ({
+  FeaturedMetrics: () => <div data-testid="featured-metrics" />,
+}));
 
 // Isolate composition: exercise OverviewTab's own section structure without
 // pulling in CustomMetricsPanel's fetch/datasource hooks or
@@ -76,6 +89,9 @@ describe('OverviewTab section structure', () => {
 
     expect(screen.getByTestId('health-summary-section')).toBeInTheDocument();
     expect(screen.getByTestId('custom-metrics-panel')).toBeInTheDocument();
+    const html = document.body.innerHTML;
+    expect(html.indexOf('scene-red-panels')).toBeLessThan(html.indexOf('featured-metrics'));
+    expect(html.indexOf('featured-metrics')).toBeLessThan(html.indexOf('Operations'));
   });
 
   it('renders no health header row when health data is unavailable and not loading', () => {
