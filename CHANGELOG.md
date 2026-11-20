@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.27.0](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.26.4...nais-apm-app-v0.27.0) (2026-11-20)
+
+
+### Features
+
+* open traces in a side drawer instead of Explore ([#260](https://github.com/nais/grafana-apm-app/issues/260)) ([03c6e12](https://github.com/nais/grafana-apm-app/commit/03c6e126d37ff5a79a5a815b6270bb5caa7ea2f2))
+
 ## [0.26.4](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.26.3...nais-apm-app-v0.26.4) (2026-11-19)
 
 
