@@ -100,7 +100,7 @@ export function traceIdDataLink(): DataLink {
     title: 'Open trace',
     url: traceDrawerHrefTemplate('${__value.raw}'),
     onClick: (event: DataLinkClickEvent) => {
-      openTraceDrawer(event.replaceVariables?.('${__value.raw}') ?? '');
+      openTraceOnClick(event.replaceVariables?.('${__value.raw}') ?? '')(event.e);
     },
   };
 }
@@ -115,7 +115,7 @@ export function spanIdDataLink(): DataLink {
     url: traceDrawerHrefTemplate('${__data.fields.traceIdHidden}', '${__value.raw}'),
     onClick: (event: DataLinkClickEvent) => {
       const replace = event.replaceVariables;
-      openTraceDrawer(replace?.('${__data.fields.traceIdHidden}') ?? '', replace?.('${__value.raw}') ?? '');
+      openTraceOnClick(replace?.('${__data.fields.traceIdHidden}') ?? '', replace?.('${__value.raw}') ?? '')(event.e);
     },
   };
 }

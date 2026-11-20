@@ -130,6 +130,40 @@ describe('data links', () => {
   });
 });
 
+describe.each([
+  { name: 'trace', createLink: traceIdDataLink, spanId: null },
+  { name: 'span', createLink: spanIdDataLink, spanId: '00f067aa0ba902b7' },
+])('$name data-link clicks', ({ createLink, spanId }) => {
+  const replaceVariables = (value: string) => {
+    if (value === '${__data.fields.traceIdHidden}') {
+      return TRACE;
+    }
+    return value === '${__value.raw}' ? (spanId ?? TRACE) : '';
+  };
+
+  it('prevents browser navigation and opens the drawer once on a normal click', () => {
+    const event = new window.MouseEvent('click', { button: 0, cancelable: true });
+
+    createLink().onClick!({ origin: {}, replaceVariables, e: event });
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(partial).toHaveBeenCalledTimes(1);
+    expect(partial).toHaveBeenCalledWith({ traceId: TRACE, spanId });
+  });
+
+  it.each([{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { altKey: true }, { button: 1 }])(
+    'leaves browser navigation intact without opening the drawer for %o',
+    (init) => {
+      const event = new window.MouseEvent('click', { button: 0, cancelable: true, ...init });
+
+      createLink().onClick!({ origin: {}, replaceVariables, e: event });
+
+      expect(event.defaultPrevented).toBe(false);
+      expect(partial).not.toHaveBeenCalled();
+    }
+  );
+});
+
 describe('withDrawerTraceLinks', () => {
   // The link a datasource puts on a trace ID: Tempo's search results, Mimir's exemplars, Loki's
   // derived fields all point at Explore.
