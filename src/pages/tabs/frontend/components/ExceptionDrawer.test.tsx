@@ -6,6 +6,7 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { locationService } from '@grafana/runtime';
 import { of } from 'rxjs';
 import { ExceptionDrawer } from './ExceptionDrawer';
 import * as client from '../../../../api/client';
@@ -16,7 +17,15 @@ const mockFetch = jest.fn();
 jest.mock('@grafana/runtime', () => ({
   getBackendSrv: () => ({ fetch: (options: unknown) => mockFetch(options) }),
   getAppEvents: () => ({ publish: jest.fn() }),
-  locationService: { push: jest.fn() },
+  locationService: {
+    push: jest.fn(),
+    partial: jest.fn(),
+    getLocation: () => ({ pathname: '/a/nais-apm-app/services/team/api', search: '?tab=issues' }),
+    getHistory: () => ({
+      createHref: ({ pathname, search, hash }: { pathname: string; search?: string; hash?: string }) =>
+        `${pathname}${search ?? ''}${hash ?? ''}`,
+    }),
+  },
 }));
 
 jest.mock('../../../../utils/datasources', () => ({
@@ -323,7 +332,7 @@ describe('server issues (#84)', () => {
         stacktrace: 'at Foo.bar(Foo.java:10)',
         version: '1.4.2',
         type: 'ConnectException',
-        traceId: 'abc123def456trace',
+        traceId: '4bf92f3577b34da6a3ce929d0e0e4736',
         spanId: 'span-9',
         attributes: { k8s_container_name: 'main', logger: 'com.example.Db' },
       },
@@ -405,14 +414,15 @@ describe('server issues (#84)', () => {
     renderServerDrawer();
     await screen.findByText(/^2 occurrences$/);
 
-    // Footer "View this trace" link points at the Tempo datasource with the
-    // occurrence's trace ID as a traceql query.
+    // Footer "View this trace" opens the occurrence's trace in the trace drawer over
+    // this one; its href is the same page with the drawer open, for a new tab.
     const traceLink = screen.getByRole('link', { name: /View this trace/ });
-    const href = traceLink.getAttribute('href')!;
-    const left = JSON.parse(new URL(href, 'http://grafana.local').searchParams.get('left')!);
-    expect(left.datasource).toBe('tempo-uid');
-    expect(left.queries[0].queryType).toBe('traceql');
-    expect(left.queries[0].query).toBe('abc123def456trace');
+    expect(traceLink).toHaveAttribute(
+      'href',
+      '/a/nais-apm-app/services/team/api?tab=issues&traceId=4bf92f3577b34da6a3ce929d0e0e4736'
+    );
+    fireEvent.click(traceLink);
+    expect(locationService.partial).toHaveBeenCalledWith({ traceId: '4bf92f3577b34da6a3ce929d0e0e4736', spanId: null });
 
     // The same trace is linked from the occurrence-context meta list.
     fireEvent.click(screen.getByRole('button', { name: /Occurrence context/ }));

@@ -1,5 +1,22 @@
-import { getMetricNames } from './capabilities';
+import { datasourceStatus, getMetricNames } from './capabilities';
 import { Capabilities } from '../api/client';
+
+describe('datasourceStatus', () => {
+  const healthy = { available: true };
+  const down = { available: false, error: 'connection refused' };
+
+  it("uses the environment's own datasource when it has one", () => {
+    expect(datasourceStatus({ prod: healthy }, down, 'prod')).toBe(healthy);
+    expect(datasourceStatus({ prod: down }, healthy, 'prod')).toBe(down);
+  });
+
+  it('falls back to the default for other environments, several at once, or none', () => {
+    expect(datasourceStatus({ prod: healthy }, down, 'dev')).toBe(down);
+    expect(datasourceStatus({ prod: healthy }, down, 'prod,dev')).toBe(down);
+    expect(datasourceStatus({ prod: healthy }, down)).toBe(down);
+    expect(datasourceStatus(undefined, undefined, 'prod')).toBeUndefined();
+  });
+});
 
 describe('getMetricNames', () => {
   it('returns defaults when caps is null', () => {

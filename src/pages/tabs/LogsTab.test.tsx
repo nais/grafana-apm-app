@@ -34,6 +34,7 @@ jest.mock('@grafana/scenes', () => {
       capturedRunners.push(cfg);
       return cfg;
     }),
+    SceneDataTransformer: jest.fn().mockImplementation((cfg: unknown) => cfg),
     EmbeddedScene: jest.fn().mockImplementation((cfg: unknown) => ({ ...(cfg as object), Component: () => null })),
     SceneFlexLayout: jest.fn().mockImplementation((cfg: unknown) => cfg),
     SceneFlexItem: jest.fn().mockImplementation((cfg: unknown) => cfg),

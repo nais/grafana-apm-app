@@ -9,6 +9,7 @@ on:
     branches:
       - master
       - main
+    types: [opened, synchronize, reopened, edited]
   # Required so the CI jobs (notably the required `ci-ok` aggregation check) run
   # on the merge queue's synthetic merge_group branch. Without this the queue
   # waits forever for a check that never fires.
@@ -36,17 +37,11 @@ jobs:
           cache: 'pnpm'
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Lint PR commit messages
-        # Only runs on pull_request: the base/head SHAs below only exist for that
-        # event. On merge_group there is no PR range to lint, so the step is
-        # skipped and the job goes green — the commits were already linted on the
-        # PR before it entered the queue.
+      - name: Lint PR title
         if: ${{ github.event_name == 'pull_request' }}
-        run: >
-          pnpm exec commitlint
-          --from "${{ github.event.pull_request.base.sha }}"
-          --to "${{ github.event.pull_request.head.sha }}"
-          --verbose
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: printf '%s\n' "$PR_TITLE" | pnpm exec commitlint --verbose
 
   frontend:
     name: Frontend (check, test, build)
