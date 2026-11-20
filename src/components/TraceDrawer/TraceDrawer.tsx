@@ -310,6 +310,7 @@ function TraceLogs({
         refId: String.fromCharCode(65 + i),
         expr,
         queryType: 'range',
+        direction: 'forward',
         maxLines: LOG_LINE_LIMIT,
       })),
     });
