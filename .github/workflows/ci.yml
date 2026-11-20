@@ -9,6 +9,7 @@ on:
     branches:
       - master
       - main
+    types: [opened, synchronize, reopened, edited]
   # Required so the CI jobs (notably the required `ci-ok` aggregation check) run
   # on the merge queue's synthetic merge_group branch. Without this the queue
   # waits forever for a check that never fires.
