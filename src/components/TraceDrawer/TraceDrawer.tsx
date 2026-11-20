@@ -323,7 +323,7 @@ function TraceLogs({
             body: PanelBuilders.logs()
               .setTitle('')
               .setDisplayMode('transparent')
-              .setData(traceDrawerData(runner))
+              .setData(traceDrawerData(runner, traceId))
               .setOption('showTime', true)
               .setOption('wrapLogMessage', true)
               .setOption('enableLogDetails', true)
@@ -338,7 +338,7 @@ function TraceLogs({
     });
     return { scene, runner };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [exprKey, logsUid, fromMs, toMs]);
+  }, [exprKey, logsUid, fromMs, toMs, traceId]);
   const { data } = runner.useState();
   // A query that hit its limit may have more: say so, and offer every line in Explore.
   const truncated = hitLineLimit(data?.series, LOG_LINE_LIMIT);
