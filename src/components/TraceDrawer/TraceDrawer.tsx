@@ -201,7 +201,13 @@ function buildTraceScene(traceId: string, tracesUid: string, fromMs: number, toM
     href: traceDrawerHref(linkTraceId, linkSpanId),
     target: '_self',
     origin: {} as Field,
-    onClick: openTraceOnClick(linkTraceId, linkSpanId),
+    onClick: (event) => {
+      if (event && (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button !== 0)) {
+        window.open(traceDrawerHref(linkTraceId, linkSpanId), '_blank', 'noopener,noreferrer');
+        return;
+      }
+      openTraceOnClick(linkTraceId, linkSpanId)(event);
+    },
   });
   const panel: VizPanel = PanelBuilders.traces()
     .setTitle('')
