@@ -16,6 +16,8 @@ permissions:
 
 jobs:
   compare:
+    # Fork PRs get a read-only token, so the bundle report cannot post a PR comment.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
 
     steps:
