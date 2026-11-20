@@ -136,7 +136,7 @@ interface FieldLike {
 
 // The keys a parsed log line or Loki's structured metadata carries a trace ID under. A parser
 // renames a key that collides with an existing label to `<key>_extracted`.
-const TRACE_ID_LABELS = ['trace_id', 'traceID', 'traceId'].flatMap((k) => [k, `${k}_extracted`]);
+const TRACE_ID_LABELS = ['trace_id', 'traceID', 'traceId', 'traceid'].flatMap((k) => [k, `${k}_extracted`]);
 
 /**
  * A Loki log frame's trace IDs, from each line's labels (parsed fields and structured

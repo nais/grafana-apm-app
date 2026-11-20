@@ -267,6 +267,17 @@ describe('withDrawerTraceLinks', () => {
       expect(titles(trace?.config.links)).toEqual(['Open trace']);
     });
 
+    it.each(['traceid', 'traceid_extracted'])('links log lines using the lowercase %s key', (key) => {
+      const frame = logFrame([{ [key]: TRACE.toUpperCase() }, { [key]: 'not-a-trace' }, {}]);
+
+      const out = withDrawerTraceLinks(frame);
+
+      const trace = out.fields.find((field) => field.name === 'Trace');
+      expect(trace?.values).toEqual([TRACE, null, null]);
+      expect(titles(trace?.config.links)).toEqual(['Open trace']);
+      expect(frame.fields.some((field) => field.name === 'Trace')).toBe(false);
+    });
+
     it('fill the gaps of a derived field that found nothing in the rewritten line', () => {
       const out = withDrawerTraceLinks(
         logFrame(
