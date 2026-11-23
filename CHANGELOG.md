@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.27.2](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.27.1...nais-apm-app-v0.27.2) (2026-11-23)
+
+
+### Bug Fixes
+
+* handle Console trace timestamps and show recent traces ([#268](https://github.com/nais/grafana-apm-app/issues/268)) ([d66ab31](https://github.com/nais/grafana-apm-app/commit/d66ab31874a6e8cf334d97eb102219953b9b39ae))
+
 ## [0.27.1](https://github.com/nais/grafana-apm-app/compare/nais-apm-app-v0.27.0...nais-apm-app-v0.27.1) (2026-11-20)
 
 
