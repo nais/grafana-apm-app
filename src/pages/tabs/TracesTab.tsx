@@ -57,6 +57,7 @@ export function TracesTab({
   const [durationMin, setDurationMin] = useState<string>('');
   const [durationMax, setDurationMax] = useState<string>('');
   const [spanSearch, setSpanSearch] = useState<string>(initialSpan ?? '');
+  const [traceLimit, setTraceLimit] = useState(20);
   const debouncedSearch = useDebouncedValue(spanSearch, 500);
   const styles = useStyles2(getStyles);
   // Resolved timestamps drive the breakdown fetch AND bust the scene memo on a
@@ -98,7 +99,7 @@ export function TracesTab({
     if (durationMax) {
       conditions.push(`duration <= ${durationMax}ms`);
     }
-    const traceQL = `{${conditions.join(' && ')}}`;
+    const traceQL = `{${conditions.join(' && ')}} with (most_recent=true)`;
 
     const traceQuery = new SceneQueryRunner({
       datasource: { uid: tracesUid, type: 'tempo' },
@@ -108,7 +109,7 @@ export function TracesTab({
           queryType: 'traceql',
           query: traceQL,
           tableType: 'traces',
-          limit: 20,
+          limit: traceLimit,
         },
       ],
     });
@@ -122,12 +123,27 @@ export function TracesTab({
           new SceneFlexItem({
             minHeight: 400,
             // A trace or span opens in the drawer over this tab, not in Explore.
-            body: PanelBuilders.table().setTitle(`Traces — ${service}`).setData(traceDrawerData(traceQuery)).build(),
+            body: PanelBuilders.table()
+              .setTitle(`Traces — ${service}`)
+              .setData(traceDrawerData(traceQuery))
+              .setOption('sortBy', [{ displayName: 'Start time', desc: true }])
+              .build(),
           }),
         ],
       }),
     });
-  }, [service, tracesUid, fromMs, toMs, statusFilter, durationMin, durationMax, debouncedSearch, initialSpanKind]);
+  }, [
+    service,
+    tracesUid,
+    fromMs,
+    toMs,
+    statusFilter,
+    durationMin,
+    durationMax,
+    debouncedSearch,
+    initialSpanKind,
+    traceLimit,
+  ]);
 
   const statusOptions: Array<{ label: string; value: string }> = [
     { label: 'All', value: '' },
@@ -150,6 +166,19 @@ export function TracesTab({
           options={statusOptions}
           value={statusFilter}
           onChange={(v) => setStatusFilter(v.value ?? '')}
+          width={12}
+        />
+        <label className={styles.label} htmlFor="trace-limit">
+          Traces:
+        </label>
+        <Combobox
+          id="trace-limit"
+          options={[
+            { label: '20', value: 20 },
+            { label: '100', value: 100 },
+          ]}
+          value={traceLimit}
+          onChange={(v) => setTraceLimit(v.value)}
           width={12}
         />
         <label className={styles.label}>Min (ms):</label>
