@@ -1,9 +1,17 @@
 import { useCallback, useMemo, useState, useSyncExternalStore } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { dateMath } from '@grafana/data';
+import { dateMath, dateTime } from '@grafana/data';
 
 const DEFAULT_FROM = 'now-1h';
 const DEFAULT_TO = 'now';
+
+function normalizeTimeValue(value: string): string {
+  if (!/^-?\d+$/.test(value)) {
+    return value;
+  }
+  const parsed = dateTime(Number(value));
+  return parsed.isValid() ? parsed.toISOString() : value;
+}
 
 // Module-shared resolve tick: one refresh() re-resolves EVERY mounted
 // useTimeRange instance, not just the caller's. Components fetch
@@ -53,8 +61,8 @@ interface TimeRangeState {
 export function useTimeRange(defaultFrom = DEFAULT_FROM): TimeRangeState {
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const from = searchParams.get('from') || defaultFrom;
-  const to = searchParams.get('to') || DEFAULT_TO;
+  const from = normalizeTimeValue(searchParams.get('from') || defaultFrom);
+  const to = normalizeTimeValue(searchParams.get('to') || DEFAULT_TO);
 
   // Stable fallback for when parsing fails (lazy init runs once, avoids impure Date.now in render)
   const [fallbackNow] = useState(() => Date.now());
@@ -65,12 +73,13 @@ export function useTimeRange(defaultFrom = DEFAULT_FROM): TimeRangeState {
   const { fromMs, toMs } = useMemo(() => {
     const parsedFrom = dateMath.toDateTime(from, {});
     const parsedTo = dateMath.toDateTime(to, { roundUp: true });
-    if (parsedFrom && parsedTo) {
+    if (parsedFrom?.isValid() && parsedTo?.isValid()) {
       return {
         fromMs: parsedFrom.valueOf(),
         toMs: parsedTo.valueOf(),
       };
     }
+    console.warn('Invalid URL time range; using the last hour', { from, to });
     return { fromMs: fallbackNow - 3600000, toMs: fallbackNow };
     // tick intentionally busts the memo so `now`-relative ranges re-resolve.
     // eslint-disable-next-line react-hooks/exhaustive-deps

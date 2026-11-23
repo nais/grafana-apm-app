@@ -24,6 +24,9 @@ alias for at least two minor releases and note the change in the CHANGELOG.
 Both fleet pages read the global `from`/`to` and `environment` params (below) and
 carry their own view/filter params (see "Page-scoped query parameters").
 
+Unix-millisecond `from`/`to` values are normalized to ISO-8601 by `useTimeRange`
+for Grafana consumers without rewriting the URL.
+
 ## Shared query parameters
 
 | Param         | Values                                                                                                                             | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |

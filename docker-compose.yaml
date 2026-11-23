@@ -22,7 +22,7 @@ services:
       - "9009:9009"
 
   tempo:
-    image: grafana/tempo:2.7.2
+    image: grafana/tempo:2.10.1
     container_name: tempo
     command: ["-config.file=/etc/tempo/tempo.yaml"]
     volumes:
